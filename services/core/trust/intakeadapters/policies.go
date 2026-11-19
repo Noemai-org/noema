@@ -52,7 +52,7 @@ func (s StorePublications) Published(ctx context.Context, tenantID, policyID str
 	}
 	q, err := s.DBs.For(tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("intakeadapters: the tenant's login: %w", err)
+		return nil, fail(nil, "the tenant's database login could not be had", err)
 	}
 	if q == nil {
 		return nil, ErrConfig
@@ -112,14 +112,14 @@ func (p *Policies) Evaluate(ctx context.Context, q intake.PolicyQuery) (intake.P
 	}
 	admittedAt, err := p.c.Admissions.AdmittedAt(ctx, q.TenantID, q.IntentID, q.IntentVersion)
 	if err != nil {
-		return intake.PolicyEvaluation{}, fmt.Errorf("intakeadapters: the admission time: %w", err)
+		return intake.PolicyEvaluation{}, fail(nil, "the admission time could not be read", err)
 	}
 	if admittedAt < 1 || admittedAt > q.Now {
 		return intake.PolicyEvaluation{}, fmt.Errorf("%w: the intent's admission time is not before the reading", ErrQuery)
 	}
 	published, err := p.c.Publications.Published(ctx, q.TenantID, p.c.Book.policyID)
 	if err != nil {
-		return intake.PolicyEvaluation{}, fmt.Errorf("intakeadapters: the tenant's publications: %w", err)
+		return intake.PolicyEvaluation{}, fail(nil, "the tenant's publications could not be read", err)
 	}
 	set, err := p.c.Book.inForce(published, q.Now, admittedAt)
 	if err != nil {
@@ -128,7 +128,7 @@ func (p *Policies) Evaluate(ctx context.Context, q intake.PolicyQuery) (intake.P
 	need := p.c.Book.need(target)
 	given, err := p.c.Facts.PolicyFacts(ctx, q, need)
 	if err != nil {
-		return intake.PolicyEvaluation{}, fmt.Errorf("intakeadapters: the facts: %w", err)
+		return intake.PolicyEvaluation{}, fail(nil, "the facts could not be read", err)
 	}
 	env, err := checkFacts(given, need, p.c.Book.scope)
 	if err != nil {
@@ -136,7 +136,7 @@ func (p *Policies) Evaluate(ctx context.Context, q intake.PolicyQuery) (intake.P
 	}
 	res, err := set.Evaluate(p.c.Book.policyID, policy.Request{Target: target, Now: q.Now, AdmittedAt: admittedAt, Env: env})
 	if err != nil {
-		return intake.PolicyEvaluation{}, err
+		return intake.PolicyEvaluation{}, fail(nil, "the policy could not be evaluated", err)
 	}
 	return answer(res, q.Now)
 }
@@ -153,7 +153,7 @@ func (b *PolicyBook) inForce(published []policystore.Publication, now, admittedA
 	}
 	for i := 1; i < len(visible); i++ {
 		if visible[i].PublishedAt <= visible[i-1].PublishedAt {
-			return policy.Set{}, fmt.Errorf("%w: %s is not published after %s", ErrPublications, visible[i].Version, visible[i-1].Version)
+			return policy.Set{}, fail(ErrPublications, "a version is not published after the one before it", fmt.Errorf("%s is not published after %s", visible[i].Version, visible[i-1].Version))
 		}
 	}
 	if len(visible) == 0 {
@@ -170,7 +170,7 @@ func (b *PolicyBook) inForce(published []policystore.Publication, now, admittedA
 		doc, ok := b.versions[pub.Version]
 		if !ok {
 			if i == newest || i == atAdmission {
-				return policy.Set{}, fmt.Errorf("%w: %s@%s", ErrNoDocument, b.policyID, pub.Version)
+				return policy.Set{}, fail(ErrNoDocument, "", fmt.Errorf("%s@%s", b.policyID, pub.Version))
 			}
 			continue
 		}
@@ -180,13 +180,13 @@ func (b *PolicyBook) inForce(published []policystore.Publication, now, admittedA
 		}
 		v, err := doc.WithMeta(policy.Meta{Status: status, EffectiveFrom: pub.PublishedAt, PublishedAt: pub.PublishedAt})
 		if err != nil {
-			return policy.Set{}, fmt.Errorf("%w: %w", ErrPublications, err)
+			return policy.Set{}, fail(ErrPublications, "a published version cannot be put in force", err)
 		}
 		versions = append(versions, v)
 	}
 	set, err := policy.NewSet(versions...)
 	if err != nil {
-		return policy.Set{}, fmt.Errorf("%w: %w", ErrPublications, err)
+		return policy.Set{}, fail(ErrPublications, "the published versions cannot be put in force together", err)
 	}
 	return set, nil
 }
@@ -218,7 +218,7 @@ func reevaluateAt(winner *policy.Applied, now int64) (int64, error) {
 	}
 	w, ok := winner.Params[waitParam]
 	if !ok || w.Kind != policy.ParamInteger || w.Int < 1 || w.Int > math.MaxInt64-now {
-		return 0, fmt.Errorf("%w: rule %s needs %s as a whole number of seconds from one that fits the clock", ErrRule, winner.RuleID, waitParam)
+		return 0, fail(ErrRule, "the winning rule needs a whole number of seconds from one that fits the clock", fmt.Errorf("rule %s needs %s", winner.RuleID, waitParam))
 	}
 	return now + w.Int, nil
 }

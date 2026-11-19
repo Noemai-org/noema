@@ -28,3 +28,6 @@ Status of each part, and what is not built and why: `status/TRU-adapters-policie
 ## Tests
 
 `cd services/core && go test ./trust/intakeadapters/ ./trust/policystore/`. The shipped `packs/fintech_v1.json`, the real policy engine and `clocks.Evaluate`, and a real PostgreSQL (`internal/testpg`) read as each tenant's own Trust login run; the admission time, the facts and the anchors are the tests' own (no production implementation exists). Synthetic data. Every test names the REQ, INV or A-ruling it proves.
+
+## Errors (A347, AGENT-13)
+An error that leaves the package has a fixed public text, and the cause stays reachable with `errors.Is` and `errors.As`. The tenant, the identifiers of the pack and of a fact (clock, trust profile, intent node, variable, entity, field, rule, policy version), the database's message and a dependency's error text are not in `Error()`; where an identifier helps to debug, it is in the cause (`errors.Unwrap`). One private type, `adapterError` (`errors.go`): a fixed text, the cause, and the sentinel (`ErrPack`, `ErrFacts`, ...) that `errors.Is` finds. The sentinels and their texts are unchanged. The fixed texts that carried no identifier already (for example `ErrQuery: a tenant and an intent node are required`) are unchanged. The sites changed are listed in `status/TRU-adapters-policies-clocks.md`.

@@ -21,3 +21,30 @@ var (
 	// ErrRule marks a winning rule whose parameters cannot give the answer the effect needs (a WAIT with no usable wait_seconds).
 	ErrRule = errors.New("intakeadapters: the winning rule cannot be turned into an answer")
 )
+
+// adapterError is a failure of the adapters as callers see it (A347, AGENT-13): a fixed public text, with the cause kept for errors.Is and errors.As and never printed. The tenant's ID,
+// the identifiers of the pack and of a fact (a clock, a profile, a node, a variable, an entity, a rule, a policy version), the database's message and a dependency's text are not in the
+// text; where an identifier helps to debug, it is in the cause. kind, when set, is the package's sentinel that errors.Is finds; cause may be nil.
+type adapterError struct {
+	kind  error
+	text  string
+	cause error
+}
+
+func (e *adapterError) Error() string { return e.text }
+
+func (e *adapterError) Unwrap() error { return e.cause }
+
+func (e *adapterError) Is(target error) bool { return e.kind != nil && errors.Is(e.kind, target) }
+
+// fail is an error of the adapters: the sentinel's text (or the package's prefix when there is no sentinel), then the fixed reason.
+func fail(kind error, reason string, cause error) error {
+	text := "intakeadapters: " + reason
+	if kind != nil {
+		text = kind.Error()
+		if reason != "" {
+			text += ": " + reason
+		}
+	}
+	return &adapterError{kind: kind, text: text, cause: cause}
+}

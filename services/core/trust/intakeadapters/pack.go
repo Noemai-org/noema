@@ -44,7 +44,7 @@ func typeOf(s fieldSpec) (predicate.Type, error) {
 func topLevel(raw []byte, keys ...string) (map[string]json.RawMessage, error) {
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &top); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPack, err)
+		return nil, fail(ErrPack, "the pack does not decode", err)
 	}
 	for _, k := range keys {
 		if v, ok := top[k]; !ok || string(v) == "null" {
@@ -67,19 +67,19 @@ func vocabulary(top map[string]json.RawMessage) (policy.Vocabulary, error) {
 	var variables map[string]fieldSpec
 	for key, into := range map[string]any{"capabilities": &caps, "evidence_descriptors": &descriptors, "predicate_variables": &variables} {
 		if err := json.Unmarshal(top[key], into); err != nil {
-			return policy.Vocabulary{}, fmt.Errorf("%w: %s: %v", ErrPack, key, err)
+			return policy.Vocabulary{}, fail(ErrPack, "a section of the pack does not decode", fmt.Errorf("%s: %w", key, err))
 		}
 	}
 	sc := predicate.Scope{Entities: map[string]map[string]predicate.Type{}, Variables: map[string]predicate.Type{}}
 	for _, d := range descriptors {
 		if _, dup := sc.Entities[d.Entity]; dup || d.Entity == "" {
-			return policy.Vocabulary{}, fmt.Errorf("%w: the entity %q is empty or described twice", ErrPack, d.Entity)
+			return policy.Vocabulary{}, fail(ErrPack, "an evidence entity is empty or described twice", fmt.Errorf("entity %q", d.Entity))
 		}
 		sc.Entities[d.Entity] = map[string]predicate.Type{}
 		for name, spec := range d.Fields {
 			t, err := typeOf(spec)
 			if err != nil {
-				return policy.Vocabulary{}, fmt.Errorf("%w: %s.%s: %v", ErrPack, d.Entity, name, err)
+				return policy.Vocabulary{}, fail(ErrPack, "a field of an evidence entity has a type that is not usable", fmt.Errorf("%s.%s: %w", d.Entity, name, err))
 			}
 			sc.Entities[d.Entity][name] = t
 		}
@@ -87,7 +87,7 @@ func vocabulary(top map[string]json.RawMessage) (policy.Vocabulary, error) {
 	for name, spec := range variables {
 		t, err := typeOf(spec)
 		if err != nil {
-			return policy.Vocabulary{}, fmt.Errorf("%w: variable %s: %v", ErrPack, name, err)
+			return policy.Vocabulary{}, fail(ErrPack, "a predicate variable has a type that is not usable", fmt.Errorf("variable %s: %w", name, err))
 		}
 		sc.Variables[name] = t
 	}
@@ -164,11 +164,11 @@ func LoadPolicyBook(packs ...[]byte) (*PolicyBook, error) {
 		}
 		doc, err := policy.Parse(top["policy"], vocab)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrPack, err)
+			return nil, fail(ErrPack, "the policy document is not valid", err)
 		}
 		var rules packPolicy
 		if err := json.Unmarshal(top["policy"], &rules); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrPack, err)
+			return nil, fail(ErrPack, "the policy's rules do not decode", err)
 		}
 		if i == 0 {
 			b.policyID, b.scope = doc.PolicyID(), vocab.Scope
@@ -177,7 +177,7 @@ func LoadPolicyBook(packs ...[]byte) (*PolicyBook, error) {
 			return nil, fmt.Errorf("%w: pack %d has another policy or another vocabulary than the first", ErrPack, i)
 		}
 		if _, dup := b.versions[doc.Version()]; dup {
-			return nil, fmt.Errorf("%w: version %s is given twice", ErrPack, doc.Version())
+			return nil, fail(ErrPack, "a policy version is given twice", fmt.Errorf("version %s", doc.Version()))
 		}
 		b.versions[doc.Version()] = doc
 		for _, r := range rules.Rules {

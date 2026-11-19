@@ -36,37 +36,37 @@ func checkFacts(given FactSet, need FactNeed, sc predicate.Scope) (predicate.Env
 	env := predicate.Env{Variables: make(map[string]predicate.Value, len(given.Variables)), Entities: make(map[string][]predicate.Row, len(given.Entities))}
 	for _, name := range need.Variables {
 		if _, ok := given.Variables[name]; !ok {
-			return predicate.Env{}, fmt.Errorf("%w: the variable %s was not given", ErrFacts, name)
+			return predicate.Env{}, fail(ErrFacts, "a variable the rules read was not given", fmt.Errorf("variable %s", name))
 		}
 	}
 	for _, name := range need.Entities {
 		if _, ok := given.Entities[name]; !ok {
-			return predicate.Env{}, fmt.Errorf("%w: the entity %s was not read", ErrFacts, name)
+			return predicate.Env{}, fail(ErrFacts, "an entity the rules read was not read", fmt.Errorf("entity %s", name))
 		}
 	}
 	for name, v := range given.Variables {
 		t, ok := sc.Variables[name]
 		if !ok {
-			return predicate.Env{}, fmt.Errorf("%w: the variable %s is not declared by the pack", ErrFacts, name)
+			return predicate.Env{}, fail(ErrFacts, "a variable is not declared by the pack", fmt.Errorf("variable %s", name))
 		}
 		if err := checkValue(t, v); err != nil {
-			return predicate.Env{}, fmt.Errorf("%w: variable %s: %v", ErrFacts, name, err)
+			return predicate.Env{}, fail(ErrFacts, "a variable is not of its declared type", fmt.Errorf("variable %s: %w", name, err))
 		}
 		env.Variables[name] = v
 	}
 	for name, rows := range given.Entities {
 		fields, ok := sc.Entities[name]
 		if !ok {
-			return predicate.Env{}, fmt.Errorf("%w: the entity %s is not declared by the pack", ErrFacts, name)
+			return predicate.Env{}, fail(ErrFacts, "an entity is not declared by the pack", fmt.Errorf("entity %s", name))
 		}
 		for _, row := range rows {
 			for field, v := range row {
 				t, ok := fields[field]
 				if !ok {
-					return predicate.Env{}, fmt.Errorf("%w: the entity %s has no field %s", ErrFacts, name, field)
+					return predicate.Env{}, fail(ErrFacts, "an entity has a field the pack does not declare", fmt.Errorf("entity %s, field %s", name, field))
 				}
 				if err := checkValue(t, v); err != nil {
-					return predicate.Env{}, fmt.Errorf("%w: %s.%s: %v", ErrFacts, name, field, err)
+					return predicate.Env{}, fail(ErrFacts, "a field of an entity is not of its declared type", fmt.Errorf("%s.%s: %w", name, field, err))
 				}
 			}
 		}

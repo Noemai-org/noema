@@ -41,28 +41,28 @@ func LoadClockBook(pack []byte) (*ClockBook, error) {
 	}
 	for key, into := range map[string]any{"clocks": &defs, "trust_profiles": &profiles, "intent_nodes": &nodes} {
 		if err := json.Unmarshal(top[key], into); err != nil {
-			return nil, fmt.Errorf("%w: %s: %v", ErrPack, key, err)
+			return nil, fail(ErrPack, "a section of the pack does not decode", fmt.Errorf("%s: %w", key, err))
 		}
 	}
 	clockByID := map[string]contracts.ClockV1{}
 	for _, c := range defs {
 		if _, dup := clockByID[string(c.ClockId)]; dup || c.ClockId == "" || c.AnchorEvent == "" || c.DurationSeconds < 1 ||
 			(c.Label != contracts.ClockV1LabelSYNTHETIC && c.Label != contracts.ClockV1LabelVALIDATED) {
-			return nil, fmt.Errorf("%w: the clock %q is defined twice or is not usable", ErrPack, c.ClockId)
+			return nil, fail(ErrPack, "a clock is defined twice or is not usable", fmt.Errorf("clock %q", c.ClockId))
 		}
 		clockByID[string(c.ClockId)] = c
 	}
 	clocksOfProfile := map[string][]contracts.ClockV1{}
 	for _, p := range profiles {
 		if _, dup := clocksOfProfile[p.ID]; dup || p.ID == "" {
-			return nil, fmt.Errorf("%w: the trust profile %q is empty or defined twice", ErrPack, p.ID)
+			return nil, fail(ErrPack, "a trust profile is empty or defined twice", fmt.Errorf("trust profile %q", p.ID))
 		}
 		list := []contracts.ClockV1{}
 		seen := map[string]bool{}
 		for _, id := range p.Clocks {
 			c, ok := clockByID[id]
 			if !ok || seen[id] {
-				return nil, fmt.Errorf("%w: the trust profile %s names the clock %q, which is not defined or is named twice", ErrPack, p.ID, id)
+				return nil, fail(ErrPack, "a trust profile names a clock that is not defined or is named twice", fmt.Errorf("trust profile %s, clock %q", p.ID, id))
 			}
 			seen[id] = true
 			list = append(list, c)
@@ -72,7 +72,7 @@ func LoadClockBook(pack []byte) (*ClockBook, error) {
 	book := &ClockBook{byNode: map[string][]contracts.ClockV1{}}
 	for _, n := range nodes {
 		if _, dup := book.byNode[n.ID]; dup || n.ID == "" {
-			return nil, fmt.Errorf("%w: the intent node %q is empty or defined twice", ErrPack, n.ID)
+			return nil, fail(ErrPack, "an intent node is empty or defined twice", fmt.Errorf("intent node %q", n.ID))
 		}
 		book.byNode[n.ID] = []contracts.ClockV1{}
 		if n.TrustProfile == nil {
@@ -80,7 +80,7 @@ func LoadClockBook(pack []byte) (*ClockBook, error) {
 		}
 		list, ok := clocksOfProfile[*n.TrustProfile]
 		if !ok {
-			return nil, fmt.Errorf("%w: the node %s names the trust profile %q, which is not defined", ErrPack, n.ID, *n.TrustProfile)
+			return nil, fail(ErrPack, "an intent node names a trust profile that is not defined", fmt.Errorf("intent node %s, trust profile %q", n.ID, *n.TrustProfile))
 		}
 		book.byNode[n.ID] = list
 	}
@@ -159,12 +159,12 @@ func (c *Clocks) Applicable(ctx context.Context, q intake.ClockQuery) (intake.Cl
 	for _, clk := range list {
 		at, happened, err := c.c.Anchors.AnchorTime(ctx, q.TenantID, q.SnapshotID, clk.AnchorEvent)
 		if err != nil {
-			return intake.ClockSet{}, fmt.Errorf("intakeadapters: the anchor of %s: %w", clk.ClockId, err)
+			return intake.ClockSet{}, fail(nil, "the anchor of a clock could not be read", fmt.Errorf("clock %s: %w", clk.ClockId, err))
 		}
 		inst := intake.ClockInstance{Clock: clk}
 		if happened {
 			if at < 1 {
-				return intake.ClockSet{}, fmt.Errorf("%w: %s", ErrAnchor, clk.ClockId)
+				return intake.ClockSet{}, fail(ErrAnchor, "", fmt.Errorf("clock %s", clk.ClockId))
 			}
 			inst.Anchor = &at
 		}
@@ -182,7 +182,7 @@ func (c *Clocks) Route(_ context.Context, q intake.ClockQuery, statuses []clocks
 	}
 	for _, st := range statuses {
 		if !slices.Contains(phasesBySeverity, st.Phase) {
-			return intake.ClockRouting{}, fmt.Errorf("%w: %q is not a clock phase", ErrQuery, st.Phase)
+			return intake.ClockRouting{}, fail(ErrQuery, "a status has a phase that is not a clock phase", fmt.Errorf("phase %q", st.Phase))
 		}
 	}
 	for _, phase := range phasesBySeverity {
