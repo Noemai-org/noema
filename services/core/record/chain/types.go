@@ -149,5 +149,8 @@ func PrincipalKinds() []string { return sorted(actors.principalKinds) }
 // GrantVoidReasons lists the accepted GRANT_VOIDED reasons, sorted.
 func GrantVoidReasons() []string { return sorted(grantVoidReasons) }
 
+// SecurityKinds lists the accepted SECURITY_EVENT kinds, sorted.
+func SecurityKinds() []string { return sorted(securityKinds) }
+
 // EventTypes lists the accepted Record event types, sorted.
 func EventTypes() []string { return sorted(eventTypes) }
