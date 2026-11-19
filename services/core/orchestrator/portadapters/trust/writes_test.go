@@ -6,7 +6,9 @@ package trustport_test
 import (
 	"context"
 	"errors"
-	"os"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"regexp"
 	"testing"
 
@@ -168,14 +170,24 @@ func TestTheWritesAdapterIsNotBuiltWithoutASwitchOrARule(t *testing.T) {
 	}
 }
 
-// INV-14: the adapter names no industry, pack, intent or question word. The answer comes from the pack, as data, through the rule.
+// INV-14: the adapter names no industry, pack, intent or question word in any string it holds. The answer comes from the pack, as data, through the rule.
 func TestTheWritesAdapterSourceNamesNoIndustryOrIntent(t *testing.T) {
-	src, err := os.ReadFile("writes.go")
+	file, err := parser.ParseFile(token.NewFileSet(), "writes.go", nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	forbidden := regexp.MustCompile(`(?i)"[^"]*(fin\.|fintech|payment|investigat|escalat|status|complaint|case|transfer)[^"]*"`)
-	if m := forbidden.Find(src); m != nil {
-		t.Errorf("writes.go has a literal that names an industry or an intent: %s", m)
+	forbidden := regexp.MustCompile(`(?i)(fin\.|fintech|payment|investigat|escalat|status|complaint|case|transfer|may_write)`)
+	literals := 0
+	ast.Inspect(file, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			literals++
+			if m := forbidden.FindString(lit.Value); m != "" {
+				t.Errorf("writes.go has a string literal that names an industry, an intent or a field: %s", lit.Value)
+			}
+		}
+		return true
+	})
+	if literals == 0 {
+		t.Fatal("the scan found no string literal in writes.go: it scans nothing")
 	}
 }
