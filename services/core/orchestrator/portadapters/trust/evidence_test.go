@@ -834,9 +834,13 @@ func TestEvidenceKeepsTheCauseOfAnUnusablePayloadBehindTheFixedText(t *testing.T
 func TestEvidenceAnItemWithNoSourceRecordIDIsNotEvidence(t *testing.T) {
 	items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
 	items[2].SourceRecordID = ""
-	got, err := evdRead(t, evdStoreOf(evdSeal(t, items...)), evdRules())
+	facts := &evdFacts{}
+	got, err := evdAdapterWith(t, evdStoreOf(evdSeal(t, items...)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
 	if !errors.Is(err, trustport.ErrSnapshotNotIntact) {
 		t.Errorf("err = %v, want ErrSnapshotNotIntact", err)
 	}
 	evdNothing(t, got)
+	if len(facts.calls) != 0 { // nothing is read for a snapshot that cannot be bound anyway
+		t.Errorf("%d payloads were read for a snapshot with an item that has no record ID", len(facts.calls))
+	}
 }
