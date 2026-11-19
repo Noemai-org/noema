@@ -3,6 +3,8 @@ package trustport
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -68,9 +70,81 @@ func NewConfirmationPath(d ConfirmationDeps) (ConfirmationPath, error) {
 	return ConfirmationPath{d: d}, nil
 }
 
-// Status answers T13.
-func (c ConfirmationPath) Status(context.Context, intake.AdmittedIntent, intake.FreshBinding) (intake.Confirmation, error) {
-	return intake.Confirmation{}, nil
+func validRequirement(r string) bool {
+	switch {
+	case r == "SELF", r == "MAKER_CHECKER":
+		return true
+	case strings.HasPrefix(r, "ROLE:"):
+		return len(r) > len("ROLE:")
+	}
+	return false
+}
+
+// Status answers T13 and writes nothing: no request, no resolution row, no event. A Pending answer with a NewRequest tells the Recorder to persist a request; a Given answer
+// tells whoever spends the confirmation to insert the immutable resolution row (trust/recorder.RecordConfirmation). Tenant, principal and intent are the admitted intent's
+// (INV-12). Given only for confirm.Proceed against the binding rebuilt from the stored request's six values and f (INV-25); every doubt is Pending, Declined or an error.
+func (c ConfirmationPath) Status(ctx context.Context, a intake.AdmittedIntent, f intake.FreshBinding) (intake.Confirmation, error) {
+	d := c.d
+	if d.Policy == nil || d.Store == nil || d.Clock == nil {
+		return intake.Confirmation{}, ErrConfig
+	}
+	if a.TenantID == "" || a.PrincipalID == "" || a.IntentID == "" {
+		return intake.Confirmation{}, ErrSession
+	}
+	terms, err := d.Policy.Terms(ctx, a)
+	if err != nil {
+		return intake.Confirmation{}, fmt.Errorf("trustport: read the confirmation policy: %w", err)
+	}
+	if !terms.Required {
+		return intake.Confirmation{Status: intake.ConfirmationNotRequired}, nil
+	}
+	if !validRequirement(terms.Requirement) || terms.ExpiresIn <= 0 {
+		return intake.Confirmation{}, fmt.Errorf("%w: the policy names an unusable approver requirement or expiry", ErrBadAnswer)
+	}
+	fresh := intake.Confirmation{Status: intake.ConfirmationPending, NewRequest: &intake.RequestSpec{Requirement: terms.Requirement, TTL: terms.ExpiresIn}}
+	stored, found, err := d.Store.Latest(ctx, a.TenantID, a.PrincipalID, a.IntentID, a.Version)
+	if err != nil {
+		return intake.Confirmation{}, fmt.Errorf("trustport: read the confirmation store: %w", err)
+	}
+	if !found {
+		return fresh, nil
+	}
+	req := stored.Request
+	b := req.Binding
+	if req.ID == "" || b.PrincipalID != a.PrincipalID || req.RequesterID != a.PrincipalID || b.IntentHash != a.IntentHash {
+		return fresh, nil
+	}
+	expired := d.Clock.Now().Unix() > req.ExpiresAt
+	if stored.Answer == nil {
+		if expired {
+			return fresh, nil
+		}
+		return intake.Confirmation{Status: intake.ConfirmationPending, RequestID: req.ID}, nil
+	}
+	b.EvidenceSetHash, b.PolicyVersion = f.EvidenceSetHash, f.PolicyVersion
+	res, err := confirm.Resolve(req, stored.Answer.Event, b)
+	if err != nil {
+		return intake.Confirmation{}, fmt.Errorf("%w: resolve the confirmation: %v", ErrBadAnswer, err)
+	}
+	switch res {
+	case confirm.Proceed:
+		if expired {
+			return fresh, nil
+		}
+		if stored.Answer.EventID == "" {
+			return intake.Confirmation{}, fmt.Errorf("%w: an answer with no event ID", ErrBadAnswer)
+		}
+		return intake.Confirmation{Status: intake.ConfirmationGiven, EventID: stored.Answer.EventID, PlanHash: b.PlanHash, RequestID: req.ID}, nil
+	case confirm.Declined:
+		return intake.Confirmation{Status: intake.ConfirmationDeclined, RequestID: req.ID}, nil
+	case confirm.Expired, confirm.BindingChanged, confirm.PolicyChanged:
+		return fresh, nil
+	case confirm.NotEligible:
+		return intake.Confirmation{}, ErrApproverNotEligible
+	case confirm.WrongRequest:
+		return intake.Confirmation{}, ErrWrongRequest
+	}
+	return intake.Confirmation{}, fmt.Errorf("%w: resolution %q", ErrBadAnswer, res)
 }
 
 // NewConfirmationRequest is what the Recorder persists, in one transaction with the CONFIRM Decision Record, when Status answers Pending with a NewRequest: a new
@@ -88,6 +162,7 @@ type NewConfirmationRequest struct {
 }
 
 // NewRequestFor builds the hand-over from the admitted intent and the spec Status returned.
-func NewRequestFor(intake.AdmittedIntent, *intake.RequestSpec) NewConfirmationRequest {
-	return NewConfirmationRequest{}
+func NewRequestFor(a intake.AdmittedIntent, s *intake.RequestSpec) NewConfirmationRequest {
+	return NewConfirmationRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
+		RequesterID: a.PrincipalID, Requirement: s.Requirement, TTL: s.TTL}
 }

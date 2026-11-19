@@ -35,3 +35,22 @@ State: red pushed (d976a228); green committed locally, not pushed (A332, A340).
 - Open questions (owner): where request rows, approver roles and answers live (EL/C1); a Declined status and a RequestID on `intake.Confirmation` (C1).
 - Files to read first: orchestrator/portadapters/trust/confirmations.go, trustpg2/resolutions.go.
 - Do not touch: trust/**, migrations.
+
+# Session 2026-11-19 18:00 WAT · TRU-12 (lane 1a: conform to the merged port of noema#757)
+
+State: red pushed (b7a89138); green committed locally, not pushed (A332, A340).
+
+## Session summary
+- What changed (PR links): noema#750. `ConfirmationPath.Status(ctx, a, f intake.FreshBinding)` is PURE and answers NotRequired, Pending (RequestID of the open request, or NewRequest{Requirement, TTL}), Given (EventID, PlanHash, RequestID; only confirm.Proceed against the stored six values plus f; an error when f is empty on an accept) or Declined (RequestID). Expired, BindingChanged and PolicyChanged answer Pending with a NewRequest. Deleted: `Evaluate`, the typed result and states, `ErrDeclined`, the Planner, FreshBinding, Resolutions and Open/Expire ports, and the package `trustpg2` (its resolution insert is superseded by `trust/recorder.RecordConfirmation`). `ConfirmationStore` is read-only (`Latest`). New: `NewConfirmationRequest` and `NewRequestFor` (the hand-over).
+- Why: the founder order of 19 Nov (A341, interim, relayed, not yet committed), item 1.
+- Tests (REQ-TRU-009, REQ-AMB-004; INV-12, INV-17, INV-25): all status tests rewritten to the pure contract; the 600-iteration property test now varies f (including empty) against confirm.Resolve. Hand mutation: 14 of 14 killed.
+- Debt entries: none. Conflicts raised: none.
+
+## Hand-over for the Recorder (lane 5)
+- Pending with NewRequest != nil: persist, in the transaction of the CONFIRM Decision Record, a request built with `trustport.NewRequestFor(a, spec)` (tenant, correlation, intent id/version/hash, RequesterID = admitted PrincipalID, Requirement, TTL; expiry = Recorder clock + TTL). Supersede the intent's latest request (the adapter cannot name it: `intake.Confirmation` has no field for it; look it up by tenant, principal, intent, version). Append CONFIRMATION_REQUESTED. The six binding values (capability, target, params, plan, evidence-set hash, policy version) are not in the spec: the Recorder supplies them.
+- Given: whoever spends it inserts the immutable `confirmation_resolution` row with `recorder.RecordConfirmation` (EventID, RequestID from the Confirmation; BindingHash, AcceptedAt, ExpiresAt from the stored request and answer, which the Recorder reads).
+- Not done here: expiry events (CONFIRMATION_EXPIRED) are no longer appended by the adapter; the Recorder or the store must own them. Plan/params/target drift is no longer detected in Status (it has no plan); the writer's check of ConfirmationPlanHash against the ALLOW steps is the guard.
+
+## Pre-work for the next agent
+- Exact next step: the Postgres `ConfirmationStore.Latest` reader and the `ConfirmationPolicy` over the pack; the Recorder side above.
+- Do not touch: trust/**, migrations.
