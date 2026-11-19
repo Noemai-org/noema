@@ -1,11 +1,10 @@
 """UND-15 (REQ-INT-002; REQ-TST-004, AGENT-12; A188, A261): the loader, the labels and the lookup of the recorded-replay provider's recordings.
 
-Faults here come from real recordings (set `NOEMA_UND15_RECORDINGS` to the `recordings/` directory of the compile run recorded on 19 Nov 2026 (UND-16); those tests skip with a message when it is absent) and from
-SYNTHETIC copies made by the real `Recorder` (always run; AGENT-25). Replay keys on the request SHA-256, never on an error body; a failed call is evidence, not a fixture (A320)."""
+Faults here come from the committed, reduced fixtures of the compile run of 19 Nov 2026 (UND-16; `services/model/tests/fixtures/replay/`; the tests read only committed files) and from SYNTHETIC copies made by the
+real `Recorder` (AGENT-25). Replay keys on the request SHA-256, never on an error body; a failed call is evidence, not a fixture (A320)."""
 import ast
 import hashlib
 import json
-import os
 import shutil
 import socket
 import tempfile
@@ -29,7 +28,8 @@ from benchmark.compile_acceptance.replay import (
 
 NOW = datetime(2026, 11, 19, 12, 30, tzinfo=UTC)
 UTTERANCE = "Wetin happen to the 20k wey I send Tunde this morning?"  # SYNTHETIC
-REAL = os.environ.get("NOEMA_UND15_RECORDINGS", "")
+ROOT = Path(__file__).resolve().parents[2]
+FIXTURES = ROOT / "services" / "model" / "tests" / "fixtures" / "replay" / "compile-gh44521380842"  # committed; no environment variable
 PIN: dict[str, Any] = {
     "harness_config_sha256": "1" * 64, "lexicon_sha256": "2" * 64, "masking_limits_sha256": "3" * 64, "max_output_tokens": 4000, "pack_ref": "fin@1.0.0", "pack_sha256": "4" * 64,
     "pinned_model_id": "gpt-6-luna", "rate_card": {"as_of": "2026-10-27", "input_micro_per_mtok": 100_000, "output_micro_per_mtok": 500_000}, "reasoning_effort": "medium",
@@ -619,16 +619,137 @@ class Replaying(Fixture):
         self.assertEqual(imported - allowed, set())
 
 
-@unittest.skipUnless(REAL and Path(REAL).is_dir(), "set NOEMA_UND15_RECORDINGS to the recordings/ directory of the UND-16 compile run of 19 Nov 2026 to run the tests on the real recordings")
+def drop_new_members(doc: Any) -> None:
+    doc.pop("failure_class")
+    doc.pop("error")
+
+
+class RecorderShape(Fixture):
+    """UND-16 (A359, noema#779) added `failure_class` and `error` to each recording and `failure_classes` to the manifest. The loader keeps them (all or none), takes a class name it has not seen
+    (POOL_REFUSED follows), and never takes a message beside the error's three fields (A320, A359)."""
+
+    CODES = {"RECORDING_INVALID", "MISMATCH", "MANIFEST_INVALID", "COUNT_MISMATCH"}
+
+    def manifest(self) -> dict[str, Any]:
+        loaded: dict[str, Any] = json.loads((self.dir / "manifest.json").read_text(encoding="utf-8"))
+        return loaded
+
+    def both(self, n: int, change_doc: Callable[[Any], object], change_row: Callable[[Any], object] | None = None, change_manifest: Callable[[Any], object] | None = None) -> None:
+        rewrite(self.rec(n), change_doc)
+
+        def edit(m: Any) -> None:
+            if change_row is not None:
+                change_row(m["recordings"][n - 1])
+            if change_manifest is not None:
+                change_manifest(m)
+        rewrite(self.dir / "manifest.json", edit)
+
+    def refused_in(self, codes: set[str]) -> None:
+        with self.assertRaises(RecordingsRefused) as cm:
+            load_recordings(self.dir)
+        self.assertIn(cm.exception.code, codes)
+
+    def test_the_current_recorders_output_loads_with_its_classes_and_errors(self) -> None:
+        s = load_recordings(self.dir)
+        m = self.manifest()
+        self.assertEqual(dict(s.failure_classes or {}), m["failure_classes"])
+        self.assertEqual([r.failure_class for r in s.recordings], [row["failure_class"] for row in m["recordings"]])
+        self.assertEqual([r.failure_class for r in s.recordings if r.labels.usable_as_fixture], ["OK"] * 3)
+        bad = {r.recording_id: r for r in s.recordings}["rec-0003"]
+        self.assertEqual(dict(bad.error or {}), {"type": None, "code": None, "param": None})
+
+    def test_a_run_of_before_noema_779_still_loads_with_none_of_them(self) -> None:
+        for n in range(1, 9):
+            rewrite(self.rec(n), drop_new_members)
+
+        def strip(m: Any) -> None:
+            for row in m["recordings"]:
+                row.pop("failure_class")
+                row.pop("error")
+            m.pop("failure_classes")
+        rewrite(self.dir / "manifest.json", strip)
+        s = load_recordings(self.dir)
+        self.assertTrue(all(r.failure_class is None and r.error is None for r in s.recordings))
+        self.assertIsNone(s.failure_classes)
+        self.assertEqual(len(s.usable()), 3)
+
+    def test_some_of_the_new_members_and_not_all_is_refused(self) -> None:
+        for name, change in [("doc without class", lambda d: d.pop("failure_class")), ("doc without error", lambda d: d.pop("error"))]:
+            with self.subTest(name):
+                shutil.copy(self.src / "rec-0003.json", self.rec(3))
+                rewrite(self.rec(3), change)
+                self.refused_in(self.CODES)
+        shutil.copy(self.src / "rec-0003.json", self.rec(3))
+        rewrite(self.dir / "manifest.json", lambda m: m.pop("failure_classes"))
+        self.refused_in(self.CODES)
+
+    def test_a_class_the_recorder_may_name_later_is_kept_and_is_still_evidence_only(self) -> None:
+        def counts(m: Any) -> None:
+            m["failure_classes"] = {k: v for k, v in m["failure_classes"].items()}
+            m["failure_classes"]["UNAVAILABLE"] -= 1
+            if m["failure_classes"]["UNAVAILABLE"] == 0:
+                del m["failure_classes"]["UNAVAILABLE"]
+            m["failure_classes"]["POOL_REFUSED"] = 1
+        self.both(2, lambda d: d.update(failure_class="POOL_REFUSED"), lambda row: row.update(failure_class="POOL_REFUSED"), counts)
+        s = load_recordings(self.dir)
+        rec = {r.recording_id: r for r in s.recordings}["rec-0002"]
+        self.assertEqual((rec.failure_class, rec.labels.usable_as_fixture, rec.labels.reason), ("POOL_REFUSED", False, "NO_STATUS"))
+
+    def test_a_class_that_is_not_a_class_name_is_refused(self) -> None:
+        for value in ("", "pool refused", "pool_refused", "A" * 41, "X;Y", 3, None, ["OK"]):
+            with self.subTest(repr(value)):
+                shutil.copy(self.src / "rec-0001.json", self.rec(1))
+                shutil.copy(self.src / "manifest.json", self.dir / "manifest.json")
+                self.both(1, lambda d: d.update(failure_class=value), lambda row: row.update(failure_class=value))
+                self.refused_in(self.CODES)
+
+    def test_the_counts_of_the_manifest_are_those_of_its_rows(self) -> None:
+        for name, change in [("one too many", lambda m: m["failure_classes"].update(OK=m["failure_classes"]["OK"] + 1)), ("a class missing", lambda m: m["failure_classes"].pop("OK")),
+                             ("a class no row has", lambda m: m["failure_classes"].update(TIMEOUT=1)), ("a float", lambda m: m["failure_classes"].update(OK=3.0)),
+                             ("not an object", lambda m: m.update(failure_classes=[])), ("a bool", lambda m: m["failure_classes"].update(OK=True))]:
+            with self.subTest(name):
+                shutil.copy(self.src / "manifest.json", self.dir / "manifest.json")
+                rewrite(self.dir / "manifest.json", change)
+                self.refused_in(self.CODES)
+
+    def test_the_row_and_the_recording_must_agree_on_the_class_and_the_error(self) -> None:
+        for name, change in [("class", lambda d: d.update(failure_class="TIMEOUT")), ("error", lambda d: d.update(error={"type": "invalid_request_error", "code": None, "param": None}))]:
+            with self.subTest(name):
+                shutil.copy(self.src / "rec-0003.json", self.rec(3))
+                rewrite(self.rec(3), change)
+                self.refused_in(self.CODES)
+
+    def test_an_error_holds_exactly_type_code_and_param_and_never_a_message(self) -> None:
+        triple = {"type": "invalid_request_error", "code": "invalid_json_schema", "param": "text.format.schema"}
+        for name, error in [("a message beside them", {**triple, "message": "the schema is refused"}), ("a field missing", {"type": "x", "code": None}), ("a value that is a number", {**triple, "code": 400}),
+                            ("a value that is an object", {**triple, "param": {"a": 1}}), ("a list", [triple]), ("a string", "invalid_request_error")]:
+            with self.subTest(name):
+                shutil.copy(self.src / "rec-0003.json", self.rec(3))
+                shutil.copy(self.src / "manifest.json", self.dir / "manifest.json")
+                self.both(3, lambda d: d.update(error=error), lambda row: row.update(error=error))
+                self.refused_in(self.CODES)
+
+    def test_the_three_fields_of_an_error_are_kept_when_they_are_well_formed(self) -> None:
+        triple = {"type": "invalid_request_error", "code": "invalid_json_schema", "param": "text.format.schema"}
+        self.both(3, lambda d: d.update(error=triple), lambda row: row.update(error=triple))
+        rec = {r.recording_id: r for r in load_recordings(self.dir).recordings}["rec-0003"]
+        self.assertEqual(dict(rec.error or {}), triple)
+
+    def test_an_answer_carries_no_error(self) -> None:
+        triple = {"type": "invalid_request_error", "code": None, "param": None}
+        self.both(1, lambda d: d.update(error=triple), lambda row: row.update(error=triple))
+        self.refused_in(self.CODES)
+
+
 class RealRecordings(unittest.TestCase):
-    """The 25 recordings of the UND-16 compile run of 19 Nov 2026 (SYNTHETIC inputs, leak-scanned). Seventeen answers; eight failures that are evidence of the failure, not of an answer."""
+    """The 25 committed fixtures of the UND-16 compile run of 19 Nov 2026 (SYNTHETIC inputs, replies reduced, leak-scanned). Seventeen answers; eight failures that are evidence of the failure, not of an answer."""
 
     rdir: ClassVar[Path]
     rset: ClassVar[RecordingSet]
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.rdir = Path(REAL)
+        cls.rdir = FIXTURES
         cls.rset = load_recordings(cls.rdir)
 
     def test_it_loads_with_its_provenance(self) -> None:
@@ -665,7 +786,7 @@ class RealRecordings(unittest.TestCase):
             with self.assertRaises(RecordingsRefused):
                 load_recordings(copy)
             shutil.copy(self.rdir / "rec-0010.json", copy / "rec-0010.json")
-            rewrite(copy / "rec-0001.json", lambda d: d["reply"].update(id="resp_altered"))
+            rewrite(copy / "rec-0001.json", lambda d: d["reply"]["usage"].update(total_tokens=1))
             self.assertEqual(len(load_recordings(copy).recordings), 25)
             with self.assertRaises(RecordingsRefused) as cm:
                 load_recordings(copy, file_sha256=pins)
