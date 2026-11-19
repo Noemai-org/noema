@@ -5,8 +5,11 @@ Not checked here: 'a capability has no benchmark cases' (AGENT-06): no benchmark
 """
 from __future__ import annotations
 
+import fnmatch
+import hashlib
 import importlib.util
 import json
+import os
 import re
 import sys
 from fractions import Fraction
@@ -415,6 +418,150 @@ def check_conformance(pack: dict) -> list[Problem]:
     for c in pack["capabilities"]:
         if not c["prohibited"] and c["risk_class"] != "R0_read":
             out.append(("conformance", f"{c['capability_id']}: a conformance pack executes no write capability"))
+    return out
+
+
+MANIFEST_SCHEMA = ROOT / "packs/schemas/manifest.v1.json"
+# Where each kind of file the manifest lists lives, relative to the pack directory: (folder, glob). A kind is every file the glob finds under the
+# folder (recursively), so a second mapping or rule set cannot sit beside the pinned one unlisted. Only a kind with an entry in the manifest is
+# checked for unlisted files; the manifest must list exactly one file of each of these.
+MANIFEST_KINDS = {
+    "pack": ("", "fintech_v*.json"),
+    "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
+    "recon_rules": ("fintech/recon_rules", "*.json"),
+}
+WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
+
+
+def _shown(rel: str) -> str:
+    return rel if rel.isprintable() else repr(rel)
+
+
+def _manifest_path_problem(rel: str) -> str | None:
+    """Why a manifest path is unsafe, or None. Independent of the schema: this is the rule that keeps a read inside the pack directory."""
+    if rel.startswith("/") or rel.startswith("\\") or WINDOWS_DRIVE.match(rel) or os.path.isabs(rel):
+        return "escapes the pack directory (absolute path)"
+    if ".." in rel.split("/") or ".." in rel.split("\\"):
+        return "escapes the pack directory ('..' component)"
+    parts = rel.split("/")
+    if rel == "" or "\\" in rel or "\x00" in rel or "\n" in rel or "~" in rel[:1] or any(p in ("", ".") for p in parts):
+        return "is not a plain relative path"
+    return None
+
+
+def _symlink_in(root: Path, rel: str) -> str | None:
+    """The first component of root/rel that is a symlink (the root itself is the caller's mount and is not examined)."""
+    cur = root
+    for part in rel.split("/"):
+        cur = cur / part
+        if cur.is_symlink():
+            return str(cur.relative_to(root))
+    return None
+
+
+def _manifest_id(doc: dict, id_key: str) -> str | None:
+    value, version = doc.get(id_key), doc.get("version")
+    if not isinstance(value, str) or isinstance(version, bool) or not isinstance(version, int):
+        return None
+    return f"{value}@{version}"
+
+
+def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
+    """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
+    evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
+    an id the manifest names is not the id the file carries, or a path escapes the pack directory (`..`, absolute, a symlink). `root` is the pack
+    directory (`packs/`); paths are relative to it. Never reads a path that failed the escape rules."""
+    try:
+        doc = validate.load_strict(manifest_path)
+    except ValueError as exc:
+        return [("manifest", f"{manifest_path.name} is not valid JSON: {exc}")]
+    # The escape rules run first and name the path; the schema also refuses these paths, so its duplicate complaint about the same path is dropped.
+    out: list[Problem] = []
+    named: set[tuple[str, ...]] = set()
+    raw = doc.get("files") if isinstance(doc, dict) else None
+    for i, f in enumerate(raw if isinstance(raw, list) else []):
+        why = _manifest_path_problem(f["path"]) if isinstance(f, dict) and isinstance(f.get("path"), str) else None
+        if why:
+            out.append(("manifest", f"{_shown(f['path'])} {why}"))
+            named.add(("files", str(i), "path"))
+    errs = sorted(validate.StrictValidator(validate.load_strict(MANIFEST_SCHEMA)).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
+    errs = [e for e in errs if tuple(map(str, e.absolute_path)) not in named]
+    if errs or out:
+        return out + [("manifest", f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}") for e in errs]
+    files = doc["files"]
+    by_kind: dict[str, list[dict]] = {k: [f for f in files if f["kind"] == k] for k in MANIFEST_KINDS}
+    for kind, entries in by_kind.items():
+        if len(entries) != 1:
+            out.append(("manifest", f"the manifest must list exactly one {kind} file, it lists {len(entries)}"))
+    seen: set[str] = set()
+    readable: dict[str, Path] = {}
+    for f in files:
+        rel = f["path"]
+        if rel in seen:
+            out.append(("manifest", f"{rel} is listed twice"))
+            continue
+        seen.add(rel)
+        why = _manifest_path_problem(rel)
+        if why:
+            out.append(("manifest", f"{_shown(rel)} {why}"))
+            continue
+        folder, glob = MANIFEST_KINDS[f["kind"]]
+        parent = Path(rel).parent.as_posix().removeprefix(".")
+        inside = parent == folder or (folder != "" and parent.startswith(folder + "/"))
+        if not inside or not fnmatch.fnmatch(Path(rel).name, glob):
+            out.append(("manifest", f"{rel} is listed as {f['kind']} but a {f['kind']} file lives at {(folder + '/') if folder else ''}{glob}"))
+        link = _symlink_in(root, rel)
+        if link:
+            out.append(("manifest", f"{rel}: {link} is a symlink, which escapes the pack directory by design; a pinned file is a plain file"))
+            continue
+        path = root / rel
+        if not path.exists():
+            out.append(("manifest", f"{rel} does not exist"))
+            continue
+        if not path.is_file():
+            out.append(("manifest", f"{rel} is not a regular file"))
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != f["sha256"]:
+            out.append(("manifest", f"{rel}: sha256 is {digest}, the manifest pins {f['sha256']}"))
+        readable[f["kind"]] = path
+    for kind, (folder, glob) in MANIFEST_KINDS.items():
+        base = root / folder
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+            if folder == "":
+                dirnames[:] = []  # the pack folder itself: only its own files, not the whole tree
+            for name in sorted(dirnames + filenames):
+                full = Path(dirpath) / name
+                if full.is_symlink():
+                    if folder == "" and not fnmatch.fnmatch(name, glob):
+                        continue  # the pack folder holds other things; only a link that looks like a pack file counts
+                elif name in dirnames or not fnmatch.fnmatch(name, glob):
+                    continue
+                rel = full.relative_to(root).as_posix()
+                if rel in seen:
+                    continue
+                suffix = " (a symlink)" if full.is_symlink() else ""
+                out.append(("manifest", f"{rel}{suffix} is a {kind} file and is not listed in the manifest"))
+    expected = doc["expected"]
+    for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id")):
+        path = readable.get(kind)
+        if path is None:
+            continue
+        rel = path.relative_to(root).as_posix() if not path.is_symlink() else path.name
+        try:
+            body = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            out.append(("manifest", f"{rel} is not valid JSON, so its id cannot be read"))
+            continue
+        carried = _manifest_id(body, id_key) if isinstance(body, dict) else None
+        if carried is None:
+            out.append(("manifest", f"{rel} carries no usable {id_key} and integer version"))
+        elif carried != expected[want_key]:
+            out.append(("manifest", f"{rel} carries {carried}, the manifest expects {want_key} {expected[want_key]}"))
+        if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
+            out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
     return out
 
 
