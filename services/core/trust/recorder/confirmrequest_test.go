@@ -192,6 +192,22 @@ func TestARepeatedConfirmReturnsTheStoredDecisionAndCreatesNoSecondRequest(t *te
 	}
 }
 
+// A request is checked whatever the path: a malformed one on a retry of a stored decision is still ErrRequest, not the stored decision.
+func TestAMalformedRequestOnARetryOfAStoredConfirmIsStillRefused(t *testing.T) {
+	w := newWorld(t)
+	if _, err := w.write(t, confirmRequest(t, w, "evs_01ABC", true), true); err != nil {
+		t.Fatal(err)
+	}
+	r := confirmRequest(t, w, "evs_01ABC", true)
+	r.ConfirmationRequest.TargetRef = "fin.transaction:TX 8821"
+	if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrRequest) {
+		t.Errorf("err %v, want ErrRequest", err)
+	}
+	if n := len(w.eventsOf(t, "CONFIRMATION_REQUESTED")); n != 1 {
+		t.Errorf("%d CONFIRMATION_REQUESTED events, want the one of the first write", n)
+	}
+}
+
 // A CONFIRM that names an already open request is recorded with no request event and no request member in its DECISION_MADE.
 func TestAConfirmWithNoRequestWritesNoRequestEvent(t *testing.T) {
 	w := newWorld(t)

@@ -1,6 +1,6 @@
 // Package recorder writes a Decision Record and the grants of an ALLOW into the Record, in one transaction the caller supplies (TRU-05).
 //
-// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005, REQ-TRU-010, REQ-EXE-008 (Trust side only), REQ-OPS-002 (Trust side only).
+// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005, REQ-TRU-010, REQ-EXE-008 (Trust side only), REQ-OPS-002 (Trust side only), REQ-TRU-009 (the confirmation request of a CONFIRM).
 //
 // May import: platform/{clock,crypto,ids}, internal/contracts, record/chain, trust/decide, trust/grants.
 //
@@ -32,6 +32,25 @@
 // isolation level and holds no lock on the tenant row (the Trust login has SELECT only, and FOR SHARE needs UPDATE), so a switch turned on after the read and before the commit is not seen
 // here; Execution reads it again inside the spend (E6, E8) and voids the grant, so the window never reaches a write. Not built here: the control plane that sets and clears the switch, and
 // any KILL_SWITCH_* event (KILL_SWITCH_CHANGED, KILL_SWITCH_CLEARED, KILL_SWITCH_CLEAR_REFUSED are in contracts/perd-32-2-event-types.md; this writer emits none of them).
+//
+// The confirmation request of a CONFIRM (TRU-07 PR 2; REQ-TRU-009, INV-25, INV-12, EC-E16; SoT 43.2a; interim defaults of the founder's order, not yet committed). A CONFIRM decision may carry
+// Request.ConfirmationRequest: the eight bound values (principal, intent hash, capability, target, parameters hash, evidence set hash, plan hash, policy version), the approver requirement
+// (SELF, MAKER_CHECKER or ROLE:<role>), the requester and the expiry in Unix seconds. Any other outcome that carries one is ErrRequest. Before anything is written the writer checks the
+// hashes against the contract's form, that the intent hash and the policy version are the decision's own (the ALLOW that follows an ACCEPT recomputes the binding from them, so a request
+// bound to others could never be accepted), that the binding can be computed (trust/confirm.BindingHash refuses an empty value or one outside its character set), the requirement, a
+// requester, and that the expiry is after the writer's own clock; any failure is ErrRequest. Then, on the new-decision path only, it mints the cfr_ ID with its own generator (the caller
+// never supplies one) and computes the binding hash itself (never a caller's), names the request in the DECISION_MADE payload (confirmation_request_id) and appends CONFIRMATION_REQUESTED
+// right after DECISION_MADE, by the Trust emitter, in the same transaction: the decision, its request and its events commit together or not at all. The payload is confirmation_request_id,
+// decision_id, binding_hash, principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, approver_requirement, requester_id and
+// expires_at (an RFC 3339 timestamp, as in SoT 43.2a), all identifiers, hashes or the expiry, so the confirmation store can rebuild the request from the event; the object_ref is the
+// request ID. Result.ConfirmationRequestID is the minted ID; it is empty when a stored decision of the same input was returned (A186): that path creates no event and no second request, and
+// the first request is in the Record. A CONFIRM that names an already open request carries no ConfirmationRequest and writes no request event. The request is not a grant and no step
+// accompanies it. The payload guard is not weakened: a target reference is accepted at /target_ref (ruling A193) and any other string with a run of more than four digits is refused (the
+// append fails and so does the write). Not built: the display and the signature of confirmation-request.v1 (the approver's view is the confirmation store's), expiry (CONFIRMATION_EXPIRED)
+// and the answer (CONFIRMATION_RECEIVED, RecordConfirmation).
+//
+// A186 and the second decision of a tuple (flagged to the Architect, status/TRU-07-confirm-t13.md): one decision exists for an input tuple, and migration 0027 enforces it, so after a
+// stored CONFIRM an ALLOW or a REJECT for the SAME tuple is ErrDecisionConflict, not a new decision. A re-evaluation after an ACCEPT or a DECLINE must therefore read a new sealed snapshot.
 //
 // Disposition linkage (TRU-10; REQ-TRU-010, INV-25; PERD 23.1; ruling A297, interim). An action decision is the per-write-step decision of an escalation: the decision of one step of the
 // escalation plan, which names its ESCALATE disposition in Request.DispositionDecisionID. Two rules, both refused before anything is written (no row, no Record event; the caller still
