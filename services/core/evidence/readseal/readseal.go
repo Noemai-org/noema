@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -74,10 +73,9 @@ type Adapter struct {
 }
 
 var (
-	intentRefRe = regexp.MustCompile(`^(int_[0-9A-Za-z_]{2,64})@([1-9][0-9]{0,8})$`)
-	slotNameRe  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-	kindRe      = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
-	recordIDRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`) // the portread reader's own rule for a transaction reference
+	slotNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	kindRe     = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
+	recordIDRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`) // the portread reader's own rule for a transaction reference
 	// The shapes migration 0020 gives context_snapshot (reconciliation_id, reconciliation_classification). The database checks the shape only, not the closed set of
 	// classifications: that set is the Reconciler's contract (PERD 22.3), and a real Reconciler returns one of its own constants.
 	reconciliationRe = regexp.MustCompile(`^rec_[0-9A-Za-z]{2,32}$`)
@@ -109,15 +107,11 @@ func (a *Adapter) Read(ctx context.Context, s orchestrator.Session, intentRef st
 	if s.TenantID != a.TenantID {
 		return orchestrator.EvidenceRef{}, ErrTenant
 	}
-	m := intentRefRe.FindStringSubmatch(intentRef)
-	if m == nil {
-		return orchestrator.EvidenceRef{}, ErrIntentRef
-	}
-	version, err := strconv.Atoi(m[2])
+	intentID, version, err := contracts.ParseIntentRef(intentRef)
 	if err != nil {
 		return orchestrator.EvidenceRef{}, ErrIntentRef
 	}
-	admitted, err := a.Intents.Get(ctx, m[1], version)
+	admitted, err := a.Intents.Get(ctx, intentID, version)
 	if err != nil {
 		return orchestrator.EvidenceRef{}, fmt.Errorf("readseal: read the intent: %w", err)
 	}

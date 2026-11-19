@@ -84,12 +84,20 @@ ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "host
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
 # The mTLS material between the core and the model service (noema#555), from deploy/compose/tls_local.sh: each side mounts its own key and the CA certificate, never the other's key.
-TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"},
+              "temporal": {"ca.crt", "temporal.crt", "temporal.key"}}
 TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
 # The settings of the core's client of the model service (noema#555, noema#563): the core reads exactly these five and refuses to build its client unless all five are set (no default,
 # AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
 MODEL_CLIENT_SETTINGS = ("NOEMA_MODEL_URL", "NOEMA_MODEL_TLS_CA_FILE", "NOEMA_MODEL_TLS_CERT_FILE", "NOEMA_MODEL_TLS_KEY_FILE", "NOEMA_MODEL_MAX_RESPONSE_BYTES")
 MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" / "cmd" / "core" / "modelclient.go"
+# The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
+# server certificate, TEMPORAL_TLS_SERVER_CA_CERT the CA the in-process worker trusts, TEMPORAL_TLS_FRONTEND_SERVER_NAME the name it verifies) and the settings the image's CLI reads
+# to reach it (TEMPORAL_TLS, TEMPORAL_TLS_CA, TEMPORAL_TLS_SERVER_NAME). In that template TEMPORAL_TLS_SERVER_CA_CERT is ALSO the root of the internode CLIENT, so setting it makes the
+# services dial each other over TLS: the internode SERVER must then present a certificate (TEMPORAL_TLS_SERVER_CERT and _KEY) and the client must know the name to verify
+# (TEMPORAL_TLS_INTERNODE_SERVER_NAME), or the services cannot reach each other (Codex P1 on noema#698). This is server-side TLS with NO client authentication (DEBT-46).
+TEMPORAL_TLS_SETTINGS = ("TEMPORAL_TLS_FRONTEND_CERT", "TEMPORAL_TLS_FRONTEND_KEY", "TEMPORAL_TLS_SERVER_CA_CERT", "TEMPORAL_TLS_FRONTEND_SERVER_NAME", "TEMPORAL_TLS", "TEMPORAL_TLS_CA", "TEMPORAL_TLS_SERVER_NAME",
+                         "TEMPORAL_TLS_SERVER_CERT", "TEMPORAL_TLS_SERVER_KEY", "TEMPORAL_TLS_INTERNODE_SERVER_NAME")
 BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
 BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
@@ -176,13 +184,35 @@ def check(cfg, profile):
             for setting in MODEL_CLIENT_SETTINGS:
                 if not str(env.get(setting, "")).strip():
                     bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
+        if name == "temporal":
+            # Temporal TLS (A296): in the bench profile the frontend presents a certificate and the CLI the healthcheck and the namespace set-up use trusts the stack's CA, so a plain
+            # client is refused (EL's "refuse plain" test follows). The server keeps only its own key and the CA certificate.
+            if profile == "bench":
+                env = svc.get("environment") or {}
+                for setting in TEMPORAL_TLS_SETTINGS:
+                    if not str(env.get(setting, "")).strip():
+                        bad.append(f"{profile}: temporal does not set {setting}: the bench Temporal must serve TLS (A296)")
+                mounted_tls = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
+                for need in sorted(TLS_MOUNTS["temporal"] - mounted_tls):
+                    bad.append(f"{profile}: temporal does not mount {need} from the mTLS folder (A296)")
+                if "--tls" not in " ".join(map(str, (svc.get("healthcheck") or {}).get("test", []))):
+                    bad.append(f"{profile}: temporal's healthcheck does not use TLS (A296)")
+            elif any(str(k).startswith("TEMPORAL_TLS") for k in (svc.get("environment") or {})):
+                bad.append(f"{profile}: temporal sets TLS outside the bench profile; A296 puts it in bench only until the core's client follows")
+        # Intron's key (A249): a file mount read by the model service only. No service may carry it as an environment variable, and no service but the model may name a setting or a mount for it.
+        env_names = set((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else set()
+        mounts = [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or [])] + [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])]
+        if "INTRON_API_KEY" in env_names:
+            bad.append(f"{profile}: {name} carries the Intron key as an environment variable; it comes only from a file mount (A249)")
+        if name != "model" and ("INTRON_API_KEY_FILE" in env_names or any("intron" in m.lower() for m in mounts)):
+            bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "core" and profile == "bench" and not str((svc.get("environment") or {}).get("NOEMA_PAYLOAD_MAX_BYTES", "")).strip():
             bad.append(f"{profile}: the core does not set NOEMA_PAYLOAD_MAX_BYTES: the evidence payload reader refuses to be built without its bound (noema#606, A236)")
         if name in TLS_MOUNTS:
             mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
-            for need in sorted(TLS_REQUIRED[name] - mounted):
+            for need in sorted(TLS_REQUIRED.get(name, set()) - mounted):
                 bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
@@ -275,7 +305,19 @@ def self_test(configs):
         "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
         "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
+        "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
+        "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
+        "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
+        "the bench temporal drops its frontend certificate": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_FRONTEND_CERT")),
+        "the bench temporal drops its internode server certificate": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_CERT")),
+        "the bench temporal drops its internode server key": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_KEY")),
+        "the bench temporal drops the internode server name": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_INTERNODE_SERVER_NAME")),
+        "the bench temporal drops its CA setting": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_CA_CERT")),
+        "the bench temporal healthcheck goes back to plain": ("bench", lambda c: c["services"]["temporal"]["healthcheck"].update({"test": ["CMD-SHELL", "temporal operator cluster health --address x:7233"]})),
+        "the bench temporal stops mounting its key": ("bench", lambda c: c["services"]["temporal"].update({"volumes": [v for v in c["services"]["temporal"]["volumes"] if not str(v.get("source", "")).endswith("temporal.key")]})),
+        "temporal serves TLS in dev (outside the bench profile)": ("dev", lambda c: c["services"]["temporal"].setdefault("environment", {}).update({"TEMPORAL_TLS_FRONTEND_CERT": "/x"})),
+        "the model mounts the temporal key": ("dev", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/tls/temporal.key", "target": "/x"})),
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
         "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),

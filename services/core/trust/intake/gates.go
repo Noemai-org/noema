@@ -21,12 +21,15 @@ type evaluation struct {
 	bb         *decide.BasisBuilder
 	// policyVersions are the policy versions T11 used, kept for the Decision Input (REQ-TRU-007).
 	policyVersions []decide.PolicyVersionRef
-	late           lateState // what T3 and T13 to T15 learn
+	// evidenceSetHash is the evidence_set_hash of the sealed snapshot T9 read, kept for the binding T13 passes to the Confirmations port (INV-25). Empty when the Evidence port gave none.
+	evidenceSetHash string
+	late            lateState // what T3 and T13 to T15 learn
 	// frozen and allowedUnderFreeze are what T10 saw: the target carries a contradiction freeze, and the capabilities the pack allows on it. T14 checks the plan against them.
 	frozen             bool
 	allowedUnderFreeze []string
-	// authorized is the capabilities the intent and the tenant's policy authorize (Capabilities.Authorized plus the intent's own capability), sorted, read once per evaluation:
-	// T12 asks the dispatch budget for each, T14 refuses a plan step outside it (Codex P1 and P2 on noema#572). nil until first read.
+	// authorized is the capabilities the intent and the tenant's policy authorize (Capabilities.Authorized plus the intent's own capability), sorted, read once per evaluation
+	// by the first step that needs it (T11 for a write): T11 asks the policy about each (A306), T12 asks the dispatch budget for each, T14 refuses a plan step outside it
+	// (Codex P1 and P2 on noema#572). nil until first read.
 	authorized []string
 }
 
