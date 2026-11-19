@@ -92,11 +92,14 @@ func recRequest(t *testing.T, n int) intake.RecordRequest {
 type recFacts struct {
 	f     RecordFacts
 	err   error
+	mu    sync.Mutex // Facts is called from many goroutines by the concurrent Record test
 	calls int
 }
 
 func (s *recFacts) Facts(_ context.Context, r intake.RecordRequest) (RecordFacts, error) {
+	s.mu.Lock()
 	s.calls++
+	s.mu.Unlock()
 	if s.err != nil {
 		return RecordFacts{}, s.err
 	}
