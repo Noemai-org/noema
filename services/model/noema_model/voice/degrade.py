@@ -28,6 +28,7 @@ class DegradeResult:
     offer_text: bool  # True whenever there is no utterance: the person is offered text, never a guess
     failure: ProviderFailure | None  # why there is no utterance (REJECTED when the provider was skipped); None on success
     skipped: bool = False  # True when the provider was not called at all: it is not qualified, or its data terms are not confirmed
+    error_type: str | None = None  # the class name (never the message) of an unexpected error that was turned into this fallback; None for a typed provider failure
 
 
 def eligible(provider: SpeechProvider) -> bool:
@@ -60,4 +61,8 @@ async def transcribe_or_text(
         )
     except ProviderError as error:
         return DegradeResult(None, True, error.kind)
+    except TypeError:
+        raise  # the caller broke the contract (a source that cannot be weakly referenced): a programming error that must be seen, not degraded
+    except Exception as error:  # noqa: BLE001 - an unexpected error must not take the person's answer with it: the text is offered, the class name is kept for the caller to record, the message never (AGENT-13)
+        return DegradeResult(None, True, ProviderFailure.UNAVAILABLE, error_type=type(error).__name__)
     return DegradeResult(utterance, False, None)
