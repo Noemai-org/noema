@@ -131,6 +131,9 @@ def record_event_fixtures() -> tuple[dict[str, dict], dict[str, dict], dict[str,
     valid["principal_id_64_characters"] = one(actor="operator:" + "a" * 64)
     valid["payload_with_integers"] = one(payload={"n": [0, 1, -7, 9007199254740991, -9007199254740991]})
     valid["security_event"] = one("core-execution", event_type="SECURITY_EVENT", kind="IDEMPOTENCY_COLLISION", object_ref="grt_0001")
+    # PERD 32.2 (A114): kinds of SECURITY_EVENT, not event types. REQ-EXE-008: a clear is by a person on the control plane (C-ADMIN); a refused clear is written for an authenticated caller.
+    valid["security_event_kill_switch_cleared"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEARED", object_ref="ten_demo", actor="admin:usr_synth_014")
+    valid["security_event_kill_switch_clear_refused"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEAR_REFUSED", object_ref="ten_demo")
     for reason in VOID_REASONS:
         valid[f"grant_voided_{reason.lower()}"] = one("core-execution", event_type="GRANT_VOIDED", reason=reason, object_ref="grt_0001",
                                                       payload={"grant_id": "grt_0001", "reason": reason})

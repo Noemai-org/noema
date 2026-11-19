@@ -253,6 +253,8 @@ const (
 	RecordEventV3SecurityKindREQUESTIDREUSED          RecordEventV3SecurityKind = "REQUEST_ID_REUSED"
 	RecordEventV3SecurityKindIDEMPOTENCYCOLLISION     RecordEventV3SecurityKind = "IDEMPOTENCY_COLLISION"
 	RecordEventV3SecurityKindCHAINBREAK               RecordEventV3SecurityKind = "CHAIN_BREAK"
+	RecordEventV3SecurityKindKILLSWITCHCLEARED        RecordEventV3SecurityKind = "KILL_SWITCH_CLEARED"
+	RecordEventV3SecurityKindKILLSWITCHCLEARREFUSED   RecordEventV3SecurityKind = "KILL_SWITCH_CLEAR_REFUSED"
 )
 
 func (e *RecordEventV3SecurityKind) UnmarshalJSON(b []byte) error {
@@ -261,7 +263,7 @@ func (e *RecordEventV3SecurityKind) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("contracts: RecordEventV3SecurityKind: %w", err)
 	}
 	switch v := RecordEventV3SecurityKind(s); v {
-	case RecordEventV3SecurityKindINJECTIONDETECTED, RecordEventV3SecurityKindPRINCIPALOVERRIDEATTEMPT, RecordEventV3SecurityKindSIGNATUREINVALID, RecordEventV3SecurityKindCROSSSCOPEATTEMPT, RecordEventV3SecurityKindREQUESTIDREUSED, RecordEventV3SecurityKindIDEMPOTENCYCOLLISION, RecordEventV3SecurityKindCHAINBREAK:
+	case RecordEventV3SecurityKindINJECTIONDETECTED, RecordEventV3SecurityKindPRINCIPALOVERRIDEATTEMPT, RecordEventV3SecurityKindSIGNATUREINVALID, RecordEventV3SecurityKindCROSSSCOPEATTEMPT, RecordEventV3SecurityKindREQUESTIDREUSED, RecordEventV3SecurityKindIDEMPOTENCYCOLLISION, RecordEventV3SecurityKindCHAINBREAK, RecordEventV3SecurityKindKILLSWITCHCLEARED, RecordEventV3SecurityKindKILLSWITCHCLEARREFUSED:
 		*e = v
 		return nil
 	}
