@@ -64,7 +64,7 @@ func (l *loaded) load(dir string, maxActive int) (*grants.Keys, error) {
 func trustEnv(t *testing.T) envMap {
 	t.Helper()
 	dsn, _ := dsnDir(t, map[string]string{"ten_aa": synthDSN("trust_aa") + "\n"})
-	return envMap{EnvTrustDSNDir: dsn, EnvTrustDBTimeout: "5s", EnvGrantKeyDir: "/synthetic/grant-keys", EnvGrantKeyMaxActive: "2"}
+	return envMap{EnvTrustDSNDir: dsn, EnvTrustDBTimeout: "5000", EnvGrantKeyDir: "/synthetic/grant-keys", EnvGrantKeyMaxActive: "2"}
 }
 
 func buildT(t *testing.T, e envMap, rec reconstruct.TenantDBs, ev trustport.Evaluator, l *loaded) (TrustParts, func(), error) {
@@ -138,7 +138,9 @@ func TestEachMissingItemIsAStartupErrorThatNamesIt(t *testing.T) {
 		{name: "no trust DSN directory", mut: func(e envMap) { delete(e, EnvTrustDSNDir) }, want: EnvTrustDSNDir},
 		{name: "no timeout", mut: func(e envMap) { delete(e, EnvTrustDBTimeout) }, want: EnvTrustDBTimeout},
 		{name: "a timeout that is not a duration", mut: func(e envMap) { e[EnvTrustDBTimeout] = "soon" }, want: EnvTrustDBTimeout},
-		{name: "a timeout of zero", mut: func(e envMap) { e[EnvTrustDBTimeout] = "0s" }, want: EnvTrustDBTimeout},
+		{name: "a Go duration is not milliseconds", mut: func(e envMap) { e[EnvTrustDBTimeout] = "5s" }, want: EnvTrustDBTimeout},
+		{name: "a negative timeout", mut: func(e envMap) { e[EnvTrustDBTimeout] = "-5" }, want: EnvTrustDBTimeout},
+		{name: "a timeout of zero", mut: func(e envMap) { e[EnvTrustDBTimeout] = "0" }, want: EnvTrustDBTimeout},
 		{name: "no grant key directory", mut: func(e envMap) { delete(e, EnvGrantKeyDir) }, want: EnvGrantKeyDir},
 		{name: "no rotation overlap", mut: func(e envMap) { delete(e, EnvGrantKeyMaxActive) }, want: EnvGrantKeyMaxActive},
 		{name: "a rotation overlap of zero", mut: func(e envMap) { e[EnvGrantKeyMaxActive] = "0" }, want: EnvGrantKeyMaxActive},

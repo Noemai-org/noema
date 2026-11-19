@@ -24,8 +24,8 @@ import (
 // The intake service itself is not built here: the ports it needs besides the dispatch count have no adapter on main. The caller passes the Evaluator; nil is an error.
 
 const (
-	// EnvTrustDBTimeout is how long one read of the Trust readers may take (a Go duration). Required, no default (AGENT-16).
-	EnvTrustDBTimeout = "NOEMA_TRUST_DB_TIMEOUT"
+	// EnvTrustDBTimeout is how long one read of the Trust readers may take, in whole milliseconds (A330: the _MS suffix). Required, no default (AGENT-16).
+	EnvTrustDBTimeout = "NOEMA_TRUST_DB_TIMEOUT_MS"
 	// EnvGrantKeyDir names the directory of the Decision Grant HMAC key files (INV-29). The loader reads it; this code never reads a key.
 	EnvGrantKeyDir = "NOEMA_GRANT_KEY_DIR"
 	// EnvGrantKeyMaxActive is how many grant keys may be mounted at once: the rotation overlap (REQ-SEC-005). A positive integer with no default.
@@ -59,10 +59,11 @@ func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, eva
 	case env.Getenv(EnvGrantKeyDir) == "":
 		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter needs " + EnvGrantKeyDir)
 	}
-	timeout, err := time.ParseDuration(env.Getenv(EnvTrustDBTimeout))
-	if err != nil || timeout <= 0 {
-		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s must be a positive duration", EnvTrustDBTimeout)
+	ms, err := strconv.Atoi(env.Getenv(EnvTrustDBTimeout))
+	if err != nil || ms < 1 {
+		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s must be a positive whole number of milliseconds", EnvTrustDBTimeout)
 	}
+	timeout := time.Duration(ms) * time.Millisecond
 	maxActive, err := strconv.Atoi(env.Getenv(EnvGrantKeyMaxActive))
 	if err != nil || maxActive < 1 {
 		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s must be a positive integer", EnvGrantKeyMaxActive)

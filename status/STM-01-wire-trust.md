@@ -7,7 +7,7 @@ Updated 2026-11-18. Owner: Engineering Lead. REQ-TRU-009, REQ-RCV-003; INV-03, I
 - **Built (implementation push):** `trustpg` (`Pools`, `Intents`, `Records`, `KeyDispatches`) and `cmd/core/wire_trust.go` (`buildTrust`, `KeyLoader`, `TrustParts`). Tests first, seen failing at head 2535694 (core run 44331156700: `wire_trust_test.go` and the `trustpg` tests failed on the stub; the boundary test `TestOnlyTheCompositionRootAndAdmissionImportTheReconstruction` also failed, which moved the Record reader behind a local `trustpg.RecordDBs` that `cmd/core` adapts).
 - The `trustpg` tests need pgsodium and run in CI only.
 - **Design.** Decision and grant records are read as the tenant's `trust_rw` login under forced RLS (tenant also in every WHERE). The record carries the intent ID and hash but no version, so the intent reference `int_<id>@<version>` is found from the `admitted_intent` row with that ID and hash; none means an empty reference and no Binding matches. The dispatch count reads the verified Record chain as the tenant's `record_read` login and counts DISPATCH_ATTEMPTED events by (correlation, capability, target) with the rule of `dispatch_budget_count` (migration 0023; an event whose key cannot be read counts against every key). The `KeyDispatches` doc of noema#710 says GRANT_SPENT events by idempotency key; the database's budget (A153) counts DISPATCH_ATTEMPTED by the four-part key, which is what the intake's `DispatchKey` names, so that is what is read.
-- Settings: `NOEMA_TRUST_DSN_DIR` (existing, shared with the payload reader), `NOEMA_TRUST_DB_TIMEOUT` (new), `NOEMA_GRANT_KEY_DIR`, `NOEMA_GRANT_KEY_MAX_ACTIVE` (new). No default for any (AGENT-16).
+- Settings: `NOEMA_TRUST_DSN_DIR` (existing, shared with the payload reader), `NOEMA_TRUST_DB_TIMEOUT_MS` (new; whole milliseconds, A330), `NOEMA_GRANT_KEY_DIR`, `NOEMA_GRANT_KEY_MAX_ACTIVE` (new). No default for any (AGENT-16).
 
 ## Open
 
@@ -26,6 +26,6 @@ Updated 2026-11-18. Owner: Engineering Lead. REQ-TRU-009, REQ-RCV-003; INV-03, I
 
 ## Pre-work for the next agent
 - Exact next step: after noema#708 merges, main.go passes `keyfiles.Load` as the `KeyLoader`; the intake `Ports` need the 13 adapters that do not exist yet before `buildTrust` can be given a real Evaluator; then the `CorrelationID` signature change of `Trust.Decide`.
-- Open questions (EL): the name and meaning of `NOEMA_TRUST_DB_TIMEOUT` and `NOEMA_GRANT_KEY_MAX_ACTIVE`; whether the payload reader and Trust share one pool set (today `loginPools` is called again over the same directory).
+- Open questions (EL): the name and meaning of `NOEMA_TRUST_DB_TIMEOUT_MS` (renamed by A330) and `NOEMA_GRANT_KEY_MAX_ACTIVE`; whether the payload reader and Trust share one pool set (today `loginPools` is called again over the same directory).
 - Files to read first: `services/core/cmd/core/wire_trust.go`, `services/core/orchestrator/portadapters/trustpg/`.
 - Do not touch: `orchestrator/portadapters/trust/` (noema#710).
