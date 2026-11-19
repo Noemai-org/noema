@@ -845,13 +845,36 @@ func TestT13GivenForAnotherPlanWithARequestIDIsStillPlanInvalid(t *testing.T) {
 	}
 }
 
-// AGENT-20 (safer reading, interim): a decline reaches the intake as an error from Status, which ends UNKNOWN INTERNAL_ERROR at T13; nothing is planned, recorded or granted.
-func TestT13ADeclineAsAnErrorIsUnknownAndRecordsNothing(t *testing.T) {
+// Fail closed: any error from Status (a store down, an approver not eligible, a wrong request) ends UNKNOWN INTERNAL_ERROR at T13; nothing is planned, recorded or granted. A decline is not an error: it is ConfirmationDeclined (below).
+func TestT13AnErrorFromStatusIsUnknownAndRecordsNothing(t *testing.T) {
 	f := newFake13()
 	f.confErr = errInjected
 	res := run13(t, newEval13(t, f))
 	wantUnknown(t, "decline as error", res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
 	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
 		t.Errorf("planner or recorder called: %v", f.calls)
+	}
+}
+
+// SoT 43.2a (the Founder's order of 19 Nov 2026, interim, relayed): a DECLINE closes the decision as REJECT with reason DECLINED_BY_APPROVER. No new request is opened (the answer
+// carries none to the Result), nothing is planned, recorded or granted, and the T13 step is where it ends.
+func TestT13DeclinedIsRejectDeclinedByApproverAndRecordsNothing(t *testing.T) {
+	f := newFake13()
+	f.conf = Confirmation{Status: ConfirmationDeclined, RequestID: "cfr_synth0001"}
+	res := run13(t, newEval13(t, f))
+	if res.Decision.Outcome() != decide.Reject {
+		t.Fatalf("outcome %s %v, want REJECT", res.Decision.Outcome(), codes13(res.Decision))
+	}
+	if cs := codes13(res.Decision); len(cs) != 1 || cs[0] != "DECLINED_BY_APPROVER" {
+		t.Errorf("reasons %v, want DECLINED_BY_APPROVER", cs)
+	}
+	if res.ConfirmationRequestID != "" || res.DecisionID != "" || len(res.GrantIDs) != 0 {
+		t.Errorf("a decline carries a request id %q, a decision %q or grants %v", res.ConfirmationRequestID, res.DecisionID, res.GrantIDs)
+	}
+	if last := res.Trace[len(res.Trace)-1]; last.Step != decide.T13Confirmation || last.Result != decide.StepTerminal {
+		t.Errorf("trace ends %+v, want T13 terminal", last)
+	}
+	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
+		t.Errorf("planner or recorder called after a decline: %v", f.calls)
 	}
 }

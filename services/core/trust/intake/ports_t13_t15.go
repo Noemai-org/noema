@@ -22,6 +22,8 @@ const (
 	ConfirmationPending
 	// ConfirmationGiven: the profile asks for one and a valid ACCEPT resolved to a fresh evaluation (confirm.Proceed, INV-25), whose event the Confirmation names.
 	ConfirmationGiven
+	// ConfirmationDeclined: the approver declined the open request (SoT 43.2a): T13 ends in REJECT DECLINED_BY_APPROVER and opens no new request.
+	ConfirmationDeclined
 )
 
 // Confirmation is the answer of Confirmations.Status. EventID names the confirmation event a Given answer rests on; the grant of the ALLOW follows it.
