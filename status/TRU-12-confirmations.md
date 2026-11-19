@@ -54,3 +54,16 @@ State: red pushed (b7a89138); green committed locally, not pushed (A332, A340).
 ## Pre-work for the next agent
 - Exact next step: the Postgres `ConfirmationStore.Latest` reader and the `ConfirmationPolicy` over the pack; the Recorder side above.
 - Do not touch: trust/**, migrations.
+
+# Session 2026-11-19 WAT · TRU-12 (lane 3c)
+
+## Session summary
+- What changed (PR links): noema#750. The adapter takes an `intake.Planner` and asks it for the plan hash (A369) on every non-NotRequired path; the request is derived from the AdmittedIntent as T14 does (WriteRequired true). The hash compared with the stored request's is the Planner's, so a drifted plan supersedes (Pending with a fresh NewRequest). `NewRequestFor` is now a method that asks the Planner and carries `PlanHash`. A Planner error (ErrPlanInvalid included) is returned wrapped, never Given or Pending. An open unanswered request is also superseded when plan, evidence hash or policy differ from the fresh values.
+- A365: `snapshot.SetHash` hashes (evidence_id, payload_hash) pairs and payload_hash covers the canonical payload, so the set hash is a content hash; no gap found. Test added at the adapter boundary.
+- Tests added (REQ-TRU-009, REQ-AMB-004; INV-12, INV-25): planner asked with the T14 request, drift, planner error, empty hash, content-hash supersession.
+- Debt entries: none. Conflicts raised: none.
+- Safer readings taken: an empty Planner hash is ErrBadAnswer; a nil Planner is ErrConfig; the open-request drift check ignores empty fresh values (they only block a Given).
+
+## Pre-work for the next agent
+- Exact next step: the Recorder must persist `NewConfirmationRequest.PlanHash` in the request's binding; the composition passes the PlannerAdapter.
+- Do not touch: trust/**, execution/**.

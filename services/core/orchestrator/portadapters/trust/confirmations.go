@@ -66,7 +66,7 @@ var _ intake.Confirmations = ConfirmationPath{}
 
 // NewConfirmationPath builds the adapter. A missing port is ErrConfig.
 func NewConfirmationPath(d ConfirmationDeps) (ConfirmationPath, error) {
-	if d.Policy == nil || d.Store == nil || d.Clock == nil {
+	if d.Policy == nil || d.Store == nil || d.Planner == nil || d.Clock == nil {
 		return ConfirmationPath{}, ErrConfig
 	}
 	return ConfirmationPath{d: d}, nil
@@ -87,7 +87,7 @@ func validRequirement(r string) bool {
 // (INV-12). Given only for confirm.Proceed against the binding rebuilt from the stored request's six values and f (INV-25); every doubt is Pending, Declined or an error.
 func (c ConfirmationPath) Status(ctx context.Context, a intake.AdmittedIntent, f intake.FreshBinding) (intake.Confirmation, error) {
 	d := c.d
-	if d.Policy == nil || d.Store == nil || d.Clock == nil {
+	if d.Policy == nil || d.Store == nil || d.Planner == nil || d.Clock == nil {
 		return intake.Confirmation{}, ErrConfig
 	}
 	if a.TenantID == "" || a.PrincipalID == "" || a.IntentID == "" {
@@ -102,6 +102,10 @@ func (c ConfirmationPath) Status(ctx context.Context, a intake.AdmittedIntent, f
 	}
 	if !validRequirement(terms.Requirement) || terms.ExpiresIn <= 0 {
 		return intake.Confirmation{}, fmt.Errorf("%w: the policy names an unusable approver requirement or expiry", ErrBadAnswer)
+	}
+	planHash, err := c.planHash(ctx, a)
+	if err != nil {
+		return intake.Confirmation{}, err
 	}
 	fresh := intake.Confirmation{Status: intake.ConfirmationPending, NewRequest: &intake.RequestSpec{Requirement: terms.Requirement, TTL: terms.ExpiresIn}}
 	stored, found, err := d.Store.Latest(ctx, a.TenantID, a.PrincipalID, a.IntentID, a.Version)
@@ -118,12 +122,12 @@ func (c ConfirmationPath) Status(ctx context.Context, a intake.AdmittedIntent, f
 	}
 	expired := d.Clock.Now().Unix() > req.ExpiresAt
 	if stored.Answer == nil {
-		if expired {
+		if expired || b.PlanHash != planHash || (f.EvidenceSetHash != "" && b.EvidenceSetHash != f.EvidenceSetHash) || (f.PolicyVersion != "" && b.PolicyVersion != f.PolicyVersion) {
 			return fresh, nil
 		}
 		return intake.Confirmation{Status: intake.ConfirmationPending, RequestID: req.ID}, nil
 	}
-	b.EvidenceSetHash, b.PolicyVersion = f.EvidenceSetHash, f.PolicyVersion
+	b.EvidenceSetHash, b.PolicyVersion, b.PlanHash = f.EvidenceSetHash, f.PolicyVersion, planHash
 	res, err := confirm.Resolve(req, stored.Answer.Event, b)
 	if err != nil {
 		return intake.Confirmation{}, fmt.Errorf("%w: resolve the confirmation: %v", ErrBadAnswer, err)
@@ -136,7 +140,7 @@ func (c ConfirmationPath) Status(ctx context.Context, a intake.AdmittedIntent, f
 		if stored.Answer.EventID == "" {
 			return intake.Confirmation{}, fmt.Errorf("%w: an answer with no event ID", ErrBadAnswer)
 		}
-		return intake.Confirmation{Status: intake.ConfirmationGiven, EventID: stored.Answer.EventID, PlanHash: b.PlanHash, RequestID: req.ID}, nil
+		return intake.Confirmation{Status: intake.ConfirmationGiven, EventID: stored.Answer.EventID, PlanHash: planHash, RequestID: req.ID}, nil
 	case confirm.Declined:
 		return intake.Confirmation{Status: intake.ConfirmationDeclined, RequestID: req.ID}, nil
 	case confirm.Expired, confirm.BindingChanged, confirm.PolicyChanged:
@@ -164,7 +168,29 @@ type NewConfirmationRequest struct {
 	PlanHash      string // the plan hash the Planner gives now (A369)
 }
 
-// NewRequestFor builds the hand-over from the admitted intent and the spec Status returned (stub, red commit).
-func (c ConfirmationPath) NewRequestFor(_ context.Context, a intake.AdmittedIntent, s *intake.RequestSpec) (NewConfirmationRequest, error) {
-	return NewConfirmationRequest{}, nil
+// planHash asks the Planner for the plan of the admitted intent now (A369), built from the intent exactly as T14 builds its request: a confirmation is for one write. A refusal
+// stays recognisable as intake.ErrPlanInvalid; an empty hash is never usable.
+func (c ConfirmationPath) planHash(ctx context.Context, a intake.AdmittedIntent) (string, error) {
+	p, err := c.d.Planner.Plan(ctx, intake.PlanRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
+		IntentNode: a.IntentNode, WriteRequired: true})
+	if err != nil {
+		return "", fmt.Errorf("trustport: ask the planner for the plan hash: %w", err)
+	}
+	if p.Hash == "" {
+		return "", fmt.Errorf("%w: the planner gave no plan hash", ErrBadAnswer)
+	}
+	return p.Hash, nil
+}
+
+// NewRequestFor builds the hand-over from the admitted intent and the spec Status returned, with the plan hash the Planner gives now (A369).
+func (c ConfirmationPath) NewRequestFor(ctx context.Context, a intake.AdmittedIntent, s *intake.RequestSpec) (NewConfirmationRequest, error) {
+	if c.d.Planner == nil {
+		return NewConfirmationRequest{}, ErrConfig
+	}
+	h, err := c.planHash(ctx, a)
+	if err != nil {
+		return NewConfirmationRequest{}, err
+	}
+	return NewConfirmationRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
+		RequesterID: a.PrincipalID, Requirement: s.Requirement, TTL: s.TTL, PlanHash: h}, nil
 }
