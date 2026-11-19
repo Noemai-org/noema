@@ -273,8 +273,8 @@ func TestTheDatabaseRefusesANonCanonicalOrOversizedVersionAndTheTriggerRefusesEd
 	w := newWorld(t)
 	// a Trust login, so the guard passes and the CHECK is what refuses; the key is given so that the key CHECK does not fire first
 	direct := func(version, key string) error {
-		_, err := w.trustA.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by)
-			VALUES ($1, 'fin.pol', $2, `+key+`, 'adm_synth01')`, tenantA, version)
+		_, err := w.trustA.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, document_hash)
+			VALUES ($1, 'fin.pol', $2, `+key+`, 'adm_synth01', $3)`, tenantA, version, testDocHash)
 		return err
 	}
 	for v, key := range map[string]string{"01.0": "ARRAY[1,0,0]", "1.01": "ARRAY[1,1,0]", "3.1.0": "ARRAY[3,1,0]", "99999999999.0": "ARRAY[1,0,0]", "2147483647.0": "ARRAY[2147483647,0,0]"} {

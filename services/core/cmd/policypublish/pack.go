@@ -122,29 +122,34 @@ func vocabulary(top packFile) (policy.Vocabulary, error) {
 	return v, nil
 }
 
-// loadPolicy returns the pack's policy document, checked. A pack that cannot be read is errPackRead; a document or vocabulary the loader refuses is errPackInvalid.
-func loadPolicy(dir, name string) (policy.Version, error) {
+// loadPolicy returns the pack's policy document, checked, and its document hash (policy.DocumentHash of the bytes of the pack's "policy" member, the value a loader recomputes from the
+// same file). A pack that cannot be read is errPackRead; a document or vocabulary the loader refuses is errPackInvalid.
+func loadPolicy(dir, name string) (policy.Version, string, error) {
 	raw, err := readPack(dir, name)
 	if err != nil {
-		return policy.Version{}, err
+		return policy.Version{}, "", err
 	}
 	var top packFile
 	if err := json.Unmarshal(raw, &top); err != nil {
-		return policy.Version{}, invalid("the pack is not a JSON document")
+		return policy.Version{}, "", invalid("the pack is not a JSON document")
 	}
 	if len(top.Policy) == 0 || string(top.Policy) == "null" {
-		return policy.Version{}, invalid("the pack has no policy")
+		return policy.Version{}, "", invalid("the pack has no policy")
 	}
 	vocab, err := vocabulary(top)
 	if err != nil {
-		return policy.Version{}, err
+		return policy.Version{}, "", err
 	}
 	if len(vocab.Targets) == 0 {
-		return policy.Version{}, invalid("the pack registers no capability")
+		return policy.Version{}, "", invalid("the pack registers no capability")
 	}
 	v, err := policy.Parse(top.Policy, vocab)
 	if err != nil {
-		return policy.Version{}, fmt.Errorf("%w: %v", errPackInvalid, err)
+		return policy.Version{}, "", fmt.Errorf("%w: %v", errPackInvalid, err)
 	}
-	return v, nil
+	hash, err := policy.DocumentHash(top.Policy)
+	if err != nil {
+		return policy.Version{}, "", fmt.Errorf("%w: %v", errPackInvalid, err)
+	}
+	return v, hash, nil
 }

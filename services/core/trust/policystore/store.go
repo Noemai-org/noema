@@ -30,6 +30,8 @@ var (
 	policyIDRe    = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
 	versionRe     = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(\.[1-9][0-9]{0,8})?$`)
 	publisherRe   = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
+	// documentHashRe is the form of a document hash (policy.DocumentHash); the database checks the same form (policy_publication_document_hash_form, migration 0035).
+	documentHashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 // Queryer is the read side: a pool, a connection or a transaction.
@@ -44,7 +46,7 @@ type Request struct {
 	PolicyID      string
 	Version       string // dotted numeric, two or three components: "3.1"
 	PublishedBy   string // the administrator's principal ID, for example adm_synth01
-	DocumentHash  string // sha256: and 64 lower-case hex digits, the hash of the policy document (policy.DocumentHash)
+	DocumentHash  string // sha256: and 64 lower-case hex digits, the hash of the policy document (policy.DocumentHash); required: the database refuses a publication without it
 }
 
 // Store writes publications. The Appender writes the Record event in the caller's transaction.
@@ -63,11 +65,11 @@ func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 	}
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !policyIDRe.MatchString(r.PolicyID), !versionRe.MatchString(r.Version),
-		!publisherRe.MatchString(r.PublishedBy):
-		return fmt.Errorf("%w: a tenant, correlation, policy ID, version or publisher is outside its pattern", ErrRequest)
+		!publisherRe.MatchString(r.PublishedBy), !documentHashRe.MatchString(r.DocumentHash):
+		return fmt.Errorf("%w: a tenant, correlation, policy ID, version, publisher or document hash is outside its pattern", ErrRequest)
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by)
-		VALUES ($1, $2, $3, policy_version_key($3), $4)`, r.TenantID, r.PolicyID, r.Version, r.PublishedBy)
+	_, err := tx.Exec(ctx, `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, document_hash)
+		VALUES ($1, $2, $3, policy_version_key($3), $4, $5)`, r.TenantID, r.PolicyID, r.Version, r.PublishedBy, r.DocumentHash)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && (pe.Code == "23000" || pe.Code == "23505") {
 		return fmt.Errorf("%w: %s@%s", ErrNotNewer, r.PolicyID, r.Version)

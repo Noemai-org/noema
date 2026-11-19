@@ -83,6 +83,7 @@ type logLine struct {
 	Result        string `json:"result"`
 	Reason        string `json:"reason,omitempty"`
 	Policy        string `json:"policy,omitempty"`
+	DocumentHash  string `json:"document_hash,omitempty"`
 	SQLState      string `json:"sqlstate,omitempty"`
 }
 
@@ -106,8 +107,12 @@ func failure(err error) (code int, reason, sentence string) {
 		return exitRefused, "login_not_for_tenant", "the login is not the Trust login of this tenant"
 	case errors.Is(err, policystore.ErrNotNewer):
 		return exitRefused, "not_newer", "the version is not higher than the active one"
+	case errors.Is(err, errDocumentChanged):
+		return exitRefused, "document_changed", "a different policy document is already published under this version; publish a new version"
+	case errors.Is(err, errDocumentUnknown):
+		return exitRefused, "document_unknown", "the published version has no document hash because it was published before hashes were kept; publish a new version"
 	case errors.Is(err, policystore.ErrRequest):
-		return exitRefused, "invalid_request", "the tenant, policy ID, version or publisher is outside its pattern"
+		return exitRefused, "invalid_request", "the tenant, policy ID, version, publisher or document hash is outside its pattern"
 	case errors.Is(err, errPackInvalid):
 		return exitRefused, "invalid_policy", "the pack's policy document is refused"
 	case errors.Is(err, errPackRead):
@@ -153,11 +158,11 @@ func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
 	defer cancel()
-	doc, err := loadPolicy(s.packDir, s.packFile)
+	doc, docHash, err := loadPolicy(s.packDir, s.packFile)
 	if err != nil {
 		return finish(exitCannot, err)
 	}
-	line.Policy = doc.PolicyID() + "@" + doc.Version()
+	line.Policy, line.DocumentHash = doc.PolicyID()+"@"+doc.Version(), docHash
 	corr, err := ids.New(clk, nil).ID("corr")
 	if err != nil {
 		return finish(exitCannot, errors.New("no correlation ID"))
@@ -173,7 +178,7 @@ func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 		return finish(exitCannot, errors.New("the signing keys cannot be loaded"))
 	}
 	store := &policystore.Store{Appender: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: map[string]chain.Signer{signerIdentity: ring}}}
-	res, err := publish(ctx, conn, store, policystore.Request{TenantID: s.tenant, CorrelationID: corr, PolicyID: doc.PolicyID(), Version: doc.Version(), PublishedBy: s.publishedBy})
+	res, err := publish(ctx, conn, store, policystore.Request{TenantID: s.tenant, CorrelationID: corr, PolicyID: doc.PolicyID(), Version: doc.Version(), PublishedBy: s.publishedBy, DocumentHash: docHash})
 	line.Result = res
 	return finish(exitDone, err)
 }
