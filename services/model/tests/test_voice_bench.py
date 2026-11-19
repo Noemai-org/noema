@@ -1,8 +1,8 @@
-"""The latency measurement harness skeleton (VOI-16, REQ-VOI-001, REQ-NFR-003; A241, A180, AGENT-16, INV-21).
+"""The latency measurement harness skeleton (VOI-16, REQ-VOI-001, REQ-NFR-003; A241, A377 to A379, AGENT-16, INV-21).
 
 One session is one synthetic utterance through the speech-to-text adapter, the core's admission and answer (a Core the caller supplies), and the text-to-speech adapter to the first
-audio chunk, timed by an injected clock into the five stages of `latency.py`, so speech-to-text, response and text-to-speech are measured separately. SYNTHETIC utterances only (A180); an
-utterance that is not marked synthetic, or is outside the caller's duration bounds, or would exceed the audio budget, is refused before any provider is called. A failure at any stage
+audio chunk, timed by an injected clock into the five stages of `latency.py`, so speech-to-text, response and text-to-speech are measured separately. Labelled audio only (A377 to A379: SYNTHETIC, or TEAM_RECORDING of a consenting team member); an
+utterance that carries neither label, or is outside the caller's duration bounds, or would exceed the audio budget, is refused before any provider is called. A failure at any stage
 leaves an incomplete timeline, which `summarise` counts as the worst case. Providers and clock here are scripted stand-ins (AGENT-12 exception, noema#412); no network is involved.
 """
 
@@ -14,7 +14,7 @@ import pytest
 from noema_model.providers.speech.base import AudioChunk, AudioCodec, FinalTranscript, Locale, PartialTranscript, SpeechEvent, StreamRequest, TokenConfidence
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.providers.speech.tts import SynthesisRequest
-from noema_model.voice.bench import AudioBudget, BenchError, Core, SessionResult, SyntheticUtterance, measure_batch, measure_session
+from noema_model.voice.bench import AudioBudget, AudioOrigin, BenchError, Core, SessionResult, Utterance, measure_batch, measure_session
 from noema_model.voice.latency import Stage
 from tests.support import run
 from tests.support_voice import CAPS, REQUEST
@@ -36,8 +36,8 @@ def frames(seconds: float, rate: int = 16000) -> tuple[AudioChunk, ...]:
     return tuple(AudioChunk(i, AudioCodec.PCM_S16LE, rate, b"\x10\x00" * per_frame) for i in range(round(seconds * 2)))
 
 
-def utterance(seconds: float = 8.0, *, synthetic: bool = True, label: str = "pcm-01") -> SyntheticUtterance:
-    return SyntheticUtterance(label=label, locale=Locale.PCM, frames=frames(seconds), synthetic=synthetic)
+def utterance(seconds: float = 8.0, *, origin: AudioOrigin | None = AudioOrigin.SYNTHETIC, label: str = "pcm-01") -> Utterance:
+    return Utterance(label=label, locale=Locale.PCM, frames=frames(seconds), origin=origin)  # type: ignore[arg-type]
 
 
 class Stt:
@@ -110,7 +110,7 @@ class FakeCore:
         return "We found your transfer."
 
 
-async def session(clock: Clock, stt: Stt, tts: Tts, core: Core, item: SyntheticUtterance, budget: AudioBudget | None = None) -> SessionResult:
+async def session(clock: Clock, stt: Stt, tts: Tts, core: Core, item: Utterance, budget: AudioBudget | None = None) -> SessionResult:
     stt.paced = len(item.frames) - 1
     return await measure_session(stt=stt, tts=tts, core=core, utterance=item, stt_request=REQUEST, tts_model_version="pinned-1", clock_ms=clock, deadline_s=GUARD_S, core_deadline_s=0.15,
                                  tts_deadline_s=0.15, cleanup_s=0.15, bounds_s=BOUNDS, budget=budget or AudioBudget(total_s=600.0))
@@ -149,12 +149,19 @@ def test_an_utterance_outside_the_callers_bounds_is_refused_before_any_provider_
     assert stt.calls == 0 and tts.calls == 0
 
 
-def test_an_utterance_not_marked_synthetic_is_refused_before_any_provider_is_called() -> None:  # A180: no real speaker audio to any vendor
+def test_an_utterance_with_no_origin_label_is_refused_before_any_provider_is_called() -> None:  # A377 to A379: audio is labelled SYNTHETIC or TEAM_RECORDING; anything else is never sent
     clock = Clock()
     stt = Stt(clock)
-    with pytest.raises(BenchError):
-        run(asyncio.wait_for(session(clock, stt, Tts(clock), FakeCore(clock), utterance(synthetic=False)), timeout=GUARD_S))
+    for bad in (None, "REAL", "synthetic"):
+        with pytest.raises(BenchError):
+            run(asyncio.wait_for(session(clock, stt, Tts(clock), FakeCore(clock), utterance(origin=bad)), timeout=GUARD_S))  # type: ignore[arg-type]
     assert stt.calls == 0
+
+
+def test_a_recording_of_a_consenting_team_member_is_measured_like_synthetic_audio_and_keeps_its_label() -> None:
+    clock = Clock()
+    result = run(asyncio.wait_for(session(clock, Stt(clock), Tts(clock), FakeCore(clock), utterance(origin=AudioOrigin.TEAM_RECORDING)), timeout=GUARD_S))
+    assert result.timeline.complete and result.origin is AudioOrigin.TEAM_RECORDING
 
 
 def test_a_session_that_would_exceed_the_audio_budget_is_refused_and_the_budget_counts_what_was_sent() -> None:
