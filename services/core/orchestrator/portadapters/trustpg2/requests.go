@@ -245,8 +245,8 @@ func (r Requests) Expire(ctx context.Context, tenantID, requestID string) error 
 	return nil
 }
 
-// Answer stores the approver's answer once per (request, approver) and returns its event ID; the same answer again returns the stored event ID and records nothing; a different answer
-// of the same approver is ErrRequestConflict.
+// Answer stores the first answer to a request (A341: the first answer wins) and returns its event ID. A replay by the same approver with the same response returns the stored event ID and
+// records nothing; any other second answer, by this or another approver, is ErrAlreadyAnswered.
 func (r Requests) Answer(ctx context.Context, a AnswerInput) (string, error) {
 	if err := r.ready(); err != nil {
 		return "", err
@@ -280,19 +280,20 @@ func (r Requests) Answer(ctx context.Context, a AnswerInput) (string, error) {
 		return "", fmt.Errorf("trustpg2: read the request: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `INSERT INTO confirmation_answer (tenant_id, confirmation_event_id, confirmation_request_id, response, approver_id, approver_roles, answered_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (tenant_id, confirmation_request_id, approver_id) DO NOTHING`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (tenant_id, confirmation_request_id) DO NOTHING`,
 		a.TenantID, event, a.RequestID, string(a.Response), a.ApproverID, roles, time.Unix(a.At, 0).UTC())
 	if err != nil {
 		return "", mapErr("store the answer", err)
 	}
 	if tag.RowsAffected() == 0 {
-		var stored, response string
-		if err := tx.QueryRow(ctx, `SELECT confirmation_event_id, response FROM confirmation_answer WHERE tenant_id = $1 AND confirmation_request_id = $2 AND approver_id = $3`,
-			a.TenantID, a.RequestID, a.ApproverID).Scan(&stored, &response); err != nil {
+		var stored, response, approver string
+		if err := tx.QueryRow(ctx, `SELECT confirmation_event_id, response, approver_id FROM confirmation_answer WHERE tenant_id = $1 AND confirmation_request_id = $2`,
+			a.TenantID, a.RequestID).Scan(&stored, &response, &approver); err != nil {
 			return "", fmt.Errorf("trustpg2: read the stored answer: %w", err)
 		}
-		if response != string(a.Response) {
-			return "", fmt.Errorf("%w: the approver answered this request differently before", ErrRequestConflict)
+		// the first answer wins (A341): only the same approver's same response is a replay; anything else is ErrAlreadyAnswered
+		if approver != a.ApproverID || response != string(a.Response) {
+			return "", ErrAlreadyAnswered
 		}
 		return stored, nil
 	}

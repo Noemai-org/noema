@@ -18,3 +18,6 @@ State: red pushed (noema#756, draft); green committed locally, not pushed (A332,
 - Open questions (owner): confirm-request and confirm-event contracts do not exist on main (EL, C1); the Unix-second unit of `ExpiresAt` and `At` (EL).
 - Files to read first: `services/core/migrations/0032_confirmation_request_answer.sql`, `trustpg2/requests.go`, `status/TRU-12-confirmations.md` on the adapter branch.
 - Do not touch: migration 0028, `trust/confirm`, `trust/recorder`.
+
+## Addendum 2026-11-19 (A341, interim, relayed, not yet committed)
+- Migration 0032 is not merged, so it was edited IN PLACE: `UNIQUE (tenant_id, confirmation_request_id)` on `confirmation_answer` replaces the per-approver key (first answer wins). `Answer` returns typed `ErrAlreadyAnswered` for any second answer except the same approver's same response (a replay, returns the stored event). Safer reading: the same approver answering DIFFERENTLY is also `ErrAlreadyAnswered` (was `ErrRequestConflict`).

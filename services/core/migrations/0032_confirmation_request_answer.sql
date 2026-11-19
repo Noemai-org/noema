@@ -6,7 +6,7 @@
 -- version), all NOT NULL, in the form trust/confirm.BindingHash accepts, and the binding hash itself, which the database recomputes with the same canonical form and refuses on any difference. A
 -- request is never updated: a fresh one SUPERSEDES the old one (supersedes_request_id), so the chain of requests of one action is the history. Its ID has the form of 0028 (cfr_...).
 -- confirmation_answer: the approver's reply to one request (ACCEPT or DECLINE), with the approver's principal and roles as the authenticated session gave them, insert-only; one answer per
--- (request, approver). Its ID has the form of 0028 (cfe_...), so an ACCEPT that resolves to PROCEED_TO_FRESH_EVALUATION becomes the confirmation_resolution row of 0028 with the same event ID.
+-- request (A341: the first answer wins). Its ID has the form of 0028 (cfe_...), so an ACCEPT that resolves to PROCEED_TO_FRESH_EVALUATION becomes the confirmation_resolution row of 0028 with the same event ID.
 -- confirmation_expiry: the one-time mark that CONFIRMATION_EXPIRED was recorded for a request (a third table, needed so that the expiry is recorded once and never before the request's expiry).
 --
 -- One open request per (tenant, intent, capability, target): a root request (no supersedes) is unique on that key, and a request is superseded at most once, so the chain of an action is linear
@@ -62,8 +62,8 @@ CREATE TABLE confirmation_answer (
   answered_at             timestamptz NOT NULL,
   recorded_at             timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT confirmation_answer_pkey PRIMARY KEY (tenant_id, confirmation_event_id),
-  -- an approver answers a request once
-  CONSTRAINT confirmation_answer_approver_key UNIQUE (tenant_id, confirmation_request_id, approver_id)
+  -- A341 (interim, relayed, not yet committed): the FIRST answer wins, so a request has at most one answer, whoever the approver; a second answer is refused here, not only in code
+  CONSTRAINT confirmation_answer_request_key UNIQUE (tenant_id, confirmation_request_id)
 );
 CREATE INDEX confirmation_answer_request_idx ON confirmation_answer (tenant_id, confirmation_request_id, answered_at, confirmation_event_id);
 
