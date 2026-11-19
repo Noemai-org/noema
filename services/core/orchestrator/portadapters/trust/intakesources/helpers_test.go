@@ -130,3 +130,8 @@ func boundedBy(caller context.Context, seen time.Time) bool {
 	d, ok := caller.Deadline()
 	return ok && !seen.IsZero() && d.Sub(seen) > time.Second
 }
+
+// superuser is a login that row-level security does not bind (the migrating login): a read through it shows that the reader's own query names the tenant, as the database does.
+type superuser struct{ w *world }
+
+func (s superuser) For(string) (intakesources.Querier, error) { return s.w.admin, nil }

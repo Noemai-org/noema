@@ -149,3 +149,17 @@ func TestAdmittedAtIsBoundedByTheConfiguredTimeout(t *testing.T) {
 		t.Errorf("a read that hangs must end at the timeout, inside the caller's deadline: %v", err)
 	}
 }
+
+func TestAdmittedAtTheQueryNamesTheTenantEvenWhenTheLoginDoesNotBindIt(t *testing.T) {
+	w := newWorld(t)
+	w.intent(t, tenantB, "int_adm6", 1, node, time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC), resolvedSlots)
+	if got, err := admissions(t, superuser{w}).AdmittedAt(ctx(t), tenantA, "int_adm6", 1); !errors.Is(err, intakesources.ErrNotFound) || got != 0 {
+		t.Errorf("tenant A through a login that sees every row: got %d, %v; want ErrNotFound", got, err)
+	}
+}
+
+func TestAdmittedAtAZeroReaderIsNotConfigured(t *testing.T) {
+	if _, err := new(intakesources.Admissions).AdmittedAt(ctx(t), tenantA, "int_adm1", 1); !errors.Is(err, intakesources.ErrConfig) {
+		t.Errorf("a reader that was not built: %v", err)
+	}
+}

@@ -127,7 +127,7 @@ func (f *Facts) PolicyFacts(ctx context.Context, q intake.PolicyQuery, need inta
 }
 
 // slotFact reads one fact from one slot. The slot must be as the contract says: a known status, a Resource slot RESOLVED exactly when it has a resolved reference, and a
-// reference that is not empty.
+// reference that is not empty. A status that is missing is refused when the status is asked, and a slot with no status is never RESOLVED.
 func slotFact(a ask, raw json.RawMessage) (predicate.Value, error) {
 	refuse := func(why string) error { return fmt.Errorf("%w: the variable %s, %s", ErrIntent, a.variable, why) }
 	var s storedSlot
@@ -141,7 +141,7 @@ func slotFact(a ask, raw json.RawMessage) (predicate.Value, error) {
 		return predicate.Value{}, refuse("the slot's reference is empty")
 	}
 	resolved := s.Status != nil && decide.SlotStatus(*s.Status) == decide.SlotResolved
-	if s.Type == resourceSlot && (s.Status == nil || resolved != (s.ResolvedRef != nil)) {
+	if s.Type == resourceSlot && resolved != (s.ResolvedRef != nil) {
 		return predicate.Value{}, refuse("the slot is RESOLVED only with a resolved reference")
 	}
 	if a.status {

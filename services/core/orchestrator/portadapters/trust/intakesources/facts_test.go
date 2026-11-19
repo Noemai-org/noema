@@ -260,3 +260,31 @@ func TestPolicyFactsIsBoundedByTheConfiguredTimeout(t *testing.T) {
 		t.Errorf("a read that hangs must end at the timeout, inside the caller's deadline: %v", err)
 	}
 }
+
+func TestPolicyFactsTheQueryNamesTheTenantEvenWhenTheLoginDoesNotBindIt(t *testing.T) {
+	w := newWorld(t)
+	w.intent(t, tenantB, "int_oth2", 1, node, admittedAt, resolvedSlots)
+	got, err := facts(t, superuser{w}).PolicyFacts(ctx(t), factQuery(tenantA, "int_oth2", 1), vars("subject_resource.status"))
+	if !errors.Is(err, intakesources.ErrNotFound) || len(got.Variables) != 0 {
+		t.Errorf("tenant A through a login that sees every row: got %+v, %v; want ErrNotFound", got, err)
+	}
+}
+
+func TestPolicyFactsAVariableThatCannotNameASlotIsRefusedBeforeAnyLoginIsAsked(t *testing.T) {
+	w := newWorld(t)
+	f := facts(t, w)
+	for _, name := range []string{"a.b.status", "Subject", "subject_resource.other", ".status", "", "9slot", "slot-name.status"} {
+		if _, err := f.PolicyFacts(ctx(t), factQuery(tenantA, "int_fac1", 1), vars(name)); !errors.Is(err, intakesources.ErrNoSource) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	if w.calls != 0 {
+		t.Errorf("a login was asked for %d times for variables that name no slot", w.calls)
+	}
+}
+
+func TestPolicyFactsAZeroReaderIsNotConfigured(t *testing.T) {
+	if _, err := new(intakesources.Facts).PolicyFacts(ctx(t), factQuery(tenantA, "int_fac1", 1), vars("subject_resource.status")); !errors.Is(err, intakesources.ErrConfig) {
+		t.Errorf("a reader that was not built: %v", err)
+	}
+}
