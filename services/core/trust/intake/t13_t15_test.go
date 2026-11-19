@@ -337,7 +337,7 @@ func TestT13AnswerThatIsNotAnAnswerIsUnknown(t *testing.T) {
 		conf Confirmation
 	}{
 		{"the zero status", Confirmation{}},
-		{"a status outside the three", Confirmation{Status: ConfirmationGiven + 1, EventID: "cfe_synth0001"}},
+		{"a status outside the four", Confirmation{Status: ConfirmationDeclined + 1, EventID: "cfe_synth0001"}},
 		{"given with no event", Confirmation{Status: ConfirmationGiven}},
 	} {
 		f := newFake13()
@@ -822,7 +822,7 @@ func TestT13OnlyAConfirmCarriesARequestID(t *testing.T) {
 func TestT13AnUnknownStatusWithARequestIDIsStillUnknown(t *testing.T) {
 	for name, c := range map[string]Confirmation{
 		"zero":    {RequestID: "cfr_synth0001"},
-		"unknown": {Status: ConfirmationGiven + 1, RequestID: "cfr_synth0001"},
+		"unknown": {Status: ConfirmationDeclined + 1, RequestID: "cfr_synth0001"},
 	} {
 		f := newFake13()
 		f.conf = c
@@ -870,6 +870,9 @@ func TestT13DeclinedIsRejectDeclinedByApproverAndRecordsNothing(t *testing.T) {
 	}
 	if res.ConfirmationRequestID != "" || res.DecisionID != "" || len(res.GrantIDs) != 0 {
 		t.Errorf("a decline carries a request id %q, a decision %q or grants %v", res.ConfirmationRequestID, res.DecisionID, res.GrantIDs)
+	}
+	if !res.Decision.HasCompleteBasis() {
+		t.Error("a decline does not carry the basis of the evaluation it closed")
 	}
 	if last := res.Trace[len(res.Trace)-1]; last.Step != decide.T13Confirmation || last.Result != decide.StepTerminal {
 		t.Errorf("trace ends %+v, want T13 terminal", last)

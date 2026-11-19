@@ -47,7 +47,7 @@ func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
 	return e.bb.Attach(d)
 }
 
-// t13: the trust profile's approver confirmation. Required and not resolved: CONFIRM, which rests on the evaluated set. Required and resolved (a valid ACCEPT that the
+// t13: the trust profile's approver confirmation. Required and not resolved: CONFIRM, which rests on the evaluated set. Declined: REJECT DECLINED_BY_APPROVER (SoT 43.2a). Required and resolved (a valid ACCEPT that the
 // confirmation store turned into this fresh evaluation, INV-25): continue, and the grant will follow its event. Not required: continue. Any other answer is not an answer.
 func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
@@ -79,6 +79,24 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 			return decide.FailStep(err)
 		}
 		e.late.requestID = c.RequestID
+		return decide.Stop(d)
+	case ConfirmationDeclined:
+		// SoT 43.2a: on DECLINE the decision closes as REJECT with reason DECLINED_BY_APPROVER. No new request is opened and no request id leaves the evaluation.
+		reason, err := decide.Core("DECLINED_BY_APPROVER")
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		r, err := e.resolved()
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		d, err := r.Reject(passed(), reason)
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		if d, err = e.withBasis(d); err != nil {
+			return decide.FailStep(err)
+		}
 		return decide.Stop(d)
 	}
 	return decide.FailStep(errAnswer)
