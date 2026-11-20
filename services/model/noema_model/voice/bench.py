@@ -103,12 +103,19 @@ class _Frames:
 
 
 async def _close_stream(stream: object, cleanup_s: float) -> None:
-    """Close a synthesis stream within `cleanup_s`. A stream with no `aclose` (a plain async iterator is a contract-compliant return) has nothing to close. A close that does not finish is
-    abandoned: TimeoutError. Any other error is the provider's own and is raised to the caller to decide (Codex P2s on #694)."""
+    """Close a synthesis stream within `cleanup_s`. A stream with no `aclose` (a plain async iterator is a contract-compliant return) has nothing to close. If OUR deadline expires the close is
+    abandoned and this returns; any error the stream itself raises, a TimeoutError of its own included, is raised to the caller to decide (`scope.expired()` tells the two apart, as
+    `voice/answer.py::_close` does; Codex P2s on #694)."""
     close = getattr(stream, "aclose", None)
     if close is None:
         return
-    await asyncio.wait_for(close(), timeout=cleanup_s)
+    try:
+        async with asyncio.timeout(cleanup_s) as scope:
+            await close()
+    except TimeoutError:
+        if not scope.expired():
+            raise  # the stream's own TimeoutError: a failure of the provider, not our deadline
+        # our own deadline expired: abandoned, the stream is let go of
 
 
 async def _first_audio(tts: SpeechSynthesizer, request: SynthesisRequest, deadline_s: float, cleanup_s: float, timeline: StageTimeline) -> None:
@@ -130,8 +137,6 @@ async def _first_audio(tts: SpeechSynthesizer, request: SynthesisRequest, deadli
         raise
     try:
         await _close_stream(stream, cleanup_s)
-    except TimeoutError:
-        return  # abandoned: the audio was heard and the stream is let go of
     except ProviderError:
         raise
     except Exception:  # noqa: BLE001 - a provider's own failure at shutdown, after the first audio: recorded as a failure, with no text of it kept
