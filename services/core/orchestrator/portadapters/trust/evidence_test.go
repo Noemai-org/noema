@@ -199,11 +199,12 @@ func TestEvidenceReportsTheFreshnessThatWasSealed(t *testing.T) {
 	a.SLASeconds = 600 // the profile's 300 is stricter
 	b.SLASeconds, b.Status, b.ReadAt = 120, "UNKNOWN", evdNow.Add(-100*time.Second)
 	c.SLASeconds, c.Status = 300, "INFERRED" // equal to the profile's: the source set it
-	got, err := evdRead(t, evdStoreOf(evdSeal(t, c, a, b)), evdRules())
+	sealed := evdSeal(t, c, a, b)
+	got, err := evdRead(t, evdStoreOf(sealed), evdRules())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, EvidenceSetHash: evdContentHash, Items: []intake.SourceItem{
+	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, EvidenceSetHash: sealed.EvidenceSetHash, ConfirmationBindingEvidenceHash: evdMixedContentHash, Items: []intake.SourceItem{
 		{Status: contracts.EnumsV1FactStatusKNOWN, Freshness: decide.Freshness{EvidenceID: "evr_01", EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: evdLedger,
 			AgeSeconds: 42, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}},
 		{Status: contracts.EnumsV1FactStatusUNKNOWN, Freshness: decide.Freshness{EvidenceID: "evr_02", EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: evdSwitch,
@@ -688,24 +689,33 @@ func TestEvidenceReaderNeedsItsConfiguration(t *testing.T) {
 	}
 }
 
-// evdContentHash is the content hash of the usual three items (evdItem 1 to 3) with the default facts of evdFacts (entity "evd", KNOWN, state "S-<record>"): the sorted (source, source
-// record ID, facts digest) triples, computed by an independent Python implementation (a scratch script, not committed: the digest of each item's facts, then SHA-256 over
-// LP("noema.evidence_content_set.v2") and the length-prefixed fields of each triple in sorted order), not by the code under test.
-const evdContentHash = "sha256:ec82b699624d6a2d952b0c8cce05295af12e894dc078331543191b38485f37e2"
+// evdContentHash is the content hash of the usual three items (evdItem 1 to 3, all KNOWN) with the default facts of evdFacts (entity "evd", KNOWN, state "S-<record>"): the sorted
+// (source, source record ID, facts digest, status) entries, computed by an independent Python implementation (a scratch script, not committed: the digest of each item's facts, then
+// SHA-256 over LP("noema.evidence_content_set.v3") and the length-prefixed fields of each entry in sorted order), not by the code under test. The scratch script also reproduced the
+// v2 value of the earlier test (ec82b699...) with the three-element entry, which shows that its framing is the code's. evdMixedContentHash is the same with the item statuses KNOWN,
+// UNKNOWN and INFERRED of TestEvidenceReportsTheFreshnessThatWasSealed (the stub's facts keep their own status KNOWN: the entry's status is the item's).
+const (
+	evdContentHash      = "sha256:2db8023c8c9c1e3e400518ca894ba58eb07a1c676083d9d108a2abe3683003c0"
+	evdMixedContentHash = "sha256:89f6fdcc6e8174ae80bc47af2adf60c39efa64d5fcddf0fdce38804570549055"
+)
 
-// A365 refined, REQ-TRU-009, INV-25: the evidence value T9 gives for the binding is the CONTENT hash of the sealed items (over the digest of their mapped facts), never the set hash over
-// the evidence IDs the snapshot stores.
-func TestEvidenceGivesTheContentHashAndNotTheSetHashOfTheSnapshot(t *testing.T) {
+// A365 refined, A435, REQ-TRU-009, INV-25, INV-17: T9 gives two values and never one for the other. EvidenceSetHash is the snapshot's own set hash over the evidence IDs and payload
+// hashes (what the Decision Record and the grant keep, unchanged); ConfirmationBindingEvidenceHash is the CONTENT hash of the sealed items (over the digest of their mapped facts and
+// their status), which only the confirmation binding uses.
+func TestEvidenceGivesTheSnapshotsSetHashAndSeparatelyTheContentDigestOfTheBinding(t *testing.T) {
 	s := evdWorld(t)
 	got, err := evdRead(t, evdStoreOf(s), evdRules())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.EvidenceSetHash != evdContentHash {
-		t.Errorf("EvidenceSetHash %q, want the content hash %s", got.EvidenceSetHash, evdContentHash)
+	if got.EvidenceSetHash != s.EvidenceSetHash {
+		t.Errorf("EvidenceSetHash %q, want the snapshot's own set hash %s", got.EvidenceSetHash, s.EvidenceSetHash)
 	}
-	if got.EvidenceSetHash == s.EvidenceSetHash {
-		t.Error("T9 gave the set hash over the evidence IDs, which differs for every read of the same data")
+	if got.ConfirmationBindingEvidenceHash != evdContentHash {
+		t.Errorf("ConfirmationBindingEvidenceHash %q, want the content hash %s", got.ConfirmationBindingEvidenceHash, evdContentHash)
+	}
+	if got.EvidenceSetHash == got.ConfirmationBindingEvidenceHash {
+		t.Error("the two values are one: the set hash over the evidence IDs and the content digest are different values")
 	}
 }
 
@@ -733,8 +743,11 @@ func TestEvidenceTheSameFactsUnderNewIDsAndPayloadsIsTheSameValueAndChangedFacts
 	}
 	a, errA := evdRead(t, evdStoreOf(first), evdRules())
 	b, errB := evdRead(t, evdStoreOf(second), evdRules())
-	if errA != nil || errB != nil || a.EvidenceSetHash == "" || a.EvidenceSetHash != b.EvidenceSetHash {
-		t.Fatalf("unchanged facts: %q (%v) and %q (%v), want one value", a.EvidenceSetHash, errA, b.EvidenceSetHash, errB)
+	if errA != nil || errB != nil || a.ConfirmationBindingEvidenceHash == "" || a.ConfirmationBindingEvidenceHash != b.ConfirmationBindingEvidenceHash {
+		t.Fatalf("unchanged facts: %q (%v) and %q (%v), want one value", a.ConfirmationBindingEvidenceHash, errA, b.ConfirmationBindingEvidenceHash, errB)
+	}
+	if a.EvidenceSetHash != first.EvidenceSetHash || b.EvidenceSetHash != second.EvidenceSetHash || a.EvidenceSetHash == b.EvidenceSetHash {
+		t.Errorf("the set hashes %q and %q must stay each snapshot's own (%q and %q): the Decision Record and the grant keep them", a.EvidenceSetHash, b.EvidenceSetHash, first.EvidenceSetHash, second.EvidenceSetHash)
 	}
 	for name, edit := range map[string]func(*trustport.SealedItem){
 		"a record ID": func(it *trustport.SealedItem) { it.SourceRecordID = "rec-changed" },
@@ -743,14 +756,31 @@ func TestEvidenceTheSameFactsUnderNewIDsAndPayloadsIsTheSameValueAndChangedFacts
 		items := append([]trustport.SealedItem(nil), again...)
 		edit(&items[1])
 		c, err := evdRead(t, evdStoreOf(evdSeal(t, items...)), &evdProfiles{rules: trustport.SourceRules{MaxAgeSeconds: 300}})
-		if err != nil || c.EvidenceSetHash == "" || c.EvidenceSetHash == a.EvidenceSetHash {
-			t.Errorf("%s changed: %q (%v), the unchanged value is %q", name, c.EvidenceSetHash, err, a.EvidenceSetHash)
+		if err != nil || c.ConfirmationBindingEvidenceHash == "" || c.ConfirmationBindingEvidenceHash == a.ConfirmationBindingEvidenceHash {
+			t.Errorf("%s changed: %q (%v), the unchanged value is %q", name, c.ConfirmationBindingEvidenceHash, err, a.ConfirmationBindingEvidenceHash)
 		}
 	}
 	facts := &evdFacts{override: map[string][]snapshot.Fact{"rec-02": {{Entity: "evd", Status: "KNOWN", Fields: map[string]snapshot.FactValue{"state": {Kind: snapshot.KindEnum, Text: "S-changed"}}}}}}
 	c, err := evdAdapterWith(t, evdStoreOf(second), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
-	if err != nil || c.EvidenceSetHash == "" || c.EvidenceSetHash == a.EvidenceSetHash {
-		t.Errorf("a mapped fact changed: %q (%v), the unchanged value is %q", c.EvidenceSetHash, err, a.EvidenceSetHash)
+	if err != nil || c.ConfirmationBindingEvidenceHash == "" || c.ConfirmationBindingEvidenceHash == a.ConfirmationBindingEvidenceHash {
+		t.Errorf("a mapped fact changed: %q (%v), the unchanged value is %q", c.ConfirmationBindingEvidenceHash, err, a.ConfirmationBindingEvidenceHash)
+	}
+}
+
+// A435: the status of an item is part of the binding's entry. The same record, source and facts with another item status (the Reconciler gives the item's own status to its rows) is
+// another value, and so is a status the facts carry on their own.
+func TestEvidenceTheStatusOfAnItemIsPartOfTheBindingValue(t *testing.T) {
+	base, err := evdRead(t, evdStoreOf(evdWorld(t)), evdRules())
+	if err != nil || base.ConfirmationBindingEvidenceHash != evdContentHash {
+		t.Fatalf("the base: %q, %v", base.ConfirmationBindingEvidenceHash, err)
+	}
+	for _, st := range []string{"STALE", "UNKNOWN", "INFERRED", "AMBIGUOUS", "UNAVAILABLE", "CONTRADICTORY", "UNAUTHORIZED"} {
+		items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
+		items[1].Status = st
+		got, err := evdRead(t, evdStoreOf(evdSeal(t, items...)), evdRules())
+		if err != nil || got.ConfirmationBindingEvidenceHash == "" || got.ConfirmationBindingEvidenceHash == base.ConfirmationBindingEvidenceHash {
+			t.Errorf("item status %s: %q (%v), the KNOWN value is %q", st, got.ConfirmationBindingEvidenceHash, err, base.ConfirmationBindingEvidenceHash)
+		}
 	}
 }
 
@@ -765,8 +795,11 @@ func TestEvidenceBindsTheFactsAndNotTheStoredPayloadHash(t *testing.T) {
 	other := evdSeal(t, items...)
 	a, errA := evdRead(t, evdStoreOf(base), evdRules())
 	b, errB := evdRead(t, evdStoreOf(other), evdRules())
-	if errA != nil || errB != nil || a.EvidenceSetHash != b.EvidenceSetHash {
-		t.Fatalf("payload hashes only: %q (%v) and %q (%v), want one value", a.EvidenceSetHash, errA, b.EvidenceSetHash, errB)
+	if errA != nil || errB != nil || a.ConfirmationBindingEvidenceHash != b.ConfirmationBindingEvidenceHash {
+		t.Fatalf("payload hashes only: %q (%v) and %q (%v), want one value", a.ConfirmationBindingEvidenceHash, errA, b.ConfirmationBindingEvidenceHash, errB)
+	}
+	if a.EvidenceSetHash == b.EvidenceSetHash {
+		t.Error("the set hash follows the payload hashes: the two snapshots must keep their own")
 	}
 }
 

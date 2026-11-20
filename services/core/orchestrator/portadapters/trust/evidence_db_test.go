@@ -235,8 +235,9 @@ func (w *evdPG) facts(t *testing.T, pools evdPools) trustport.ItemFacts {
 }
 
 // evdDBContentHash is the content hash of the DB case over the REAL mapping: the facts debit.state=POSTED (ledger, rec-01), switch.state=SUCCESSFUL (rec-02) and
-// credit.state=CREDITED (destination, rec-03), each KNOWN, digested and then hashed with their sources and records by the independent Python implementation (a scratch script, not committed).
-const evdDBContentHash = "sha256:ae27f853647caa35fa150d4379f9ce3f35ae6764da41c95e69b44670efb1cee5"
+// credit.state=CREDITED (destination, rec-03), each KNOWN, digested and then hashed with their sources, records and item statuses (KNOWN) under the domain v3 by the independent Python
+// implementation (a scratch script, not committed; the same script reproduced the earlier v2 value ae27f853... with the three-element entry).
+const evdDBContentHash = "sha256:9040a42674296e9bf98dab232ef20678bdc20eceeb9d186f50aa680eb36f2239"
 
 // REQ-TRU-001, REQ-CTX-003, REQ-CTX-004; INV-17: the whole path over the real tables. The freshness is what the sealed items hold, the intent is the case's latest version.
 func TestEvidenceDBReadsTheSealedSnapshotAsTheTenantsOwnLogin(t *testing.T) {
@@ -250,7 +251,11 @@ func TestEvidenceDBReadsTheSealedSnapshotAsTheTenantsOwnLogin(t *testing.T) {
 		return intake.SourceItem{Status: contracts.EnumsV1FactStatusKNOWN, Freshness: decide.Freshness{EvidenceID: id, EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: src,
 			AgeSeconds: 42, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}}
 	}
-	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, EvidenceSetHash: evdDBContentHash, Items: []intake.SourceItem{fresh("evr_01", evdLedger), fresh("evr_02", evdSwitch), fresh("evr_03", evdSettle)}}
+	var stored string // A435: EvidenceSetHash is still the snapshot's own set hash, which the database computed at the seal
+	if err := w.admin.QueryRow(evdCtx(t), `SELECT evidence_set_hash FROM context_snapshot WHERE tenant_id = $1 AND snapshot_id = $2`, evdTenant, evdSnap).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, EvidenceSetHash: stored, ConfirmationBindingEvidenceHash: evdDBContentHash, Items: []intake.SourceItem{fresh("evr_01", evdLedger), fresh("evr_02", evdSwitch), fresh("evr_03", evdSettle)}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
 	}
@@ -400,10 +405,10 @@ func TestEvidenceDBAReReadOfUnchangedFactsKeepsTheConfirmationBindingAndAChanged
 	read := func(snap string) string {
 		t.Helper()
 		got, err := a.SnapshotFreshness(evdCtx(t), evdTenant, snap)
-		if err != nil || got.EvidenceSetHash == "" {
+		if err != nil || got.ConfirmationBindingEvidenceHash == "" {
 			t.Fatalf("%s: %+v, %v", snap, got, err)
 		}
-		return got.EvidenceSetHash
+		return got.ConfirmationBindingEvidenceHash
 	}
 	h1, h2, h3 := read(evdSnap), read("evs_AA02"), read("evs_AA03")
 	var sets [3]string
@@ -463,7 +468,7 @@ func TestEvidenceDBEachMappedFactMovesTheBindingOnItsOwn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", snap, err)
 		}
-		return got.EvidenceSetHash
+		return got.ConfirmationBindingEvidenceHash
 	}
 	base := read(evdSnap)
 	if read("evs_AA02") != base {
