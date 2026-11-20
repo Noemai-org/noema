@@ -9,7 +9,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -118,6 +120,10 @@ func writeKeyFile(t *testing.T, dir, name, label string, mode os.FileMode) ed255
 	t.Helper()
 	seed := seedFor(label)
 	p := filepath.Join(dir, name)
+	// A 0400 file cannot be opened for writing again by its owner (root alone ignores the mode, which hid this when the tests ran as root): a key written twice is replaced.
+	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(p, []byte(hex.EncodeToString(seed)+"\n"), mode); err != nil {
 		t.Fatal(err)
 	}
