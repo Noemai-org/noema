@@ -54,7 +54,7 @@ func pgCause(t *testing.T, err error, code string) {
 }
 
 func request() policystore.Request {
-	return policystore.Request{TenantID: tenantA, CorrelationID: "corr_pub0001", PolicyID: "fin.pol", Version: "3.1", PublishedBy: "adm_synth01"}
+	return policystore.Request{TenantID: tenantA, CorrelationID: "corr_pub0001", PolicyID: "fin.pol", Version: "3.1", PublishedBy: "adm_synth01", DocumentHash: testDocHash}
 }
 
 type leakySigner struct{}

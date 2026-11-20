@@ -157,7 +157,7 @@ func TestT13ToT15TheRecordRequestFollowsTheInputsAndOnlyTheInputs(t *testing.T) 
 		{"the step's target", func(f *f13) { f.plan.Steps[0].TargetRef = "txn_synth0001" }, ""},
 		{"the step's parameters", func(f *f13) { f.plan.Steps[0].ParamsHash = other }, "Steps"},
 		{"the confirmation", func(f *f13) {
-			f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0009", PlanHash: tPlanHash}
+			f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0009", PlanHash: tPlanHash, RequestID: "cfr_synth0001"}
 		}, "ConfirmationEventID"},
 	}
 	for _, c := range cases {
@@ -173,7 +173,7 @@ func TestT13ToT15TheRecordRequestFollowsTheInputsAndOnlyTheInputs(t *testing.T) 
 			t.Errorf("%s: the request changed in %v, want %s", c.name, changed, c.field)
 		}
 		for _, other := range changed[1:] {
-			if other != "ConfirmationPlanHash" && other != "PlanHash" {
+			if other != "ConfirmationPlanHash" && other != "PlanHash" && other != "ConfirmationBindingEvidenceHash" { // the binding's evidence follows a confirmation (A435)
 				t.Errorf("%s: the request also changed %s", c.name, other)
 			}
 		}

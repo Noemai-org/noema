@@ -6,7 +6,7 @@
 //
 // May import: the standard library.
 //
-// Must never: issue a grant, read the clock (the caller passes the event time), hold an expiry or a role name, or trust
+// Must never: issue a grant, read the clock (the caller passes the event time), hold an expiry or a pack role name (the one platform role, ApproverRole, is the exception), or trust
 // a principal that did not come from authentication.
 package confirm
 
@@ -81,7 +81,8 @@ const (
 	Decline Response = "DECLINE"
 )
 
-// Event is a confirmation event. ApproverID and ApproverRoles come from authentication, never from the request body.
+// Event is a confirmation event. ApproverID and ApproverRoles come from authentication, never from the request body. For MAKER_CHECKER
+// ApproverRoles must carry ApproverRole (the authenticated session's role); a caller that leaves it out gets APPROVER_NOT_ELIGIBLE.
 type Event struct {
 	RequestID     string
 	ApproverID    string
@@ -104,25 +105,45 @@ const (
 	WrongRequest   Resolution = "WRONG_REQUEST"
 )
 
+// ApproverRole is the one platform role a MAKER_CHECKER approver holds (TRU-07; it is the value of edge/session.RoleApprover, and
+// confirm_test.go compares the two). It is a platform role, not a pack role: ROLE:<role> keeps taking its role from the requirement.
+const ApproverRole = "approver"
+
 const (
 	requirementSelf  = "SELF"
 	requirementMaker = "MAKER_CHECKER"
 	rolePrefix       = "ROLE:"
 )
 
+// holds is true when roles has role by exact comparison. An empty role name never matches: no case folding, no trimming.
+func holds(roles []string, role string) bool {
+	if role == "" {
+		return false
+	}
+	for _, r := range roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// eligible fails closed: no approver principal, an unknown requirement form or an empty role name is never eligible.
+//   - SELF: the requester.
+//   - MAKER_CHECKER: a principal who is not the requester and holds ApproverRole. A requester that was not recorded is a
+//     malformed request, so nobody satisfies it.
+//   - ROLE:<role>: a holder of that role.
 func eligible(req Request, ev Event) bool {
+	if ev.ApproverID == "" {
+		return false
+	}
 	switch {
 	case req.Requirement == requirementSelf:
 		return ev.ApproverID == req.RequesterID
 	case req.Requirement == requirementMaker:
-		return ev.ApproverID != req.RequesterID && ev.ApproverID != ""
+		return req.RequesterID != "" && ev.ApproverID != req.RequesterID && holds(ev.ApproverRoles, ApproverRole)
 	case strings.HasPrefix(req.Requirement, rolePrefix):
-		role := strings.TrimPrefix(req.Requirement, rolePrefix)
-		for _, r := range ev.ApproverRoles {
-			if r == role {
-				return true
-			}
-		}
+		return holds(ev.ApproverRoles, strings.TrimPrefix(req.Requirement, rolePrefix))
 	}
 	return false
 }
