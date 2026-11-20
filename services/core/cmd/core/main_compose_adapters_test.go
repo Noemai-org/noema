@@ -114,21 +114,14 @@ func TestTheEscalationGraphSettingIsRequiredAndMustNameAGraphOfThePack(t *testin
 	}
 }
 
-// A pack that fails to load stops the process and the pack's own error is named, not hidden behind the list (INV-16).
+// A pack that fails to load is not a named gap: the pack's own error comes back as it is, never as a list of waiting adapters, and the process stops (INV-16; interim, relayed, not
+// yet committed: EL of 20 Nov).
 func TestAPackThatCannotBeLoadedIsAStartupErrorThatIsNotQuiet(t *testing.T) {
 	bad := errors.New("cmd/core: synthetic pack refusal")
 	_, err := adaptersAt(t, func(Env) (*trustpack.Pack, error) { return nil, bad }, envMap{EnvTrustEscalationGraph: syntheticEscalationGraph})
-	if !errors.Is(err, bad) || unbuilt(t, err)[0] != "Pack" {
-		t.Fatalf("error %v; want the pack first and its own error as the cause", err)
-	}
-}
-
-// With Trust settings and the production seams the process refuses to start and names each adapter it lacks (A442 spirit: no silent degraded mode). REQ-TRU-009; INV-03.
-func TestAProcessAskedForTrustWithoutAPackRefusesAndNamesEachAdapter(t *testing.T) {
-	_, _, _, err := buildComponentsWith(t.Context(), Env{Getenv: mcEnv(t).get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, clock.NewManual(time.Unix(1_800_000_000, 0)), ids.New(clock.NewManual(time.Unix(1_800_000_000, 0)), nil), discardLog(), productionDeps())
-	names := unbuilt(t, err)
-	if len(names) == 0 || names[0] != "Pack" {
-		t.Fatalf("names %v; want the pack first", names)
+	var u *UnbuiltAdaptersError
+	if !errors.Is(err, bad) || errors.As(err, &u) {
+		t.Fatalf("error %v; want the pack's own error and not a list of waiting adapters", err)
 	}
 }
 

@@ -119,8 +119,8 @@ func TestTheTrustDSNDirAloneDoesNotStartTrust(t *testing.T) {
 	}
 }
 
-// INV-03: Trust settings without the Record reader are refused by name (the dispatch count reads the Record); the production build has no adapter for most intake ports yet, and the
-// error names the first one: no quiet nil.
+// INV-03: Trust settings without the Record reader are refused by name (the dispatch count reads the Record); an adapter source that fails for any reason but a named, expected gap is
+// a startup error (the expected gaps are in main_compose_unbuilt_test.go).
 func TestTrustSettingsWithoutTheRecordReaderOrWithoutAdaptersAreStartupErrors(t *testing.T) {
 	l, calls := &loaded{}, &mcCalls{}
 	if _, _, closer, err := mcBuild(t, mcEnv(t, EnvRecordReadDSNDir), mcDeps(l, calls)); err == nil || !strings.Contains(err.Error(), EnvRecordReadDSNDir) {
@@ -130,14 +130,6 @@ func TestTrustSettingsWithoutTheRecordReaderOrWithoutAdaptersAreStartupErrors(t 
 	}
 	d := productionDeps()
 	d.LoadKeys = l.load
-	if d.TrustAdapters == nil {
-		t.Fatal("the production build has no adapter source")
-	}
-	if _, _, closer, err := mcBuild(t, mcEnv(t), d); err == nil || !strings.Contains(err.Error(), "Intents") {
-		t.Errorf("production adapters: error %v; want it to name the first missing adapter, Intents", err)
-	} else {
-		closer()
-	}
 	d.TrustAdapters = func(Env, reconstruct.TenantDBs, clock.Clock) (TrustAdapters, error) {
 		return TrustAdapters{}, errors.New("synthetic adapter failure")
 	}
