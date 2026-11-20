@@ -70,10 +70,10 @@ func (r sessRig) token(t *testing.T, sub, tenantID, role string) string {
 	return signing + "." + b64(sig)
 }
 
-// route is the reconstruction route as the composition root mounts it: session, then the role gate for ops and audit, then the handler.
+// route is the reconstruction route as the composition root mounts it: session, then the role gate for audit only (A110), then the handler.
 func (r sessRig) route(h *reconstruct.Handler, gen session.IDs) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle(reconstruct.Route, session.Middleware(r.v, gen)(session.RequireRole(gen, session.RoleOps, session.RoleAudit)(h)))
+	mux.Handle(reconstruct.Route, session.Middleware(r.v, gen)(session.RequireRole(gen, session.RoleAudit)(h)))
 	return mux
 }
 
@@ -101,22 +101,20 @@ func TestTheSessionAuthorizerRefusesARequestWithoutASessionPrincipal(t *testing.
 	}
 }
 
-// REQ-AUD-003: the route is served to ops and to audit, through the session check and the role gate, with the caller's tenant from the token.
-func TestOpsAndAuditSessionsAreServedThroughTheRealEdgePieces(t *testing.T) {
+// REQ-AUD-003, A110: the route is served to audit through the session check and the role gate, with the caller's tenant from the token.
+func TestAuditSessionsAreServedThroughTheRealEdgePieces(t *testing.T) {
 	w := newWorld(t)
 	w.append(t, tenant, "corr_us06", us06()...)
 	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
 	rig := newSessRig(t)
 	h := rig.route(&reconstruct.Handler{DBs: w.dbs(), Auth: reconstruct.SessionAuthorizer{}, IDs: gen}, gen)
-	for _, role := range []string{"ops", "audit"} {
-		rec, out := rig.get(h, "corr_us06", rig.token(t, "usr_synth_"+role, tenant, role))
-		if rec.Code != http.StatusOK || out["correlation_id"] != "corr_us06" {
-			t.Errorf("%s: %d %s", role, rec.Code, rec.Body.String())
-		}
+	rec, out := rig.get(h, "corr_us06", rig.token(t, "usr_synth_audit", tenant, "audit"))
+	if rec.Code != http.StatusOK || out["correlation_id"] != "corr_us06" {
+		t.Errorf("audit: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
-// REQ-AUD-003, REQ-API-004: customers and approvers never read a reconstruction, no session is 401, a bad token is 401, and a role the gate
+// REQ-AUD-003, REQ-API-004, A110: ops, customers and approvers never read a reconstruction, no session is 401, a bad token is 401, and a role the gate
 // does not list is the answer for "not found", with no events in any of them.
 func TestOtherRolesAndNoSessionAreRefusedWithNoEvents(t *testing.T) {
 	w := newWorld(t)
@@ -129,6 +127,7 @@ func TestOtherRolesAndNoSessionAreRefusedWithNoEvents(t *testing.T) {
 		status int
 		code   string
 	}{
+		"ops":         {rig.token(t, "usr_synth_o", tenant, "ops"), 404, "NOT_FOUND_OR_NOT_AUTHORIZED"},
 		"customer":    {rig.token(t, "usr_synth_c", tenant, "customer"), 404, "NOT_FOUND_OR_NOT_AUTHORIZED"},
 		"approver":    {rig.token(t, "usr_synth_a", tenant, "approver"), 404, "NOT_FOUND_OR_NOT_AUTHORIZED"},
 		"no session":  {"", 401, "UNAUTHENTICATED"},
@@ -145,7 +144,7 @@ func TestOtherRolesAndNoSessionAreRefusedWithNoEvents(t *testing.T) {
 	}
 }
 
-// Defence in depth: with no role gate in front (a route registered without one by mistake), a customer or approver session is still 404 from
+// Defence in depth (A110): with no role gate in front (a route registered without one by mistake), an ops, customer or approver session is still 404 from
 // the handler itself, so the handler does not rely on the gate.
 func TestTheHandlerRefusesCustomersAndApproversWithoutTheRoleGate(t *testing.T) {
 	w := newWorld(t)
@@ -154,7 +153,7 @@ func TestTheHandlerRefusesCustomersAndApproversWithoutTheRoleGate(t *testing.T) 
 	rig := newSessRig(t)
 	mux := http.NewServeMux()
 	mux.Handle(reconstruct.Route, session.Middleware(rig.v, gen)(&reconstruct.Handler{DBs: w.dbs(), Auth: reconstruct.SessionAuthorizer{}, IDs: gen}))
-	for _, role := range []string{"customer", "approver"} {
+	for _, role := range []string{"ops", "customer", "approver"} {
 		rec, out := rig.get(mux, "corr_us06", rig.token(t, "usr_synth_x", tenant, role))
 		if rec.Code != 404 {
 			t.Fatalf("%s: %d %s", role, rec.Code, rec.Body.String())

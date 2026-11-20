@@ -1,8 +1,8 @@
 // Package recorder writes a Decision Record and the grants of an ALLOW into the Record, in one transaction the caller supplies (TRU-05).
 //
-// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005, REQ-TRU-010, REQ-EXE-008 (Trust side only), REQ-OPS-002 (Trust side only).
+// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005, REQ-TRU-010, REQ-EXE-008 (Trust side only), REQ-OPS-002 (Trust side only), REQ-TRU-009 (the confirmation request of a CONFIRM).
 //
-// May import: platform/{clock,crypto,ids}, internal/contracts, record/chain, trust/decide, trust/grants.
+// May import: platform/{clock,crypto,ids}, internal/contracts, record/chain, trust/confirm, trust/decide, trust/grants.
 //
 // Must never: commit or roll back the caller's transaction; issue a grant for a decision that is not ALLOW; write a decision whose basis is not the set the
 // evaluation recorded (TRU-13); use a tenant, an identity or a key that the request names for another purpose than the one it is checked for.
@@ -32,6 +32,36 @@
 // isolation level and holds no lock on the tenant row (the Trust login has SELECT only, and FOR SHARE needs UPDATE), so a switch turned on after the read and before the commit is not seen
 // here; Execution reads it again inside the spend (E6, E8) and voids the grant, so the window never reaches a write. Not built here: the control plane that sets and clears the switch, and
 // any KILL_SWITCH_* event (KILL_SWITCH_CHANGED, KILL_SWITCH_CLEARED, KILL_SWITCH_CLEAR_REFUSED are in contracts/perd-32-2-event-types.md; this writer emits none of them).
+//
+// The confirmation request of a CONFIRM (TRU-07 PR 2; REQ-TRU-009, INV-25, INV-12, EC-E16; SoT 43.2a; interim defaults of the founder's order, not yet committed). A CONFIRM decision may carry
+// Request.ConfirmationRequest: the eight bound values (principal, intent hash, capability, target, parameters hash, evidence value, plan hash, policy version; the evidence value is the CONTENT digest, A435, held in the Go field ConfirmationBindingEvidenceHash and named evidence_set_hash in the payload and the contract), the approver requirement
+// (SELF, MAKER_CHECKER or ROLE:<role>), the requester and the expiry in Unix seconds. Any other outcome that carries one is ErrRequest. Before anything is written the writer checks the
+// hashes against the contract's form, that the intent hash is the decision's own and the policy version is the COMPOSITE of every policy version of the decision's basis (decide.CompositePolicyVersion, A341, A367: "sha256:" and the
+// SHA-256 hex of the RFC 8785 form of the sorted, distinct "policy_id@version" list; the ALLOW that follows an ACCEPT recomputes the binding from the same function, so a request bound to
+// others could never be accepted; the decision record and the grant still bind the one policy the request names), that the binding can be computed (trust/confirm.BindingHash refuses an empty value or one outside its character set), the requirement, a
+// requester, and that the expiry is after the writer's own clock; any failure is ErrRequest. Then, on the new-decision path only, it mints the cfr_ ID with its own generator (the caller
+// never supplies one) and computes the binding hash itself (never a caller's), names the request in the DECISION_MADE payload (confirmation_request_id) and appends CONFIRMATION_REQUESTED
+// right after DECISION_MADE, by the Trust emitter, in the same transaction: the decision, its request and its events commit together or not at all. The payload is confirmation_request_id,
+// decision_id, binding_hash, principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, approver_requirement, requester_id and
+// expires_at (an RFC 3339 timestamp, as in SoT 43.2a), all identifiers, hashes or the expiry (policy_version is the composite policy version in the content-hash form "sha256:<hex>", A367, a typed value the payload guard, A184, exempts), so the confirmation store can rebuild the request from the event; the object_ref is the
+// request ID. Result.ConfirmationRequestID is the minted ID; it is empty when a stored decision of the same input was returned (A186): that path creates no event and no second request, and
+// the first request is in the Record. A CONFIRM that names an already open request carries no ConfirmationRequest and writes no request event. The request is not a grant and no step
+// accompanies it. The payload guard is not weakened: a target reference is accepted at /target_ref (ruling A193) and any other string with a run of more than four digits is refused (the
+// append fails and so does the write). Not built: the display and the signature of confirmation-request.v1 (the approver's view is the confirmation store's), expiry (CONFIRMATION_EXPIRED)
+// and the answer (CONFIRMATION_RECEIVED, RecordConfirmation).
+//
+// A435, the evidence component of an ALLOW's binding. The writer recomputes the binding of the confirmation an ALLOW follows from the ALLOW's own step and Request.ConfirmationBindingEvidenceHash,
+// the content digest the CONFIRM was bound to (required, in the Hash form, for an ALLOW after a confirmation; named with no confirmation it is ErrRequest). It never takes the binding's evidence
+// value from the step's EvidenceSetHash: that stays the snapshot's own set hash, which the grant carries, and the Decision Record is unchanged.
+//
+// A186 and A366, the confirmation state of the key: one decision exists for an input tuple AND confirmation state, and migration 0034 enforces it (decision_record_input_state_key: the
+// tuple and COALESCE of decision_record.confirmation_request_id). The state is the confirmation request the decision rests on: for an ALLOW that follows a confirmation, the request the
+// spent confirmation resolved (read from confirmation_resolution; a confirmation not recorded for the tenant is ErrConfirmationNotValid); for a REJECT DECLINED_BY_APPROVER, the declined
+// request it names in Request.DeclinedRequestID (shape-checked: the writer cannot verify a decline, which is the confirmation store's); NULL for every other decision. So a stored CONFIRM
+// (NULL) and the ALLOW or the REJECT that rests on its request are two decisions of one snapshot, and a repeated Record of either returns the stored one (INV-21). On top of the key the
+// writer refuses, under the tuple's advisory lock, a decision of an outcome the tuple already has in another state (another confirmation, or none): ErrDecisionConflict, so two accepted
+// confirmations cannot give two grants on one input. An ALLOW or a REJECT that rests on no confirmation, on the tuple of a stored CONFIRM, is still ErrDecisionConflict (same state, other
+// outcome). DECISION_MADE names the state it rests on as confirmation_request_id.
 //
 // Disposition linkage (TRU-10; REQ-TRU-010, INV-25; PERD 23.1; ruling A297, interim). An action decision is the per-write-step decision of an escalation: the decision of one step of the
 // escalation plan, which names its ESCALATE disposition in Request.DispositionDecisionID. Two rules, both refused before anything is written (no row, no Record event; the caller still
