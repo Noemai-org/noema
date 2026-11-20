@@ -84,6 +84,7 @@ class Counts(unittest.TestCase):
                 write_counts(run)
 
     def test_a_result_with_no_case_id_is_an_error_because_it_cannot_be_attributed(self) -> None:
+        doc: Any
         for doc in ({"environment": {"effects": []}}, {"case_id": "", "environment": {"effects": []}}, {"case_id": 7}, []):
             with tempfile.TemporaryDirectory() as tmp:
                 run = write_run(Path(tmp), [result("BEN-CLEAN-0001")])
