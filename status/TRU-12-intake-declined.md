@@ -16,3 +16,17 @@ State: merged origin/main (noema#757) into the branch; red commit 5ab44918 pushe
 - Open questions (owner): the plan hash in the binding is unknown at T13 (the plan is built at T14, A230); the adapter must decide how the stored request is bound (EL).
 - Files to read first: `trust/intake/gates_t13_t15.go` (`t13`, `requestID`), `ports_t13_t15.go`.
 - Do not touch: `trust/recorder`, `/contracts`.
+
+# Session 2026-11-20 WAT · TRU-12 (intake declined, review fix A435)
+
+## Session summary
+- What changed (PR links): noema#755. A Declined answer ends T13 in REJECT DECLINED_BY_APPROVER and the REJECT is recorded once through Recorder.Record (no step, no plan hash, no confirmation event), Record first; a Recorder error, panic or malformed answer ends UNKNOWN INTERNAL_ERROR, never a REJECT. Result.DecisionID is set for that REJECT (A435, interim, relayed, not yet committed).
+- Why: A435: #755 owns the mapping and every decision is the Record's unit; the old "nothing is recorded" test is replaced.
+- Risks, and how they are contained: Recorder.Record is documented for the ALLOW candidate; the writer accepts any outcome with no steps, but the composition adapter must accept a REJECT with empty PlanHash (safer reading, listed in the PR body). Tests: trust/intake only; the DB tests run in CI.
+- Tests added (REQ-TRU-009, INV-16): TestT13DeclinedIsRejectDeclinedByApproverAndIsRecordedOnce, TestT13DeclinedThatCannotBeRecordedIsUnknownNeverReject.
+- Regression cases added: those two. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Recorder adapter in the composition must write a REJECT with no steps and an empty plan hash.
+- Open questions (EL): should Decide in portadapters/trust expose the REJECT's decision ID (it returns an ID only for ALLOW today)?
+- Files to read first: trust/intake/gates_t13_t15.go (recordDecline). Do not touch: trust/decide.

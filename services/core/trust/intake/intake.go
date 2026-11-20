@@ -21,7 +21,7 @@ type Service struct {
 type Result struct {
 	Decision decide.Decision
 	Trace    []decide.TraceEntry
-	// DecisionID and GrantIDs are set only for an ALLOW: the Decision Record that was written before the ALLOW was returned, and the grants issued with it (one per write
+	// DecisionID and GrantIDs are set for an ALLOW (and DecisionID alone for a REJECT of a declined approval, A435): the Decision Record that was written before the ALLOW was returned, and the grants issued with it (one per write
 	// plan step; none for a read).
 	DecisionID string
 	GrantIDs   []string
@@ -76,6 +76,9 @@ func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 	res := Result{Decision: d, Trace: trace}
 	if d.Outcome() == decide.Allow {
 		res.DecisionID, res.GrantIDs = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...)
+	}
+	if d.Outcome() == decide.Reject {
+		res.DecisionID = e.late.recorded.DecisionID // set only by a declined approval (T13), the one REJECT the Recorder wrote
 	}
 	if d.Outcome() == decide.Confirm {
 		res.ConfirmationRequestID = e.late.requestID

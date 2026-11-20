@@ -102,9 +102,34 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		if d, err = e.withBasis(d); err != nil {
 			return decide.FailStep(err)
 		}
+		// A435 (interim, relayed, not yet committed): the REJECT is a decision, so it is recorded, and first (PERD 32.4). If the Recorder fails nothing else happens and the
+		// evaluation ends in UNKNOWN, never in a REJECT the caller could take as recorded.
+		if err := e.recordDecline(ctx, d); err != nil {
+			return decide.FailStep(err)
+		}
 		return decide.Stop(d)
 	}
 	return decide.FailStep(errAnswer)
+}
+
+// recordDecline hands the REJECT DECLINED_BY_APPROVER to the Recorder: no step, no plan and no confirmation event, since a decline plans nothing and issues no grant. The answer must
+// be a decision ID and no grant.
+func (e *evaluation) recordDecline(ctx context.Context, d decide.Decision) error {
+	digest, err := e.bb.Digest()
+	if err != nil {
+		return err
+	}
+	a := e.intent
+	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+	if err != nil {
+		return err
+	}
+	if !decisionIDRe.MatchString(res.DecisionID) || len(res.GrantIDs) != 0 {
+		return errAnswer
+	}
+	e.late.recorded = RecordResult{DecisionID: res.DecisionID}
+	return nil
 }
 
 // requestID gives the id of the confirmation request a CONFIRM rests on. An open request (RequestID, no NewRequest) is named as it is and no second one is made. With a NewRequest
