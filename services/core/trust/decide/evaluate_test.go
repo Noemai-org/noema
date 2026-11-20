@@ -203,7 +203,7 @@ var permitted = map[decide.GateStep][]decide.Outcome{
 	decide.T10Reconciliation:    {decide.Escalate},
 	decide.T11Policy:            {decide.Reject, decide.Escalate, decide.Confirm, decide.Wait},
 	decide.T12Clocks:            {decide.Escalate},
-	decide.T13Confirmation:      {decide.Confirm},
+	decide.T13Confirmation:      {decide.Confirm, decide.Reject}, // SoT 43.2a: a DECLINE closes the decision as REJECT (the Founder's order of 19 Nov 2026, interim, relayed)
 	decide.T14Plan:              {},
 	decide.T15DecisionRecorded:  {decide.Allow},
 }
@@ -380,5 +380,25 @@ func TestEvaluateRefusesAnAllowOrConfirmWithoutABasis(t *testing.T) {
 		if d, _ := decide.Evaluate(context.Background(), version, s); d.Outcome() != c.outcome || !d.HasCompleteBasis() {
 			t.Errorf("%s at T%d with a basis: got %s, complete basis %v", c.outcome, c.step, d.Outcome(), d.HasCompleteBasis())
 		}
+	}
+}
+
+// SoT 43.2a (the Founder's order of 19 Nov 2026, interim, relayed): on DECLINE the decision closes as REJECT with reason DECLINED_BY_APPROVER, so T13 may end in REJECT. Any
+// other step that may not reject still ends UNKNOWN (the table tests above).
+func TestT13MayEndInRejectDeclinedByApprover(t *testing.T) {
+	reason, err := decide.Core("DECLINED_BY_APPROVER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := must(resolved().Reject(allPass, reason))
+	s := continueAll()
+	s[decide.T13Confirmation-1] = func(context.Context) decide.StepResult { return decide.Stop(d) }
+	got, trace := decide.Evaluate(context.Background(), version, s)
+	last := trace[len(trace)-1]
+	if got.Outcome() != decide.Reject || last.Step != decide.T13Confirmation || last.Result != decide.StepTerminal {
+		t.Fatalf("T13 REJECT: got %s, trace ends %+v", got.Outcome(), last)
+	}
+	if rs := got.Reasons(); len(rs) != 1 || rs[0].String() != "DECLINED_BY_APPROVER" {
+		t.Errorf("reasons %v, want DECLINED_BY_APPROVER", rs)
 	}
 }
