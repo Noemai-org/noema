@@ -96,3 +96,21 @@ All KILLED: raw payload hash used instead of the digest (6 tests: DB S1/S2/S3, D
 - Open questions (owner): flags 1 to 3, 5, 6 (Architect); flag 7 (EL, budget).
 - Files to read first: `services/core/evidence/snapshot/facts_digest.go`, `services/core/evidence/snapshot/content_hash.go`, `services/core/evidence/reconciler/reconciler.go` (`itemRows`, `Facts`), `services/core/orchestrator/portadapters/trust/evidence.go` (`contentHash`).
 - Do not touch: `record/payloadguard`; `migrations/README.md` (A145); `/contracts`; migration 0034 and earlier (A366); the pinned vectors without recomputing them with an independent implementation.
+
+---
+
+# Session 2026-11-20 · TRU-07 (review round: Codex P2 and P1 on noema#759)
+
+## Session summary
+- What changed (PR links): noema#759. Commit `TRU-07: T13 no longer maps Declined to REJECT here; noema#755 owns that mapping`: the intake and decide side of Declined -> REJECT `DECLINED_BY_APPROVER` (`t13Declined`, the T13 stop set {Confirm, Reject}, `t13_declined_test.go`) is removed from this PR, and Declined ends in UNKNOWN again as on main (the earlier test that pins it is restored). The Writer side stays: a REJECT is stored with the declined request in `recorder.Request.DeclinedRequestID` (recorder tests unchanged).
+- Why: Codex P2 at `2157d4c4`: the mapping was in two PRs (#755 and #759). A341 (committed) gives it to #755 ("noema#755: rebase on #757, keeping only the Declined to REJECT mapping"). Superseded: the earlier sentences of the sections above (and of `status/TRU-07-confirm-t13-rulings.md`) that say T13 records a Declined REJECT in this PR.
+- Differences #755 must settle (EL): this PR recorded the REJECT through the Recorder before returning it (record first, EC-E16) and its Result carried the declined request ID for `DeclinedRequestID`; #755's own test name says nothing is recorded at T13. Whichever PR carries the mapping must also pass the declined request's ID into `RecordRequest` so the Writer can store the state.
+- Codex P1 (authority): A365 and A366 rest on rulings relayed in session and on docs#211 (PERD v1.27, Proposed), which is open. Until docs#211 is approved and merged, the committed binding definition governs; this PR is gated on it (it stays a draft with that blocker, and the description says so). No code change answers a governance gate.
+- Tests added: none (a removal; the restored test pins Declined -> UNKNOWN). Regression cases added: none. Debt entries: none. Conflicts raised: none new.
+- Verification: `go build ./...`, `go vet ./trust/...`, `gofmt -l trust`, `go test -count=1 ./trust/...` all green; `python3 tools/lint/run.py` prints `lint OK`.
+
+## Pre-work for the next agent
+- Exact next step: when docs#211 merges, mark #759 ready again; when #755 merges, check that its Declined path passes `DeclinedRequestID`.
+- Open questions (owner): record-before-return of the declined REJECT (EL, Architect).
+- Files to read first: `services/core/trust/intake/gates_t13_t15.go`, `services/core/trust/recorder/inputkey.go`.
+- Do not touch: `record/payloadguard`, `migrations/README.md` (A145), migration 0034.
