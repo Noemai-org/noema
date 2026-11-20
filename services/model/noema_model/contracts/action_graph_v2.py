@@ -46,6 +46,16 @@ class ActionGraphV2NodesItemKind(StrEnum):
 ActionGraphV2NodesItemParamsItemConst: TypeAlias = Union[str, int, bool]
 
 
+class ActionGraphV2NodesItemParamsItemKind(StrEnum):
+    """A440 (interim, relayed): only with `slot`. The declared type of that slot of the intent node (intent-node.v1 slots[].type); packcheck requires equality. The planner refuses a resolved value of another kind. Source: action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/kind"""
+
+    RESOURCE = 'Resource'
+    QUANTITY = 'Quantity'
+    PARTY = 'Party'
+    TIMEREF = 'TimeRef'
+    REFERENCE = 'Reference'
+
+
 class ActionGraphV2NodesItemParamsItemMap(ContractModel):
     """ActionGraphV2NodesItemParamsItemMap Source: action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/map"""
 
@@ -65,6 +75,8 @@ class ActionGraphV2NodesItemParamsItem(ContractModel):
     fact: CommonV1SlotName | None = Field(default=None)
     policy_param: CommonV1SlotName | None = Field(default=None)
     evidence_packet: Literal[True] | None = Field(default=None)
+    kind: ActionGraphV2NodesItemParamsItemKind | None = Field(default=None)
+    resource_kind: CommonV1PackId | None = Field(default=None)
 
 
 class ActionGraphV2NodesItem(ContractModel):

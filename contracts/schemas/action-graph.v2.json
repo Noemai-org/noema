@@ -83,7 +83,7 @@
             ]
           },
           "params": {
-            "description": "A369 (interim, relayed): where each param of this step comes from. Optional and additive; absent means no params. A param is its `name` and exactly one kind: `slot` (a resolved slot of the intent node), `const` (a literal), `map` (the slot `from` mapped through `values`, a closed table of pack values), `fact` (a named fact the plan evaluation supplies), `policy_param` (a param of the winning PERMIT rule) or `evidence_packet` (true: the evidence packet). packcheck holds them to the capability's input schema.",
+            "description": "A369 (interim, relayed): where each param of this step comes from. Optional and additive; absent means no params. A param is its `name` and exactly one kind: `slot` (a resolved slot of the intent node; A440, interim, relayed: `{slot, kind}`, where `kind` is REQUIRED and is the declared type of that slot, and for a Resource slot `resource_kind` is REQUIRED too and is the slot's own), `const` (a literal), `map` (the slot `from` mapped through `values`, a closed table of pack values), `fact` (a named fact the plan evaluation supplies), `policy_param` (a param of the winning PERMIT rule) or `evidence_packet` (true: the evidence packet). packcheck holds them to the capability's input schema and holds a slot param's kind and resource_kind to the node's slot.",
             "type": "array",
             "items": {
               "type": "object",
@@ -133,14 +133,86 @@
                 },
                 "evidence_packet": {
                   "const": true
+                },
+                "kind": {
+                  "description": "A440 (interim, relayed): only with `slot`. The declared type of that slot of the intent node (intent-node.v1 slots[].type); packcheck requires equality. The planner refuses a resolved value of another kind.",
+                  "type": "string",
+                  "enum": [
+                    "Resource",
+                    "Quantity",
+                    "Party",
+                    "TimeRef",
+                    "Reference"
+                  ]
+                },
+                "resource_kind": {
+                  "description": "A440: only with kind Resource. The slot's own resource_kind; packcheck requires equality.",
+                  "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
                 }
               },
               "required": [
                 "name"
               ],
               "minProperties": 2,
-              "maxProperties": 2,
-              "additionalProperties": false
+              "maxProperties": 4,
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "slot"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "kind"
+                    ],
+                    "propertyNames": {
+                      "enum": [
+                        "name",
+                        "slot",
+                        "kind",
+                        "resource_kind"
+                      ]
+                    },
+                    "if": {
+                      "properties": {
+                        "kind": {
+                          "const": "Resource"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "resource_kind"
+                      ]
+                    },
+                    "else": {
+                      "not": {
+                        "required": [
+                          "resource_kind"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "maxProperties": 2,
+                    "propertyNames": {
+                      "enum": [
+                        "name",
+                        "const",
+                        "map",
+                        "fact",
+                        "policy_param",
+                        "evidence_packet"
+                      ]
+                    }
+                  }
+                }
+              ]
             }
           }
         },

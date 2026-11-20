@@ -7,6 +7,7 @@
  "action-graph.v2/param_map_value_not_a_string.json": "type",
  "action-graph.v2/param_map_without_from.json": "required",
  "action-graph.v2/param_map_without_values.json": "required",
+ "action-graph.v2/param_slot_unknown_kind.json": "enum",
  "action-graph.v2/param_unknown_kind.json": "additionalProperties",
  "action-graph.v2/param_without_name.json": "required",
  "action-graph.v2/params_not_an_array.json": "type",

@@ -241,7 +241,7 @@ def check_write_when(pack: dict) -> list[Problem]:
 
 
 def check_graph_params(pack: dict, graphs: dict[str, dict], pack_dir: Path) -> list[Problem]:
-    """A369 (interim, relayed): a node that declares `params` declares exactly the inputs of its capability (every required input covered, no extra), once each; its slots and map keys
+    """A369 and A440 (interim, relayed): a slot param's `kind` equals the declared type of the slot and, for a Resource, its `resource_kind` equals the slot's. A node that declares `params` declares exactly the inputs of its capability (every required input covered, no extra), once each; its slots and map keys
     are the intent nodes' own, its map values are `case_reasons`, its facts are declared predicate variables and its policy params are carried by a PERMIT rule of the capability (and
     an owner_queue is in the routing allowlist). A node without `params` declares none (absent means no params)."""
     out: list[Problem] = []
@@ -270,6 +270,12 @@ def check_graph_params(pack: dict, graphs: dict[str, dict], pack_dir: Path) -> l
             for p in n["params"]:
                 if "slot" in p and p["slot"] not in slots:
                     out.append(("graph", f"{where}: param {p['name']!r}: {p['slot']!r} is not a slot of any intent node"))
+                elif "slot" in p:
+                    declared = slots[p["slot"]]
+                    if p.get("kind") != declared["type"]:
+                        out.append(("graph", f"{where}: param {p['name']!r}: kind {p.get('kind')!r} is not the type of slot {p['slot']!r} ({declared['type']!r})"))
+                    elif p.get("resource_kind") != declared.get("resource_kind"):
+                        out.append(("graph", f"{where}: param {p['name']!r}: resource_kind {p.get('resource_kind')!r} is not the resource_kind of slot {p['slot']!r} ({declared.get('resource_kind')!r})"))
                 if "map" in p:
                     m = p["map"]
                     if m["from"] not in slots:

@@ -151,9 +151,11 @@ type ActionGraphV2NodesItemParamsItem struct {
 	Fact           *CommonV1SlotName                     `json:"fact,omitempty"`
 	PolicyParam    *CommonV1SlotName                     `json:"policy_param,omitempty"`
 	EvidencePacket *bool                                 `json:"evidence_packet,omitempty"`
+	Kind           *ActionGraphV2NodesItemParamsItemKind `json:"kind,omitempty"`
+	ResourceKind   *CommonV1PackId                       `json:"resource_kind,omitempty"`
 }
 
-var ActionGraphV2NodesItemParamsItemShape = objectShape{name: "ActionGraphV2NodesItemParamsItem", props: map[string]bool{"name": true, "slot": true, "const": true, "map": true, "fact": true, "policy_param": true, "evidence_packet": true}, required: []string{"name"}, nonNull: map[string]bool{"name": true, "slot": true, "map": true, "fact": true, "policy_param": true, "evidence_packet": true}, closed: true}
+var ActionGraphV2NodesItemParamsItemShape = objectShape{name: "ActionGraphV2NodesItemParamsItem", props: map[string]bool{"name": true, "slot": true, "const": true, "map": true, "fact": true, "policy_param": true, "evidence_packet": true, "kind": true, "resource_kind": true}, required: []string{"name"}, nonNull: map[string]bool{"name": true, "slot": true, "map": true, "fact": true, "policy_param": true, "evidence_packet": true, "kind": true, "resource_kind": true}, closed: true}
 
 func (t *ActionGraphV2NodesItemParamsItem) UnmarshalJSON(b []byte) error {
 	raw, err := ActionGraphV2NodesItemParamsItemShape.check(b)
@@ -203,6 +205,31 @@ func (u *ActionGraphV2NodesItemParamsItemConst) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItemConst: matches none of its alternatives")
+}
+
+// ActionGraphV2NodesItemParamsItemKind is generated from action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/kind.
+// A440 (interim, relayed): only with `slot`. The declared type of that slot of the intent node (intent-node.v1 slots[].type); packcheck requires equality. The planner refuses a resolved value of another kind.
+type ActionGraphV2NodesItemParamsItemKind string
+
+const (
+	ActionGraphV2NodesItemParamsItemKindResource  ActionGraphV2NodesItemParamsItemKind = "Resource"
+	ActionGraphV2NodesItemParamsItemKindQuantity  ActionGraphV2NodesItemParamsItemKind = "Quantity"
+	ActionGraphV2NodesItemParamsItemKindParty     ActionGraphV2NodesItemParamsItemKind = "Party"
+	ActionGraphV2NodesItemParamsItemKindTimeRef   ActionGraphV2NodesItemParamsItemKind = "TimeRef"
+	ActionGraphV2NodesItemParamsItemKindReference ActionGraphV2NodesItemParamsItemKind = "Reference"
+)
+
+func (e *ActionGraphV2NodesItemParamsItemKind) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItemKind: %w", err)
+	}
+	switch v := ActionGraphV2NodesItemParamsItemKind(s); v {
+	case ActionGraphV2NodesItemParamsItemKindResource, ActionGraphV2NodesItemParamsItemKindQuantity, ActionGraphV2NodesItemParamsItemKindParty, ActionGraphV2NodesItemParamsItemKindTimeRef, ActionGraphV2NodesItemParamsItemKindReference:
+		*e = v
+		return nil
+	}
+	return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItemKind: %q is not one of its values", s)
 }
 
 // ActionGraphV2NodesItemParamsItemMap is generated from action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/map.

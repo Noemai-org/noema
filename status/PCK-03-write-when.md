@@ -18,3 +18,20 @@ Updated 2026-11-19. Open: noema#765 (Tier 1: contract, loader).
 - Open questions (Founders): the `case_reasons` code names; params of `log_complaint_reference` (g3) are not declared.
 - Files to read first: `contracts/README.md` (last section), `tools/packcheck/checks.py` (`check_write_when`, `check_graph_params`).
 - Do not touch: `contracts/schemas/action-graph.v1.json` (hash-pinned).
+
+# Session 2026-11-20 WAT · PCK-03 (review fix, A440)
+
+## Session summary
+- What changed (PR links): noema#765. A slot param is `{name, slot, kind}` (kind REQUIRED, the slot's declared type) and, for a Resource, `resource_kind` too; schema, fixtures, generated models, g2 graph and packcheck rule (A440, interim, relayed, not yet committed).
+- Why: the Founders' ruling A440; the planner refuses a resolved value of another kind.
+- Risks, and how they are contained: kind REQUIRED (safer reading, packs are data); `Enum` is not a slot type in intent-node.v1 so the kind enum has five values; `resource_kind` is an added member (the ruling names it for Resource without a place).
+- Tests added (REQ-AG-001, INV-02, INV-18): `test_action_graph_params.py`, `test_packcheck.py` (GraphParams), bad packs graph_30 to graph_34, `action-graph.v2` fixtures.
+- Regression cases added: the bad packs above.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the plan-graph adapter (noema#762) reads `kind` and `resource_kind` and refuses a resolved slot value of another kind.
+- Open questions (Founders): is `resource_kind` on the param the intended place, or should the planner read it from the node slot?
+- Files to read first: `contracts/README.md` (last section), `tools/packcheck/checks.py` (`check_graph_params`).
+- Do not touch: `contracts/schemas/action-graph.v1.json` (hash-pinned).
