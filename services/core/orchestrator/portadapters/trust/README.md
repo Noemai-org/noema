@@ -35,6 +35,20 @@ The adapters between the orchestrator and Trust (package `trustport`). Each adap
 
 **Tests.** `go test ./orchestrator/portadapters/trust/` from `services/core/`. `evidence_test.go` needs no database (a fake reader, a recording transaction). `evidence_db_test.go` needs PostgreSQL (`NOEMA_TEST_DATABASE_URL`, or a local server). Every helper of the Evidence tests starts with `evd` so that the other adapters' tests cannot collide with it.
 
+## Intents: the capability an intent asks for (A370, TRU-02)
+
+`StoredIntents.Get` sets `intake.AdmittedIntent.RequestedCapability`: the value of the node's capability slot, read from the stored document with the pack. The slot is the one the pack declares as a Reference with `references: capability` (the core names no slot, INV-14). None present, or one that says ABSENT, is empty; a slot that is present and cannot be read as one capability (not a Reference, an empty or non-string value, a status that is not RESOLVED or ABSENT) is `ErrStoredIntent`, never "none"; the same value in two slots is that value, two different values are `ErrStoredIntent`. Whether the capability is registered or prohibited is T4's question (`trustpack.Capabilities.Requested`). `Verify` compares the field with the stored one. Tests: `intents_capability_test.go` (real PostgreSQL).
+
+## Recorder (the intake's T15 write; TRU-12)
+
+`RecorderAdapter` implements `intake.Recorder`: it writes the Decision Record, the grants and their events with `recorder.Writer` in one transaction it opens and commits. REQ-TRU-009, REQ-AUD-001; INV-03, INV-16, INV-17; EC-E16.
+
+`SealedFacts` is the production `RecordFactSource`. It reads the evidence set hash from the SEALED SNAPSHOT of the evaluation (the snapshot named in the evaluation's own basis, read as the request's tenant through `SnapshotReader`), re-checks it is intact and of the evaluation's own correlation (equal, else `ErrSnapshotNotIntact`), takes the policy from the manifest-verified pack passed in (it must be a policy the evaluation used) and asks a `StepFactSource` for each step's target versions and freeze permission. A `RecordRequest` has no field that can set the evidence hash or a target version, and a test fails if one is added.
+
+The confirmation spend is the writer's and the database's, not a second path in this adapter: the adapter only passes the confirmation event and plan hash on, and `recorder.Writer` and the database's single-use constraint spend it (INV-17).
+
+**Open.** The production `StepFactSource` (target versions and the `reconcile.FreezeGate` permission per step) is not in this package: the sealed snapshot holds no version token, so it needs a source that is another lane's (T9 to T11).
+
 ## Writes (the intake's T3; STM-01 follow-up, ruling A342 relayed, not committed)
 
 `Writes` implements `intake.Writes`. REQ-TRU-002, REQ-NFR-002; INV-01, INV-14. Built from two parts, each behind a consumer-side interface.
