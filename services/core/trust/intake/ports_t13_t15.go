@@ -29,12 +29,13 @@ const (
 	ConfirmationDeclined
 )
 
-// FreshBinding is the two values of the confirmation binding (confirm.BindingInput, SoT 43.2a) that only the fresh evaluation knows: the hash of the sealed evidence set it
-// read at T9 and the policy it was decided under at T11. The adapter recomputes the binding of a Given answer from the other six values of the stored request and these two,
+// FreshBinding is the two values of the confirmation binding (confirm.BindingInput, SoT 43.2a) that only the fresh evaluation knows: the content digest of the evidence it
+// read at T9 (the binding's evidence_set_hash, A435) and the policy it was decided under at T11. The adapter recomputes the binding of a Given answer from the other six values of the stored request and these two,
 // so an ACCEPT given for other evidence or another policy never resolves to this evaluation (INV-25). An adapter must refuse (return an error for) a Given answer when
 // either value is empty. Trust passes what it knows and fails nothing on an empty value in this version.
 type FreshBinding struct {
-	// ConfirmationBindingEvidenceHash is the evidence value of the binding, the CONTENT hash of the sealed snapshot T9 read (A365; the contract's field is still named evidence_set_hash), in its Hash form; empty when the Evidence port did not give it.
+	// ConfirmationBindingEvidenceHash is the evidence value of the binding, the CONTENT digest T9 kept (SnapshotEvidence.ConfirmationBindingEvidenceHash: A365, A435; the contract's field is still
+	// named evidence_set_hash), in its Hash form; empty when the Evidence port did not give it. It is not the snapshot's set hash.
 	ConfirmationBindingEvidenceHash string
 	// PolicyVersion is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341, A367): "sha256:" and the lower-case SHA-256 hex of the RFC 8785
 	// form of the sorted, distinct JSON array of their "policy_id@version" strings, for one policy version as for many. Empty when none took part or one cannot be bound. It is the
@@ -125,7 +126,9 @@ type RecordRequest struct {
 	ConfirmationEventID string // empty when no confirmation was required
 	// ConfirmationPlanHash is the plan hash that confirmation was given for (A230), empty with no confirmation; the writer refuses an ALLOW whose steps carry another.
 	ConfirmationPlanHash string
-	// ConfirmationBindingEvidenceHash is the evidence component of the binding of the confirmation an ALLOW follows (A435).
+	// ConfirmationBindingEvidenceHash is the evidence component of the binding of the confirmation an ALLOW follows (A435): the content digest T9 kept, which the Recorder needs to
+	// recompute the binding of that confirmation. It is NOT the grant's evidence_set_hash (the snapshot's set hash, which the adapter takes from the snapshot): the grant never carries
+	// it. Empty for an ALLOW that follows no confirmation and for every other decision.
 	ConfirmationBindingEvidenceHash string
 	// ConfirmationRequest is set only on a CONFIRM decision that creates the confirmation request (T13, Pending with a NewRequest): the eight bound values, the approver
 	// requirement, the requester and the expiry. The Recorder mints the request ID and computes the binding hash itself (SoT 43.2a); a CONFIRM that names an already open

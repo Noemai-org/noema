@@ -143,8 +143,8 @@ func (e *evaluation) t13Confirm(ctx context.Context, c Confirmation) decide.Step
 	return decide.Stop(d)
 }
 
-// newRequest builds the confirmation request T13 is asked to create (SoT 43.2a). The eight bound values: the principal and the intent hash of the admitted intent, the evidence set
-// hash and the policy version of the fresh evaluation (both must be present and well formed), and the capability, target, parameters hash and plan hash of the one write step of
+// newRequest builds the confirmation request T13 is asked to create (SoT 43.2a). The eight bound values: the principal and the intent hash of the admitted intent, the evidence content
+// digest (A435) and the policy version of the fresh evaluation (both must be present and well formed), and the capability, target, parameters hash and plan hash of the one write step of
 // the plan, which T13 asks the Planner for because T14 comes later. The expiry is the evaluation's clock reading plus the spec's TTL, the requester the intent's principal (INV-12);
 // the requirement and the TTL come from the adapter and Trust picks neither (AGENT-16). A value that is missing, malformed or outside the binding's character set is not a value:
 // the evaluation ends in UNKNOWN. A plan that is invalid, that does not agree with the earlier steps, or that does not have exactly one write step ends in UNKNOWN PLAN_INVALID,
@@ -176,7 +176,7 @@ func (e *evaluation) newRequest(ctx context.Context, spec RequestSpec) (NewConfi
 		ExpiresAt: e.now + int64(spec.TTL/time.Second)}, nil, nil
 }
 
-// freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence set hash T9 read and the policy version T11 used. The policy
+// freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence content digest T9 kept (A435) and the policy version T11 used. The policy
 // version is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341, A367): "sha256:" and a hash, whether one policy took part or several. It
 // is empty when none did, or when one cannot be bound; empty values are passed on as empty and T13 refuses a Given answer for them.
 func (e *evaluation) freshBinding() FreshBinding {
@@ -322,9 +322,13 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	for i, s := range plan.Steps {
 		steps = append(steps, RecordStep{PlanStep: int64(i), CapabilityID: s.CapabilityID, TargetRef: s.TargetRef, ParamsHash: s.ParamsHash})
 	}
+	var bindingEvidence string // the evidence component of the binding the confirmation was given for (A435): only an ALLOW that follows one names it
+	if e.late.confirmationID != "" {
+		bindingEvidence = e.confirmationBindingEvidenceHash
+	}
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
 		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
-		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash})
+		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash, ConfirmationBindingEvidenceHash: bindingEvidence})
 	if err != nil {
 		return decide.FailStep(err)
 	}
