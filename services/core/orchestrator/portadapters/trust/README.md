@@ -44,3 +44,16 @@ The adapters between the orchestrator and Trust (package `trustport`). Each adap
 The confirmation spend is the writer's and the database's, not a second path in this adapter: the adapter only passes the confirmation event and plan hash on, and `recorder.Writer` and the database's single-use constraint spend it (INV-17).
 
 **Open.** The production `StepFactSource` (target versions and the `reconcile.FreezeGate` permission per step) is not in this package: the sealed snapshot holds no version token, so it needs a source that is another lane's (T9 to T11).
+
+## Writes (the intake's T3; STM-01 follow-up, ruling A342 relayed, not committed)
+
+`Writes` implements `intake.Writes`. REQ-TRU-002, REQ-NFR-002; INV-01, INV-14. Built from two parts, each behind a consumer-side interface.
+
+| Question | Source | Answer |
+|---|---|---|
+| `Enabled(tenant)` | `WritesSwitch`, the `*KillSwitch` of `NewKillSwitch` (the tenant's `tenant.kill_switch`, read as the tenant's own `trust_rw` login) | true only when the switch says true without an error; any error is false with that error |
+| `NeedsWrite(intent)` | `WriteRule.MayWrite(intent node)`, the pack's answer as data (never a literal in core, INV-14) | the rule's answer; no node, no answer (`ErrNoWriteAnswer`), a failing rule and a done context are false with an error |
+
+`NewWrites(sw, rule)` is `ErrConfig` without either part. **The pack rule is not built:** the pack and the `intent-node` contract carry no field that classifies a node as read or write (`status/STM-01-writes-adapter.md` names the change needed). Until it exists `cmd/core` cannot build `Writes`, and the intake is not composed.
+
+**Tests.** `writes_test.go`; `Enabled` runs on real PostgreSQL, `NeedsWrite` on a table-backed `WriteRule` double (a data double of the consumer-side port, not a failure mode).

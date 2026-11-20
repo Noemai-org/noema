@@ -13,9 +13,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 # A359: the failure class of every call, a closed vocabulary. The first five are the model service's `ProviderFailure` names (services/model/noema_model/providers/llm/base.py; a test compares them when
-# that package is importable); OK is a 2xx reply that is a JSON object; NO_STATUS is a call with no HTTP status and no failure label the transport named.
-FAILURE_CLASSES = ("OK", "REJECTED", "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "MALFORMED", "NO_STATUS")
-_TRANSPORT_LABELS = frozenset({"REJECTED", "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "MALFORMED"})
+# that package is importable); OK is a 2xx reply that is a JSON object; NO_STATUS is a call with no HTTP status and no failure label the transport named; POOL_REFUSED (A372) is a call the model
+# service's own full worker pool refused (`ProviderError.local`): nothing was sent, so it says nothing of the provider's health and is told apart from an outage.
+FAILURE_CLASSES = ("OK", "REJECTED", "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "MALFORMED", "NO_STATUS", "POOL_REFUSED")
+_TRANSPORT_LABELS = frozenset({"REJECTED", "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "MALFORMED", "POOL_REFUSED"})
 # The only three members read from a provider's error object (A359), each only when it is a short plain identifier. The pattern is the safest reading of "a param such as text.format.schema survives":
 # ASCII letters, digits, underscore, dot and square brackets, starting with a letter, 64 characters at most: no space, quote, newline, hyphen (so no `sk-` key) or slash. Then three more refusals:
 # five or more digits anywhere (the leak rule, REQ-SEC-003), a run of more than 32 letters or digits (a token, not a name) and a key prefix.
