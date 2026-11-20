@@ -77,3 +77,45 @@ All killed: the principal check dropped; the tenant bound dropped (the store of 
 - Open questions (owner): questions 2 to 5 above are unchanged.
 - Files to read first: `cmd/core/wire_investigations.go`, `wire_investigations_timeout_test.go`.
 - Do not touch: `deploy/**`; the package of noema#710.
+
+# Session 2026-11-19 · STM-01 (batch A341 to A357, item 10: the audit route and /readyz)
+
+Branch `prep/r10-wire`, from `origin/main` at `8e2f8e89` (noema#715 and noema#744 merged). Nothing is pushed; no PR is open. The ruling is relayed and interim, and its only text I had is "wire_investigations audit route and /readyz"; the reading below is from the code and the committed documents.
+
+## Session summary
+- What changed (PR links): none yet; two local commits (red, then green).
+  - `/readyz` and `compose` now name **every** component the process has not built, in one fixed order, and are green exactly when none is missing. `missing()` returns the names (it returned the first), from a table of one line per component; the reason is `not configured: a, b, c` (it was `a is not configured`). The input gateway is now a component: `Components.Gateway == nil` is named `input gateway`, so readiness cannot turn green with `POST /v1/conversations` unmounted. The body carries the names and nothing else.
+  - `compose.go` lines touched (EL's file): the `strings` import; one comment sentence at the top; `missing` rewritten as the table (one line per component) with the new `notConfigured`; the two callers, `compose` and `composeReadiness`, one line each. `main.go`: one comment only (the stale "names the first one missing"). `compose_test.go`: `full()` gains `Gateway: &inputgateway.Gateway{}` and its import. No assertion of an existing test was changed or weakened.
+  - A test that the investigation route asks the reader as the session's tenant and principal and ignores any a request names (query, header): `investigation_identity_test.go`. It passes on the code as it was; it exists because a hand mutant (a query-supplied tenant accepted) survived every existing test.
+- Why: the order of 19 Nov (item 10), AGENT-16 and AGENT-21 in spirit (a readiness that hides a missing part is a claim without evidence), REQ-API-004.
+- Risks, and how they are contained: (1) `/readyz` text changed from `x is not configured` to `not configured: x`; nothing in the repository parses it (searched the whole tree, `.github` included, for `readyz`); the smoke mode A317 asks of the stack workflow is not in the repository yet, and it should check the status code, not this text. (2) `missing()` now names `input gateway`, which A317 gave to EL's `wire_gateway.go` ("`/readyz` naming the gateway"): done here because the order says every component; if EL's PR adds the same line the merge is one line. (3) A parallel lane that adds a field to `Components` without a line in `missing()` now fails `TestEveryComponentFieldHasAReadinessName`: intended.
+- Tests added (REQ-API-004, REQ-STM-001, REQ-SEC-004, INV-12): `wire_readiness_test.go` (6 tests: every field has a name; nothing built names all ten in order, three asks; full composition green, then each component removed one at a time names exactly that one and `compose` refuses naming it; several missing in order; the production build's `/readyz` body names what is unbuilt, not what is built, and carries no password, DSN, key file name or directory; 200 only for a full composition), `investigation_identity_test.go` (1 test).
+- Regression cases added: the same tests. Debt entries: none. Conflicts raised: two, below.
+
+## What is NOT wired, and why
+
+1. **The audit-facing investigation read: STOPPED, nothing built.** PERD 39.4 lists `GET /v1/investigations/{id}/panel` (roles ops, audit; "Evidence panel data (POC-FR-17)") and nothing else. It exists in the repository only as a row of the authorization matrix (`edge/authz_matrix_test.go`, with a fake handler) and in the edge's refusal test. There is **no** handler, no port, no route constant, no schema in `/contracts` (searched every schema; the only panel text is `ui/inspector/README.md`), no response shape and no tenant rule in the PERD, the SoT or any decision record. POC-FR-17 lists what the panel shows (Intent Object, candidates, evidence, reconstructed state, decision, plan, receipt, verdict, Record chain); the plan row UI-03 lists the same and says "masked". A route needs a contract first (AGENT-15) and the shape is the Architect's. **Missing, exactly:** (a) the response contract (a `panel.v1` schema or a ruling that it is `reconstruction.v3`, which A244 and A258 scope to "the operator and auditor UI"); (b) which store or Record read produces it (the orchestrator investigation store holds the state and the principal only); (c) the not-found versus forbidden rule for an auditor over an investigation of another tenant (the existing reconstruction handler's rule is the one not-found shape; the panel's is not written); (d) whether `ops` stays in the role set (see the conflict below). The customer route `GET /v1/investigations/{id}` stays customer-only (A243), and the audit role gets the edge's 404 there (tested: `TestTheProductionBuildRefusesOtherRolesAndNoSession`).
+2. **The audit read that does exist is the reconstruction route**, `GET /v1/reconstructions/{correlation_id}`, mounted in the production build whenever the Record reader is configured (`apiRoutes`, `compose.go`). It reads through the per-tenant Record logins and takes the tenant and the principal from the session only. It was not changed.
+3. **Route mounts in `wire_investigations.go` (A313: "the reader adapter plus the route mounts").** Both mounts are still in `apiRoutes` in `compose.go`. Moving them is a pure refactor of EL's function; not done, because it was not asked in terms and A313's text on the move is interim. One function `investigationRoutes(c, ids)` in `wire_investigations.go` called from `apiRoutes` would do it.
+
+## CONFLICT DETECTED (not resolved here; raised for EL and the Architect)
+
+```
+CONFLICT DETECTED
+Affected IDs: PERD 39.4, A110 (DEC-2026-11-08-perd-39-4-control-plane-callers), A20, REQ-AUD-003, INV-12, SoT 0.4
+Statements in conflict: "`reconstructions` and `record/verify` are `audit`; `ops` has no path to them." and "Any later widening needs a new decision record that names the class and the tenant rule" (A110, Decided by the Founders, 8 Nov 2026) vs `var rolesOpsAndAudit = []session.Role{session.RoleOps, session.RoleAudit}` mounted for `reconstruct.Route` in `apiRoutes` (compose.go, since EDG-01 slice 3c), with `reconstruct.mayRead` accepting the ops role and tests (`api_test.go`, `wire_investigations_test.go`) asserting that ops reaches the handler
+Evidence: edge/authz_matrix_test.go row 4 lists the route as audit only; compose.go mounts ops and audit; no later decision record widens it (searched docs/decisions on origin/main at d9eaf96)
+Proposed alternatives: (1) narrow the production mount and the handler's `mayRead` to audit (the committed decision); blast radius: `compose.go` role list, `reconstruct` handler, the tests that assert ops reaches it (they would change). (2) a decision record that widens to ops with the tenant rule, and the matrix row changes with it. 
+Safer reading applied meanwhile (AGENT-20): none applied; narrowing would change existing assertions and EL's file. The code is as it was.
+Decision required from: Architect or founders
+```
+
+## Mutants (hand-applied to the green code, the named tests run, source restored after each)
+
+Readiness, all killed: a component always built (trust; the edge chain); the wrong name on a component (explainer named evidence); the gateway line deleted; two names swapped in the order; only the first name returned; the reason carrying an environment value; the recorder test inverted. Route and reader (existing code, re-run): the audit role added to the customer investigation route (killed); the reconstruction route reachable by the approver (killed); the reader serving another principal (killed); the reader using another tenant's store (killed); **a tenant taken from the query string (survived every existing test; killed now by `TestTheInvestigationRouteIgnoresATenantOrPrincipalTheRequestNames`)**.
+
+## Pre-work for the next agent
+- Exact next step: the Architect rules on the panel contract (item 1) and on the conflict above; then the reader goes behind a port in `wire_investigations.go` (read through `orchestratorRecorder.For`, as the customer reader does) and the route is added to `apiRoutes` with its row in the route-table test.
+- Open questions (owner): panel contract, store read, not-found rule, role set (Architect); whether the route mounts move into `wire_investigations.go` now (EL); whether `input gateway` is named by EL's `wire_gateway.go` or by this change (EL).
+- Files to read first: `cmd/core/compose.go` (`missing`), `wire_readiness_test.go`.
+- Do not touch: `deploy/**`; the package of noema#710.

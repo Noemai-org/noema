@@ -13,6 +13,8 @@ The fintech pack's Enterprise Action Graph (PERD §24): pack data, validated by 
 
 **Postconditions of the two lookups (PCK-04, ruling D6 of 5 Nov 2026).** `lookup_beneficiary` has `exists(beneficiary where beneficiary.transaction == subject_resource)`, typed against a `beneficiary` descriptor on `fin.src.beneficiary` (authoritative for `beneficiary_list_and_aliases`). `lookup_account` has an ownership-only postcondition, `exists(account where account.owner == principal_id)`, typed against an `account` descriptor on `fin.src.customer` (authoritative for `customer_identity_and_ownership`). `principal_id` is a predicate variable the evaluator must bind from the authenticated session (INV-12); nothing binds it yet.
 
+**Edges and runnability (A377 ruling 10, interim, relayed, not yet committed).** An edge `{node_id, depends_on, condition}` says `node_id` waits on `depends_on`. `condition` is a predicate in the pack predicate language (Boolean, type-checked by packcheck against the pack's descriptors and variables); `null` means unconditional. A node is runnable when its preconditions hold, AND every `depends_on` node's postconditions hold on verified facts, AND every edge condition into it holds. A completed node whose postconditions do not hold on verified facts does not release its dependants.
+
 **Known gap.** There is no postcondition on an account's balance or state: no source in the pack covers them, and `fin.src.core_ledger` is authoritative only for `debit_posted_or_reversed`. It is an open gap, recorded for a request to Tushe and a Tier 1 debt row (the Repo Steward files them), not a closed one.
 
 Created by T1 of DEC-2026-10-20.

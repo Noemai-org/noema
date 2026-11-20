@@ -135,6 +135,10 @@
       },
       "uniqueItems": true
     },
+    "write_when": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate",
+      "description": "A364 (interim, relayed): a predicate in the pack's predicate language over this node's slots, evaluated on the admitted intent's resolved slots (an absent slot is null). True means the intent needs write evaluation. Optional; absent means it never does. packcheck checks that it parses, is Boolean and uses only this node's slot names; an unevaluable one is an error at run time, never a silent false."
+    },
     "examples": {
       "type": "array",
       "items": {
