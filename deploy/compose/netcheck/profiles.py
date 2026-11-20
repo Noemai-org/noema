@@ -254,7 +254,7 @@ def check(cfg, profile):
             # every three seconds: five-digit ports are digit runs, so a clean run would fail its own scan (Codex P1 on noema#591).
             bad.append(f"{profile}: the model's uvicorn must run with --no-access-log (its access log carries the client port, a digit run the leak scan would report)")
         for flag in ("privileged", "cap_add", "devices"):
-            if svc.get(flag):
+            if svc.get(flag) and not (flag == "cap_add" and name == TRUST_DSN_INIT):  # the one-shot adds exactly four, checked by its own rule below
                 bad.append(f"{profile}: {name} sets {flag}")
         for flag in ("pid", "ipc", "userns_mode"):
             if svc.get(flag) == "host":
@@ -334,6 +334,8 @@ def check(cfg, profile):
         if dsn_mounts and name not in ("core", TRUST_DSN_INIT):
             bad.append(f"{profile}: {name} mounts the {TRUST_DSN_VOLUME} volume; only the core (read-only) and {TRUST_DSN_INIT} may (INV-29, A356)")
         if name == TRUST_DSN_INIT:
+            if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "FOWNER", "SETGID", "SETUID"]:
+                bad.append(f"{profile}: {TRUST_DSN_INIT} must drop ALL capabilities and add back only CHOWN, FOWNER, SETUID and SETGID (SR on noema#790)")
             if set(held) != {TENANT_LOGIN_SECRET}:
                 bad.append(f"{profile}: {TRUST_DSN_INIT} must hold the secret {TENANT_LOGIN_SECRET} and nothing else (A356)")
             if len([v for v in dsn_mounts if not v.get("read_only")]) != 1:
@@ -542,6 +544,9 @@ def self_test(configs):
         "the bench core holds the tenant login password": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "noema_tenant_login_password", "target": "x"})),
         "the bench model mounts trust_dsns": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "trust_dsns", "target": "/x", "read_only": True})),
         "trust-dsn-init also holds the core password": ("bench", lambda c: c["services"]["trust-dsn-init"]["secrets"].append({"source": "noema_core_password", "target": "x"})),
+        "trust-dsn-init keeps every capability": ("bench", lambda c: c["services"]["trust-dsn-init"].pop("cap_drop")),
+        "trust-dsn-init adds a capability it does not need": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].append("DAC_OVERRIDE")),
+        "trust-dsn-init loses a capability it needs": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].remove("SETGID")),
         "trust-dsn-init is dropped": ("bench", lambda c: c["services"].pop("trust-dsn-init")),
         "the bench core's store timeout changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_STORE_TIMEOUT_MS": "5000"})),
         "the bench core loses a settings-table value": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_DB_SERIALIZATION_ATTEMPTS")),
@@ -554,6 +559,8 @@ def self_test(configs):
     }
     missed = []
     overlay_text = (COMPOSE_FILE.parent / INTRON_OVERLAY).read_text(encoding="utf-8")
+    if intron_overlay_text_problems("") == [] or intron_overlay_text_problems("services: {}") == []:
+        missed.append("the overlay text rule passes on no input or on a file without the key (it must fail)")
     for label, mutant in {"the overlay drops create_host_path": overlay_text.replace("create_host_path: false", "create_host_path: true"),
                           "the overlay has create_host_path only in a comment": overlay_text.replace("bind:" + chr(10) + "          create_host_path: false", "# bind:" + chr(10) + "          # create_host_path: false")}.items():
         if mutant == overlay_text or not intron_overlay_text_problems(mutant):

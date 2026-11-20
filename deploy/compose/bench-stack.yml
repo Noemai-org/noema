@@ -74,6 +74,9 @@ services:
     restart: "no"
     read_only: true
     security_opt: ["no-new-privileges:true"]
+    # Only what the step does: CHOWN and FOWNER (give the file to the core's user, then set its mode after it is no longer the step's own), SETUID and SETGID (read each file back as that user).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
     environment:
       TRUST_DSN_SRC: /run/secrets
       TRUST_DSN_OUT: /out

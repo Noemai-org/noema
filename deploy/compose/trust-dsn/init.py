@@ -43,6 +43,7 @@ def read_as(path: str, uid: int, gid: int) -> bytes | None:
         try:
             os.close(r)
             if os.geteuid() == 0:
+                os.setgroups([])  # no supplementary group of root's comes with the check
                 os.setgid(gid)
                 os.setuid(uid)
             with open(path, "rb") as f:
