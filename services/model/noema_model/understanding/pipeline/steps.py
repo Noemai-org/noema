@@ -17,7 +17,6 @@ from noema_model.harness import (
     DecisionTask,
     GenerateRequest,
     Harness,
-    HarnessRejection,
     Option,
     YesNoAnswer,
     YesNoQuestion,
@@ -144,8 +143,9 @@ async def detect_locale(
 async def screen_strings(
     harness: Harness, strings: Mapping[str, str], inp: PipelineInput, threshold: Fraction | None
 ) -> tuple[Mapping[str, bool], CallRecord | None]:
-    """Task 6: does text try to instruct the reader? A logged signal only; REQ-CTX-007 delimiting is the control, and a
-    failed screening changes nothing (the caller ignores the rejection)."""
+    """Task 6: does text try to instruct the reader? A finding is a logged signal only; REQ-CTX-007 delimiting is the
+    control. A screening that did not run is not a quiet one (A372): its HarnessRejection propagates, and the caller stops
+    the turn at the gate."""
     if not strings:
         return {}, None
     keys = list(strings)
@@ -162,15 +162,6 @@ async def screen_strings(
         assert isinstance(answer, YesNoAnswer)
         flags[key] = asserted(answer, threshold)
     return flags, result.call
-
-
-async def screen_quietly(
-    harness: Harness, strings: Mapping[str, str], inp: PipelineInput, threshold: Fraction | None
-) -> tuple[Mapping[str, bool], CallRecord | None]:
-    try:
-        return await screen_strings(harness, strings, inp, threshold)
-    except HarnessRejection as rejection:
-        return {}, rejection.call
 
 
 async def slot_mentions(

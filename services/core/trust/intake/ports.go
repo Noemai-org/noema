@@ -43,7 +43,10 @@ type AdmittedIntent struct {
 	// TargetRef is the target the stored intent names, resolved by the adapter from the intent store (never from the request): the target T8 checks the principal owns and the
 	// only target a plan step may act on. Empty for an intent that names none.
 	TargetRef string
-	View      decide.IntentView
+	// RequestedCapability is the capability the stored intent asks for (A370): the value of the node's capability Reference slot, read by the adapter from the stored document and the pack,
+	// never from the request. Empty for an intent that asks for none. T4 and the authorized set read it; Verify holds it to the stored one.
+	RequestedCapability string
+	View                decide.IntentView
 }
 
 // Intents reads admitted intents. Get returns ErrNotFound for an unknown intent and for another tenant's, the same answer for both.

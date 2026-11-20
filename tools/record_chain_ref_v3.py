@@ -131,6 +131,11 @@ def record_event_fixtures() -> tuple[dict[str, dict], dict[str, dict], dict[str,
     valid["principal_id_64_characters"] = one(actor="operator:" + "a" * 64)
     valid["payload_with_integers"] = one(payload={"n": [0, 1, -7, 9007199254740991, -9007199254740991]})
     valid["security_event"] = one("core-execution", event_type="SECURITY_EVENT", kind="IDEMPOTENCY_COLLISION", object_ref="grt_0001")
+    # PERD 32.2 (A114): kinds of SECURITY_EVENT, not event types. REQ-EXE-008: a clear is by a person on the control plane (C-ADMIN); a refused clear is written for an authenticated caller.
+    valid["security_event_kill_switch_cleared"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEARED", object_ref="ten_demo", actor="admin:usr_synth_014")
+    valid["security_event_kill_switch_clear_refused"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEAR_REFUSED", object_ref="ten_demo")
+    valid["security_event_confirmation_refused"] = one("core-edge", event_type="SECURITY_EVENT", kind="CONFIRMATION_REFUSED", object_ref="cnf_0001",
+                                                       actor="customer:usr_synth_014")
     for reason in VOID_REASONS:
         valid[f"grant_voided_{reason.lower()}"] = one("core-execution", event_type="GRANT_VOIDED", reason=reason, object_ref="grt_0001",
                                                       payload={"grant_id": "grt_0001", "reason": reason})
@@ -245,6 +250,16 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
         "reference_fact_with_sixteen_digits_after_the_colon": {"resolved_target": "fin.account:0123456789012345"},  # a bare account number with a prefix
         "unlisted_key_with_a_card_number_in_a_sentence": {"note": "card 4111 1111 1111 1111 expired"},
         "array_fact_item_with_a_card_number": {"counterparties": ["fin.transaction:TX8213", "4111-1111-1111-1111"]},
+        # Tightenings (A308, A317 to A328, interim): the information separators U+001C to U+001F join digits; ten digits joined by commas are refused; a minted ID is exactly
+        # `<prefix>_<ULID>`, and every other typed ID meets the five-digit rule (the Security Reviewer's case on noema#664: a letter at the end of a long digit string).
+        "text_fact_with_unit_separator_joined_digits": {"text": "the amount 1234\u001f5678 was held"},
+        "text_fact_with_ten_comma_joined_digits": {"text": "card 4111, 1111, 1111, 1111 expired"},
+        "minted_id_of_31_characters_ending_in_a_letter": {"object_id": "ab_" + "1" * 30 + "a"},
+        "typed_id_with_sixteen_digits_and_a_letter_at_the_end": {"payer_id": "ten_4111111111111111a"},
+        "minted_id_whose_first_ulid_character_is_8": {"object_id": "obj_81HX12345ABCDEFGHJKMNPQRST"},
+        "minted_id_with_a_letter_outside_the_ulid_alphabet": {"object_id": "obj_01HX12345ABCDEFGHJKMNPQRSI"},
+        "minted_id_in_lower_case": {"object_id": "obj_01hx12345abcdefghjkmnpqrst"},
+        "minted_id_of_26_digits": {"object_id": "obj_" + "01" * 13},
     }
     for name, facts in refused.items():
         invalid[name] = with_fact(**facts)
@@ -254,6 +269,8 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
         "reference_fact_with_digits_and_a_letter": {"resolved_target": "fin.transaction:TX88213"},  # five digits, but a reference with a letter in its body (A242)
         "text_fact_with_four_digits": {"text": "the amount ending 1234 was held"},
         "unlisted_key_with_a_sentence": {"note": "held for review"},
+        "text_fact_with_nine_comma_joined_digits": {"text": "the amount 123,456,789 was held"},  # nine digits: the limit is ten
+        "text_fact_with_a_comma_grouped_amount": {"text": "the amount 20,000,000 was held"},  # eight digits, commas end no run of five, and ten are not reached
     }
     for name, facts in accepted.items():
         valid[name] = with_fact(**facts)

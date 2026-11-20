@@ -1,0 +1,120 @@
+package trustpack
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/Noemai-org/noema/services/core/trust/intake"
+)
+
+// Capabilities implements intake.Capabilities over the pack: the registry answers whether a capability exists and is prohibited, the descriptor's roles answer whether a role may
+// use it (A255), and the pack's action graphs answer which capabilities an intent's capability authorizes (A306). The zero value refuses every call with ErrConfig.
+type Capabilities struct {
+	pack *Pack
+	// graphID is the graph the composition root names (the escalation graph); writes is its WRITE capabilities, sorted, read once at construction.
+	graphID string
+	writes  []string
+}
+
+var _ intake.Capabilities = Capabilities{}
+
+// NewCapabilities builds the adapter. main.go passes the Pack from LoadPack and the ID of the pack graph whose writes an intent rooting it is
+// authorized (A346): the same configuration value EscalationSetFromPack takes. The pack has no field that names that graph (DEBT-48), so no ID is written here (INV-14). A nil pack
+// is ErrConfig; an empty graph ID, a graph the pack does not have and a graph with no WRITE node are ErrEscalationGraph, and no adapter is built.
+func NewCapabilities(p *Pack, graphID string) (Capabilities, error) {
+	if !p.usable() {
+		return Capabilities{}, ErrConfig
+	}
+	writes, err := p.writeCapabilities(graphID)
+	if err != nil {
+		return Capabilities{}, err
+	}
+	return Capabilities{pack: p, graphID: graphID, writes: writes}, nil
+}
+
+func (c Capabilities) usable(ctx context.Context) error {
+	if !c.pack.usable() {
+		return ErrConfig
+	}
+	return ctx.Err()
+}
+
+func intentUsable(a intake.AdmittedIntent) error {
+	if a.TenantID == "" || a.IntentID == "" || a.Version < 1 {
+		return ErrIntent
+	}
+	return nil
+}
+
+func (c Capabilities) describe(id string) intake.Capability {
+	known, prohibited := c.pack.capability(id)
+	return intake.Capability{ID: id, Registered: known, Prohibited: prohibited}
+}
+
+// requested is the capability the admitted intent asks for: the field the intent store's adapter filled from the stored document (A370). Nothing else is read for it.
+func (c Capabilities) requested(_ context.Context, a intake.AdmittedIntent) (id string, present bool, err error) {
+	if err := intentUsable(a); err != nil {
+		return "", false, err
+	}
+	return a.RequestedCapability, a.RequestedCapability != "", nil
+}
+
+// Requested answers T4: the capability the admitted intent asks for (`RequestedCapability`), with whether the registry knows it and whether it is prohibited. A prohibited capability is
+// registered and prohibited; a capability the registry does not know is not registered (it has no adapter, INV-18). Both are refused by the intake at T4. RoleAllowed is not set
+// here: T6 has checked the role for the intent node.
+func (c Capabilities) Requested(ctx context.Context, a intake.AdmittedIntent) (intake.Capability, bool, error) {
+	if err := c.usable(ctx); err != nil {
+		return intake.Capability{}, false, err
+	}
+	id, present, err := c.requested(ctx, a)
+	if err != nil || !present {
+		return intake.Capability{}, false, err
+	}
+	return c.describe(id), true, nil
+}
+
+// Check is the registry's answer for one capability ID and the session's role (A255). RoleAllowed is true only for a registered capability that is not prohibited and whose
+// descriptor lists the role, exactly (no case folding, no trimming; an empty role is never listed). A prohibited capability is never allowed, whatever its descriptor lists
+// (BD-08: no adapter, no callable path); an unknown capability is not registered.
+func (c Capabilities) Check(ctx context.Context, capabilityID, role string) (intake.Capability, error) {
+	if err := c.usable(ctx); err != nil {
+		return intake.Capability{}, err
+	}
+	cp := c.describe(capabilityID)
+	if cp.Registered && !cp.Prohibited && role != "" {
+		_, cp.RoleAllowed = c.pack.capRoles[capabilityID][role]
+	}
+	return cp, nil
+}
+
+// Authorized is the set of capability IDs the intent's capability authorizes (A306, A346, A319: pack data, no ID in the core). The intake adds the intent's own capability.
+//
+//   - An intent whose capability is the capability of a root node of the named graph (NewCapabilities' graphID, the escalation graph) is authorized the WRITE capabilities of that
+//     graph and nothing else: no read, no internal node, no capability of another graph the same capability roots. It is the same list EscalationSetFromPack builds from the same graph.
+//   - Any other registered capability keeps the A306 rule (assumed, A346 is silent on it; flagged for the Architect): every capability of the nodes that depend, directly or not, on
+//     a root node whose capability is the intent's, reads included, over every graph that declares such a root. A registered capability that roots no graph, and an intent that
+//     requests no capability, authorize nothing beyond the intent's own capability: an empty set and no error, the narrowest answer (T14 then refuses any plan step outside it).
+//   - A capability the registry does not know, or a prohibited one, roots no authorization: ErrCapability, so the intake ends in UNKNOWN. It is never "none" and never a set. T4
+//     refuses such a capability first (REJECT), so this is the second wall.
+//   - A nil pack is an error.
+//
+// The set is sorted and the caller gets its own copy.
+func (c Capabilities) Authorized(ctx context.Context, a intake.AdmittedIntent) ([]string, error) {
+	if err := c.usable(ctx); err != nil {
+		return nil, err
+	}
+	id, present, err := c.requested(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	if !present {
+		return []string{}, nil
+	}
+	if known, prohibited := c.pack.capability(id); !known || prohibited {
+		return nil, fmt.Errorf("%w: the intent's capability is unknown or prohibited", ErrCapability)
+	}
+	if c.pack.rootsGraph(id, c.graphID) {
+		return append([]string{}, c.writes...), nil
+	}
+	return append([]string{}, c.pack.rooted[id]...), nil
+}
