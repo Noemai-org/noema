@@ -218,3 +218,79 @@ func TestClarifyMintsTheNoneIDEvenWhenThereAreNoOptionsAndNeverTakesItFromTheCal
 		t.Fatalf("a clarification with an option named like the none id: %v", err)
 	}
 }
+
+// A458 (clarifies A432; REQ-AMB-004, REQ-AMB-005, INV-12): none of these is one answer on its own. The none flag with a rejected option used to be accepted and the rejection was
+// dropped; ErrNoneCombined covers none, as the flag or as the minted id, combined with a selected option or with a rejected one.
+func TestBindRefusesNoneCombinedWithARejectedOptionWhateverTheForm(t *testing.T) {
+	open := openClarification()
+	base := decide.Answer{ClarificationID: "clr_1", CandidateSetVersion: 2}
+	forms := map[string]decide.Answer{}
+	flagRejected := base
+	flagRejected.None, flagRejected.Rejected = true, []string{"opt_1"}
+	forms["the none flag with a rejected option"] = flagRejected
+	flagRejectedTwo := base
+	flagRejectedTwo.None, flagRejectedTwo.Rejected = true, []string{"opt_1", "opt_2"}
+	forms["the none flag with two rejected options"] = flagRejectedTwo
+	bothRejected := base
+	bothRejected.None, bothRejected.Selected, bothRejected.Rejected = true, "opt_none", []string{"opt_3"}
+	forms["the none flag and the none id with a rejected option"] = bothRejected
+	allThree := base
+	allThree.None, allThree.Selected, allThree.Rejected = true, "opt_2", []string{"opt_1"}
+	forms["the none flag, a selected option and a rejected one"] = allThree
+	idRejected := base
+	idRejected.Selected, idRejected.Rejected = "opt_none", []string{"opt_1"}
+	forms["the none id with a rejected option"] = idRejected
+	for name, a := range forms {
+		if b, err := decide.Bind(open, a, 10, 2); !errors.Is(err, decide.ErrNoneCombined) {
+			t.Errorf("%s: got %+v %v, want ErrNoneCombined", name, b, err)
+		}
+	}
+}
+
+// Property (seeded): over random clarifications and answers, an answer that names none (flag or minted id) together with any rejected option or any other selected option is
+// ErrNoneCombined, and none on its own (flag, id or both) is NoneOfThese with no constraint carried over. Nothing is ever bound from an answer that is refused.
+func TestBindNoneIsAloneOrRefusedForRandomAnswers(t *testing.T) {
+	rng := rand.New(rand.NewSource(458))
+	for i := 0; i < 400; i++ {
+		n := 2 + rng.Intn(6)
+		open := openOf(n)
+		a := decide.Answer{ClarificationID: open.ID, CandidateSetVersion: open.CandidateSetVersion}
+		none := rng.Intn(2) == 0
+		noneID := rng.Intn(2) == 0
+		if !none && !noneID {
+			none = true
+		}
+		a.None = none
+		if noneID {
+			a.Selected = open.NoneOptionID
+		}
+		rejected := rng.Intn(3) == 0
+		if rejected {
+			a.Rejected = []string{open.Options[rng.Intn(len(open.Options))].ID}
+		}
+		other := !noneID && rng.Intn(3) == 0
+		if other {
+			a.Selected = open.Options[rng.Intn(len(open.Options))].ID
+		}
+		b, err := decide.Bind(open, a, open.ExpiresAt-1, 5)
+		combined := rejected || other
+		if a.Selected != "" && a.Rejected != nil && a.Selected == a.Rejected[0] && !noneID {
+			continue // a contradictory answer has its own error; not this property
+		}
+		switch {
+		case combined && !errors.Is(err, decide.ErrNoneCombined):
+			t.Fatalf("round %d: %+v bound %+v %v, want ErrNoneCombined", i, a, b, err)
+		case !combined && (err != nil || b.Kind != decide.NoneOfThese || len(b.Constraints) != 0):
+			t.Fatalf("round %d: none on its own gave %+v %v", i, b, err)
+		}
+	}
+}
+
+func openOf(n int) decide.Open {
+	o := decide.Open{ID: "clr_1", CandidateSetVersion: 2, ExpiresAt: 1000, Round: 1, NoneOptionID: "opt_none"}
+	for i := 1; i <= n; i++ {
+		o.Options = append(o.Options, decide.Option{ID: "opt_" + strconv.Itoa(i), CandidateID: "t" + strconv.Itoa(i)})
+		o.Candidates = append(o.Candidates, "t"+strconv.Itoa(i))
+	}
+	return o
+}
