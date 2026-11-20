@@ -56,3 +56,14 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Files to read first: `benchmark/oracle_client/PLAN-tushe-readonly-fold.md`, `benchmark/oracle_client/README.md`.
 - Do not touch: no credential value is ever written in a file; the key goes in the bench Environment only.
 
+# Session 2026-11-18 (second round) · BEN-03 · Codex P2 on the fold at 52fbc856
+
+## Session summary
+- What changed: `fold_transitions` reads every row first (an unreadable row still fails the whole answer), then applies the one-id-two-rows rule against the cutoff: if every differing row is after the cutoff the id is not part of the answer (the prefix property, PLAN-tushe-readonly-fold.md 3.2); if any is at or before it the in-prefix row is the contested one and the answer is CHAIN_BROKEN.
+- Tests: 3 new, written first and failing before the fix; 8 mutations of the rule, 7 caught; the eighth (keeping a future-only conflicting id) is an equivalent mutant, since such a row never enters the prefix.
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval. The reader waits for noema#711, the delta file and the read-only key.
+- Do not touch: the row shape defaults (assumed until the delta file adopts them).
+

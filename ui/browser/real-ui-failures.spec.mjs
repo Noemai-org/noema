@@ -27,7 +27,8 @@ for (const scenario of ["unavailable", "malformed", "disconnect", "oversized", "
         const client = await import("/app.js");
         client.configureOverlay({ baseUrl, sessionToken: "synthetic-session", investigationId: "inv_SyntheticA", maxResponseBytes: 65536 });
       }, server.origin);
-      await expect(page.getByRole("status")).toContainText(/connection lost/i);
+      // The approved retry sequence alone takes seven seconds.
+      await expect(page.getByRole("status")).toContainText(/connection lost/i, { timeout: 20000 });
       await expect(page.locator("body")).not.toContainText("HOSTILE_SERVER_DIAGNOSTIC");
       await expect(page.getByRole("region", { name: "Messages" })).not.toContainText("Synthetic final answer");
     } finally { await server.close(); }

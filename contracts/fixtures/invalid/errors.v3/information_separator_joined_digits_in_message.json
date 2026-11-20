@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "INPUT_INVALID",
+    "message": "Account 1234\u001d5678\u001d90 not found",
+    "retryable": false,
+    "correlation_id": "corr_4c21f9"
+  }
+}

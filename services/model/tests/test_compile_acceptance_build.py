@@ -101,6 +101,54 @@ def test_a_failure_of_the_wire_is_recorded_with_its_name_settled_at_its_projecti
 
     run(go())
 
+def test_a_call_refused_by_a_really_full_pool_is_recorded_as_pool_refused_not_as_an_outage(tmp_path: Path) -> None:
+    """A372 (UND-16): the refusal is the real `UrllibTransport`'s, from a real `BoundedBlockingPool` held full by a blocked call (AGENT-12: no scripted failure). Nothing is sent, no socket opens."""
+    import asyncio
+    import threading
+
+    from noema_model.providers.llm.transport import UrllibTransport
+
+    async def go() -> None:
+        restore = deny_sockets()
+        inner = UrllibTransport(pool_size=1)
+        release = threading.Event()
+        try:
+            holder = asyncio.create_task(inner._pool.run(release.wait))  # noqa: SLF001
+            await asyncio.sleep(0.05)
+            guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+            rec.case_id = "G-A"
+            t = transport(inner, guard, rec)
+            with pytest.raises(ProviderError) as caught:
+                await t.post("https://h.invalid/p", {"Authorization": f"Bearer {KEY}"}, b"x" * 10, 30.0, 1_000_000)
+            assert caught.value.kind is ProviderFailure.UNAVAILABLE and caught.value.local is True  # raised unchanged: the harness still fails over
+            doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+            assert (doc["status"], doc["failure"], doc["failure_class"], doc["error"], doc["reply"]) == (None, "POOL_REFUSED", "POOL_REFUSED", None, None)
+            assert t.calls == 1
+            for path in (tmp_path / "out").rglob("*"):
+                if path.is_file():
+                    assert KEY not in path.read_text()
+        finally:
+            release.set()
+            await holder
+            inner._pool.close()  # noqa: SLF001
+            restore()
+
+    run(go())
+
+
+def test_a_failure_of_the_wire_that_is_not_local_keeps_its_own_class(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-B"
+        t = transport(Wire(raises=ProviderError(ProviderFailure.UNAVAILABLE)), guard, rec)
+        with pytest.raises(ProviderError):
+            await t.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+        assert (doc["failure"], doc["failure_class"]) == ("UNAVAILABLE", "UNAVAILABLE")
+
+    run(go())
+
+
 def test_the_dry_transport_keeps_the_first_request_of_each_case_prices_it_and_sends_nothing() -> None:
     async def go() -> None:
         d = DryTransport(**RATES)
