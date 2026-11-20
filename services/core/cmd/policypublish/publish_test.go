@@ -39,7 +39,11 @@ func TestPublishesThePackPolicyVersionAndActiveReadsItBack(t *testing.T) {
 	if typ != "POLICY_PUBLISHED" || by != "core-trust" || actor != "admin:adm_synth01" || ref != "pol_fin_pol_3_1" || corr != o.rep.CorrelationID {
 		t.Fatalf("event %s by %s actor %s ref %s correlation %s", typ, by, actor, ref, corr)
 	}
-	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"published_by": "adm_synth01"`} {
+	// ruling on noema#771, interim (relayed by the Founder in session, not yet committed): the event carries the hash of the document, the one the log line and the row hold
+	if o.rep.DocumentHash == "" || w.storedDocumentHash("3.1") != o.rep.DocumentHash {
+		t.Fatalf("reported hash %q, stored %q", o.rep.DocumentHash, w.storedDocumentHash("3.1"))
+	}
+	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"published_by": "adm_synth01"`, `"document_hash": "` + o.rep.DocumentHash + `"`} {
 		if !strings.Contains(payload, want) {
 			t.Errorf("payload %s lacks %s", payload, want)
 		}
@@ -64,6 +68,10 @@ func TestASecondRunWithTheSameVersionIsANoOpThatSaysAlreadyPublished(t *testing.
 	}
 	if n := w.count(`SELECT count(*) FROM record_event WHERE event_type = 'POLICY_PUBLISHED'`); n != 1 {
 		t.Fatalf("%d POLICY_PUBLISHED events, want 1: a no-op writes nothing", n)
+	}
+	// the one event is the first run's, and carries its document's hash (ruling on noema#771, interim)
+	if n := w.count(`SELECT count(*) FROM record_event WHERE event_type = 'POLICY_PUBLISHED' AND payload->>'document_hash' = $1`, o.rep.DocumentHash); n != 1 {
+		t.Fatalf("%d POLICY_PUBLISHED events carry the hash %s, want 1", n, o.rep.DocumentHash)
 	}
 }
 
