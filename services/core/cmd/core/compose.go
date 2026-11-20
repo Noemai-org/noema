@@ -42,8 +42,8 @@ type Components struct {
 	Gateway *inputgateway.Gateway
 	// Investigations reads the caller's own investigation (the read-only store method of A243); GET /v1/investigations/{id} is mounted only with it.
 	Investigations InvestigationReader
-	// ServedTenants is every tenant this deployment serves, as the session settings name them (NOEMA_SESSION_TENANTS). It is not a component: it is what the Record reader is
-	// checked against (A434).
+	// ServedTenants is every tenant this deployment serves, as the session settings name them (NOEMA_SESSION_TENANTS). It is not a component: the Record reader is checked against
+	// it, and a served tenant with no Record login makes /readyz name "record logins" (A434).
 	ServedTenants []string
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
@@ -120,6 +120,7 @@ func missing(c Components, api http.Handler) []string {
 		{"investigations", c.Investigations != nil},
 		{"edge chain", api != nil},
 		{"record reader", c.Records != nil},
+		{"record logins", recordLoginsPresent(c)},
 		{"input gateway", c.Gateway != nil},
 	}
 	var names []string
@@ -129,6 +130,30 @@ func missing(c Components, api http.Handler) []string {
 		}
 	}
 	return names
+}
+
+// recordLoginsPresent is false when the deployment serves a tenant that the Record reader has no login for (A434, DEC-2026-11-20-architect-rulings-a358-a453: a deployment defect,
+// so /readyz is not green). It asks the reader what the reconstruction handler asks it, For, so the two cannot disagree; For dials nothing. With no reader there is nothing to
+// check here: "record reader" names that. Nothing about the tenant is returned: the name is fixed.
+func recordLoginsPresent(c Components) bool {
+	if c.Records == nil {
+		return true
+	}
+	for _, tenant := range c.ServedTenants {
+		if db, err := c.Records.For(tenant); err != nil || db == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// servedTenants is the tenants the session settings name, split as edge.Load splits them. Unset means none are served.
+func servedTenants(env Env) []string {
+	v := env.Getenv(edge.EnvTenants)
+	if v == "" {
+		return nil
+	}
+	return strings.Split(v, ",")
 }
 
 // notConfigured is the sentence of a refusal and of /readyz for the names missing returned: the names and nothing else, never a setting's value, a path or a driver's text.
@@ -193,7 +218,7 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		return Components{}, closeAll, err
 	}
 	closers = append(closers, closeRecorder)
-	c := Components{Records: records, AccessLog: redactedLog(logger)}
+	c := Components{Records: records, ServedTenants: servedTenants(env), AccessLog: redactedLog(logger)}
 	if records != nil {
 		c.Ports.Admissions = admissionsport.Port{Reader: &admission.Reader{DBs: records}}
 	}

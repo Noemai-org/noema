@@ -87,6 +87,9 @@ const (
 	codeDependency      = "DEPENDENCY_UNAVAILABLE"
 )
 
+// messageUnavailable is the one text of every failure of the Record's dependency: a database that cannot be reached and a tenant with no login answer alike (AGENT-13).
+const messageUnavailable = "The Record is not available."
+
 var retryable = map[string]bool{codeDependency: true}
 
 const headerCorrelation = "Noema-Correlation-Id"
@@ -124,9 +127,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	db, err := h.DBs.For(caller.TenantID)
-	if err != nil {
-		h.access(ctx, caller, corr, codeSafetyBlock)
-		h.fail(w, r, http.StatusInternalServerError, codeSafetyBlock, "The Record cannot be read for this tenant.")
+	if err != nil || db == nil {
+		// A served tenant with no Record login is a deployment defect (A434, DEC-2026-11-20-architect-rulings-a358-a453), which /readyz reports. A request for it is the
+		// Record being unavailable: the one fixed text of that failure, never a 401 (the caller is authenticated) and never a raw 500. The error of For is not served.
+		h.access(ctx, caller, corr, codeDependency)
+		h.fail(w, r, http.StatusServiceUnavailable, codeDependency, messageUnavailable)
 		return
 	}
 	body, err := Build(ctx, db, caller.TenantID, corr)
@@ -148,7 +153,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, http.StatusInternalServerError, codeSafetyBlock, "The Record holds an object that cannot be served.")
 	default:
 		h.access(ctx, caller, corr, codeDependency)
-		h.fail(w, r, http.StatusServiceUnavailable, codeDependency, "The Record is not available.")
+		h.fail(w, r, http.StatusServiceUnavailable, codeDependency, messageUnavailable)
 	}
 }
 
