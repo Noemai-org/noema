@@ -160,6 +160,12 @@ func loadPublicKeys(dir string, maxActive int) ([]registeredKey, error) {
 
 // connect reads the DSN from its file (a regular file, not a link, not empty) and opens one connection. No error carries the DSN or any part of it.
 func connect(ctx context.Context, path string) (*pgx.Conn, error) {
+	return connectAs(ctx, path, uint32(os.Geteuid()))
+}
+
+// connectAs is connect for a caller whose effective uid is euid.
+func connectAs(ctx context.Context, path string, euid uint32) (*pgx.Conn, error) {
+	_ = euid
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes {
 		return nil, errDSNUnusable
