@@ -239,8 +239,8 @@ func merged(base envMap, more envMap) envMap {
 	return out
 }
 
-// fakeRecorder is the orchestrator's Recorder over lazily connecting pools nothing dials: enough for the tests that do not touch a database.
-func fakeRecorder(t *testing.T, tenants ...string) *orchestratorRecorder {
+// undFakeRecorder is the orchestrator's Recorder over lazily connecting pools nothing dials: enough for the tests that do not touch a database.
+func undFakeRecorder(t *testing.T, tenants ...string) *orchestratorRecorder {
 	t.Helper()
 	rec, closer, err := build(t, orchEnv(newOrchDirs(t, tenants...), "2"), fakeDBs{})
 	if err != nil || rec == nil {
@@ -265,7 +265,7 @@ func wantNone(t *testing.T, what string, p UnderstandingParts) {
 // AGENT-16: no setting has a default. A missing one stops the start with an error that names it; nothing is built.
 func TestUnderstandingNeedsEverySettingAndHasNoDefaults(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	all := undSettings(copyPack(t), m)
 	if _, err := buildUnd(t, all, rec); err != nil {
 		t.Fatalf("the complete settings do not build: %v", err)
@@ -284,7 +284,7 @@ func TestUnderstandingNeedsEverySettingAndHasNoDefaults(t *testing.T) {
 // A bound is a whole positive number, ASCII, with no sign, space, fraction, exponent, hex form or leading zero; the error names the setting and never repeats the value.
 func TestABoundThatIsNotAWholePositiveNumberIsRefused(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	base := undSettings(copyPack(t), m)
 	bad := []string{"", "0", "-1", "01", " 5", "5 ", "5\n", "1.5", "1e3", "+5", "0x10", "7z9", "٣", "9223372036854775808", "99999999999999999999"}
 	for _, name := range []string{EnvPackMaxBytes, EnvPackMaxDepth, EnvStoreTimeoutMS, EnvCompileTimeoutMS, EnvSealTimeoutMS} {
@@ -321,7 +321,7 @@ func TestWithoutTheModelSettingsNothingIsBuilt(t *testing.T) {
 	for _, name := range modelSettings {
 		delete(e, name)
 	}
-	p, err := buildUnd(t, e, fakeRecorder(t, "ten_aa"))
+	p, err := buildUnd(t, e, undFakeRecorder(t, "ten_aa"))
 	if err == nil || !strings.Contains(err.Error(), EnvModelURL) {
 		t.Errorf("got %v; want an error that names the model service settings", err)
 	}
@@ -332,7 +332,7 @@ func TestWithoutTheModelSettingsNothingIsBuilt(t *testing.T) {
 func TestTheRealPackLoadsThroughItsManifest(t *testing.T) {
 	m := newModelStub(t)
 	root := filepath.Join("..", "..", "..", "..", "packs")
-	p, err := buildUnd(t, merged(undSettings(root, m), envMap{EnvStoreTimeoutMS: "700", EnvCompileTimeoutMS: "2900", EnvSealTimeoutMS: "1500"}), fakeRecorder(t, "ten_aa", "ten_bb"))
+	p, err := buildUnd(t, merged(undSettings(root, m), envMap{EnvStoreTimeoutMS: "700", EnvCompileTimeoutMS: "2900", EnvSealTimeoutMS: "1500"}), undFakeRecorder(t, "ten_aa", "ten_bb"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestTheRealPackLoadsThroughItsManifest(t *testing.T) {
 // A333 acceptance: a pack file changed after the manifest was made stops the start, for each of the three files, with an error that does not name the directory.
 func TestAPackFileChangedAfterTheManifestStopsStartup(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	for _, rel := range []string{"fintech_v1.json", "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json"} {
 		dir := copyPack(t)
 		appendTo(t, filepath.Join(dir, filepath.FromSlash(rel)), "\n")
@@ -372,7 +372,7 @@ func TestAPackFileChangedAfterTheManifestStopsStartup(t *testing.T) {
 // A333 acceptance: an id other than the manifest's is refused. The manifest is edited to expect another id, with every digest still right.
 func TestAnIdOtherThanTheManifestsIsRefusedAtStartup(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	for name, edit := range map[string]func(exp map[string]any){
 		"the mapping":  func(exp map[string]any) { exp["evidence_mapping_id"] = "fin.map.v1@2" },
 		"the rule set": func(exp map[string]any) { exp["recon_rule_set_id"] = "fin.recon.rules@2" },
@@ -395,7 +395,7 @@ func TestAnIdOtherThanTheManifestsIsRefusedAtStartup(t *testing.T) {
 // The other ways a pack is not what the manifest pins: a link in place of a file, a second mapping the manifest does not list, a path that leaves the directory, no manifest.
 func TestAPackThatIsNotWhatTheManifestPinsStopsStartup(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	cases := map[string]struct {
 		prepare func(dir string, e envMap)
 		want    error
@@ -436,7 +436,7 @@ func must(t *testing.T, err error) {
 // parser, and a parser's refusal stops the start.
 func TestAVerifiedPackWhoseContentCannotBeParsedStopsStartup(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	for name, c := range map[string]struct{ rel, body string }{
 		"the pack":     {"fintech_v1.json", `{"pack_id":"fin","pack_version":"1.0.0","intent_nodes":[]}`},
 		"the rule set": {"fintech/recon_rules/rules.v1.json", `{"ruleset_id":"fin.recon.rules","version":1}`},
@@ -462,7 +462,7 @@ func TestAPackWithNoEvidenceSourcesStopsStartup(t *testing.T) {
 	out, _ := json.Marshal(pk)
 	must(t, os.WriteFile(filepath.Join(dir, "fintech_v1.json"), out, 0o644))
 	reseal(t, dir)
-	p, err := buildUnd(t, undSettings(dir, m), fakeRecorder(t, "ten_aa"))
+	p, err := buildUnd(t, undSettings(dir, m), undFakeRecorder(t, "ten_aa"))
 	if err == nil || !strings.Contains(err.Error(), "evidence sources") {
 		t.Errorf("got %v; want a refusal of the evidence sources", err)
 	}
@@ -787,7 +787,7 @@ func TestAnEmptyRecorderOrNoClockBuildsNothing(t *testing.T) {
 		t.Error("a recorder with no tenant login was accepted")
 	}
 	wantNone(t, "an empty recorder", p)
-	p, err = buildUnderstanding(env, nil, fakeRecorder(t, "ten_aa"))
+	p, err = buildUnderstanding(env, nil, undFakeRecorder(t, "ten_aa"))
 	if err == nil || !strings.Contains(err.Error(), "clock") {
 		t.Errorf("no clock: got %v; want a refusal that names the clock", err)
 	}
@@ -815,7 +815,7 @@ func (noPool) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
 // gate's bound, A333); a pack file bound too small for the pack stops the load, and a nesting bound too small for the mapping stops the parser. The error texts are fixed.
 func TestTheBoundsAreAppliedWhereTheyAreNamed(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	base := undSettings(copyPack(t), m)
 	for _, name := range []string{EnvPackMaxBytes, EnvPackMaxDepth, EnvModelMaxResponseBytes} {
 		if _, err := buildUnd(t, merged(base, envMap{name: "2147483648"}), rec); err == nil {
@@ -847,7 +847,7 @@ func TestTheBoundsAreAppliedWhereTheyAreNamed(t *testing.T) {
 // The evidence sources come from the verified pack, each with an id and none twice.
 func TestAPackWhoseEvidenceSourcesAreNotSoundStopsStartup(t *testing.T) {
 	m := newModelStub(t)
-	rec := fakeRecorder(t, "ten_aa")
+	rec := undFakeRecorder(t, "ten_aa")
 	for name, edit := range map[string]func(src []any) []any{
 		"a repeated source": func(src []any) []any { return append(src, src[0]) },
 		"a source with no id": func(src []any) []any {
