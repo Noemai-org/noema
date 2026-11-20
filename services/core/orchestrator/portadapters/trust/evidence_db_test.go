@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/evidence/reconciler"
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
@@ -194,6 +195,20 @@ func (w *evdPG) adapter(t *testing.T, pools evdPools) trustport.Evidence {
 
 // evdPayloadStore reads an evidence payload as the tenant's own Trust login, as cmd/core's trustPayloads does (that one is in package main, which a test cannot import): the database's
 // row-level security, not this code, decides which tenant's rows are visible.
+// evdCleanScreen is a screen that finds nothing (SYNTHETIC). Since A372 the payload Reader refuses every read without a screen, a correlation and an alert (noema#780), so these tests
+// give it the three; they classify evidence, not injection.
+type evdCleanScreen struct{}
+
+func (evdCleanScreen) Screen(context.Context, injection.Subject, map[string]string) (injection.Result, error) {
+	return injection.Result{}, nil
+}
+
+func evdCorrelation(context.Context) string { return "cor_SYNTHETIC" }
+
+type evdNoAlert struct{}
+
+func (evdNoAlert) ScreenFlagged(context.Context, payloadread.Flag) {}
+
 type evdPayloadStore struct{ pools evdPools }
 
 func (p evdPayloadStore) Read(ctx context.Context, tenantID, ref string) ([]byte, error) {
@@ -227,7 +242,7 @@ func (w *evdPG) facts(t *testing.T, pools evdPools) trustport.ItemFacts {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := reconciler.New(reconciler.Config{RuleSet: rs, Mapping: m, Payloads: payloadread.Reader{Payloads: evdPayloadStore{pools: pools}}, Clock: clock.NewManual(evdNow)})
+	r, err := reconciler.New(reconciler.Config{RuleSet: rs, Mapping: m, Payloads: payloadread.Reader{Payloads: evdPayloadStore{pools: pools}, Screen: evdCleanScreen{}, Correlation: evdCorrelation, Alert: evdNoAlert{}}, Clock: clock.NewManual(evdNow)})
 	if err != nil {
 		t.Fatal(err)
 	}
