@@ -75,3 +75,9 @@ func startWorker(ctx context.Context, cfg *WorkerConfig, dial func(context.Conte
 	}
 	return &RunningWorker{w: w, c: conn}, nil
 }
+
+// Fatal, Ready, Check and withWorker: STUBS (red).
+func (r *RunningWorker) Fatal() <-chan error                { return nil }
+func (r *RunningWorker) Ready() bool                        { return true }
+func (r *RunningWorker) Check() (bool, string)              { return true, "" }
+func withWorker(next readiness, _ *RunningWorker) readiness { return next }
