@@ -30,3 +30,10 @@ func TestNodesFromKindsOfNothingIsNothing(t *testing.T) {
 		t.Fatal("an empty map must not build an adapter (the adapter refuses no node)")
 	}
 }
+
+func TestNodesFromKindsKeepsEveryEntry(t *testing.T) {
+	in := map[string]string{"a.one": kind, "a.two": otherKind, "a.three": kind}
+	if got := ownershipport.NodesFromKinds(in); len(got) != 3 || got["a.two"].ResourceKind != otherKind || got["a.three"].ResourceKind != kind {
+		t.Fatalf("NodesFromKinds = %v", got)
+	}
+}

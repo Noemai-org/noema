@@ -5,7 +5,7 @@ Updated 2026-11-20. Owner: Engineering Lead (lane run by a subagent; unreviewed)
 ## State
 
 - **Red pushed:** tests plus compiling stubs: `trustpack.Pack.OwnershipKinds` and `ownershipport.NodesFromKinds`.
-- **Green:** written locally, not pushed (EL pushes after reading the red job).
+- **Green:** written locally, not pushed (EL pushes after reading the red job). Hand mutation check: 14 of 14 mutants killed (2 survived until a three-node fixture test was added).
 
 ## Findings
 

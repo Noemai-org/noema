@@ -222,3 +222,39 @@ func TestUnsoundOwnershipDataGivesNoMap(t *testing.T) {
 		})
 	}
 }
+
+// More than one node owns a slot: every one has its entry, not only the first. A second node is a copy of the owned node under another ID; the expectation is read independently.
+func TestEveryOwnedNodeHasItsEntryWhenThereAreSeveral(t *testing.T) {
+	m := files(t)
+	m[packFileName] = edit(t, m[packFileName], func(p map[string]any) {
+		nodes := p["intent_nodes"].([]any)
+		for _, n := range nodes {
+			nm := n.(map[string]any)
+			if nm["trust_profile"] == nil {
+				continue
+			}
+			for _, suffix := range []string{".copya", ".copyb"} {
+				c := map[string]any{}
+				for k, v := range nm {
+					c[k] = v
+				}
+				c["node_id"] = nm["node_id"].(string) + suffix
+				nodes = append(nodes, c)
+			}
+			break
+		}
+		p["intent_nodes"] = nodes
+	})
+	want := expectedKinds(t, m[packFileName])
+	if len(want) < 3 {
+		t.Fatalf("the fixture has %d owned nodes; want at least 3", len(want))
+	}
+	p, err := loadFiles(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.OwnershipKinds()
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("OwnershipKinds = %v, %v; want %v", got, err, want)
+	}
+}
