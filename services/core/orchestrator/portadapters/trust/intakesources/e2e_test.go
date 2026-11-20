@@ -6,6 +6,7 @@ package intakesources_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -20,10 +21,29 @@ const packPath = "../../../../../../packs/fintech_v1.json"
 
 func readPack() ([]byte, error) { return os.ReadFile(packPath) }
 
+// packDocumentHash is the hash of the shipped pack's policy document (A413, migration 0035: a publication rests on the hash of the document it was published with, and the loader of the
+// pack fails closed on a row whose hash is not the pack's).
+func packDocumentHash(t *testing.T) string {
+	t.Helper()
+	raw, err := readPack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatal(err)
+	}
+	h, err := policy.DocumentHash(top["policy"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
 func publish(t *testing.T, w *world, tenant, version string, at time.Time) {
 	t.Helper()
-	if _, err := w.trust[tenant].Exec(context.Background(), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at)
-		VALUES ($1, 'fin.pol', $2, policy_version_key($2), 'adm_synth01', $3)`, tenant, version, at); err != nil {
+	if _, err := w.trust[tenant].Exec(context.Background(), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at, document_hash)
+		VALUES ($1, 'fin.pol', $2, policy_version_key($2), 'adm_synth01', $3, $4)`, tenant, version, at, packDocumentHash(t)); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 }
