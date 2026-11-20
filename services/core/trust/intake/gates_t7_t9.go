@@ -155,10 +155,10 @@ func (e *evaluation) t9(ctx context.Context) decide.StepResult {
 	if ev.IntentID == "" || ev.IntentID != e.intentID || ev.IntentVersion != e.version {
 		return decide.FailStep(ErrBadEvidence)
 	}
-	if ev.EvidenceSetHash != "" && !hashRe.MatchString(ev.EvidenceSetHash) {
-		return decide.FailStep(ErrBadEvidence) // a hash the contract's form does not allow cannot bind a confirmation
+	if ev.EvidenceSetHash != "" && !hashRe.MatchString(ev.EvidenceSetHash) || ev.ConfirmationBindingEvidenceHash != "" && !hashRe.MatchString(ev.ConfirmationBindingEvidenceHash) {
+		return decide.FailStep(ErrBadEvidence) // a hash the contract's form does not allow is not an answer: both forms are checked, and only the content digest is kept (A435)
 	}
-	e.evidenceSetHash = ev.EvidenceSetHash
+	e.confirmationBindingEvidenceHash = ev.ConfirmationBindingEvidenceHash
 	unavailable, stale, err := classify(ev)
 	switch {
 	case err != nil:
