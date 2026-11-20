@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useState } from "react";
 import { parseOverlayCardV1ClarificationCard, parseOverlayCardV1ConfirmationCard, type OverlayCardV1ClarificationCard, type OverlayCardV1ConfirmationCard } from "./contract_types/overlay_card_v1.js";
 import { ContractError } from "./contract_types/_runtime.js";
+import { cardExpiry } from "./card-expiry.js";
 
 type Clock = () => number;
 const clock: Clock = () => Date.now();
@@ -14,6 +15,7 @@ function useExpired(expiresAt: string, now: number | undefined): boolean {
       setCurrent(now);
       return;
     }
+    if (cardExpiry(expiresAt, clock()) === "unavailable") return;
     const remaining = expires - clock();
     if (!Number.isFinite(remaining) || remaining <= 0) {
       setCurrent(clock());
@@ -22,7 +24,7 @@ function useExpired(expiresAt: string, now: number | undefined): boolean {
     const timer = setTimeout(() => setCurrent(clock()), Math.min(remaining, 2_147_483_647));
     return () => clearTimeout(timer);
   }, [expires, now, current]);
-  return !Number.isFinite(expires) || (now ?? current) >= expires;
+  return cardExpiry(expiresAt, now ?? current) !== "active";
 }
 
 interface ClarificationProps {
@@ -42,7 +44,7 @@ export function ClarificationCard(props: Omit<ClarificationProps, "card"> & { ca
 
 function ClarificationView({ card, now, onChoice }: ClarificationProps) {
   const expired = useExpired(card.expires_at, now);
-  const current = () => !expired && (now ?? clock()) < Date.parse(card.expires_at);
+  const current = () => !expired && cardExpiry(card.expires_at, now ?? clock()) === "active";
   return h("section", { "aria-label": "Clarification" },
     h("p", null, card.question),
     ...card.options.map((option) => h("button", {
@@ -77,7 +79,7 @@ export function ConfirmationCard(props: Omit<ConfirmationProps, "card"> & { card
 function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
   const expired = useExpired(card.expires_at, now);
   const [showPolicy, setShowPolicy] = useState(false);
-  const current = () => !expired && (now ?? clock()) < Date.parse(card.expires_at);
+  const current = () => !expired && cardExpiry(card.expires_at, now ?? clock()) === "active";
   const response = (value: "ACCEPT" | "DECLINE") => () => {
     if (current()) onResponse?.(card.confirmation_request_id, value);
   };

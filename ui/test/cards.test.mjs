@@ -56,3 +56,17 @@ test("REQ-UI-002: invalid cards are refused without rendering their data", async
     assert.deepEqual(scanVisibleText(html), [], name);
   }
 });
+
+test("REQ-UI-002: impossible calendar dates cannot enable a card", async () => {
+  for (const [component, name, callback] of [[ClarificationCard, "clarification_four_options", "onChoice"], [ConfirmationCard, "confirmation", "onResponse"]]) {
+    const original = await fixture(name);
+    const valid = renderToStaticMarkup(createElement(component, { card: original, now: before, [callback]: () => {} }));
+    assert.ok((valid.match(/<button\b[^>]*>/g) ?? []).some((button) => !/\bdisabled(?:=|\s|>)/.test(button)), name);
+    assert.deepEqual(scanVisibleText(valid), []);
+    const card = { ...original, expires_at: "2099-02-31T00:00:00Z" };
+    const html = renderToStaticMarkup(createElement(component, { card, now: before, [callback]: () => {} }));
+    const buttons = html.match(/<button\b[^>]*>/g) ?? [];
+    assert.ok(buttons.every((button) => /\bdisabled(?:=|\s|>)/.test(button)), name);
+    assert.deepEqual(scanVisibleText(html), []);
+  }
+});
