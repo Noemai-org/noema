@@ -18,6 +18,8 @@ import (
 	"github.com/Noemai-org/noema/services/core/edge/events"
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
 
 const wide = 1 << 24
@@ -115,5 +117,35 @@ func TestAnErrorResponseNeverExceedsTheLimitEvenWithAHugeCorrelationHeader(t *te
 	h.ServeHTTP(deadlineRec{rec}, httptest.NewRequest(http.MethodGet, path, nil)) // no session: the 401
 	if rec.Code != http.StatusUnauthorized || rec.Body.Len() > events.MaxFrameBytes || !strings.Contains(rec.Body.String(), string(contracts.ErrorsV3ErrorCodeUNAUTHENTICATED)) {
 		t.Fatalf("%d, %d bytes", rec.Code, rec.Body.Len())
+	}
+}
+
+// The error frame that ends a stream carries the response's correlation ID; one that would push the frame over the limit is dropped and the limit holds.
+func TestTheStreamsErrorFrameNeverExceedsTheLimitEvenWithAHugeCorrelationID(t *testing.T) { // A446
+	iss := edgetest.NewIssuer(t)
+	clk := clock.NewManual(epoch)
+	v, err := session.NewVerifier(session.Config{Keys: mapKey(iss), Audience: edgetest.Audience, Tenants: []string{edgetest.Tenant}, MaxLifetime: session.CeilingLifetime, Skew: time.Minute, Clock: clk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{answerWith(1, events.MaxFrameBytes)}, Done: true}}}
+	o := baseOptions(f, func(context.Context, time.Duration) error { return nil })
+	o.MaxEventBytes = wide
+	h, err := events.New(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	huge := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { // after the session middleware: a correlation ID this large is not one it would issue
+		w.Header().Set(session.CorrelationHeader, "corr_"+strings.Repeat("A", 3*events.MaxFrameBytes))
+		h.ServeHTTP(w, r)
+	})
+	mux := http.NewServeMux()
+	mux.Handle(events.Route, session.Middleware(v, ids.New(clk, nil))(session.RequireRole(ids.New(clk, nil), session.RoleCustomer)(huge)))
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer "+iss.Token(edgetest.Kid, edgetest.Good(epoch, session.RoleCustomer)))
+	rec := newRec()
+	mux.ServeHTTP(rec, req)
+	if body := rec.Body.String(); !isFault(body, "INTERNAL_SAFETY_BLOCK") || len(body) > events.MaxFrameBytes {
+		t.Fatalf("%d bytes", len(body))
 	}
 }

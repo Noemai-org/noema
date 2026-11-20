@@ -237,7 +237,11 @@ func (h *Handler) frame(e Event, last int64) (string, error) {
 	if len(raw) > h.o.MaxEventBytes {
 		return "", errors.New("size")
 	}
-	return fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", e.Cursor, name, raw), nil
+	out := fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", e.Cursor, name, raw)
+	if len(out) > MaxFrameBytes {
+		return "", errors.New("frame size") // A446: the whole frame, not its data, is what the UI limit counts
+	}
+	return out, nil
 }
 
 func (h *Handler) payload(e Event) (name string, raw []byte, err error) {
@@ -318,13 +322,18 @@ func (h *Handler) stable(key string, v any) bool {
 
 // errorFrame is the stream's own failure, an sse-event.v1 error event with the errors.v3 body: a catalogue code and a fixed safe sentence, never the cause (AGENT-13).
 func (h *Handler) errorFrame(code contracts.ErrorsV3ErrorCode, message, corr string) string {
-	e := contracts.SseEventV1Error{Event: "error", SchemaVersion: SchemaVersion, At: contracts.CommonV1Timestamp(h.o.Clock.Now().UTC().Format(time.RFC3339)),
-		Error: contracts.ErrorsV3ErrorBody{Code: code, Message: message, Retryable: code == contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, CorrelationId: contracts.CommonV1CorrelationId(corr)}}
-	raw, err := json.Marshal(e)
-	if err != nil {
-		return keepalive // unreachable for these fixed members; a comment is the one frame that cannot mislead
+	for _, c := range []string{corr, ""} { // a correlation ID that would push the frame over the UI limit (A446) is dropped, never the limit crossed
+		e := contracts.SseEventV1Error{Event: "error", SchemaVersion: SchemaVersion, At: contracts.CommonV1Timestamp(h.o.Clock.Now().UTC().Format(time.RFC3339)),
+			Error: contracts.ErrorsV3ErrorBody{Code: code, Message: message, Retryable: code == contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, CorrelationId: contracts.CommonV1CorrelationId(c)}}
+		raw, err := json.Marshal(e)
+		if err != nil {
+			break
+		}
+		if out := fmt.Sprintf("event: error\ndata: %s\n\n", raw); len(out) <= MaxFrameBytes {
+			return out
+		}
 	}
-	return fmt.Sprintf("event: error\ndata: %s\n\n", raw)
+	return keepalive // unreachable for these members; a comment is the one frame that cannot mislead
 }
 
 // sink writes frames with a deadline on each write, from the injected clock.
@@ -341,7 +350,12 @@ func (s *sink) deadline() error {
 	return s.rc.SetWriteDeadline(s.clk.Now().Add(s.timeout))
 }
 
+var errFrameTooLarge = errors.New("events: a frame over the UI transport limit")
+
 func (s *sink) write(frame string) error {
+	if len(frame) > MaxFrameBytes {
+		return errFrameTooLarge // the last guard: nothing over the limit reaches the wire, whoever built it (A446)
+	}
 	if err := s.deadline(); err != nil {
 		return err
 	}
@@ -357,5 +371,10 @@ func fail(w http.ResponseWriter, status int, code contracts.ErrorsV3ErrorCode, m
 	w.WriteHeader(status)
 	corr := w.Header().Get(session.CorrelationHeader)
 	body := contracts.ErrorsV3ErrorEnvelope{Error: contracts.ErrorsV3ErrorBody{Code: code, Message: message, Retryable: code == contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, CorrelationId: contracts.CommonV1CorrelationId(corr)}}
-	_ = json.NewEncoder(w).Encode(body) // the status is already sent; a failed write has no one to tell
+	raw, err := json.Marshal(body)
+	if err != nil || len(raw)+1 > MaxFrameBytes { // a correlation ID that would push the response over the UI limit (A446) is dropped
+		body.Error.CorrelationId = ""
+		raw, _ = json.Marshal(body)
+	}
+	_, _ = w.Write(append(raw, '\n')) // the status is already sent; a failed write has no one to tell
 }
