@@ -33,6 +33,14 @@ func investigationIDOf(correlationID string) (string, error) {
 	return "inv_" + m[1], nil
 }
 
+// maxResponseBytes is the UI transport limit (A446, A457, interim, relayed, recorded in docs#213, not yet merged): no response of this route is longer.
+const maxResponseBytes = 65536
+
+// boundedCorrelation is the correlation ID an error may echo.
+func boundedCorrelation(corr string) string {
+	return corr
+}
+
 // capture is a ResponseWriter that holds what a handler wrote, so the route can decide what to send.
 type capture struct {
 	header http.Header
