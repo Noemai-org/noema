@@ -36,6 +36,16 @@ class Mention(BaseModel):
     confidence: float = Field(allow_inf_nan=False, description="Your confidence between 0 and 1.")
 
 
+def _mention_type(slot_type: str, help_text: str) -> type[Mention]:
+    """The Mention definition for one slot type, carrying that type's help text in its own description. The text is not a keyword beside the `$ref`
+    in the slot's property: strict structured-output mode refuses a `$ref` with a sibling (UND-05, run 44521380842). What the model reads is the
+    same two texts, the type's and the Mention's, now in one place."""
+    return create_model(f"{slot_type}Mention", __base__=Mention, __doc__=f"{help_text} {Mention.__doc__}")
+
+
+_MENTION_BY_TYPE: Mapping[str, type[Mention]] = MappingProxyType({t: _mention_type(t, h) for t, h in _TYPE_HELP.items()})
+
+
 @dataclass(frozen=True, slots=True)
 class SlotInfo:
     name: str
@@ -75,7 +85,7 @@ class NodeCatalogue:
             model = None
             if mention_slots:
                 fields: dict[str, Any] = {
-                    s.name: (Mention, Field(description=_TYPE_HELP[s.slot_type])) for s in slots if s.name in mention_slots
+                    s.name: (_MENTION_BY_TYPE[s.slot_type], ...) for s in slots if s.name in mention_slots
                 }
                 model = create_model(
                     "SlotMentions_" + _ID_PART.sub("_", node_id.lower()),

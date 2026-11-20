@@ -295,17 +295,31 @@ func mustLoadFiles(t testing.TB, m map[string][]byte) *trustpack.Pack {
 	return p
 }
 
-// remedySpy answers every question with one remedy and records what it was asked.
+// remedySpy is the capability an intent asks for in a test (A370): the field AdmittedIntent.RequestedCapability, which the intent store's adapter sets. present false is an intent
+// that asks for none. capsWith puts it on the admitted intent of each call and then calls the real adapter, so a test states the request once, where it builds the adapter.
 type remedySpy struct {
 	id      string
 	present bool
-	err     error
-	asked   []string
 }
 
-func (r *remedySpy) RequestedRemedy(_ context.Context, tenantID, intentID string, version int) (string, bool, error) {
-	r.asked = append(r.asked, tenantID+"/"+intentID)
-	return r.id, r.present, r.err
+type capsWith struct {
+	trustpack.Capabilities
+	r *remedySpy
+}
+
+func (r *remedySpy) apply(a intake.AdmittedIntent) intake.AdmittedIntent {
+	if r != nil && r.present {
+		a.RequestedCapability = r.id
+	}
+	return a
+}
+
+func (c capsWith) Requested(ctx context.Context, a intake.AdmittedIntent) (intake.Capability, bool, error) {
+	return c.Capabilities.Requested(ctx, c.r.apply(a))
+}
+
+func (c capsWith) Authorized(ctx context.Context, a intake.AdmittedIntent) ([]string, error) {
+	return c.Capabilities.Authorized(ctx, c.r.apply(a))
 }
 
 func admitted(node string) intake.AdmittedIntent {

@@ -51,6 +51,9 @@ func TestWriterSetsEqualTheV3SchemaEnums(t *testing.T) {
 	if got, want := chain.PrincipalKinds(), sortedCopy(s.Defs["PrincipalKind"].Enum); !reflect.DeepEqual(got, want) {
 		t.Fatalf("principal kinds: writer %v, schema %v", got, want)
 	}
+	if got, want := chain.SecurityKinds(), sortedCopy(s.Defs["SecurityKind"].Enum); !reflect.DeepEqual(got, want) {
+		t.Fatalf("security kinds: writer %v, schema %v", got, want)
+	}
 	if n := len(s.Defs["GrantVoidReason"].Enum); n != 9 {
 		t.Fatalf("the schema lists %d grant-void reasons, want the nine of PERD 27.1", n)
 	}
@@ -136,5 +139,18 @@ func TestTheCoreAcceptsExactlyTheRuntimeEmittersOfTheTable(t *testing.T) {
 	}
 	if got := chain.PrincipalKinds(); !reflect.DeepEqual(got, sortedCopy(kinds)) || !reflect.DeepEqual(got, sortedCopy(schema.Defs["PrincipalKind"].Enum)) {
 		t.Fatalf("principal kinds: core %v, table %v, schema %v", got, sortedCopy(kinds), sortedCopy(schema.Defs["PrincipalKind"].Enum))
+	}
+}
+
+// The security kinds are typed here, not read from the schema or the writer: the seven earlier kinds, CONFIRMATION_REFUSED for a refused confirmation
+// reply (A362 to A376; REQ-AUD-001) and the two kill-switch kinds of PERD 32.2 (A430; REQ-EXE-008).
+func TestTheSecurityKindsAreTheSevenConfirmationRefusedAndTheKillSwitchPair(t *testing.T) {
+	want := sortedCopy([]string{"INJECTION_DETECTED", "PRINCIPAL_OVERRIDE_ATTEMPT", "SIGNATURE_INVALID", "CROSS_SCOPE_ATTEMPT", "REQUEST_ID_REUSED",
+		"IDEMPOTENCY_COLLISION", "CHAIN_BREAK", "CONFIRMATION_REFUSED", "KILL_SWITCH_CLEARED", "KILL_SWITCH_CLEAR_REFUSED"})
+	if got := chain.SecurityKinds(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("security kinds %v, want %v", got, want)
+	}
+	if got := sortedCopy(loadSchema(t).Defs["SecurityKind"].Enum); !reflect.DeepEqual(got, want) {
+		t.Fatalf("schema security kinds %v, want %v", got, want)
 	}
 }

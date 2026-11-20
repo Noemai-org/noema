@@ -17,7 +17,7 @@ var packRefRe = regexp.MustCompile(`^[a-z][a-z0-9]*@[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // KillSwitch answers the second question of T3, intake.Writes.Enabled: are writes enabled for the tenant, that is, is the tenant's kill switch off and is the pack loaded (PERD 23.3).
 // It reads `tenant.kill_switch` as the tenant's own trust_rw login (the same read the Decision Record writer makes before it records a decision with steps, trust/recorder). It is
-// half of intake.Writes: `NeedsWrite`, the question whether an intent leads to a write, has no rule in the pack today and is not built (status/TRU-adapters-intents-writes-ownership.md).
+// half of intake.Writes: Writes (writes.go) composes it with the pack's rule for `NeedsWrite`, and that rule is not built yet (status/STM-01-writes-adapter.md).
 type KillSwitch struct {
 	pools   TenantPools
 	timeout time.Duration
