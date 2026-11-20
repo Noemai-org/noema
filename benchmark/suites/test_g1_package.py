@@ -13,6 +13,10 @@ from benchmark.suites.g1_package import ROWS, PackageError, render
 Json = dict[str, Any]
 SHA = "a" * 40
 URL = "https://github.com/Noemai-org/noema/actions/runs/1"
+CORRELATIONS = {"BEN-TMO-0001": "corr_tmo", "BEN-CLEAN-0001": "corr_clean"}
+RUN = "g1-20261120"
+STAMP = {"sha": SHA, "run_id": RUN}
+STAMP_LINE = f"stamp: {SHA} {RUN}\n"
 SIX = ["BEN-A-0001", "BEN-A-0002", "BEN-CLEAN-0001", "BEN-CLEAN-1007", "BEN-TMO-0001", "BEN-TMO-1002"]
 
 
@@ -52,17 +56,21 @@ def check_runs(sha: str = SHA, runs: list[Any] | None = None, total: int | None 
 
 
 KINDS = "canary, account_number, card_number, named_secret_value, jwt, bearer_token"
-LEAK_OK = f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned 12 files, 340 lines\n"
+LEAK_OK = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned 12 files, 340 lines\n"
+
+
+def corr_of(case_id: str) -> str:
+    return CORRELATIONS.get(case_id, "corr_" + case_id.lower())
 
 
 def probe_row(case_id: str) -> Json:
     refused = {"status": 404, "code": "NOT_FOUND_OR_NOT_AUTHORIZED", "message": "not found", "ok": True}
-    return {"case_id": case_id, "principal_id": "p1", "correlation_id": "c1", "control": {"status": 200, "ok": True, "problems": []}, "wrong_role": dict(refused),
+    return {"case_id": case_id, "principal_id": "p1", "correlation_id": corr_of(case_id), "control": {"status": 200, "ok": True, "problems": []}, "wrong_role": dict(refused),
             "foreign_tenant": {"status": 401, "code": "SESSION_INVALID", "message": "bad session", "ok": True}, "unknown_correlation": dict(refused), "ok": True}
 
 
 def probes(ids: list[str] | None = None) -> Json:
-    return {"met": True, "cases": [probe_row(c) for c in (ids if ids is not None else SIX)]}
+    return {"stamp": dict(STAMP), "met": True, "cases": [probe_row(c) for c in (ids if ids is not None else SIX)]}
 
 
 def event(seq: int, kind: str) -> Json:
@@ -90,12 +98,18 @@ def recons() -> Json:
     return {"BEN-TMO-0001": {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06()}, "BEN-CLEAN-0001": {"initial": recon01()}}
 
 
-CORRELATIONS = {"BEN-TMO-0001": "corr_tmo", "BEN-CLEAN-0001": "corr_clean"}
+def wrap(kind: str, value: Any) -> Any:
+    """A355/A444: the two files the runner writes for the package carry a stamp beside their content; a value already holding a stamp is used as given."""
+    return value if isinstance(value, dict) and "stamp" in value else {"stamp": dict(STAMP), kind: value}
 
 
 def art(**over: Any) -> Json:
-    return {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), "reconstructions": recons(), "mock_case_writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0},
-            "correlations": dict(CORRELATIONS), **over}
+    base: Json = {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), "reconstructions": recons(), "mock_case_writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0},
+                  "correlations": {**{c: corr_of(c) for c in SIX}, **CORRELATIONS}, "run_stamp": dict(STAMP)}
+    base.update(over)
+    base["reconstructions"] = wrap("cases", base["reconstructions"])
+    base["mock_case_writes"] = wrap("writes", base["mock_case_writes"])
+    return base
 
 
 def make(i: Json | None = None, a: Json | None = None, b: Json | None = None, r: Json | None = None, artifacts: Json | None = None) -> str:
@@ -347,11 +361,11 @@ class ArtifactRows(unittest.TestCase):
 
     def test_row_8_needs_the_probe_line_with_every_kind_and_a_clean_scan_that_read_something(self) -> None:
         cases: list[tuple[str, Any]] = [
-            ("no probe line", "leakscan OK: scanned 12 files, 340 lines\n"), ("no clean line", f"probe: every planted kind was found ({KINDS}): the scanner can see\n"),
+            ("no probe line", STAMP_LINE + "leakscan OK: scanned 12 files, 340 lines\n"), ("no clean line", STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\n"),
             ("a kind missing", LEAK_OK.replace(", bearer_token", "")), ("a finding", LEAK_OK + "LEAK SCAN FAILED: findings in the artifacts\n"),
             ("a failed scan", LEAK_OK + "leakscan FAIL: a.log:3: jwt (length 40)\n"), ("not run", LEAK_OK + "NOT RUN: the scan itself failed or looked at nothing (exit 2)\n"),
             ("refused", LEAK_OK + "refused: the scanner printed the canary\n"), ("zero files", LEAK_OK.replace("12 files", "0 files")), ("zero lines", LEAK_OK.replace("340 lines", "0 lines")),
-            ("empty", ""), ("not text", None), ("a number", 7)]
+            ("empty", ""), ("not text", None), ("a number", 7), ("only the stamp", STAMP_LINE)]
         for name, text in cases:
             self.assertIn("**NOT MET**", row(make(artifacts=art(leak_scan=text)), 8), name)
         self.assertIn("**MET**", row(make(), 8))
@@ -551,6 +565,76 @@ class RowTwoBinding(unittest.TestCase):
             mutate(i)
             with self.assertRaises(PackageError):
                 make(i)
+
+
+class Stamps(unittest.TestCase):
+    """A444 (A-order of 20 Nov) and Codex's P2s on noema#717 at 9e4cc472: the dispatch SHA and the run id are stamped into every artifact, and the package refuses an artifact of another run;
+    the probe document is bound to the run's correlations (an earlier run's passing probes no longer pass row 9)."""
+
+    def test_every_artifact_must_carry_the_stamp_of_this_dispatch_and_this_run(self) -> None:
+        for kind, rows in (("leak_scan", (8,)), ("probes", (9,)), ("reconstructions", (2,)), ("mock_case_writes", (2,)), ("run_stamp", (2, 9))):
+            for name, stamp in (("another sha", {"sha": "b" * 40, "run_id": RUN}), ("another run", {"sha": SHA, "run_id": "g1-other"}), ("no stamp", None), ("a string", "x"), ("extra key", {"sha": SHA, "run_id": RUN, "x": 1})):
+                a = art()
+                if kind == "leak_scan":
+                    body = LEAK_OK.split("\n", 1)[1]
+                    if stamp is None:
+                        a["leak_scan"] = body
+                    elif isinstance(stamp, dict) and set(stamp) == {"sha", "run_id"}:
+                        a["leak_scan"] = f"stamp: {stamp['sha']} {stamp['run_id']}\n" + body
+                    else:
+                        a["leak_scan"] = "stamp: x\n" + body  # a string or an extra key is not a valid stamp line
+                elif kind == "run_stamp":
+                    a["run_stamp"] = stamp
+                else:
+                    doc = dict(a[kind])
+                    if stamp is None:
+                        del doc["stamp"]
+                    else:
+                        doc["stamp"] = stamp
+                    a[kind] = doc
+                text = make(artifacts=a)
+                for n in rows:
+                    self.assertIn("**NOT MET**", row(text, n), f"{kind}: {name} (row {n})")
+
+    def test_a_stamped_file_without_its_content_is_not_met_and_never_raises(self) -> None:
+        for kind in ("reconstructions", "mock_case_writes"):
+            self.assertIn("**NOT MET**", row(make(artifacts=art(**{kind: {"stamp": dict(STAMP)}})), 2), kind)
+            self.assertIn("**NOT MET**", row(make(artifacts=art(**{kind: {"stamp": dict(STAMP), "other": {}}})), 2), kind)
+
+    def test_the_stamped_run_is_met_and_the_reason_names_the_stamp(self) -> None:
+        self.assertIn("**MET**", row(make(), 8))
+        other = make(artifacts=art(probes={**probes(), "stamp": {"sha": SHA, "run_id": "g1-other"}}))
+        self.assertIn("stamp", row(other, 9))
+
+    def test_a_probe_document_of_another_run_is_refused_by_its_correlations(self) -> None:
+        """Codex P2 at 9e4cc472, line 180: replacing every probe correlation with an unrelated run's still produced G1: MET."""
+        doc = probes()
+        for r in doc["cases"]:
+            r["correlation_id"] = "corr_earlier_run"
+        self.assertIn("**NOT MET**", row(make(artifacts=art(probes=doc)), 9))
+        one = probes()
+        one["cases"][2]["correlation_id"] = "corr_earlier_run"
+        self.assertIn("**NOT MET**", row(make(artifacts=art(probes=one)), 9))
+
+    def test_the_run_correlations_must_name_every_probed_expected_case(self) -> None:
+        for bad in ({"BEN-TMO-0001": "corr_tmo", "BEN-CLEAN-0001": "corr_clean"}, {}):
+            self.assertIn("**NOT MET**", row(make(artifacts=art(correlations=bad)), 9), str(bad))
+
+    def test_the_reconstruction_documents_are_bound_to_the_stamped_run_and_its_correlations(self) -> None:
+        """Codex P2 at 9e4cc472, line 273: documents of an earlier run, or three phases of different correlations, must not pass."""
+        r = recons()
+        for phase in ("initial", "after_recovery", "after_replay"):
+            bad = recons()
+            bad["BEN-TMO-0001"][phase] = recon06(corr="corr_earlier_run", tenant="ten_other")
+            self.assertIn("**NOT MET**", row(make(artifacts=art(reconstructions=bad)), 2), phase)
+        self.assertIn("**MET**", row(make(artifacts=art(reconstructions=r)), 2))
+
+    def test_the_stamp_inputs_are_the_dispatch_sha_and_run_id_of_the_package_inputs(self) -> None:
+        i = inputs()
+        i["run_id"] = "g1-other"
+        text = make(i)
+        for n in (2, 8, 9):
+            self.assertIn("**NOT MET**", row(text, n), n)
 
 
 class Whole(unittest.TestCase):

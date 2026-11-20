@@ -118,3 +118,15 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 ## Pre-work for the next agent
 - Exact next step: SR's two suggestions after this: IL stamps the dispatch SHA and run id into the artifacts and the package compares them; row 12 through the SEC-07 scanner (noema#802) once it merges.
 
+# Session 2026-11-20 (second) · BEN-05 · A444 stamps, and Codex's two P2s at 9e4cc472
+
+## Session summary
+- A444: the dispatch SHA and the run id are stamped into every artifact, and the package refuses an artifact of another dispatch or run. Formats: `leak-scan.txt` begins with `stamp: <sha> <run id>` (IL's `stamp:` line); `reconstructions.json` is `{"stamp": {"sha","run_id"}, "cases": {case: {initial, after_recovery, after_replay}}}`; `mock-case-writes.json` is `{"stamp": ..., "writes": {case: integer}}`; `negative-probes.json` carries a top-level `stamp`; the run directory (which holds `correlations.json` and `requests.jsonl`) carries a `stamp.json` `{"sha","run_id"}` (new flag `--run-stamp`). The stamp must equal the package inputs' `dispatch_sha` and `run_id`.
+- P2 (Codex, line 180): row 9 now binds each probe row to the run's own correlation for its case (a passing probe document of an earlier run no longer passes) and requires the probe document's stamp and the run stamp.
+- P2 (Codex, line 273): row 2 is bound to the stamped run through the stamped files, the run stamp and the case correlations (already in the previous commit); all three phases must carry the same correlation.
+- Tests: 7 new plus the fixtures moved to the wrapped format, written first (13 red); 69 tests in the file pass; mypy --strict and lint clean; 12 mutations of the stamp and probe-binding logic: 11 caught and 1 equivalent (a missing run correlation already mismatches the probe's). My mutation script first miscounted two syntactically invalid mutants as survivors; fixed.
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: the runner writes the stamped files (`requests.jsonl`, `reconstructions.json`, `mock-case-writes.json`, `stamp.json`, and the stamp in `negative-probes.json`); row 12 through the SEC-07 scanner after noema#802 merges.
+

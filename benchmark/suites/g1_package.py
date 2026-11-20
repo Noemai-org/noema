@@ -1,9 +1,11 @@
 """BEN-05: the G1 evidence package skeleton (noema#566, section 4), rendered in minutes after the run from the run's own files.
 
-`python -m benchmark.suites.g1_package --inputs F --a-score F --b-score F --replay F --check-runs F --leak-scan F --probes F --reconstructions F --mock-case-writes F --correlations F --out DIR`. It decides nothing (AGENT-16) and never says MET for what
+`python -m benchmark.suites.g1_package --inputs F --a-score F --b-score F --replay F --check-runs F --leak-scan F --probes F --reconstructions F --mock-case-writes F --correlations F --run-stamp F --out DIR`. It decides nothing (AGENT-16) and never says MET for what
 it cannot tie to evidence. Row 2 is computed from the reconstructions and the mock-case write counts (A375): US-06 shows one GRANT_ISSUED (no second grant), one GRANT_SPENT, one DISPATCH_ATTEMPTED and one RECEIPT classified
 OUTCOME_UNKNOWN, then a read by key and an ACHIEVED verdict, the same counts after a recovery sweep and after a replay, and one write; US-01 shows ALLOW with no GRANT_* event, no dispatch and zero
-writes (a grant on US-01 fails the row). Every reconstruction must be the run's tenant's and the case's own correlation (the run's correlations.json), the same in every phase. Rows 5, 8 and 9 are computed from the run's artifacts, not attested (ruling A355): row 5 from the check-runs JSON (every check run at the dispatch SHA completed and
+writes (a grant on US-01 fails the row). Every reconstruction must be the run's tenant's and the case's own correlation (the run's correlations.json), the same in every phase. A444: the dispatch SHA and the run id are stamped into every artifact
+(`stamp: <sha> <run id>` as the first line of the leak-scan output, `{"stamp": {"sha", "run_id"}, ...}` in the JSON files, and a `stamp.json` for the run directory that holds `correlations.json`), and an artifact of another
+dispatch or run is refused; the probes must be of the run's own correlations. Rows 5, 8 and 9 are computed from the run's artifacts, not attested (ruling A355): row 5 from the check-runs JSON (every check run at the dispatch SHA completed and
 green, the required checks present and successful), row 8 from the leak-scan output (the probe saw every planted kind, a clean scan that read something, no failure line), row 9 from the probe results
 (the two separate refusals, the control and the unknown correlation for every case, recomputed from status and code, never from an `ok` flag). Rows 10 (both scorecards bound to their replay legs,
 complete or only named exclusions, Tier 0 at zero) and 11 (every expected G1 case of both stories IDENTICAL in the replay, once each, unless it is a named exclusion; never the unknown-outcome case)
@@ -81,6 +83,23 @@ def _linked(entry: Any) -> tuple[bool, str]:
     return True, str(entry["link"])
 
 
+def _stamp_problem(stamp: Any, inputs: Mapping[str, Any], what: str) -> str | None:
+    """A444: the dispatch SHA and the run id are stamped into every artifact. An artifact of another dispatch or another run, or one with no stamp, is refused."""
+    if not isinstance(stamp, Mapping) or set(stamp) != {"sha", "run_id"}:
+        return f"{what} carries no stamp of the form {{sha, run_id}}"
+    if stamp["sha"] != inputs["dispatch_sha"] or stamp["run_id"] != inputs["run_id"]:
+        return f"{what} is stamped for another dispatch or another run"
+    return None
+
+
+def _unwrap(doc: Any, key: str, inputs: Mapping[str, Any], what: str) -> tuple[Any, str | None]:
+    """The files the runner writes for the package are `{"stamp": {...}, "<key>": <content>}`."""
+    if not isinstance(doc, Mapping) or key not in doc:
+        return None, f"{what} is not readable (expected a stamp and {key!r})"
+    problem = _stamp_problem(doc.get("stamp"), inputs, what)
+    return (None, problem) if problem else (doc[key], None)
+
+
 def _digest(artifact: Any) -> str:
     raw = artifact.encode("utf-8") if isinstance(artifact, str) else json.dumps(artifact, sort_keys=True, separators=(",", ":"), default=repr).encode("utf-8")
     return "sha256:" + hashlib.sha256(raw).hexdigest()
@@ -132,9 +151,11 @@ def _row5(inputs: Mapping[str, Any], replay: Mapping[str, Any], doc: Any) -> tup
     return True, f"computed from the check-runs artifact {_digest(doc)}"
 
 
-def _row8(text: Any) -> tuple[bool, str]:
+def _row8(inputs: Mapping[str, Any], text: Any) -> tuple[bool, str]:
     if not isinstance(text, str) or not text.strip():
         return False, "the leak-scan output is empty or unreadable"
+    if text.split("\n", 1)[0] != f"stamp: {inputs['dispatch_sha']} {inputs['run_id']}":
+        return False, "the leak-scan output does not begin with this dispatch's and run's stamp line"
     bad = BAD_LINE.search(text)
     if bad:
         return False, f"the leak-scan output carries a failure line ({bad.group(0)})"
@@ -164,7 +185,12 @@ def _probe_ok(row: Any) -> bool:
             and (unknown.get("status"), unknown.get("code"), unknown.get("message")) == (wrong.get("status"), wrong.get("code"), wrong.get("message")))
 
 
-def _row9(inputs: Mapping[str, Any], replay: Mapping[str, Any], doc: Any) -> tuple[bool, str]:
+def _row9(inputs: Mapping[str, Any], replay: Mapping[str, Any], doc: Any, run_stamp: Any, correlations: Any) -> tuple[bool, str]:
+    stamp_problem = _stamp_problem(doc.get("stamp") if isinstance(doc, Mapping) else None, inputs, "the probe results") or _stamp_problem(run_stamp, inputs, "the run's stamp")
+    if stamp_problem:
+        return False, stamp_problem
+    if not isinstance(correlations, Mapping):
+        return False, "the run's correlations are not readable"
     rows = doc.get("cases") if isinstance(doc, Mapping) else None
     if not isinstance(doc, Mapping) or doc.get("met") is not True or not isinstance(rows, list) or not rows or not all(isinstance(r, Mapping) and isinstance(r.get("case_id"), str) for r in rows):
         return False, "the probe results are not readable, or do not say met"
@@ -177,6 +203,9 @@ def _row9(inputs: Mapping[str, Any], replay: Mapping[str, Any], doc: Any) -> tup
     missing = sorted(c for c in inputs["g1_cases"] if c not in named and c not in by_id)
     if missing:
         return False, f"cases with no probe: {', '.join(missing)}"
+    unbound = sorted(c for c in inputs["g1_cases"] if c not in named and (not _text_value(correlations.get(c)) or by_id[c].get("correlation_id") != correlations.get(c)))
+    if unbound:
+        return False, f"probes not of this run's correlations (or the run names none): {', '.join(unbound)}"
     failing = sorted(c for c in inputs["g1_cases"] if c in by_id and not _probe_ok(by_id[c]))
     if failing:
         return False, f"probes that fail (recomputed from status and code): {', '.join(failing)}"
@@ -290,13 +319,16 @@ def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any, correlations: Any) 
 
 def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str, Any], replay: Mapping[str, Any], artifacts: Mapping[str, Any]) -> tuple[bool, str]:
     if n == 2:
-        return _row2(inputs, artifacts.get("reconstructions"), artifacts.get("mock_case_writes"), artifacts.get("correlations"))
+        docs, p1 = _unwrap(artifacts.get("reconstructions"), "cases", inputs, "the reconstructions")
+        writes, p2 = _unwrap(artifacts.get("mock_case_writes"), "writes", inputs, "the mock-case write counts")
+        problem = p1 or p2 or _stamp_problem(artifacts.get("run_stamp"), inputs, "the run's stamp")
+        return (False, problem) if problem else _row2(inputs, docs, writes, artifacts.get("correlations"))
     if n == 5:
         return _row5(inputs, replay, artifacts.get("check_runs"))
     if n == 8:
-        return _row8(artifacts.get("leak_scan"))
+        return _row8(inputs, artifacts.get("leak_scan"))
     if n == 9:
-        return _row9(inputs, replay, artifacts.get("probes"))
+        return _row9(inputs, replay, artifacts.get("probes"), artifacts.get("run_stamp"), artifacts.get("correlations"))
     ok, link = _linked(inputs["rows"].get(str(n)))
     if not ok:
         return False, link
@@ -369,15 +401,16 @@ def _json_documents(text: str) -> list[Any]:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m benchmark.suites.g1_package", description=__doc__)
-    for flag in ("inputs", "a-score", "b-score", "replay", "check-runs", "leak-scan", "probes", "reconstructions", "mock-case-writes", "correlations", "out"):
+    for flag in ("inputs", "a-score", "b-score", "replay", "check-runs", "leak-scan", "probes", "reconstructions", "mock-case-writes", "correlations", "run-stamp", "out"):
         p.add_argument(f"--{flag}", required=True)
     args = p.parse_args(argv)
     try:
-        inputs, a, b, replay, probes, reconstructions, writes, correlations = (json.loads(Path(getattr(args, f)).read_text(encoding="utf-8"))
-                                                                              for f in ("inputs", "a_score", "b_score", "replay", "probes", "reconstructions", "mock_case_writes", "correlations"))
+        inputs, a, b, replay, probes, reconstructions, writes, correlations, run_stamp = (json.loads(Path(getattr(args, f)).read_text(encoding="utf-8"))
+                                                                                         for f in ("inputs", "a_score", "b_score", "replay", "probes", "reconstructions", "mock_case_writes", "correlations", "run_stamp"))
         pages = _json_documents(Path(args.check_runs).read_text(encoding="utf-8"))
         text = render(inputs, a, b, replay, {"check_runs": pages[0] if len(pages) == 1 else pages, "leak_scan": Path(args.leak_scan).read_text(encoding="utf-8"), "probes": probes,
-                                  "reconstructions": reconstructions, "mock_case_writes": writes, "correlations": correlations})
+                                  "reconstructions": reconstructions, "mock_case_writes": writes, "correlations": correlations,
+                                  "run_stamp": run_stamp})
     except (OSError, ValueError, PackageError) as exc:
         sys.stderr.write(f"g1 package: {exc}\n")
         return 2
