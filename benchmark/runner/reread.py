@@ -76,7 +76,7 @@ def _status(url: str) -> int | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="benchmark.runner.reread", description=__doc__)
+    p = argparse.ArgumentParser(prog="benchmark.runner.reread", description=__doc__, allow_abbrev=False)
     p.add_argument("--run", type=Path, required=True)
     p.add_argument("--phase", required=True)
     p.add_argument("--api-url", required=True)

@@ -171,5 +171,16 @@ class Cli(unittest.TestCase):
             self.assertEqual(2, main(["--run", str(run), "--phase", "after_recovery", "--api-url", "http://127.0.0.1:9", "--tokens-dir", tmp, "--readyz-url", "http://127.0.0.1:9/readyz"]))
 
 
+class Abbreviations(unittest.TestCase):
+    """IL's rule (noema#791): argparse accepts any unique prefix, so an abbreviated flag could select a setting without the full flag appearing in a workflow."""
+
+    def test_an_abbreviated_flag_is_refused(self) -> None:
+        with Tmp(self) as tmp:
+            run = run_dir(tmp)
+            with self.assertRaises(SystemExit) as raised:
+                main(["--run", str(run), "--phase", "after_recovery", "--api-url", "http://127.0.0.1:9", "--tokens-d", tmp])
+            self.assertEqual(2, raised.exception.code)
+
+
 if __name__ == "__main__":
     unittest.main()
