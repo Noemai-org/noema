@@ -29,9 +29,8 @@ func TestRecordRequestHasAnOptionalDeclinedRequestID(t *testing.T) {
 	}
 }
 
-// No path of this version of the intake names a declined request: an ALLOW, and a CONFIRM that creates a request, leave it empty (T13 does not decide on a decline yet; the field is
-// for the step that does).
-func TestEveryRecordedDecisionOfThisVersionLeavesDeclinedRequestIDEmpty(t *testing.T) {
+// Only a REJECT DECLINED_BY_APPROVER names a declined request: an ALLOW and a CONFIRM with an open request leave it empty.
+func TestAnAllowAndAConfirmLeaveDeclinedRequestIDEmpty(t *testing.T) {
 	allow := newFake13()
 	res := run13(t, newEval13(t, allow))
 	if res.Decision.Outcome() != decide.Allow {
@@ -41,9 +40,8 @@ func TestEveryRecordedDecisionOfThisVersionLeavesDeclinedRequestIDEmpty(t *testi
 		t.Errorf("an ALLOW was recorded with DeclinedRequestID %q, want empty", got)
 	}
 
-	confirm := newFake13()
-	confirm.conf = Confirmation{Status: ConfirmationPending, RequestID: "cfr_synth0001"}
-	res = run13(t, newEval13(t, confirm))
+	confirm := pendingOpen(newFake13())
+	res = run13(t, confirmEval(t, confirm))
 	if res.Decision.Outcome() != decide.Confirm {
 		t.Fatalf("outcome %s, want CONFIRM", res.Decision.Outcome())
 	}
