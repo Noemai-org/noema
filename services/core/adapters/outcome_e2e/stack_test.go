@@ -244,7 +244,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	signingtest.Register(t, admin, ring)
 	outKeys := crypto.NewKeyRing(map[string][]byte{outcomeKeyID: []byte("synthetic-outcome-key-not-a-secret")})
 	signers := recordsig.All(t, admin, "outcome-e2e", map[string]chain.Signer{"core-execution": ring})
-	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: signers}, RollbackTimeout: time.Minute}
+	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: signers}, RollbackTimeout: time.Minute, SerializationAttempts: 3}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
