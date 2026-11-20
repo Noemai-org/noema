@@ -67,3 +67,50 @@ New package `services/core/orchestrator/portadapters/trust/intakesources` (READM
 
 ## Messages
 - 2026-11-19 · the user (relayed order, item 2 of the A341 to A357 batch) → Core Engineer 1's helper (this session): build the readers behind the #747 ports; stop a piece whose data source does not exist. Receiver used it for: this branch. Rulings are relayed and not committed; nothing here cites one as authority.
+
+# Session 2026-11-20 · TRU-02 · the at-risk source corrected (A447, A416) and produced_by withdrawn (A419, A363)
+
+Updated 2026-11-20. Earlier sections above are not edited: where they say `AtRiskFromEnv`, `NOEMA_TRUST_AT_RISK_BPS`, Q-A or "relayed, not committed", this section governs. Tier 1 (Trust is a P0 path). Same branch `prep/r2-factsource`; not pushed, no PR. The work is meant to be pushed as commits onto noema#747's own branch (`feat/TRU-02-policies-clocks`), never as a PR based on another PR (AGENTS section 11).
+
+## Session summary
+- What changed (PR links): none yet. (1) The branch now contains the tip of `origin/feat/TRU-02-policies-clocks` (`5bb68e35`) and `origin/main` (one conflict, `status/README.md`: both entries kept). (2) `intakesources.AtRiskFromLimits(trustlimits.Limits) (clocks.Ratio, error)` replaces `AtRiskFromEnv`: the at-risk value is `clock_at_risk_remaining_bp` read through `platform/trustlimits` over 10000; `AtRiskFromEnv`, `EnvAtRiskBPS`, `ErrSetting` and `setting_test.go` are removed with the withdrawn setting. (3) README and `doc.go` of the package follow.
+- Why: A447 (corrects A345 S4; the setting is withdrawn) and A416 (one source), both in `DEC-2026-11-20-architect-rulings-a358-a453`, which says the correction was first recorded in `DEC-2026-11-19-architect-corrections-a371-a345s4`. This answers Q-A above: the source is the pack, and there is nothing to compare because nothing else reads the value.
+- Risks, and how they are contained: no allow path, no write. An unloaded `Limits` gives `ErrConfig` and no fraction, never a default (a zero fraction would mean a clock is never AT_RISK). The A233 bounds are checked once, by `platform/trustlimits` (the owner), and not again here, so there is no copy to drift; a test proves a document outside the bounds gives no fraction through that path. `platform/trustlimits` needed no new accessor (`ClockAtRiskRemainingBP() (int, error)` exists) and is not edited. The unit `10000` stays here as the unit of a basis point (not a bound).
+- Tests added (REQ-TRU-006, AGENT-16, A447, A416, A233): six in `atrisk_test.go`: `TestAtRiskFromLimitsIsTheClockAtRiskRemainingBPOfTheShippedPack`, `...IsTheLoadedValueOverTenThousandAtEveryPointOfTheBounds`, `...HasNoDefaultAndRefusesALimitsThatWasNotLoaded`, `...ARefusedDocumentGivesNoFraction`, `...TheErrorIsFixedAndKeepsNoValue`, `...IsAFractionTheClocksAdapterAccepts`.
+- Tests removed (they pinned the withdrawn setting; deleted together with it, none weakened): in `setting_test.go`: `TestAtRiskIsReadFromTheNamedSettingAsBasisPointsOverTenThousand`, `TestAtRiskRefusesEverythingBeyondTheBoundsOfA233AndEveryLooseForm`, `TestAtRiskTheErrorNeverEchoesTheValue`, `TestAtRiskHasNoDefaultAndNeedsALookup`, `TestAtRiskTheErrorNamesTheBoundsOfTheRuling`, `TestAtRiskIsAFractionTheClocksAdapterAccepts` (replaced by the `...FromLimits...` one).
+- Regression cases added: the same tests. RED `a36894ab` (stub; six tests fail on assertions, seen), GREEN `8c000f17`.
+- Debt entries: none opened.
+- Conflicts raised: none.
+
+## A419 (A363): `produced_by` and `planned:<node>`
+Nothing on this branch handled a pack `produced_by` marker or a `planned:<node>` placeholder: the code, its tests and its docs never built the last bullet of A345 S1 (earlier section: "S1c", stopped for want of a source). Nothing to remove in code or tests. The docs are corrected: the README now says that `case_id`, a fact produced by an earlier plan step, is never asked for at T11 (A363: T11 never evaluates a rule over a produced fact; the first decision plans `create_escalation_case` alone), and that `Facts` still refuses it by name if it is asked (INV-19). The `produced_by` of the reason catalogue in the pack and `contracts` is a different member (the catalogue entry's producer) and is not touched. "S1c" of the earlier section is thereby closed on the Facts side; the planner side (runnable steps only, A363) is not this package's.
+
+## What stands from A345 S1 to S3, and what is built
+| Item | State |
+|---|---|
+| `subject_resource` and its status, from the stored intent (slot `resolved_ref` and `status`, mapped by identical name, any other status an error) | Built (earlier section). The reader reads the stored `admitted_intent` document, whose `subject_resource` slot is the intent's target; it does not read the `AdmittedIntent.TargetRef` of the Trust port (see "Flags", 1). |
+| `admitted_at` = the evaluated version's `created_at` (S2) | Built; Q-B above is answered by A345 S2 as committed ("the evaluated version's"). |
+| `logical_resolution_epoch` (S1) | Not built. The column is migration 0033 (C2, noema#769, not merged); no migration is touched here. Refused by name (`ErrNoSource`) until a port reads it. |
+| Case rows from the sealed snapshot (S1, A438) | Not built. Needs the case mapping (`fin.map.v1@2`, `rows_from`, the `complete` marker: A438) and the case system in the profile's `evidence_required`, neither on this branch. Absence is never "no case": the entity is refused by name (INV-19). |
+| Anchors from the snapshot's `complaint_ref` item, `effective_at` (S3, A438), absence NOT_STARTED | Not built. The `Anchors` port has no reader; same dependency as the case rows. |
+| `Routes` (S4: empty accepted for G1, a pack `routes` field is debt before G2, DEBT-53) | Nothing built or needed here. |
+
+## Mutants (by hand; each applied, run, source restored from a saved copy, `git diff` empty after each)
+8 mutants of `atrisk.go`: wrong unit (1000), numerator plus one, numerator doubled, a default of 2500 for an unloaded `Limits`, an unloaded `Limits` giving no error, the error not `ErrConfig`, the cause dropped, the ambiguity floor read instead. 7 killed by the first run; the cause-dropped mutant survived and is closed by an added `errors.Is(err, trustlimits.ErrNotLoaded)` assertion (not by weakening any), then killed. Nothing of the removed code is left to mutate.
+
+## Verification (2026-11-20, `services/core`)
+`go build ./...`, `go vet ./trust/... ./orchestrator/... ./platform/...` and `gofmt -l .` clean; `go test -count=1 -p 2 ./trust/... ./orchestrator/portadapters/trust/... ./platform/trustlimits/... ./platform/db/...` ok; `python3 tools/lint/run.py`: `lint OK`. No `testdata/rapid/**/*.fail` staged.
+
+## Flags
+1. **TargetRef.** A345 S1 says `subject_resource` "comes from `AdmittedIntent.TargetRef`" (the Trust port's `TargetRef`, built by `orchestrator/portadapters/trust/intents.go` from the stored intent's owned slot). `Facts` reads the same stored document directly (slot named `subject_resource`), because the `FactSource` port carries no `AdmittedIntent`. The two agree for a well-formed intent; I did not add a cross-check (the safer reading would be to compare them, which needs a port change in `trust/intakeadapters`, outside this card). Architect or EL to say whether the direct read is acceptable.
+2. The `status/TRU-adapters-policies-clocks.md` file (noema#747's) still says the at-risk fraction has no source; it is not mine and is not edited here.
+3. The pack's trust-limits document is not loaded by anything in `cmd/core` yet (`trustlimits` has no caller): `AtRiskFromLimits` needs the composition (EL, `wire_trust.go`) to call `trustlimits.Load` first.
+
+## Pre-work for the next agent
+- Exact next step: push these commits onto noema#747's branch (C1 decides); EL wires `trustlimits.Load` then `AtRiskFromLimits` into `ClocksConfig.AtRisk`; when migration 0033 and the case mapping (A438) land, build the epoch reader, the case rows and the anchors behind the same ports.
+- Open questions (owner): flag 1 above (Architect, EL).
+- Files to read first: `orchestrator/portadapters/trust/intakesources/README.md`, `atrisk.go`, this file.
+- Do not touch: `trust/policy`, `trust/clocks`, `trust/intake`, `cmd/core/wire_trust.go`, `platform/trustlimits`, migrations.
+
+## Messages
+- 2026-11-20 · C1 (order to this helper) → this session: apply A447 and A416 (the at-risk value from `platform/trustlimits`, the setting withdrawn) and A419 (`produced_by` removed); merge `origin/main` and the tip of noema#747's branch; add commits only. Receiver used it for: this section and its commits.

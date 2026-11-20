@@ -1,16 +1,16 @@
 # orchestrator/portadapters/trust/intakesources
 
-Date: 2026-11-19 · Status: current (rulings A341 to A357 are relayed and not committed; nothing here cites one as authority). All data is SYNTHETIC.
+Date: 2026-11-20 · Status: current. The rulings it applies are committed: A345 in `DEC-2026-11-19-architect-rulings-a341-a357`, A363 in `DEC-2026-11-19-architect-rulings-a362-a376`, A416, A419, A438 and A447 in `DEC-2026-11-20-architect-rulings-a358-a453` (all interim, counting on merge by a non-author Founder). All data is SYNTHETIC.
 
 The production readers behind three consumer-side ports of `trust/intakeadapters` (noema#747), package `intakesources`. Each reads as the tenant's own Trust login (`trust_rw`); the database binds the tenant (row-level security, migration 0026) and the queries also name it. None writes.
 
-**Implements:** REQ-TRU-004, REQ-TRU-005, REQ-TRU-006, REQ-TRU-007, REQ-SEC-004; A306; INV-09, INV-11, INV-12, INV-14, INV-16, INV-19; AGENT-13, AGENT-16. **Never:** a write, a login that is not the tenant's (no fallback), a fact it did not read (an absence is never a negative fact), a default for a setting, a row, an ID, a tenant or a driver's text in an error, a clock.
+**Implements:** REQ-TRU-004, REQ-TRU-005, REQ-TRU-006, REQ-TRU-007, REQ-SEC-004; A306; INV-09, INV-11, INV-12, INV-14, INV-16, INV-19; AGENT-13, AGENT-16. **Never:** a write, a login that is not the tenant's (no fallback), a fact it did not read (an absence is never a negative fact), a setting or a default for a limit, a row, an ID, a tenant or a driver's text in an error, a clock.
 
 | Part | Port | State |
 |---|---|---|
 | `Facts` (`NewFacts`) | `intakeadapters.FactSource` | Built for the facts the stored intent carries: `<slot>` and `<slot>.status`. Refuses by name the facts with no source. |
 | `Admissions` (`NewAdmissions`) | `intakeadapters.Admissions` | Built. |
-| `AtRiskFromEnv` | the `AtRisk` of `intakeadapters.ClocksConfig` | Built. |
+| `AtRiskFromLimits` | the `AtRisk` of `intakeadapters.ClocksConfig` | Built. The pack's `clock_at_risk_remaining_bp`, read through `platform/trustlimits` (A447, A416). |
 | Anchors | `intakeadapters.Anchors` | **Not built: the data source does not exist.** See `status/TRU-02-factsource.md`, S3. |
 
 ## Facts
@@ -33,7 +33,7 @@ A variable is sourced from the slot **of the same name**, so the package names n
 
 There is never a half answer: on any error the set is empty. A need of nothing (a read capability) reads nothing and gives empty maps.
 
-**Has no source, and is refused by name:** the `case` entity (no mapping in the pack, no case-system item in the sealed snapshot); `logical_resolution_epoch` (not stored anywhere); `case_id` (minted by the case system when a case is created, assigned by no planner); and any other variable no slot carries. With the shipped pack this means `fin.cap.create_escalation_case` and `fin.cap.route_to_internal_owner` cannot be evaluated yet (UNKNOWN at the intake), while `fin.cap.record_investigation_evidence` (reads `subject_resource.status` only) and every read capability can. See the status file, S1.
+**Has no source, and is refused by name:** the `case` entity (no mapping in the pack, no case-system item in the sealed snapshot); `logical_resolution_epoch` (not stored anywhere); `case_id`, a fact produced by an earlier plan step: T11 never evaluates a rule over a produced fact (A363, A419), so it is never asked for at the first decision, and it is refused by name if it is (INV-19; a later evaluation takes the real `case_id` from the case-system evidence); and any other variable no slot carries. With the shipped pack this means `fin.cap.create_escalation_case` and `fin.cap.route_to_internal_owner` cannot be evaluated yet (UNKNOWN at the intake), while `fin.cap.record_investigation_evidence` (reads `subject_resource.status` only) and every read capability can. See the status file, S1.
 
 ## Admissions
 
@@ -41,15 +41,15 @@ There is never a half answer: on any error the set is empty. A need of nothing (
 
 **The choice.** The intent contract has no `admitted_at` (PERD 23.4 names one; PERD's data table lists `intent_object.admitted_at`, which the built table `admitted_intent` does not have). The row and the Record event `INTENT_ADMITTED` are written in one transaction, the event first (`understanding/intentstore`, EC-E16): the row's time is the time of that admission. The Record is not readable by a Trust login. `created_at` is the database clock (the transaction's start), the same clock as `policy_publication.published_at`.
 
-## At-risk setting
+## At-risk fraction
 
-`AtRiskFromEnv(getenv)` reads `NOEMA_TRUST_AT_RISK_BPS`: whole basis points, ASCII digits only, no sign, no space, no leading zero, no overflow, **no default**; the bounds are those of ruling A233 held by `platform/ceilings` (1000 to 5000). It returns `clocks.Ratio{Num: bps, Den: 10000}` for `ClocksConfig.AtRisk`. The error (`ErrSetting`) names the setting and the bounds and never echoes the value. The package reads no environment: the composition passes its lookup.
+`AtRiskFromLimits(limits)` gives `clocks.Ratio{Num: bps, Den: 10000}` for `ClocksConfig.AtRisk`, where `bps` is `clock_at_risk_remaining_bp` of the pack's trust-limits document (`packs/fintech/limits/trust_limits.json`, SYNTHETIC, 2500) read through `trustlimits.Limits.ClockAtRiskRemainingBP()`. That is the **one** source of the value (A447 corrects A345 S4; A416): there is no setting (`NOEMA_TRUST_AT_RISK_BPS` is withdrawn) and no default. The bounds (1000 to 5000, A233) are held and checked by `platform/trustlimits` when it loads the document: this package checks nothing again, so there is no copy of them to drift. A `Limits` that was not loaded has no value and is `ErrConfig` with no fraction (a zero fraction would mean a clock is never AT_RISK); the cause (`trustlimits.ErrNotLoaded`) stays behind `errors.Is`, the text is fixed.
 
 ## What `cmd/core` must pass (EL's lane, `wire_trust.go`; not touched here)
 
 - `intakesources.Logins`: `For(tenantID)` returns that tenant's own `trust_rw` pool (a `*pgxpool.Pool`), the same login files as the Record reader; an unknown tenant is an error, never a default login.
 - `NewFacts(logins, timeout)` and `NewAdmissions(logins, timeout)` with the timeout of `NOEMA_TRUST_DB_TIMEOUT_MS`; give them to `intakeadapters.PoliciesConfig{Facts, Admissions}`.
-- `AtRiskFromEnv(env.Getenv)` to `intakeadapters.ClocksConfig.AtRisk`. `Anchors` and `Routes` still have no source.
+- `trustlimits.Load` of the pack's `limits/trust_limits.json`, then `AtRiskFromLimits(limits)` to `intakeadapters.ClocksConfig.AtRisk`. No environment variable for it. `Anchors` and `Routes` still have no source.
 
 ## Tests
 
