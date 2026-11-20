@@ -41,7 +41,8 @@ done
 # core-trust.ed25519.<version>.key (mode 0400, owned by the reading process: a one-shot step sets that, as for the grant keys). Version 1 only; a rotation adds version 2 beside it. Kept if present, never
 # printed. C1's tenant-init registers the PUBLIC key in signing_key; nothing here derives or prints it.
 if [ ! -s "$dir/core_trust_ed25519_seed_1" ]; then
-  python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_trust_ed25519_seed_1"
+  # umask 077 in a subshell: the file is created at 0600 and is never wider, not even before the chmod below (SR on noema#790).
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_trust_ed25519_seed_1" )
 fi
 chmod 600 "$dir/core_trust_ed25519_seed_1"
 

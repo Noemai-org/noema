@@ -42,6 +42,7 @@ done
 printf '%s' "$(cat "$work/secrets/core_trust_ed25519_seed_1")" | grep -Eq '^[0-9a-f]{64}$' || fail "the core-trust seed is not 64 lower-case hexadecimal characters"
 [ "$(cat "$work/secrets/core_trust_ed25519_seed_1")" != "$(cat "$work/secrets/grant_hmac_key_a")" ] || fail "the core-trust seed is a grant key"
 [ "$(stat -c %a "$work/secrets/core_trust_ed25519_seed_1")" = "600" ] || fail "secrets/core_trust_ed25519_seed_1 is not mode 600"
+grep -q 'umask 077; python3 -c .*core_trust_ed25519_seed_1' "$here/secrets_local.sh" || fail "the core-trust seed is not written under umask 077 (SR on noema#790): it could be wider than 600 before the chmod"
 cp "$work/secrets/core_trust_ed25519_seed_1" "$work/seed.first"
 ( cd "$work" && sh secrets_local.sh >/dev/null )
 cmp -s "$work/seed.first" "$work/secrets/core_trust_ed25519_seed_1" || fail "a second run replaced the core-trust seed"
