@@ -113,6 +113,29 @@ func csGot(t *testing.T, g *csRig, i int) layer.Observation {
 	return g.rec.got[i]
 }
 
+// csWantUnknownComplaint asserts A473 (interim, relayed, recorded in docs#216, not yet merged): a case list that is unusable or unavailable leaves the complaint list explicitly
+// UNKNOWN (an item, never an absent one and never an empty "none"): no payload, no bytes, no complaint read, the complaint source's descriptor, and the case item first.
+func csWantUnknownComplaint(t *testing.T, name string, g *csRig, items []layer.Item, err error) {
+	t.Helper()
+	if err != nil || len(items) != 2 || len(g.rec.got) != 2 {
+		t.Errorf("%s: items %d, observations %d, err %v; want 2, 2, nil (the case item, then an UNKNOWN complaint item)", name, len(items), len(g.rec.got), err)
+		return
+	}
+	if len(g.records.queries) != 0 {
+		t.Errorf("%s: complaints were read with no usable case list", name)
+	}
+	o := g.rec.got[1]
+	if o.Payload != nil || !o.NoBytes || o.RawHash != "" || status(o) != contracts.EnumsV1FactStatusUNKNOWN || o.Read.Class == layer.ReadOK {
+		t.Errorf("%s: complaint item payload %v nobytes %v raw %q status %s class %s; want no payload, no bytes, UNKNOWN", name, o.Payload, o.NoBytes, o.RawHash, status(o), o.Read.Class)
+	}
+	if o.Source != g.r.CaseSources.Complaint.ID || o.ResourceScope != "fin.complaint_ref:TX1" || o.PrincipalScope != "usr_ab12" || o.TenantID != "ten_aa" {
+		t.Errorf("%s: complaint item source %q scope %q principal %q tenant %q", name, o.Source, o.ResourceScope, o.PrincipalScope, o.TenantID)
+	}
+	if st := status(g.rec.got[0]); st == contracts.EnumsV1FactStatusKNOWN {
+		t.Errorf("%s: the case item is KNOWN (%s) although the list is unusable", name, st)
+	}
+}
+
 func csList(t *testing.T, o layer.Observation) ([]any, bool) {
 	t.Helper()
 	p, ok := o.Payload.(map[string]any)
@@ -204,16 +227,15 @@ func TestACaseListMarkedCompleteAndEmptyIsNoCaseAndAnIncompleteOneIsUnknown(t *t
 	for name, page := range map[string]adapters.CasePage{"empty": csCasePage(false), "with rows": csCasePage(false, csCase("c1"))} {
 		g := csNew()
 		g.cases.find = func(adapters.CaseQuery) (adapters.CasePage, error) { return page, nil }
-		if _, err := g.run(t); err != nil {
+		items, err := g.run(t)
+		if err != nil {
 			t.Fatal(err)
 		}
 		_, done := csList(t, csGot(t, g, 0))
 		if done || status(csGot(t, g, 0)) != contracts.EnumsV1FactStatusUNKNOWN {
 			t.Errorf("%s incomplete list: complete %v, status %s; want false, UNKNOWN (never an empty none)", name, done, status(csGot(t, g, 0)))
 		}
-		if len(g.records.queries) != 0 || len(g.rec.got) != 1 {
-			t.Errorf("%s incomplete list: %d complaint reads, %d items; the complaints of an unfinished list are not read", name, len(g.records.queries), len(g.rec.got))
-		}
+		csWantUnknownComplaint(t, name+" incomplete list", g, items, err)
 	}
 }
 
@@ -325,16 +347,13 @@ func TestACaseAnswerTheReaderCannotUseIsUnknownAndKeepsNoPayload(t *testing.T) {
 		g := csNew()
 		g.cases.find = func(adapters.CaseQuery) (adapters.CasePage, error) { return page, nil }
 		items, err := g.run(t)
-		if err != nil || len(items) != 1 {
-			t.Errorf("%s: items %d, err %v; want one UNKNOWN item and no error", name, len(items), err)
+		csWantUnknownComplaint(t, name, g, items, err)
+		if len(items) < 1 {
 			continue
 		}
 		o := csGot(t, g, 0)
 		if o.Payload != nil || o.Read.Class != layer.ReadMalformed || status(o) != contracts.EnumsV1FactStatusUNKNOWN || (o.RawHash == "") == !o.NoBytes {
 			t.Errorf("%s: payload %v class %s status %s raw %q nobytes %v", name, o.Payload, o.Read.Class, status(o), o.RawHash, o.NoBytes)
-		}
-		if len(g.records.queries) != 0 {
-			t.Errorf("%s: complaints were read after an unusable case answer", name)
 		}
 	}
 
@@ -392,14 +411,10 @@ func TestAListOverTheSizeLimitIsRefusedFailClosedAndOneAtTheLimitIsNot(t *testin
 	}
 	g = csNew()
 	g.r.MaxPayloadBytes = caseSize - 1
-	if _, err := g.run(t); err != nil {
-		t.Fatal(err)
-	}
+	items, err := g.run(t)
+	csWantUnknownComplaint(t, "a case list over the limit", g, items, err)
 	if o := csGot(t, g, 0); o.Payload != nil || status(o) != contracts.EnumsV1FactStatusUNKNOWN || o.Read.Class != layer.ReadMalformed {
 		t.Errorf("a case list one byte over the limit: payload %v status %s", o.Payload, status(o))
-	}
-	if len(g.records.queries) != 0 {
-		t.Error("complaints were read after a refused case list")
 	}
 	many := func(g *csRig) {
 		g.records.find = func(q adapters.RecordQuery) (adapters.ComplaintPage, error) {
@@ -445,14 +460,9 @@ func TestAPortThatFailsIsAnItemAndStopsTheCaseDependentRead(t *testing.T) {
 		return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: "503", RawHash: hash}
 	}
 	items, err := g.run(t)
-	if err != nil || len(items) != 1 {
-		t.Fatalf("items %d, err %v; want 1, nil", len(items), err)
-	}
+	csWantUnknownComplaint(t, "the case read failed", g, items, err)
 	if o := csGot(t, g, 0); status(o) != contracts.EnumsV1FactStatusUNAVAILABLE || o.Payload != nil || o.RawHash != hash {
 		t.Errorf("case read failed: status %s payload %v raw %q", status(o), o.Payload, o.RawHash)
-	}
-	if len(g.records.queries) != 0 {
-		t.Error("complaints were read although the case read failed")
 	}
 
 	g = csNew()
@@ -555,5 +565,43 @@ func TestTheSameAnswersGiveTheSamePayloads(t *testing.T) {
 		if string(x) != string(y) || strings.Contains(string(x), "version_token") {
 			t.Errorf("payload %d differs between two runs, or carries the version token: %s / %s", i, x, y)
 		}
+	}
+}
+
+// A473: every way a case list can be unusable or unavailable gives the explicit UNKNOWN complaint item; the same holds for a timeout and a refused read, and an answering source
+// with an empty complete list stays "no cases" (one item, no complaint item).
+func TestEveryUnusableOrUnavailableCaseListLeavesTheComplaintListExplicitlyUnknown(t *testing.T) {
+	for name, find := range map[string]func(adapters.CaseQuery) (adapters.CasePage, error){
+		"timeout": func(adapters.CaseQuery) (adapters.CasePage, error) {
+			return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: "TIMEOUT"}
+		},
+		"server error": func(adapters.CaseQuery) (adapters.CasePage, error) {
+			return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: "503", RawHash: hash}
+		},
+		"unusable page": func(adapters.CaseQuery) (adapters.CasePage, error) {
+			return adapters.CasePage{Complete: true, NextCursor: "x", RawHash: hash}, nil
+		},
+	} {
+		g := csNew()
+		g.cases.find = find
+		items, err := g.run(t)
+		csWantUnknownComplaint(t, name, g, items, err)
+	}
+	g := csNew()
+	g.cases.find = func(adapters.CaseQuery) (adapters.CasePage, error) { return csCasePage(true), nil }
+	items, err := g.run(t)
+	if err != nil || len(items) != 1 || len(g.rec.got) != 1 || status(csGot(t, g, 0)) != contracts.EnumsV1FactStatusKNOWN {
+		t.Errorf("an empty complete list from an answering source: items %d, err %v; want 1, nil, KNOWN (no cases)", len(items), err)
+	}
+}
+
+// The UNKNOWN complaint item is recorded through the Recorder like any other: a refusal of it stops the call and returns the case item with the error (EC-E16).
+func TestARefusedUnknownComplaintItemStopsTheCallAndReturnsTheCaseItem(t *testing.T) {
+	g := csNew()
+	g.cases.find = func(adapters.CaseQuery) (adapters.CasePage, error) { return csCasePage(false), nil }
+	g.rec.fail = 2
+	items, err := g.run(t)
+	if err == nil || len(items) != 1 {
+		t.Errorf("items %d, err %v; want the case item with an error", len(items), err)
 	}
 }
