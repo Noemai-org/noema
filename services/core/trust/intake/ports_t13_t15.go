@@ -24,16 +24,15 @@ const (
 	ConfirmationPending
 	// ConfirmationGiven: the profile asks for one and a valid ACCEPT resolved to a fresh evaluation (confirm.Proceed, INV-25), whose event the Confirmation names.
 	ConfirmationGiven
-	// ConfirmationDeclined: the profile asks for one and the approver declined it. T13 turns it into REJECT DECLINED_BY_APPROVER, recorded before it is returned (SoT 43.2a step 4;
-	// a ruling relayed in a session and not yet committed: interim, and PERD 23.3 still lists CONFIRM only for T13). The answer must carry the declined request's RequestID, and no
-	// EventID and no NewRequest; a PlanHash is not read.
+	// ConfirmationDeclined: the profile asks for one and the approver declined it. In this version T13 does not decide on it: like any status it does not know, it ends the
+	// evaluation in UNKNOWN. SoT 43.2a step 4 makes a decline REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only: awaiting the Architect.
 	ConfirmationDeclined
 )
 
 // FreshBinding is the two values of the confirmation binding (confirm.BindingInput, SoT 43.2a) that only the fresh evaluation knows: the hash of the sealed evidence set it
-// read at T9 and the policy version it was decided under at T11. The adapter recomputes the binding of a Given answer from the other six values of the stored request and these two,
-// so an ACCEPT given for other evidence or another policy never resolves to this evaluation (INV-25). An adapter must refuse (return an error for) a Given answer when either value is
-// empty, and T13 no longer relies on it: it refuses a Given answer itself (UNKNOWN INTERNAL_ERROR, nothing planned or recorded) when either value it passed is empty.
+// read at T9 and the policy it was decided under at T11. The adapter recomputes the binding of a Given answer from the other six values of the stored request and these two,
+// so an ACCEPT given for other evidence or another policy never resolves to this evaluation (INV-25). An adapter must refuse (return an error for) a Given answer when
+// either value is empty. Trust passes what it knows and fails nothing on an empty value in this version.
 type FreshBinding struct {
 	// EvidenceSetHash is the evidence value of the binding, the CONTENT hash of the sealed snapshot T9 read (A365; the contract's field is still named evidence_set_hash), in its Hash form; empty when the Evidence port did not give it.
 	EvidenceSetHash string

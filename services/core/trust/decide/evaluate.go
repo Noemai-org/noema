@@ -55,8 +55,7 @@ type TraceEntry struct {
 	Result TraceResult
 }
 
-// stepOutcomes is §23.3's "terminal result" column: the outcomes each step may end an evaluation with. T13 also ends in REJECT (a declined confirmation, DECLINED_BY_APPROVER, SoT 43.2a
-// step 4): a ruling relayed in a session and not yet committed (interim, TRU-07); PERD 23.3 still lists CONFIRM only and owes a version file and a decision record. UNKNOWN is accepted
+// stepOutcomes is §23.3's "terminal result" column: the outcomes each step may end an evaluation with. UNKNOWN is accepted
 // at every step, because it never authorises anything; ALLOW only at T15, after the Decision Record is written.
 var stepOutcomes = map[GateStep][]Outcome{
 	T1AdmittedIntent:     {Reject},
@@ -71,7 +70,7 @@ var stepOutcomes = map[GateStep][]Outcome{
 	T10Reconciliation:    {Escalate},
 	T11Policy:            {Reject, Escalate, Confirm, Wait},
 	T12Clocks:            {Escalate},
-	T13Confirmation:      {Confirm, Reject},
+	T13Confirmation:      {Confirm},
 	T14Plan:              {},
 	T15DecisionRecorded:  {Allow},
 }

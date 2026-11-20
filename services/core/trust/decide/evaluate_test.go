@@ -203,7 +203,7 @@ var permitted = map[decide.GateStep][]decide.Outcome{
 	decide.T10Reconciliation:    {decide.Escalate},
 	decide.T11Policy:            {decide.Reject, decide.Escalate, decide.Confirm, decide.Wait},
 	decide.T12Clocks:            {decide.Escalate},
-	decide.T13Confirmation:      {decide.Confirm, decide.Reject}, // TRU-07 (ruling relayed, not yet committed: interim): a declined confirmation is REJECT DECLINED_BY_APPROVER (SoT 43.2a step 4); PERD 23.3 still says CONFIRM only
+	decide.T13Confirmation:      {decide.Confirm},
 	decide.T14Plan:              {},
 	decide.T15DecisionRecorded:  {decide.Allow},
 }

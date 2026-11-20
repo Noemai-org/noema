@@ -55,9 +55,10 @@ func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
 }
 
 // t13: the trust profile's approver confirmation. Not required: continue. Required and resolved (a valid ACCEPT that the confirmation store turned into this fresh evaluation,
-// INV-25): continue, and the grant will follow its event; the answer is refused (UNKNOWN) when the FreshBinding Trust passed has an empty evidence set hash or policy version, so that
-// Trust does not rely on the adapter to refuse it. Required and not resolved (Pending): the CONFIRM, recorded before it is returned (EC-E16), with the confirmation request created in
-// the same Record call when none is open. Declined: REJECT DECLINED_BY_APPROVER, recorded before it is returned (t13Declined). Any other answer is not an answer: it ends in UNKNOWN.
+// INV-25): continue, and the grant will follow its event. Required and not resolved (Pending): the CONFIRM, recorded before it is returned (EC-E16), with the confirmation request
+// created in the same Record call when none is open. Any other answer is not an answer: that includes Declined, which ends in UNKNOWN like a status Trust does not know. The order
+// is that Declined becomes REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only, and trust/decide refuses any other outcome from T13: that is a
+// stop condition awaiting the Architect (status/TRU-07-confirm-t13.md), and UNKNOWN is the safer reading meanwhile.
 func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
@@ -84,8 +85,6 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		return decide.Continue()
 	case ConfirmationPending:
 		return e.t13Confirm(ctx, c)
-	case ConfirmationDeclined:
-		return e.t13Declined(ctx, c)
 	}
 	return decide.FailStep(errAnswer)
 }
@@ -141,47 +140,6 @@ func (e *evaluation) t13Confirm(ctx context.Context, c Confirmation) decide.Step
 		requestID = res.ConfirmationRequestID
 	}
 	e.late.recorded, e.late.requestID = RecordResult{DecisionID: res.DecisionID}, requestID
-	return decide.Stop(d)
-}
-
-// t13Declined is the Declined answer (SoT 43.2a step 4, REQ-TRU-009; a ruling relayed in a session and not yet committed: interim): the approver declined, so the decision is REJECT
-// DECLINED_BY_APPROVER, built with the decide builders with the three layers at PASS (they all continued before T13, as for the CONFIRM), on the evaluated set, and recorded through the
-// Recorder BEFORE it is returned (EC-E16). The answer must name the request that was declined (a cfr_ ID) and nothing else: a request to make, or an event, is not a decline. Nothing is
-// planned, there is no step, no grant and no request, and a plan hash on the answer is not read. The REJECT stands only if the Recorder wrote it: a Recorder error, no decision ID, a grant
-// or a request ID ends in UNKNOWN. No fresh binding is needed: a refusal authorises nothing.
-func (e *evaluation) t13Declined(ctx context.Context, c Confirmation) decide.StepResult {
-	if !requestIDRe.MatchString(c.RequestID) || c.NewRequest != nil || c.EventID != "" {
-		return decide.FailStep(errAnswer)
-	}
-	r, err := e.resolved()
-	if err != nil {
-		return decide.FailStep(err)
-	}
-	reason, err := decide.Core("DECLINED_BY_APPROVER")
-	if err != nil {
-		return decide.FailStep(err)
-	}
-	d, err := r.Reject(passed(), reason)
-	if err != nil {
-		return decide.FailStep(err)
-	}
-	if d, err = e.withBasis(d); err != nil {
-		return decide.FailStep(err)
-	}
-	digest, err := e.bb.Digest()
-	if err != nil {
-		return decide.FailStep(err)
-	}
-	a := e.intent
-	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
-		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
-	if err != nil {
-		return decide.FailStep(err)
-	}
-	if !decisionIDRe.MatchString(res.DecisionID) || len(res.GrantIDs) != 0 || res.ConfirmationRequestID != "" { // no grant and no request can come from a REJECT
-		return decide.FailStep(errAnswer)
-	}
-	e.late.recorded = RecordResult{DecisionID: res.DecisionID}
 	return decide.Stop(d)
 }
 
