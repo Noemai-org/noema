@@ -11,7 +11,7 @@ import json
 import re
 import tempfile
 import unittest
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -268,7 +268,7 @@ class Fixture(unittest.TestCase):
 
     def test_a_fixture_that_does_not_match_the_cases_of_the_file_is_refused(self) -> None:
         doc = make_doc()
-        for name, mutate in {
+        mutations: dict[str, Callable[[dict[str, Any]], object]] = {
             "a case missing": lambda fx: fx["cases"].pop(),
             "a case added": lambda fx: fx["cases"].append(dict(fx["cases"][0])),
             "cases reordered": lambda fx: fx["cases"].reverse(),
@@ -282,7 +282,8 @@ class Fixture(unittest.TestCase):
             "a request id that is not a UUID": lambda fx: fx["cases"][0]["canonical_input"].__setitem__("request_id", "x"),
             "an unknown key beside the cases": lambda fx: fx.__setitem__("expected", "x"),
             "a pack reference that is not one": lambda fx: fx.__setitem__("pack_ref", "x"),
-        }.items():
+        }
+        for name, mutate in mutations.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 fx = fixture_for(doc)
                 mutate(fx)
