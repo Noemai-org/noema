@@ -255,8 +255,17 @@ def test_a_record_only_input_goes_through_the_real_pipeline_with_its_world_rows_
         with pytest.raises(CompileFailed):
             await backend.compile_one(GOLDEN[1])  # a golden with candidates first: the record-only input must not inherit them
         golden_rows = backend._candidates.rows
+        seen: list[dict[str, Any]] = []
+        run_service = backend._service.run
+
+        async def spy(canonical: Any, pack_ref: Any, other: Any) -> Any:
+            seen.append(dict(canonical))
+            return await run_service(canonical, pack_ref, other)
+
+        backend._service.run = spy
         with pytest.raises(CompileFailed):
             await backend.record_one(RECORD_ONLY)
+        assert seen == [CANONICAL]  # exactly the canonical input of the fixture: nothing added (no locale hint), nothing rebuilt
         rows = backend._candidates.rows
         assert rows != golden_rows and [(r.candidate_id, r.resource_ref, r.amount_minor, r.counterparty_display, r.account_last4, r.beneficiary_alias_match) for r in rows] == [
             (w["candidate_id"], w["resource_ref"], w["amount_minor"], w["counterparty_display"], w["account_last4"], w["beneficiary_alias_match"]) for w in WORLD_ROWS]

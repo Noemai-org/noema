@@ -171,7 +171,8 @@ class Loading(unittest.TestCase):
             "turn is text": with_case(utterances=[{"turn": "1", "text": "a"}]), "case id shape": with_case(case_id="ben-clean-1"), "case id with a digit run": with_case(case_id="BEN-CLEAN-00012"),
             "duplicate case ids": with_case() + with_case(), "canonical locale pcm": with_case(canonical_locale="pcm"), "canonical locale null": with_case(canonical_locale=None),
             "canonical locale other": with_case(canonical_locale="en-GB"), "principal not an object": with_case(principal="usr_x"), "principal id shape": with_case(principal={"principal_id": "x", "roles": ["customer"]}),
-            "no roles": with_case(principal={"principal_id": "usr_synth0001", "roles": []}), "world not an object": with_case(candidates=[]),
+            "no roles": with_case(principal={"principal_id": "usr_synth0001", "roles": []}), "a role that is not text": with_case(principal={"principal_id": "usr_synth0001", "roles": [1]}),
+            "a role that is empty": with_case(principal={"principal_id": "usr_synth0001", "roles": [""]}), "world not an object": with_case(candidates=[]),
             "transaction of an unknown beneficiary": with_case(candidates={"beneficiaries": [], "transactions": world()["transactions"]}),
             "duplicate beneficiary ids": with_case(candidates={"beneficiaries": world()["beneficiaries"] * 2, "transactions": []}),
             "more than twenty transactions": with_case(candidates={"beneficiaries": world()["beneficiaries"], "transactions": [{**world()["transactions"][0], "ref": f"fin.transaction:TX{n:04d}"} for n in range(21)]}),
@@ -306,6 +307,17 @@ class Fixture(unittest.TestCase):
                 load_inputs(inputs)
             self.assertEqual(str(ctx.exception), ctx.exception.code)
             self.assertNotIn("Chidi", str(ctx.exception))
+
+    def test_the_real_pair_is_proven_once_the_fixture_is_committed_and_refused_until_then(self) -> None:
+        # Not a skip: before the Go test's fixture is committed (and BO's world rows are on main) the default run must refuse, and the day the fixture is committed the pair must load: its pin, its shape,
+        # five canonical inputs without a hint, candidate rows. A fixture that is out of step with BO's file fails here in the benchmark job.
+        if DEFAULT_FIXTURE.exists():
+            got = load_inputs(DEFAULT_PATH)
+            self.assertEqual([i.canonical_locale for i in got], ["en-NG"] * len(got))
+            self.assertTrue(all("locale_hint" not in i.canonical and i.canonical["text"] == i.text for i in got))
+        else:
+            with self.assertRaises(RecordOnlyRefused):
+                load_inputs(DEFAULT_PATH)
 
     def test_the_pass_has_no_canonical_input_builder_of_its_own(self) -> None:
         import benchmark.compile_acceptance.record_only as module

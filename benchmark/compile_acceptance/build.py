@@ -18,7 +18,6 @@ from typing import Any
 from benchmark.bakeoff.budget import BudgetExceeded, BudgetGuard, projected_micros
 from benchmark.compile_acceptance.golden import Golden, canonical_input
 from benchmark.compile_acceptance.record_only import RecordOnlyInput
-from benchmark.compile_acceptance.record_only import canonical_input as record_only_input
 from benchmark.compile_acceptance.recording import Recorder
 from benchmark.compile_acceptance.runner import CompileFailed
 
@@ -128,8 +127,12 @@ class LiveBackend:
         return await self._compile(g.case_id, canonical_input(g), rows)
 
     async def record_one(self, inp: RecordOnlyInput) -> Mapping[str, Any]:
-        """One input of the record-only pass (A361, A372): the same service, the same recorder, and an EMPTY candidate source: the file holds inputs only, and nothing is invented for it."""
-        return await self._compile(inp.case_id, record_only_input(inp), ())
+        """One input of the record-only pass (A361, A372, A439, A460): the same service and recorder, the canonical input the core's Interpreter port built (the fixture's), and the candidates of the case's world
+        rows (BO's file), newest first, so the candidate source answers what the core's would. Nothing is invented for it."""
+        types = import_module("noema_model.understanding.resolution")
+        rows = tuple(types.Candidate(r["candidate_id"], r["resource_ref"], r["amount_minor"], r["currency"], datetime.strptime(r["occurred_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC),
+                                     r["counterparty_display"], r["account_last4"], r["direction"], r["beneficiary_alias_match"]) for r in inp.candidates)
+        return await self._compile(inp.case_id, inp.canonical, rows)
 
     async def _compile(self, case_id: str, canonical: Mapping[str, Any], rows: tuple[Any, ...]) -> Mapping[str, Any]:
         self._transport.case_id = case_id

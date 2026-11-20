@@ -189,7 +189,7 @@ func TestAnyCanonicalLocaleButEnNGIsRefused(t *testing.T) {
 	}
 }
 
-// The inputs are trusted for nothing they do not prove (INV-22): a digest that does not match, a key beyond BO's shape (an expectation, an oracle reference), a missing principal, a case with more than
+// The inputs are trusted for nothing they do not prove (INV-22): a digest that does not match, a key beyond BO's shape (an expectation, a grader reference), a missing principal, a case with more than
 // one utterance, an empty text. None builds anything, and no error carries a piece of the file (AGENT-13).
 func TestAnInputsFileThatIsNotBOsFileIsRefusedAndTheErrorCarriesNoText(t *testing.T) {
 	good := g1Inputs(t, nil)
@@ -197,7 +197,7 @@ func TestAnInputsFileThatIsNotBOsFileIsRefusedAndTheErrorCarriesNoText(t *testin
 	cases := map[string][]byte{
 		"digest":          badDigest,
 		"expectation key": g1Inputs(t, func(doc map[string]any) { doc["cases"].([]any)[0].(map[string]any)["expected"] = "x" }),
-		"oracle key":      g1Inputs(t, func(doc map[string]any) { doc["oracle_ref"] = "x" }),
+		"grader key":      g1Inputs(t, func(doc map[string]any) { doc["grader_ref"] = "x" }),
 		"no principal":    g1Inputs(t, func(doc map[string]any) { delete(doc["cases"].([]any)[0].(map[string]any), "principal") }),
 		"two utterances": g1Inputs(t, func(doc map[string]any) {
 			c := doc["cases"].([]any)[0].(map[string]any)
