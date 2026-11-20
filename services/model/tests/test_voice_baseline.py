@@ -15,6 +15,7 @@ import struct
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -205,7 +206,7 @@ def test_a_manifest_that_does_not_fit_is_trimmed_from_its_end_and_no_utterance_i
 
 
 def test_an_item_that_alone_exceeds_the_budget_is_dropped_with_everything_after_it() -> None:
-    plan = plan_budget([item("a"), item("huge", audio_s=500.0), item("c")], budget_minutes=20.0)
+    plan = plan_budget([item("a"), item("huge", audio_s=700.0), item("c")], budget_minutes=20.0)
     assert [i.label for i in plan.kept] == ["a"] and [i.label for i in plan.dropped] == ["huge", "c"]  # the manifest is trimmed from the end, never reordered to fit
 
 
@@ -334,7 +335,7 @@ def test_the_report_has_counts_stages_failures_budget_and_accuracy_and_nothing_t
     results = [one_session(AudioOrigin.SYNTHETIC, "send ten thousand naira")[0], one_session(AudioOrigin.SYNTHETIC, "", fail=True)[0]]
     second, wer = one_session(AudioOrigin.TEAM_RECORDING, "send ten naira")
     results.append(second)
-    report = build_report(results, wers=[wer], target_ms=1800, spent={"generation_s": 20.0, "stt_s": 24.0, "spoken_s": 8.0}, budget_s=1200.0, dropped=2)  # type: ignore[arg-type]
+    report = build_report(results, wers=[0.25 if wer is None else wer], target_ms=1800, spent={"generation_s": 20.0, "stt_s": 24.0, "spoken_s": 8.0}, budget_s=1200.0, dropped=2)  # type: ignore[arg-type]
     text = json.dumps(report)
     assert report["sessions"] == {"total": 3, "complete": 2, "incomplete": 1} and report["failures"] == {"RATE_LIMITED": 1}
     assert report["origins"] == {"SYNTHETIC": 2, "TEAM_RECORDING": 1} and report["dropped_from_manifest"] == 2
@@ -342,7 +343,8 @@ def test_the_report_has_counts_stages_failures_budget_and_accuracy_and_nothing_t
     assert report["accuracy"] == {"team_recordings": 1, "mean_word_error_rate": 0.25}
     assert report["target_ms"] == 1800 and "verdict" not in text.lower() and "pass" not in text.lower()
     assert "naira" not in text and "send" not in text  # no transcript text
-    assert set(report["stages_ms"]) == {"stt", "response", "tts"} and all(set(v) == {"p50", "p95"} for v in report["stages_ms"].values())
+    stages = cast(dict[str, dict[str, int | None]], report["stages_ms"])
+    assert set(stages) == {"stt", "response", "tts"} and all(set(v) == {"p50", "p95"} for v in stages.values())
 
 
 def test_a_report_of_no_sessions_is_refused() -> None:

@@ -27,3 +27,14 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 
 ## Pre-work for the next agent
 - Exact next step: the live runner (after noema#640 and noema#689 merge).
+
+# Session 2026-11-20 · VOI-16 (the baseline-run library)
+
+## Session summary
+- What changed: `voice/baseline.py`, the library of the live baseline run (no network, no key): the writer of the private raw-audio store (files 0600, folders 0700, set explicitly; each file's modification time is the analysis date; nothing outside the store; no overwrite; no link followed), the settings (all required, no default; concurrency 1), the three-part audio budget trimmed from the end of the manifest, the pause from the published connection limit, the 48 to 16 kHz reduction, the word error rate counted inside the core stand-in, and the report (counts, stages and failures only).
+- Tests: `tests/test_voice_baseline.py`; the store tests need POSIX modes and run on Linux CI. Debt: the runner that wires these to the adapters and the key (after noema#816 and the key); registered with the Steward.
+- Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: the runner entry point (reads `INTRON_API_KEY_FILE` with the key reader, builds the adapters with the connect factory of noema#816, generates the synthetic fixtures with Intron text-to-speech, reduces them to 16 kHz, calls `measure_session` per item with `session_s` as the whole-session deadline and `pause_s` between sessions, stops at the first RATE_LIMITED or after two failures in a row, and writes `build_report` as one JSON file outside the audio store). The runner takes the store path, the retention and every setting as arguments with no default.
+- Do not touch: the settings values (A380) or the store's modes.
