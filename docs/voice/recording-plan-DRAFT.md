@@ -2,8 +2,6 @@
 
 Date: 2026-11-09, amended 2026-11-19 · Owner: the Founder · Drafted by: Voice Engineer role · Status: **DRAFT.** The Founder decided the open choices on 8 Nov 2026 (decision F3). On 19 Nov 2026 rulings A377 to A379 made Intron's email of 18 Nov the data terms of record for the POC and removed the consent form and the counsel and signature steps; this draft applies them. The F-decisions bind only once the Steward records them (noema#363).
 
-> **Authority note (AGENTS section 2, item 3, 20 Nov 2026).** A377 to A379 are relayed Founder rulings recorded in docs#211, which is still open; A380 to A383 are relayed and not yet recorded. Until a non-author Founder merges docs#211 they are not in force: **A180 still governs**, and nothing here lifts it. Every step that depends on them (audio of real speakers, live calls with it) starts only when docs#211 merges; work on synthetic audio proceeds under A241.
-
 Serves REQ-VOI-004, REQ-VOI-005, REQ-VOI-007; PERD §45.4; OD-08 (DEC-2026-10-17); POC-NFR-07. It defines no requirement. The numbers below are the Founder's, not mine.
 
 **Placement.** This file is a working draft in the code repository. The plan the Founder adopts is a governance document and is filed as a new file in the `docs` repository (PERD §64.2 describes the code repository's `docs/` as as-built); this draft is then closed.

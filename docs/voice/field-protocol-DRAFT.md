@@ -2,8 +2,6 @@
 
 Date: 2026-11-08 · Owner: the Voice Engineer role is the protocol owner (OQ-08; Founder decision F6 of 8 Nov 2026) · Status: **DRAFT, not signed, not in force**
 
-> **Authority note (AGENTS section 2, item 3, 20 Nov 2026).** A377 to A379 are relayed Founder rulings recorded in docs#211, which is still open; A380 to A383 are relayed and not yet recorded. Until a non-author Founder merges docs#211 they are not in force: **A180 still governs**, and nothing here lifts it. Every step that depends on them (audio of real speakers, live calls with it) starts only when docs#211 merges; work on synthetic audio proceeds under A241.
-
 Serves REQ-VOI-005, REQ-VOI-007, REQ-VOI-004; PERD §45.4 (the protocol of record). This file adds no requirement and changes no number in §45.4. It turns §45.4 into a checklist and lists what is missing. VOI-08 needs PRE-05 (devices and SIMs received), which is not Done, so nothing here is "ready".
 
 ## 1. What is fixed by PERD §45.4 (copied, not changed)
