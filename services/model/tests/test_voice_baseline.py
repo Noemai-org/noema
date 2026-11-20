@@ -305,7 +305,8 @@ class StandIn:
     """The report is built from sessions that ran through the real harness; the core stand-in keeps only the word error rate."""
 
     def __init__(self, clock: Clock, reference: str | None) -> None:
-        self.clock, self.reference, self.wer: float | None = clock, reference, None
+        self.clock, self.reference = clock, reference
+        self.wer: float | None = None
 
     async def admit(self, text: str) -> None:
         self.wer = None if self.reference is None else word_error_rate(self.reference, text)
