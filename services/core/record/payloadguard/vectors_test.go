@@ -19,6 +19,7 @@ type digitRunVector struct {
 	Input     string `json:"input"`
 	Refused   bool   `json:"refused"`
 	Exemption string `json:"exemption"`
+	PathClass string `json:"path_class"`
 }
 
 func loadDigitRunVectors(t *testing.T) []digitRunVector {
@@ -59,15 +60,16 @@ func TestTheSharedVectorsAreNamedOnceAndSaySomething(t *testing.T) {
 	}
 }
 
-// Every vector, by name: the guard refuses the string exactly when the file says refused, as the value at a path with no exemption of its own.
+// Every vector, by name: the guard refuses the string exactly when the file says refused, as the value at a path with no exemption of its own, or, for a vector whose
+// path_class is customer_visible_text (A331: the money vectors), at a customer-visible text path.
 func TestCheckGivesTheVerdictOfEverySharedVector(t *testing.T) {
 	for _, v := range loadDigitRunVectors(t) {
 		t.Run(v.Name, func(t *testing.T) {
-			payload, err := json.Marshal(map[string]string{"v": v.Input})
-			if err != nil {
-				t.Fatal(err)
+			at := "/v"
+			if v.PathClass == "customer_visible_text" {
+				at = "/done/summary"
 			}
-			got := payloadguard.Check(payload) != nil
+			got := payloadguard.Check(payloadAt(t, at, v.Input)) != nil
 			if got != v.Refused {
 				t.Errorf("%s: refused = %v, the file says %v (%s)", v.Name, got, v.Refused, v.Proves)
 			}
@@ -75,13 +77,17 @@ func TestCheckGivesTheVerdictOfEverySharedVector(t *testing.T) {
 	}
 }
 
-// A308: Mask has the same verdict as Check on every vector, the money vectors included: a stored money string is served as it is (`NGN 12,345.00`, not `NGN 12,*45.00`), and every
-// other string is changed exactly when the guard refuses it, because both use digitRun (A194).
+// A308, A331: MaskText, the mask of customer-visible text, has the same verdict as Check on every vector, the money vectors included: a stored money string is shown as it is
+// (`NGN 12,345.00`, not `NGN 12,*45.00`). Mask, which every other field is masked by, has no money exemption: it changes a string exactly when the file says refused or the
+// string is a money string that only the exemption accepts. Both use digitRun, so there is no second definition (A194).
 func TestMaskAgreesWithTheSharedVectors(t *testing.T) {
 	for _, v := range loadDigitRunVectors(t) {
 		t.Run(v.Name, func(t *testing.T) {
-			if changed := payloadguard.Mask(v.Input) != v.Input; changed != v.Refused {
-				t.Errorf("%s: Mask changes the string = %v, the file says refused = %v", v.Name, changed, v.Refused)
+			if changed := payloadguard.MaskText(v.Input) != v.Input; changed != v.Refused {
+				t.Errorf("%s: MaskText changes the string = %v, the file says refused = %v", v.Name, changed, v.Refused)
+			}
+			if changed := payloadguard.Mask(v.Input) != v.Input; changed != (v.Refused || v.Exemption == "money") {
+				t.Errorf("%s: Mask changes the string = %v, the file says refused = %v with exemption %q", v.Name, changed, v.Refused, v.Exemption)
 			}
 		})
 	}

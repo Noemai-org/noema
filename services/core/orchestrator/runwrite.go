@@ -194,17 +194,16 @@ func (u *wrun) execute(d Decision) (Result, error) {
 		return u.result(""), fmt.Errorf("%w: a receipt for grant %q, not %q", ErrBadPortAnswer, rc.GrantID, d.GrantIDs[0])
 	}
 	switch rc.Class {
-	case ReceiptVoided:
-		// The grant was voided before it was spent: it was never dispatched. A new decision follows (PLANNED to EVALUATING).
+	case ReceiptVoided, ReceiptBudgetSpent:
+		// Voided: the grant was voided before it was spent. Budget spent: the database refused the dispatch because the key's budget is used up (A153, A216). In both nothing was
+		// dispatched, so there is nothing to verify, and the grant that was issued is never spent (it expires by TTL). The runner takes the existing arrow PLANNED to EVALUATING
+		// and asks Trust again (docs#206 option b, relayed, not yet committed: no new arrow). Trust's own T12 then decides ESCALATE (noema#572), which EVALUATING to ESCALATING
+		// follows. Both count in u.voids, so the re-evaluations are bounded by MaxDispatchesPerKey; if Trust still allows a write at the limit, evaluate stops with ErrRecoveryBudgetSpent.
 		if err := u.move("EVALUATING"); err != nil {
 			return u.result(""), err
 		}
 		u.voids++
 		return u.evaluate(d.IntentRef)
-	case ReceiptBudgetSpent:
-		// The database refused the dispatch because the key's budget is used up (A153, A216): nothing was dispatched, so there is nothing to verify and no reason to ask Trust
-		// again. The run stops for a person; the grant is never spent and expires by TTL. No arrow to a hand-over exists from PLANNED, so none is invented (A216).
-		return u.result(""), ErrRecoveryBudgetSpent
 	case ReceiptApplied, ReceiptUnknown:
 	default:
 		return u.result(""), fmt.Errorf("%w: receipt class %q", ErrBadPortAnswer, rc.Class)
