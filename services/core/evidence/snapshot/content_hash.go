@@ -22,6 +22,8 @@ type ContentItem struct {
 	Source         string
 	SourceRecordID string
 	FactsDigest    string
+	// Status is the item's fact status as the Reconciler gives it (the contract's enum name).
+	Status string
 }
 
 // ContentHash is the evidence value a confirmation binds (A365 refined, REQ-TRU-009, INV-25): "sha256:" and the SHA-256 of the domain tag and then, for each distinct item in sorted

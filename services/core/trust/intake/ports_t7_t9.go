@@ -94,6 +94,8 @@ type SnapshotEvidence struct {
 	// evidence IDs, in the contract's Hash form (sha256: and 64 lower-case hex); empty when the adapter does not
 	// give it. T9 refuses a value that is not empty and not in that form, and T13 passes it on in FreshBinding.
 	EvidenceSetHash string
+	// ConfirmationBindingEvidenceHash is the evidence component of a confirmation binding (A435): the content digest of the items the decision rests on, in the Hash form.
+	ConfirmationBindingEvidenceHash string
 }
 
 // Evidence is the T9 read: the freshness of each required source item of the sealed snapshot the orchestrator named.

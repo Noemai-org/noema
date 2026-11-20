@@ -48,7 +48,7 @@ func confirmDecision(t *testing.T, b *decide.BasisBuilder) decide.Decision {
 }
 
 func newCfr(w *world) *recorder.NewConfirmationRequest {
-	return &recorder.NewConfirmationRequest{PrincipalID: cfrPrincipal, IntentHash: letters(0), CapabilityID: capability, TargetRef: cfrTarget, ParamsHash: letters(1), EvidenceSetHash: letters(2),
+	return &recorder.NewConfirmationRequest{PrincipalID: cfrPrincipal, IntentHash: letters(0), CapabilityID: capability, TargetRef: cfrTarget, ParamsHash: letters(1), ConfirmationBindingEvidenceHash: letters(2),
 		PlanHash: letters(3), PolicyVersion: policyVersion, Requirement: "SELF", RequesterID: cfrPrincipal, ExpiresAt: epoch.Unix() + 600}
 }
 
@@ -261,7 +261,7 @@ func TestAMalformedConfirmationRequestIsRefusedBeforeAnythingIsWritten(t *testin
 		"a target with a space":               func(c *recorder.NewConfirmationRequest) { c.TargetRef = "fin.transaction:TX 8821" },
 		"no target":                           func(c *recorder.NewConfirmationRequest) { c.TargetRef = "" },
 		"a params hash of the wrong form":     func(c *recorder.NewConfirmationRequest) { c.ParamsHash = "x" },
-		"no evidence set hash":                func(c *recorder.NewConfirmationRequest) { c.EvidenceSetHash = "" },
+		"no evidence set hash":                func(c *recorder.NewConfirmationRequest) { c.ConfirmationBindingEvidenceHash = "" },
 		"a plan hash of the wrong form":       func(c *recorder.NewConfirmationRequest) { c.PlanHash = letters(3)[7:] },
 		"no policy version":                   func(c *recorder.NewConfirmationRequest) { c.PolicyVersion = "" },
 		"another policy version than bound":   func(c *recorder.NewConfirmationRequest) { c.PolicyVersion = "sha256:" + strings.Repeat("0", 64) },

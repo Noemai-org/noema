@@ -36,10 +36,10 @@ func TestT13PassesTheEvidenceSetHashOfT9AndThePolicyVersionOfT11(t *testing.T) {
 	f := newFake13()
 	f.conf = given13()
 	ev := newEval13(t, f)
-	ev.evidenceSetHash = tSetHash
+	ev.confirmationBindingEvidenceHash = tSetHash
 	ev.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}}
 	run13(t, ev)
-	if got, want := oneBinding(t, f), (FreshBinding{EvidenceSetHash: tSetHash, PolicyVersion: tPolicySet}); got != want {
+	if got, want := oneBinding(t, f), (FreshBinding{ConfirmationBindingEvidenceHash: tSetHash, PolicyVersion: tPolicySet}); got != want {
 		t.Errorf("FreshBinding %+v, want %+v", got, want)
 	}
 }
@@ -75,10 +75,10 @@ func TestT13ThePolicyVersionIsTheCompositeOfEveryPolicyVersionOfT11(t *testing.T
 	} {
 		f := newFake13()
 		ev := newEval13(t, f)
-		ev.evidenceSetHash = tSetHash
+		ev.confirmationBindingEvidenceHash = tSetHash
 		ev.policyVersions = tc.versions
 		run13(t, ev)
-		if got, want := oneBinding(t, f), (FreshBinding{EvidenceSetHash: tSetHash, PolicyVersion: tc.want}); got != want {
+		if got, want := oneBinding(t, f), (FreshBinding{ConfirmationBindingEvidenceHash: tSetHash, PolicyVersion: tc.want}); got != want {
 			t.Errorf("%s: FreshBinding %+v, want %+v", name, got, want)
 		}
 	}
@@ -89,12 +89,12 @@ func TestT13ThePolicyVersionIsTheCompositeOfEveryPolicyVersionOfT11(t *testing.T
 // the Recorder are never called, and no grant exists.
 func TestT13GivenWithAnEmptyFreshValueIsUnknownAndTheAnswerIsDiscarded(t *testing.T) {
 	for name, mutate := range map[string]func(*evaluation){
-		"an empty evidence set hash": func(e *evaluation) { e.evidenceSetHash = "" },
+		"an empty evidence set hash": func(e *evaluation) { e.confirmationBindingEvidenceHash = "" },
 		"no policy version":          func(e *evaluation) { e.policyVersions = nil },
 		"a policy version that cannot be bound": func(e *evaluation) {
 			e.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol synth01", Version: "3"}}
 		},
-		"both empty": func(e *evaluation) { e.evidenceSetHash, e.policyVersions = "", nil },
+		"both empty": func(e *evaluation) { e.confirmationBindingEvidenceHash, e.policyVersions = "", nil },
 	} {
 		f := newFake13()
 		f.conf = given13()
@@ -119,7 +119,7 @@ func TestT13GivenWithAnEmptyFreshValueIsUnknownAndTheAnswerIsDiscarded(t *testin
 func TestT13EmptyFreshValuesAreStillPassedAndFailOnlyAGivenAnswer(t *testing.T) {
 	f := newFake13()
 	ev := newEval13(t, f)
-	ev.evidenceSetHash, ev.policyVersions = "", nil
+	ev.confirmationBindingEvidenceHash, ev.policyVersions = "", nil
 	res := run13(t, ev)
 	if got := oneBinding(t, f); got != (FreshBinding{}) {
 		t.Errorf("FreshBinding %+v, want the zero value", got)
@@ -129,7 +129,7 @@ func TestT13EmptyFreshValuesAreStillPassedAndFailOnlyAGivenAnswer(t *testing.T) 
 	}
 	g := pendingOpen(newFake13())
 	ev = confirmEval(t, g)
-	ev.evidenceSetHash, ev.policyVersions = "", nil
+	ev.confirmationBindingEvidenceHash, ev.policyVersions = "", nil
 	if res := run13(t, ev); res.Decision.Outcome() != decide.Confirm || g.called("Recorder.Record") != 1 {
 		t.Errorf("Pending with an open request and empty values: outcome %s, calls %v, want CONFIRM recorded once", res.Decision.Outcome(), g.calls)
 	}
@@ -142,15 +142,15 @@ func TestT9KeepsTheEvidenceSetHashForT13(t *testing.T) {
 	e := newEval(t, resolvedView(), f, nil)
 	d, trace := runStep(t, e, decide.T9Evidence)
 	continued(t, "a well-formed hash", d, trace, decide.T9Evidence)
-	if e.evidenceSetHash != tSetHash {
-		t.Errorf("kept %q, want %q", e.evidenceSetHash, tSetHash)
+	if e.confirmationBindingEvidenceHash != tSetHash {
+		t.Errorf("kept %q, want %q", e.confirmationBindingEvidenceHash, tSetHash)
 	}
 	f = newFake()
 	e = newEval(t, resolvedView(), f, nil)
 	d, trace = runStep(t, e, decide.T9Evidence)
 	continued(t, "no hash given", d, trace, decide.T9Evidence)
-	if e.evidenceSetHash != "" {
-		t.Errorf("kept %q for an adapter that gave none, want empty", e.evidenceSetHash)
+	if e.confirmationBindingEvidenceHash != "" {
+		t.Errorf("kept %q for an adapter that gave none, want empty", e.confirmationBindingEvidenceHash)
 	}
 }
 
@@ -174,8 +174,8 @@ func TestT9AMalformedEvidenceSetHashIsUnknownAndConfirmationsIsNeverCalled(t *te
 		if len(c.bindings) != 0 || c.called("Confirmations.Status") != 0 {
 			t.Errorf("%s: Confirmations.Status was called after a malformed evidence set hash", name)
 		}
-		if e.evidenceSetHash != "" {
-			t.Errorf("%s: the malformed hash %q was kept", name, e.evidenceSetHash)
+		if e.confirmationBindingEvidenceHash != "" {
+			t.Errorf("%s: the malformed hash %q was kept", name, e.confirmationBindingEvidenceHash)
 		}
 	}
 }

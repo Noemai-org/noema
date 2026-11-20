@@ -23,7 +23,7 @@ func confirmEval(t *testing.T, f *f13) *evaluation {
 	t.Helper()
 	ev := newEval13(t, f)
 	ev.now = ev.svc.Clock.Now().Unix()
-	ev.evidenceSetHash = tSetHash
+	ev.confirmationBindingEvidenceHash = tSetHash
 	ev.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}}
 	return ev
 }
@@ -70,7 +70,7 @@ func TestT13PendingWithANewRequestPlansThenRecordsOneConfirmAndOneRequest(t *tes
 	}
 	r := rec0(t, f)
 	want := &NewConfirmationRequest{PrincipalID: t13Principal, IntentHash: tHash, CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001", ParamsHash: tHash,
-		EvidenceSetHash: tSetHash, PlanHash: tPlanHash, PolicyVersion: tPolicySet, Requirement: "SELF", RequesterID: t13Principal, ExpiresAt: ev.now + int64(tTTL/time.Second)}
+		ConfirmationBindingEvidenceHash: tSetHash, PlanHash: tPlanHash, PolicyVersion: tPolicySet, Requirement: "SELF", RequesterID: t13Principal, ExpiresAt: ev.now + int64(tTTL/time.Second)}
 	if !reflect.DeepEqual(r.ConfirmationRequest, want) {
 		t.Errorf("the request recorded is %+v, want %+v", r.ConfirmationRequest, want)
 	}
@@ -207,8 +207,8 @@ func TestT13NotRequiredAndGivenThatCarryTheWrongFieldsAreUnknown(t *testing.T) {
 // policy version), the intent's own values, the TTL and the approver requirement are checked; Trust chooses none of them. Any failure is UNKNOWN and nothing is recorded.
 func TestT13ANewRequestNeedsWellFormedBindingValuesAndASafeSpec(t *testing.T) {
 	for name, mutate := range map[string]func(*evaluation, *f13){
-		"no evidence set hash":                   func(e *evaluation, _ *f13) { e.evidenceSetHash = "" },
-		"an evidence set hash of the wrong form": func(e *evaluation, _ *f13) { e.evidenceSetHash = "sha256:ABC" },
+		"no evidence set hash":                   func(e *evaluation, _ *f13) { e.confirmationBindingEvidenceHash = "" },
+		"an evidence set hash of the wrong form": func(e *evaluation, _ *f13) { e.confirmationBindingEvidenceHash = "sha256:ABC" },
 		"no policy version (none took part)":     func(e *evaluation, _ *f13) { e.policyVersions = nil },
 		"a policy ID with an @ in it": func(e *evaluation, _ *f13) {
 			e.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol@synth01", Version: "3"}}

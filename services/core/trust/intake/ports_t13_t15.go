@@ -34,8 +34,8 @@ const (
 // so an ACCEPT given for other evidence or another policy never resolves to this evaluation (INV-25). An adapter must refuse (return an error for) a Given answer when
 // either value is empty. Trust passes what it knows and fails nothing on an empty value in this version.
 type FreshBinding struct {
-	// EvidenceSetHash is the evidence value of the binding, the CONTENT hash of the sealed snapshot T9 read (A365; the contract's field is still named evidence_set_hash), in its Hash form; empty when the Evidence port did not give it.
-	EvidenceSetHash string
+	// ConfirmationBindingEvidenceHash is the evidence value of the binding, the CONTENT hash of the sealed snapshot T9 read (A365; the contract's field is still named evidence_set_hash), in its Hash form; empty when the Evidence port did not give it.
+	ConfirmationBindingEvidenceHash string
 	// PolicyVersion is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341, A367): "sha256:" and the lower-case SHA-256 hex of the RFC 8785
 	// form of the sorted, distinct JSON array of their "policy_id@version" strings, for one policy version as for many. Empty when none took part or one cannot be bound. It is the
 	// policy_version of confirm.BindingInput, and the Writer binds the same value, so the two agree byte for byte.
@@ -125,6 +125,8 @@ type RecordRequest struct {
 	ConfirmationEventID string // empty when no confirmation was required
 	// ConfirmationPlanHash is the plan hash that confirmation was given for (A230), empty with no confirmation; the writer refuses an ALLOW whose steps carry another.
 	ConfirmationPlanHash string
+	// ConfirmationBindingEvidenceHash is the evidence component of the binding of the confirmation an ALLOW follows (A435).
+	ConfirmationBindingEvidenceHash string
 	// ConfirmationRequest is set only on a CONFIRM decision that creates the confirmation request (T13, Pending with a NewRequest): the eight bound values, the approver
 	// requirement, the requester and the expiry. The Recorder mints the request ID and computes the binding hash itself (SoT 43.2a); a CONFIRM that names an already open
 	// request carries none, and so does every other decision.
@@ -135,17 +137,17 @@ type RecordRequest struct {
 // trust/confirm, so it names them here and the Recorder checks them and computes the hash. Requirement is the contract's approver requirement (SELF, MAKER_CHECKER or
 // ROLE:<role>), RequesterID the admitted intent's principal (INV-12) and ExpiresAt the expiry in Unix seconds, from the evaluation's one clock reading and the spec's TTL.
 type NewConfirmationRequest struct {
-	PrincipalID     string
-	IntentHash      string
-	CapabilityID    string
-	TargetRef       string
-	ParamsHash      string
-	EvidenceSetHash string
-	PlanHash        string
-	PolicyVersion   string
-	Requirement     string
-	RequesterID     string
-	ExpiresAt       int64
+	PrincipalID                     string
+	IntentHash                      string
+	CapabilityID                    string
+	TargetRef                       string
+	ParamsHash                      string
+	ConfirmationBindingEvidenceHash string
+	PlanHash                        string
+	PolicyVersion                   string
+	Requirement                     string
+	RequesterID                     string
+	ExpiresAt                       int64
 }
 
 // RecordResult is what was written: the decision ID, the IDs of the grants issued, one per step in step order, and, when the request created a confirmation request, its ID.

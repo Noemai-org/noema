@@ -119,6 +119,8 @@ type Request struct {
 	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on; empty for every other decision, and any other outcome that names one is ErrRequest
 	// (A366). With a confirmation an ALLOW follows, it is the confirmation state of the decision, which the single-decision key of the input tuple includes.
 	DeclinedRequestID string
+	// ConfirmationBindingEvidenceHash is the evidence component of the binding of the confirmation an ALLOW follows (A435); the grant does not carry it.
+	ConfirmationBindingEvidenceHash contracts.CommonV1Hash
 }
 
 // Result is what was written.

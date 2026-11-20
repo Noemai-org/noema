@@ -188,7 +188,7 @@ func newEval13(t *testing.T, f *f13) *evaluation {
 	ev := &evaluation{svc: svc, req: Request{Session: Session{TenantID: t13Tenant, PrincipalID: t13Principal, Role: "customer"}, CorrelationID: "corr_synth0001", IntentRef: tIntent + "@2"},
 		intentID: tIntent, version: t13Version, intent: &a, bb: freshBuilder(t, true, true)}
 	ev.late.needsWrite = true
-	ev.evidenceSetHash = tSetHash // what T9 kept and T11 used: a Given answer needs both (T13 refuses it on an empty value)
+	ev.confirmationBindingEvidenceHash = tSetHash // what T9 kept and T11 used: a Given answer needs both (T13 refuses it on an empty value)
 	ev.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}}
 	return ev
 }

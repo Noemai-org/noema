@@ -21,9 +21,9 @@ type evaluation struct {
 	bb         *decide.BasisBuilder
 	// policyVersions are the policy versions T11 used, kept for the Decision Input (REQ-TRU-007).
 	policyVersions []decide.PolicyVersionRef
-	// evidenceSetHash is the content hash (A365) of the sealed snapshot T9 read, kept for the binding T13 passes to the Confirmations port (INV-25). Empty when the Evidence port gave none.
-	evidenceSetHash string
-	late            lateState // what T3 and T13 to T15 learn
+	// confirmationBindingEvidenceHash is the content hash (A365) of the sealed snapshot T9 read, kept for the binding T13 passes to the Confirmations port (INV-25). Empty when the Evidence port gave none.
+	confirmationBindingEvidenceHash string
+	late                            lateState // what T3 and T13 to T15 learn
 	// frozen and allowedUnderFreeze are what T10 saw: the target carries a contradiction freeze, and the capabilities the pack allows on it. T14 checks the plan against them.
 	frozen             bool
 	allowedUnderFreeze []string

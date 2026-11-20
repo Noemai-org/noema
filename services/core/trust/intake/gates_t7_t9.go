@@ -158,7 +158,7 @@ func (e *evaluation) t9(ctx context.Context) decide.StepResult {
 	if ev.EvidenceSetHash != "" && !hashRe.MatchString(ev.EvidenceSetHash) {
 		return decide.FailStep(ErrBadEvidence) // a hash the contract's form does not allow cannot bind a confirmation
 	}
-	e.evidenceSetHash = ev.EvidenceSetHash
+	e.confirmationBindingEvidenceHash = ev.EvidenceSetHash
 	unavailable, stale, err := classify(ev)
 	switch {
 	case err != nil:
