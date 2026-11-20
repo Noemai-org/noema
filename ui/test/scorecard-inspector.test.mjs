@@ -24,6 +24,15 @@ test("REQ-UI-004: benchmark evidence retains the supplied exact bound without pr
   assert.deepEqual(scanScorecardText(html), []);
 });
 
+test("REQ-UI-004: all supplied family counts and tier zero gates are shown without invented results", async () => {
+  const scorecard = await fixture("two_cases_clean");
+  const html = render(scorecard);
+  for (const gate of scorecard.tier0.gates) assert.ok(html.includes(gate.gate.toLowerCase().replaceAll("_", " ")));
+  for (const family of Object.keys(scorecard.by_family)) assert.ok(html.includes(family));
+  assert.ok(html.indexOf("Tier 0") < html.indexOf("By family"));
+  assert.deepEqual(scanScorecardText(html), []);
+});
+
 test("REQ-UI-004 INV-22: an injected case list is refused without rendering it", async () => {
   const scorecard = await fixture("two_cases_clean");
   const html = render({ ...scorecard, failure_list: ["BEN-AMB-0001"] });
