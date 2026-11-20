@@ -38,3 +38,12 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: when docs#211 merges, replace the A180 bullet with the A377 to A379 one (a follow-up edit).
 
+# Session 2026-11-20 (second) · BEN-23 · docs#211 merged: A377 to A379 are the rule
+
+## Session summary
+- docs#211 merged on 20 Nov 2026 (the rulings are committed). The plan is brought in line, as Codex's P1 asked for: the A180 bullet and the "proposed, not in force" bullet are replaced by one A377 to A379 bullet stating them as the rule (no DPA, written-terms, consent or counsel precondition; raw audio in the bench Environment's private store; synthetic audio labelled and this run synthetic-only; no spend for a custom voice), and precondition 5 of section 6 is unconditional again. The TEAM_RECORDING sentence of section 5 stays.
+- Tests: none (a plan). Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: none for this plan; the run waits on the SoT edit adopting A179, the qualified model ids, the adapter, Intron's capacity answer and the cost ceiling and key (section 6).
+
