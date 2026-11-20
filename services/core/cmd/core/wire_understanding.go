@@ -245,7 +245,7 @@ func evidenceSources(pack []byte) ([]string, error) {
 }
 
 // evidenceScope types the fields of the pack's evidence entities from its evidence_descriptors, which the evidence mapping needs for the list entities it reads (the case system's
-// `case` and `complaint_ref`, fin.map.v1@2, A438: without a scope a mapping with a list row is refused). Every descriptor must be sound or the whole scope is refused: an entity with no
+// `case` and `complaint_ref`, A438: without a scope a mapping with a list row is refused). Every descriptor must be sound or the whole scope is refused: an entity with no
 // name, an entity named twice, no field, a field type outside the contract's seven, an Enum with no value, a value on any other type. An error names no pack content (AGENT-13).
 func evidenceScope(pack []byte) (predicate.Scope, error) {
 	var f struct {
