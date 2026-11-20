@@ -40,8 +40,3 @@ func (l *lateSpy) Count(context.Context, intake.DispatchKey) (intake.DispatchCou
 	l.calls = append(l.calls, "Dispatches.Count")
 	return intake.DispatchCount{Used: 0, Limit: 1}, nil
 }
-
-func (l *lateSpy) RequestConfirmation(context.Context, intake.ConfirmationRequest) (string, error) {
-	l.calls = append(l.calls, "Recorder.RequestConfirmation")
-	return "cfr_synth0001", nil
-}

@@ -137,8 +137,8 @@ func (w *world) publish(t *testing.T, tenant, version string, at int64) {
 }
 
 func (w *world) tryPublish(tenant, version string, at int64) error {
-	_, err := w.logins[tenant].Exec(context.Background(), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at)
-		VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', to_timestamp($4))`, tenant, policyID, version, at)
+	_, err := w.logins[tenant].Exec(context.Background(), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at, document_hash)
+		VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', to_timestamp($4), 'sha256:00000000000000000000000000000000000000000000000000000000000000aa')`, tenant, policyID, version, at)
 	return err
 }
 

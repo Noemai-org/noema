@@ -332,10 +332,6 @@ func (*typedNilRecorder) Record(context.Context, intake.RecordRequest) (intake.R
 	return intake.RecordResult{}, errors.New("not called")
 }
 
-func (*typedNilRecorder) RequestConfirmation(context.Context, intake.ConfirmationRequest) (string, error) {
-	return "", errors.New("not called")
-}
-
 // INV-29, SEC-09: the production key loader is keyfiles.Load: a directory that is not there is an error that names the setting and holds no key material.
 func TestTheGrantKeyLoaderIsKeyfilesLoad(t *testing.T) {
 	_, err := loadGrantKeys(t.TempDir()+"/absent", 2)
