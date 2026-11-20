@@ -16,3 +16,20 @@
 - Open questions (owner): should the row store role and authn reference (migration)? EL.
 - Files to read first: services/core/orchestrator/recovery/recover.go, orchestrator/runwrite.go (ResumeWrite).
 - Do not touch: transitions.yaml, the dispatch budget.
+
+# Session 2026-11-20 · STM-05 (review fix, A477)
+
+## Session summary
+- What changed (PR links): noema#789. `Config` gains `RunTimeoutMS`; `EnvRunTimeoutMS` = NOEMA_INVESTIGATION_RUN_TIMEOUT_MS (no default). `LoadConfig` reads it and `New` both refuse a missing run timeout and `IdleMS <= RunTimeoutMS`; errors name the settings, never the values.
+- Why: A477 (interim, relayed, recorded in docs#216): bench values IDLE 240000, BATCH 50; otherwise a live run could be picked up twice.
+- Risks, and how they are contained: a hand-built Config cannot bypass the rule (New checks it). Mutants: 5 of 5 killed.
+- Tests added (REQ, INV, US or EC IDs): TestIdleAgeMustExceedRunTimeout (REQ-STM-001, AGENT-16, A330).
+- Regression cases added: none beyond the above.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the core calls the single startup pass (A476: restart is the trigger; `StartupPass` exists). The repeating ticker is NOT built here: it needs the clock-interface timer in the worker lane. Deployment sets the three settings.
+- Open questions (owner): none new.
+- Files to read first: orchestrator/recovery/config.go.
+- Do not touch: transitions.yaml, the dispatch budget.

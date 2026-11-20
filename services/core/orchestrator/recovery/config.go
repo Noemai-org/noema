@@ -37,7 +37,15 @@ func whole(getenv func(string) string, name string, max int64) (int64, error) {
 	return n, nil
 }
 
-// LoadConfig reads both settings strictly. A missing or malformed value is an error that names the setting and never echoes the value.
+// check refuses an idle age that does not exceed the run timeout: a live run would be taken up a second time (A477, interim, relayed, not yet committed). There is no default for the run timeout.
+func (c Config) check() error {
+	if c.RunTimeoutMS < 1 || c.IdleMS <= c.RunTimeoutMS {
+		return fmt.Errorf("recovery: %s must be greater than %s", EnvIdleMS, EnvRunTimeoutMS)
+	}
+	return nil
+}
+
+// LoadConfig reads the three settings strictly. A missing or malformed value is an error that names the setting and never echoes the value.
 func LoadConfig(getenv func(string) string) (Config, error) {
 	idle, err := whole(getenv, EnvIdleMS, 1<<62)
 	if err != nil {
@@ -47,5 +55,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{IdleMS: idle, Batch: int(batch)}, nil
+	run, err := whole(getenv, EnvRunTimeoutMS, 1<<62)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg := Config{IdleMS: idle, Batch: int(batch), RunTimeoutMS: run}
+	if err := cfg.check(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }

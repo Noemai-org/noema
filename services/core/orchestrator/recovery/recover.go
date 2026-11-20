@@ -78,8 +78,8 @@ func New(cfg Config, r Reader, j orchestrator.Journal, a orchestrator.Admissions
 	if r == nil || j == nil || a == nil || x == nil {
 		return nil, errors.New("recovery: the activity is not fully wired")
 	}
-	if cfg.IdleMS < 1 || cfg.Batch < 1 {
-		return nil, errors.New("recovery: the idle age and the batch must be set")
+	if cfg.IdleMS < 1 || cfg.Batch < 1 || cfg.check() != nil {
+		return nil, fmt.Errorf("recovery: the idle age, the batch and the run timeout must be set, and %s must exceed %s", EnvIdleMS, EnvRunTimeoutMS)
 	}
 	return &Activity{cfg: cfg, reader: r, journal: j, admit: a, resumer: x, inflight: map[string]struct{}{}}, nil
 }
