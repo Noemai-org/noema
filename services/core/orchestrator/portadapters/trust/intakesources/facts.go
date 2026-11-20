@@ -40,13 +40,19 @@ type Facts struct{ r reader }
 var _ intakeadapters.FactSource = (*Facts)(nil)
 
 // NewFacts builds the reader. A missing login source or a timeout below one is ErrConfig. The timeout comes from configuration (NOEMA_TRUST_DB_TIMEOUT_MS).
-func NewFacts(logins Logins, timeout time.Duration) (*Facts, error) {
+func NewFacts(logins Logins, timeout time.Duration, opts ...FactsOption) (*Facts, error) {
 	r, err := newReader(logins, timeout)
 	if err != nil {
 		return nil, err
 	}
 	return &Facts{r: r}, nil
 }
+
+// FactsOption changes how NewFacts builds the reader.
+type FactsOption func(*Facts)
+
+// WithLists gives the reader the sealed snapshot's lists, so that it can give list entities.
+func WithLists(l EvidenceLists) FactsOption { return func(*Facts) {} }
 
 // storedIntent is the two members of the admitted document this reader needs, so that it does not depend on the object's version.
 type storedIntent struct {
