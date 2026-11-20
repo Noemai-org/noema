@@ -1,6 +1,6 @@
 """packcheck: every pack check, with one code path for the command line, the tests and CI (SoT 15.4, REQ-CAP-001, REQ-AG-001, REQ-AG-002).
 
-Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, reasons, templates, conformance.
+Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, roles, reasons, templates, conformance.
 Not checked here: 'a capability has no benchmark cases' (AGENT-06): no benchmark case set exists yet.
 """
 from __future__ import annotations
@@ -384,6 +384,20 @@ def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
     return out
 
 
+A1_ROLES = frozenset({"customer", "ops", "approver", "audit"})
+
+
+def check_approver_roles(pack: dict) -> list[Problem]:
+    """A377 (interim, relayed): ROLE:<role> names one of the four A1 roles. Read from a policy rule's approver_requirement and a trust profile's approvals."""
+    out: list[Problem] = []
+    found = [(f"{r['rule_id']}.approver_requirement", (r.get("params") or {}).get("approver_requirement")) for r in pack["policy"]["rules"]]
+    found += [(f"{t['profile_id']}.approvals", a) for t in pack["trust_profiles"] for a in t.get("approvals", [])]
+    for where, value in found:
+        if isinstance(value, str) and value.startswith("ROLE:") and value[len("ROLE:"):] not in A1_ROLES:
+            out.append(("roles", f"{where}: {value!r} names a role outside {sorted(A1_ROLES)}"))
+    return out
+
+
 def check_routing(pack: dict) -> list[Problem]:
     """REQ-AG-002: routing targets come only from the pack's allowlist; free-form destinations are not representable."""
     out: list[Problem] = []
@@ -667,7 +681,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     if problems:  # the other checks assume a well-formed pack
         return problems
     problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack)
-    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
+    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     if templates == "enforce":
