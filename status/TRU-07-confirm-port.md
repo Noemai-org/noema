@@ -37,3 +37,7 @@ Status(ctx context.Context, a AdmittedIntent, f FreshBinding) (Confirmation, err
 - Exact next step: PR 2 turns `ConfirmationDeclined` into REJECT `DECLINED_BY_APPROVER` and uses `RequestID` and `NewRequest` (create the request with the intent's `PrincipalID`, no second request when one is open); the test `TestT13DeclinedIsUnknownForNowAndNothingIsPlannedOrRecorded` changes with it.
 - Files to read first: `services/core/trust/intake/ports_t13_t15.go`, `gates_t13_t15.go` (`t13`, `freshBinding`), `gates_t7_t9.go` (`t9`), `t13_binding_test.go`, `services/core/trust/confirm/confirm.go` (`BindingInput`).
 - Do not touch: `trust/recorder`, `internal/contracts`, `/contracts`.
+
+
+# Update 2026-11-19 (TRU-07 PR 3, status/TRU-07-confirm-t13-rulings.md)
+This file's open questions are answered by the interim rulings relayed in the session (not yet committed): `FreshBinding.PolicyVersion` is now the composite `ps:<hex>` of every policy version of T11 (`decide.CompositePolicyVersion`, A341), not "id@version or empty"; T13 refuses a Given answer itself when either fresh value is empty; a Declined answer is REJECT `DECLINED_BY_APPROVER`, recorded before it is returned. Read that file for the formula, the flags and what the adapters must do. The text above is kept as written.

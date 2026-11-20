@@ -27,7 +27,7 @@ class TrustProfileV1(ContractModel):
     clocks: list[CommonV1PackId]
     approvals: list[Annotated[str, StringConstraints(min_length=1)]]
     prohibited_capabilities: list[CommonV1PackId]
-    evidence_required: list[CommonV1PackId]
+    evidence_required: Annotated[list[CommonV1PackId], Field(min_length=1)]
     max_evidence_age_seconds: Annotated[int, Field(ge=1, le=9007199254740991)]
     data_sensitivity: Annotated[str, StringConstraints(min_length=1)]
 
