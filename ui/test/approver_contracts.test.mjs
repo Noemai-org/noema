@@ -78,20 +78,20 @@ test("a member that names an identity, a role, a tenant, a session or a grant is
   }
 });
 
-test("the entry points are isolated both ways: the approver one reaches no customer, operator or benchmark module, and none of theirs reaches it", () => {
+// A433: a customer answers a SELF confirmation, so the customer entry point exports confirmation-answer.v1 (and the operator one, which holds the customer set); the approver entry point stays
+// for the approver's pages and reaches nothing of another audience; no entry point other than itself reaches it.
+test("the approver entry point reaches no customer, operator or benchmark module, none of theirs reaches it, and the customer and operator ones export the answer (A433)", () => {
   entry();
   const modules = [...closure("approver.js")].sort();
   // the answer, the runtime and the two shared definition files it refers to (common.v1: the request id; enums.v1: the response); no entry point and no contract of another audience
   assert.deepEqual(modules, ["_runtime.js", "approver.js", "common_v1.js", "confirmation_answer_v1.js", "enums_v1.js"]);
   for (const other of ["customer.js", "operator.js", "benchmark.js"]) {
     assert.ok(!modules.includes(other), `${other} is reachable from the approver entry point`);
-    const reached = closure(other);
-    for (const m of ["approver.js", "confirmation_answer_v1.js"]) assert.ok(!reached.has(m), `${m} is reachable from ${other}`);
+    assert.ok(!closure(other).has("approver.js"), `approver.js is reachable from ${other}`);
   }
-  for (const name of ["confirmation-answer.v1"]) {
-    for (const [audience, parsers] of Object.entries({ customer: CUSTOMER_PARSERS, operator: OPERATOR_PARSERS, benchmark: BENCHMARK_PARSERS })) assert.ok(!(name in parsers), `${name} is a ${audience} contract`);
-  }
-  for (const name of [...Object.keys(CUSTOMER_PARSERS), ...Object.keys(OPERATOR_PARSERS), ...Object.keys(BENCHMARK_PARSERS)]) assert.ok(!(name in entry().PARSERS), `${name} is an approver contract`);
+  for (const [audience, parsers] of Object.entries({ customer: CUSTOMER_PARSERS, operator: OPERATOR_PARSERS })) assert.ok("confirmation-answer.v1" in parsers, `${audience} does not export confirmation-answer.v1`);
+  assert.ok(!("confirmation-answer.v1" in BENCHMARK_PARSERS), "the benchmark entry point holds the answer");
+  for (const name of [...Object.keys(CUSTOMER_PARSERS), ...Object.keys(OPERATOR_PARSERS), ...Object.keys(BENCHMARK_PARSERS)].filter((n) => n !== "confirmation-answer.v1")) assert.ok(!(name in entry().PARSERS), `${name} is an approver contract`);
 });
 
 // A258, noema#760: no page reaches the approver entry point unless it is named here. The UI has no bundler: what a page imports (directly or through another module, in the built JS) is
@@ -103,11 +103,11 @@ test("no module outside contract_types reaches the approver entry point, and the
   assert.ok(pages.includes("main.js") && pages.includes("overlay.js"), "the scan sees the pages");
   for (const p of pages.filter((f) => !APPROVER_PAGES.includes(f))) {
     for (const m of readFileSync(join(BUILD, p), "utf8").matchAll(/from "\.\/contract_types\/([a-z0-9_]+\.js)"/g)) {
-      for (const r of closure(m[1])) assert.ok(r !== "approver.js" && r !== "confirmation_answer_v1.js", `${p} reaches ${r}`);
+      for (const r of closure(m[1])) assert.ok(r !== "approver.js", `${p} reaches ${r}`);
     }
   }
   for (const f of readdirSync(fileURLToPath(new URL("../dist/", import.meta.url)), { recursive: true })) {
-    assert.ok(!/approver|confirmation/i.test(f), `dist/${f}`);
+    assert.ok(!/approver/i.test(f), `dist/${f}`);
   }
 });
 

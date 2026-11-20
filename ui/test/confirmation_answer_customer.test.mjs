@@ -1,0 +1,84 @@
+// A433 (noema#798; REQ-UI-001, REQ-TRU-009, REQ-SEC-001, INV-12, INV-25): a customer answers a SELF confirmation through the customer entry point, which exports confirmation-answer.v1; the UI
+// refuses an answer whose request_id is not the id in the path (the route refuses it too); no page reaches the approver entry point, directly or through another module. All data is SYNTHETIC.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { ContractError, PARSERS as CUSTOMER_PARSERS } from "../build/js/contract_types/customer.js";
+
+const FIXTURES = fileURLToPath(new URL("../../contracts/fixtures/", import.meta.url));
+const BUILD = fileURLToPath(new URL("../build/js/", import.meta.url));
+const VALID = join(FIXTURES, "valid", "confirmation-answer");
+const INVALID = join(FIXTURES, "invalid", "confirmation-answer");
+
+// Loaded without a static import so that a missing module is an assertion failure of the test that needs it, not an error of the file.
+const confirmation = await import("../build/js/confirmation.js").catch(() => null);
+const forPath = () => {
+  assert.ok(confirmation !== null, "ui/src/confirmation.ts does not exist: the UI has no check of the path id against the body's request_id");
+  return confirmation.parseConfirmationAnswerForPath;
+};
+const valid = (f) => JSON.parse(readFileSync(join(VALID, f), "utf8"));
+const validFiles = () => readdirSync(VALID).filter((f) => f.endsWith(".json"));
+
+test("the customer entry point exports confirmation-answer.v1: every valid fixture parses and every invalid one is refused", () => {
+  const parse = CUSTOMER_PARSERS["confirmation-answer.v1"];
+  assert.equal(typeof parse, "function", "the customer entry point does not export confirmation-answer.v1 (A433)");
+  for (const f of validFiles()) assert.deepEqual(parse(valid(f)), valid(f), f);
+  const expectations = JSON.parse(readFileSync(join(INVALID, "expectations.json"), "utf8"));
+  for (const [f, keyword] of Object.entries(expectations)) {
+    assert.throws(() => parse(JSON.parse(readFileSync(join(INVALID, f), "utf8"))), ContractError, `confirmation-answer/${f} (${keyword}) was accepted`);
+  }
+});
+
+test("an answer is accepted for the request id of the path and refused for any other id, whatever the response", () => {
+  const parse = forPath();
+  for (const f of validFiles()) {
+    const body = valid(f);
+    assert.deepEqual(parse(body.request_id, body), body, f);
+    for (const other of ["cfr_OTHER000000001", "cfr_" + "a".repeat(26), "", "cfr_", body.request_id + "x", " " + body.request_id, body.request_id.toLowerCase() === body.request_id ? body.request_id.toUpperCase() : body.request_id.toLowerCase()]) {
+      if (other === body.request_id) continue;
+      assert.throws(() => parse(other, body), ContractError, `${f}: path ${JSON.stringify(other)} with body ${body.request_id} was accepted`);
+    }
+  }
+});
+
+test("a path id that is not a request id, or a body that is not an answer, is refused whatever it says", () => {
+  const parse = forPath();
+  const body = valid(validFiles()[0]);
+  for (const bad of [undefined, null, 5, {}, [], "x"]) assert.throws(() => parse(body.request_id, bad), ContractError);
+  for (const bad of [undefined, null, 5, {}, []]) assert.throws(() => parse(bad, body), ContractError);
+  assert.throws(() => parse(body.request_id, { ...body, approver_id: "usr_x" }), ContractError, "a member that names an identity is refused (INV-12)");
+});
+
+test("the answer helper imports only the customer entry point and the runtime: no approver module, no network", () => {
+  assert.ok(existsSync(join(BUILD, "confirmation.js")), "ui/src/confirmation.ts is not built");
+  const text = readFileSync(join(BUILD, "confirmation.js"), "utf8");
+  const imports = [...text.matchAll(/from "([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(imports.length > 0, "the scan sees its imports");
+  for (const i of imports) assert.ok(["./contract_types/customer.js", "./contract_types/_runtime.js"].includes(i), `confirmation.js imports ${i}`);
+  assert.ok(!/\bfetch\b|XMLHttpRequest|WebSocket|EventSource/.test(text.replace(/\/\*\*[\s\S]*?\*\//g, "")), "confirmation.js reaches the network");
+});
+
+// Transitive: every module of the build outside contract_types, followed through its relative imports, never reaches the approver entry point or its module; the scan sees the answer helper.
+test("no module of the build reaches the approver entry point, directly or through another module (A433)", () => {
+  const modules = readdirSync(BUILD).filter((f) => f.endsWith(".js"));
+  assert.ok(modules.includes("main.js") && modules.includes("overlay.js"), "the scan sees the pages");
+  assert.ok(modules.includes("confirmation.js"), "the scan sees the answer helper (ui/src/confirmation.ts)");
+  const reach = (file) => {
+    const seen = new Set();
+    const todo = [file];
+    while (todo.length) {
+      const f = todo.pop();
+      if (seen.has(f)) continue;
+      seen.add(f);
+      const path = join(BUILD, f);
+      if (!existsSync(path)) continue;
+      for (const m of readFileSync(path, "utf8").matchAll(/from "\.\/([a-z0-9_/]+\.js)"/g)) todo.push(m[1]);
+    }
+    return seen;
+  };
+  for (const m of modules) {
+    for (const r of reach(m)) assert.ok(!r.endsWith("approver.js"), `${m} reaches ${r}`);
+  }
+});
