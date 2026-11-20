@@ -21,7 +21,7 @@ type Service struct {
 type Result struct {
 	Decision decide.Decision
 	Trace    []decide.TraceEntry
-	// DecisionID and GrantIDs are set only for an ALLOW or a CONFIRM that T13 recorded: the Decision Record that was written before the decision was returned, and the
+	// DecisionID and GrantIDs are set only for an ALLOW or a CONFIRM that T13 recorded (and DecisionID alone for a REJECT of a declined approval, A435): the Decision Record that was written before the decision was returned, and the
 	// grants issued with it (one per write plan step for an ALLOW; none for a read, and none for a CONFIRM).
 	DecisionID string
 	GrantIDs   []string
@@ -71,12 +71,16 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 }
 
 // run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned; a
-// CONFIRM that T13 recorded carries its decision ID and the confirmation request it names.
+// CONFIRM that T13 recorded carries its decision ID and the confirmation request it names; a REJECT of a declined approval (A435) carries its decision ID alone.
 func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.bb)
 	res := Result{Decision: d, Trace: trace}
-	if o := d.Outcome(); o == decide.Allow || o == decide.Confirm {
+	switch d.Outcome() {
+	case decide.Allow, decide.Confirm:
 		res.DecisionID, res.GrantIDs, res.ConfirmationRequestID = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...), e.late.requestID
+	case decide.Reject:
+		// A435 (interim, relayed, not yet committed): only a decline that T13 recorded is a recorded REJECT here; it carries its decision ID, no grant and no request.
+		res.DecisionID = e.late.recorded.DecisionID
 	}
 	return res
 }
