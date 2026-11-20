@@ -1,7 +1,7 @@
 package main
 
 // EDG-03, ruling A457 (interim, relayed, recorded in docs#213, not yet merged): every response of POST /v1/conversations is at most 65,536 bytes (the UI transport limit, A446),
-// whatever status the gateway chose; an over-long answer becomes a fixed-text error with no upstream text. REQ-API-001, REQ-INP-001, INV-02, AGENT-13. Bodies are SYNTHETIC.
+// whatever status the gateway chose; an over-long answer becomes a fixed-text 502 DEPENDENCY_UNAVAILABLE (A471, interim, relayed, recorded in docs#216, not yet merged; the code the gateway already uses for an upstream failure, inputgateway/handler.go:45) with no upstream text. REQ-API-001, REQ-INP-001, INV-02, AGENT-13. Bodies are SYNTHETIC.
 
 import (
 	"net/http"
@@ -36,14 +36,14 @@ func jsonOf(n int, marker string) string {
 
 func assertFixedError(t *testing.T, rec *httptest.ResponseRecorder, marker string) {
 	t.Helper()
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("status %d, want 500", rec.Code)
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("status %d, want 502 (A471: an over-long upstream answer is 502, not our own 500)", rec.Code)
 	}
 	if rec.Body.Len() > maxResponseBytes {
 		t.Errorf("body %d bytes exceeds the limit", rec.Body.Len())
 	}
 	b := rec.Body.String()
-	if !strings.Contains(b, "INTERNAL_SAFETY_BLOCK") || strings.Contains(b, marker) || strings.Contains(b, "xxxx") {
+	if !strings.Contains(b, `"code":"DEPENDENCY_UNAVAILABLE"`) || strings.Contains(b, "INTERNAL_SAFETY_BLOCK") || !strings.Contains(b, `"retryable":true`) || !strings.Contains(b, `"correlation_id":"corr_`) || strings.Contains(b, marker) || strings.Contains(b, "xxxx") {
 		t.Errorf("not the fixed-text error: %.200s", b)
 	}
 	if cl := rec.Header().Get("Content-Length"); cl != "" {
