@@ -44,6 +44,10 @@ func TestTheFatalErrorIsDeliveredOnceWhateverTheSDKDoes(t *testing.T) {
 		go func() { defer wg.Done(); f.report(errSyntheticFatal) }()
 	}
 	wg.Wait()
+	// wg.Wait returns when Done is called, before the goroutine has exited: yield, bounded and clock-free, until the count settles.
+	for i := 0; i < 100000 && runtime.NumGoroutine() > before; i++ {
+		runtime.Gosched()
+	}
 	if got := runtime.NumGoroutine(); got > before {
 		t.Errorf("goroutines: %d before, %d after", before, got)
 	}
