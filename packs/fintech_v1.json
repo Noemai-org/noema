@@ -75,6 +75,7 @@
         "fin.outcome.exception.evidence_recorded",
         "fin.outcome.exception.complaint_logged"
       ],
+      "write_when": "question_type == 'ESCALATION_REQUEST' or requested_remedy != null",
       "examples": [
         "SYNTHETIC: Wetin happen to the 20k wey I send this morning?",
         "SYNTHETIC: I sent 50k to Tunde and he hasn't received it"
@@ -2190,6 +2191,36 @@
     "DISPUTES",
     "FRAUD_REVIEW",
     "SETTLEMENT_OPS"
+  ],
+  "case_reasons": [
+    {
+      "code": "PAYMENT_STATUS_QUERY",
+      "label": "A customer asked where a payment is"
+    },
+    {
+      "code": "PAYMENT_DELAY_EXPLANATION",
+      "label": "A customer asked why a payment is delayed"
+    },
+    {
+      "code": "RESEND_ADVICE_REQUEST",
+      "label": "A customer asked for a resend advice"
+    },
+    {
+      "code": "REVERSAL_STATUS_QUERY",
+      "label": "A customer asked about a reversal"
+    },
+    {
+      "code": "CUSTOMER_ESCALATION_REQUEST",
+      "label": "A customer asked for the matter to be escalated"
+    },
+    {
+      "code": "CASE_STATUS_QUERY",
+      "label": "A customer asked about an existing case"
+    },
+    {
+      "code": "PAYMENT_RECONSTRUCTION",
+      "label": "A reconstruction of a payment was requested"
+    }
   ],
   "action_graph_files": [
     "fintech/graph/g1_investigate.json",
