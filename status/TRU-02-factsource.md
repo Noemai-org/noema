@@ -114,3 +114,9 @@ Nothing on this branch handled a pack `produced_by` marker or a `planned:<node>`
 
 ## Messages
 - 2026-11-20 · C1 (order to this helper) → this session: apply A447 and A416 (the at-risk value from `platform/trustlimits`, the setting withdrawn) and A419 (`produced_by` removed); merge `origin/main` and the tip of noema#747's branch; add commits only. Receiver used it for: this section and its commits.
+
+## Session 2026-11-20 · TRU-02 (C1, the real-database tests of `intakesources` after noema#771 landed on main)
+
+- noema#771 (migration 0035) made `document_hash` required for a new publication. noema#820 (this package) merged after it with a `publish` helper in `e2e_test.go` that inserted a publication without a hash, so five tests failed on `main` (`a new publication needs the hash of its policy document`, SQLSTATE 23502). Seen failing on the merge ref of noema#827 (`tests (0)`).
+- Fix (test only): `publish` gives the hash of the shipped pack's policy document (`policy.DocumentHash`), which is also what the loader will require once the drift check lands (noema#827). No production file touched.
+- Verification: `go test ./orchestrator/portadapters/trust/intakesources/` ok; the same package fails five tests on `origin/main`.
