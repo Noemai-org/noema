@@ -5,6 +5,7 @@ package intakesources_test
 // (fin.map.v1@2), typed by the pack's own evidence descriptors, as a composition builds it.
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
+	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/predicate"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust/intakesources"
@@ -207,7 +210,7 @@ func listsOf(t *testing.T, l intakesources.Logins) intakesources.EvidenceLists {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return intakesources.EvidenceLists{Mapping: realMapping(t), Items: items, Payloads: payloads, Entities: map[string]intakesources.ListSpec{
+	return intakesources.EvidenceLists{Mapping: realMapping(t), Items: items, Payloads: payloads, Screen: listCleanScreen{}, Correlation: listCorrelation, Alert: &listAlerts{}, Entities: map[string]intakesources.ListSpec{
 		"case":          {Source: caseSource, ScopePrefix: caseScopeOf},
 		"complaint_ref": {Source: caseSource, ScopePrefix: complScopeOf},
 	}}
@@ -229,4 +232,21 @@ func anchorsOf(t *testing.T, l intakesources.Logins) *intakesources.Anchors {
 		t.Fatalf("NewAnchors: %v", err)
 	}
 	return a
+}
+
+// listCleanScreen is a screen that finds nothing (SYNTHETIC). Since A372 the payload Reader refuses every read without a screen, a correlation source and an alert (noema#780), so the list
+// readers take all three; these tests read lists, and the screen has its own tests in evidence/payloadread.
+type listCleanScreen struct{}
+
+func (listCleanScreen) Screen(context.Context, injection.Subject, map[string]string) (injection.Result, error) {
+	return injection.Result{}, nil
+}
+
+func listCorrelation(context.Context) string { return "cor_SYNTHETIC" }
+
+// listAlerts records the alerts a flagged payload raises: names only, never a value.
+type listAlerts struct{ flags []payloadread.Flag }
+
+func (a *listAlerts) ScreenFlagged(_ context.Context, f payloadread.Flag) {
+	a.flags = append(a.flags, f)
 }

@@ -8,9 +8,11 @@ package intakesources_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/internal/predicate"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust/intakesources"
@@ -294,10 +296,13 @@ func TestNewFactsRefusesListsThatAreNotUsable(t *testing.T) {
 	w := newWorld(t)
 	good := listsOf(t, w)
 	for name, mutate := range map[string]func(*intakesources.EvidenceLists){
-		"no mapping":         func(l *intakesources.EvidenceLists) { l.Mapping = nil },
-		"no snapshot reader": func(l *intakesources.EvidenceLists) { l.Items = nil },
-		"no payload reader":  func(l *intakesources.EvidenceLists) { l.Payloads = nil },
-		"no entity":          func(l *intakesources.EvidenceLists) { l.Entities = nil },
+		"no mapping":            func(l *intakesources.EvidenceLists) { l.Mapping = nil },
+		"no snapshot reader":    func(l *intakesources.EvidenceLists) { l.Items = nil },
+		"no payload reader":     func(l *intakesources.EvidenceLists) { l.Payloads = nil },
+		"no injection screen":   func(l *intakesources.EvidenceLists) { l.Screen = nil },
+		"no correlation source": func(l *intakesources.EvidenceLists) { l.Correlation = nil },
+		"no alert":              func(l *intakesources.EvidenceLists) { l.Alert = nil },
+		"no entity":             func(l *intakesources.EvidenceLists) { l.Entities = nil },
 		"an entity with no name": func(l *intakesources.EvidenceLists) {
 			l.Entities = map[string]intakesources.ListSpec{"": {Source: caseSource, ScopePrefix: caseScopeOf}}
 		},
@@ -363,5 +368,68 @@ func TestFactsAQueryWithABadSnapshotIDNeverReachesTheSnapshotReader(t *testing.T
 	}
 	if reads != 0 {
 		t.Errorf("the snapshot reader was asked %d times for snapshots that are refused", reads)
+	}
+}
+
+// listScreenOf is a screen with a chosen answer (SYNTHETIC).
+type listScreenOf struct {
+	answer func(fields map[string]string) (injection.Result, error)
+}
+
+func (s listScreenOf) Screen(_ context.Context, _ injection.Subject, fields map[string]string) (injection.Result, error) {
+	return s.answer(fields)
+}
+
+func listsWith(t *testing.T, w *world, screen payloadread.Screen, corr payloadread.CorrelationOf, alert payloadread.Alert) *intakesources.Facts {
+	t.Helper()
+	l := listsOf(t, w)
+	l.Screen, l.Correlation, l.Alert = screen, corr, alert
+	f, err := intakesources.NewFacts(w, readTimeout, intakesources.WithLists(l))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// REQ-CTX-007, SoT 29, A372: a flagged list is advisory. Its payload is still returned, and when the Record refused the flag's event the alert is raised, with names only.
+func TestFactsAListWhoseTextTheScreenFlagsIsStillReadAndTheAlertIsRaised(t *testing.T) {
+	w := newWorld(t)
+	w.seal(t, tenantA, snapID, caseItem("evr_1", "KNOWN", page(true, caseRow("cas_1", subjectRef, "OPEN", 1))))
+	alerts := &listAlerts{}
+	flag := listScreenOf{func(fields map[string]string) (injection.Result, error) {
+		names := make([]string, 0, len(fields))
+		for n := range fields {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		return injection.Result{Findings: []injection.Finding{{Field: names[0], PatternID: "inj_synthetic"}}}, injection.ErrRecord
+	}}
+	got, err := listsWith(t, w, flag, listCorrelation, alerts).PolicyFacts(ctx(t), listQuery(tenantA), entities("case"))
+	if err != nil || len(got.Entities["case"]) != 1 {
+		t.Fatalf("got %+v, %v; want the one case row of a flagged list", got, err)
+	}
+	if len(alerts.flags) != 1 || alerts.flags[0].TenantID != tenantA || alerts.flags[0].EvidenceID != "evr_1" || len(alerts.flags[0].Findings) != 1 {
+		t.Errorf("alerts = %+v; want one flag naming the tenant, the evidence id and the finding", alerts.flags)
+	}
+}
+
+// A372: every way the screen is refused fails the list closed (INV-19): the rows are not returned, so a case is UNKNOWN and never "none".
+func TestFactsARefusedScreenFailsTheListClosed(t *testing.T) {
+	w := newWorld(t)
+	w.seal(t, tenantA, snapID, caseItem("evr_1", "KNOWN", page(true, caseRow("cas_1", subjectRef, "OPEN", 1))))
+	boom := errors.New("screen failed with SECRET-TEXT")
+	for name, f := range map[string]*intakesources.Facts{
+		"the screen fails":  listsWith(t, w, listScreenOf{func(map[string]string) (injection.Result, error) { return injection.Result{}, boom }}, listCorrelation, &listAlerts{}),
+		"the screen panics": listsWith(t, w, listScreenOf{func(map[string]string) (injection.Result, error) { panic("SECRET-TEXT") }}, listCorrelation, &listAlerts{}),
+		"no correlation":    listsWith(t, w, listCleanScreen{}, func(context.Context) string { return "" }, &listAlerts{}),
+	} {
+		got, err := f.PolicyFacts(ctx(t), listQuery(tenantA), entities("case"))
+		if !errors.Is(err, intakesources.ErrListPayload) || !errors.Is(err, payloadread.ErrScreenRefused) {
+			t.Errorf("%s: err = %v; want ErrListPayload with ErrScreenRefused behind it", name, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "SECRET-TEXT") {
+			t.Errorf("%s: the error carries text of the screen or the payload: %v", name, err)
+		}
+		noAnswer(t, got)
 	}
 }
