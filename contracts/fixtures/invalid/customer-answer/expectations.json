@@ -5,6 +5,8 @@
   "case_ref_unmasked.json": "pattern",
   "confidence_member.json": "additionalProperties",
   "dot_separated_digits_in_found.json": "pattern",
+  "file_separator_joined_digits_in_found.json": "pattern",
+  "found_with_ten_comma_joined_digits.json": "pattern",
   "fullwidth_digits_in_found.json": "pattern",
   "missing_next.json": "required",
   "newline_separated_digits_in_found.json": "pattern",

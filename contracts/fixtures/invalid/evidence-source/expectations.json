@@ -1,4 +1,5 @@
 {
   "missing_authority.json": "required",
-  "zero_freshness.json": "minimum"
+  "zero_freshness.json": "minimum",
+  "write_when_not_a_member.json": "additionalProperties"
 }

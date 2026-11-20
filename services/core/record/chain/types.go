@@ -59,7 +59,7 @@ var (
 		"POLICY_PUBLISHED", "PACK_LOADED", "KILL_SWITCH_CHANGED", "KEY_ROTATED", "CONFIG_CHANGED",
 		"SECURITY_EVENT", "PROVIDER_FAILOVER", "MEMORY_OBSERVATION_RECORDED",
 	)
-	securityKinds = setOf("INJECTION_DETECTED", "PRINCIPAL_OVERRIDE_ATTEMPT", "SIGNATURE_INVALID", "CROSS_SCOPE_ATTEMPT", "REQUEST_ID_REUSED", "IDEMPOTENCY_COLLISION", "CHAIN_BREAK")
+	securityKinds = setOf("INJECTION_DETECTED", "PRINCIPAL_OVERRIDE_ATTEMPT", "SIGNATURE_INVALID", "CROSS_SCOPE_ATTEMPT", "REQUEST_ID_REUSED", "IDEMPOTENCY_COLLISION", "CHAIN_BREAK", "CONFIRMATION_REFUSED")
 	// grantVoidReasons are the nine reasons PERD 27.1 and REQ-EXE-003 name for a void grant, kept distinct.
 	grantVoidReasons = setOf("INTENT_SUPERSEDED", "STATE_CHANGED", "POLICY_SUPERSEDED", "SIGNATURE_INVALID", "EXPIRED", "BINDING_MISMATCH", "WRITES_DISABLED",
 		"REVALIDATION_UNAVAILABLE", "REJECTED_STALE_VERSION")
@@ -148,6 +148,9 @@ func PrincipalKinds() []string { return sorted(actors.principalKinds) }
 
 // GrantVoidReasons lists the accepted GRANT_VOIDED reasons, sorted.
 func GrantVoidReasons() []string { return sorted(grantVoidReasons) }
+
+// SecurityKinds lists the accepted SECURITY_EVENT kinds, sorted.
+func SecurityKinds() []string { return sorted(securityKinds) }
 
 // EventTypes lists the accepted Record event types, sorted.
 func EventTypes() []string { return sorted(eventTypes) }
