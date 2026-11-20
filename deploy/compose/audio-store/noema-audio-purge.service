@@ -1,6 +1,8 @@
 # Retention purge of the private raw-audio store (A451; REQ-VOI-004). A systemd unit for the BENCH HOST, installed by a Founder or the host's administrator, never by CI or Compose.
 # The store's path and the retention in days are values of the host, read from the environment file below; this repository holds neither (AGENT-16), and the file must be readable by the
-# account that owns the store only (mode 0600). Adjust the path of store.sh to where this repository is checked out on the host.
+# account that owns the store only (mode 0600). Adjust the path of store.sh to where this repository is checked out on the host. There is no fixed ReadWritePaths: the store's path is the host's
+# setting and systemd cannot read it from the environment file, so the unit does not make the file system read-only (ProtectSystem=full keeps /usr, /boot and /etc read-only) and relies on the account
+# that owns the store (mode 0700) and on the hardening below: no network, no devices, no capabilities, no new privileges, a system-call filter, umask 0077.
 [Unit]
 Description=Purge raw audio older than the retention (noema bench host)
 
@@ -9,7 +11,18 @@ Type=oneshot
 User=noema-voice
 EnvironmentFile=/etc/noema/audio-store.env
 ExecStart=/bin/sh /opt/noema/deploy/compose/audio-store/store.sh purge
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=-/var/lib/noema-audio
+PrivateNetwork=true
+PrivateDevices=true
+CapabilityBoundingSet=
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallFilter=@system-service

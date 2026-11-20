@@ -56,6 +56,13 @@ class AudioNeverLeavesTheHost(unittest.TestCase):
         self.assertIn("ExecStart=", service)
         self.assertNotRegex(service, r"NOEMA_AUDIO_RETENTION_DAYS\s*=")
         self.assertNotRegex(service, r"NOEMA_AUDIO_STORE_DIR\s*=")
+        # SR on noema#819: no fixed path in the unit (the store's path is the host's setting), and the unit is hardened for a job that only reads a directory and deletes files in it.
+        self.assertNotIn("ReadWritePaths=", service)
+        self.assertNotIn("/var/lib", service)
+        for directive in ("NoNewPrivileges=true", "PrivateTmp=true", "PrivateNetwork=true", "PrivateDevices=true", "CapabilityBoundingSet=", "ProtectSystem=full", "ProtectKernelTunables=true",
+                          "ProtectKernelModules=true", "ProtectControlGroups=true", "LockPersonality=true", "MemoryDenyWriteExecute=true", "RestrictRealtime=true", "RestrictSUIDSGID=true",
+                          "SystemCallFilter=@system-service", "UMask=0077"):
+            self.assertIn(directive, service, directive)
         timer = (HERE / "noema-audio-purge.timer").read_text(encoding="utf-8")
         self.assertRegex(timer, r"(?m)^OnCalendar=")
         self.assertIn("Persistent=true", timer)
@@ -68,7 +75,7 @@ class AudioNeverLeavesTheHost(unittest.TestCase):
 
     def test_the_readme_states_who_reads_it_and_that_nothing_is_uploaded(self) -> None:
         text = (HERE / "README.md").read_text(encoding="utf-8")
-        for fragment in ("0700", "never uploaded", "REQ-VOI-004", "Founders", "voice runner"):
+        for fragment in ("0700", "never uploaded", "REQ-VOI-004", "Founders", "voice runner", "ANALYSIS", "90 days after analysis", "remove <speaker_ref>", "without a speaker_ref", "Encryption at rest"):
             self.assertIn(fragment, text, fragment)
 
 
