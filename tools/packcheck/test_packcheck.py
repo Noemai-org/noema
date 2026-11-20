@@ -339,3 +339,73 @@ class TemplateCoverage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+WRITE_WHEN = "question_type == 'ESCALATION_REQUEST' or requested_remedy != null"
+G2 = "fintech/graph/g2_escalate.json"
+
+
+def real():
+    base = json.loads((PACKS / "fintech_v1.json").read_text())
+    return base, {rel: json.loads((PACKS / rel).read_text()) for rel in base["action_graph_files"]}
+
+
+class WriteWhen(unittest.TestCase):
+    """A364 (interim, relayed, not yet committed). `write_when` is a member of the intent NODE: a predicate over the node's slots (an absent slot is null) that says the intent
+    needs write evaluation. It parses, is Boolean and uses only the node's slot names."""
+
+    def check(self, text):
+        base, graphs = real()
+        base["intent_nodes"][0]["write_when"] = text
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "predicate" and "write_when" in m]
+
+    def test_the_investigate_node_says_when_it_needs_a_write(self):
+        base, _ = real()
+        nodes = {n["node_id"]: n.get("write_when") for n in base["intent_nodes"]}
+        self.assertEqual(nodes["fin.payments.exception.investigate"], WRITE_WHEN)
+        self.assertEqual([k for k, v in nodes.items() if v], ["fin.payments.exception.investigate"])
+        self.assertFalse(any({"may_write", "write_when"} & set(s) for s in base["evidence_sources"]))
+        self.assertFalse(any("produced_by" in d for d in base["evidence_descriptors"]))
+
+    def test_the_predicate_uses_the_packs_own_grammar_and_the_nodes_slots_only(self):
+        for text, ok in ((WRITE_WHEN, True), ("true", True), ("requested_remedy == null and amount == null", True), ("not (when != null)", True),
+                         ("undeclared_slot == null", False), ("question_type ==", False), ("1 + 1", False), ("question_type", False),
+                         ("question_type == 'NOT_A_QUESTION'", False), ("case_id != null", False), ("subject_resource.status == 'RESOLVED'", False)):
+            problems = self.check(text)
+            self.assertEqual(not problems, ok, f"{text!r}: {problems}")
+
+
+class GraphParams(unittest.TestCase):
+    """A369 (interim, relayed, not yet committed). The escalation graph's params, and what packcheck holds them to: every required input of the capability is covered, no extra
+    param, a name once per node, slots and map keys of the intent node, map values in `case_reasons`, facts declared, policy params carried by a PERMIT rule."""
+
+    def test_the_real_escalation_graph_declares_the_specified_params(self):
+        base, graphs = real()
+        nodes = {n["node_id"]: {p["name"]: {k: v for k, v in p.items() if k != "name"} for p in n.get("params", [])} for n in graphs[G2]["nodes"]}
+        self.assertEqual(nodes["create_escalation_case"].keys(), {"transaction_ref", "reason_code"})
+        self.assertEqual(nodes["create_escalation_case"]["transaction_ref"], {"slot": "subject_resource"})
+        m = nodes["create_escalation_case"]["reason_code"]["map"]
+        self.assertEqual(m["from"], "question_type")
+        vocab = next(s for s in base["intent_nodes"][0]["slots"] if s["name"] == "question_type")["vocabulary"]
+        self.assertEqual(set(m["values"]), set(vocab))
+        self.assertLessEqual(set(m["values"].values()), {c["code"] for c in base["case_reasons"]})
+        self.assertEqual(nodes["record_investigation_evidence"], {"case_id": {"fact": "case_id"}, "payload": {"evidence_packet": True}})
+        self.assertEqual(nodes["route_to_internal_owner"], {"case_id": {"fact": "case_id"}, "owner_queue": {"policy_param": "owner_queue"}})
+
+    def test_case_reasons_are_unique_codes(self):
+        base, graphs = real()
+        base["case_reasons"].append(dict(base["case_reasons"][0]))
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if "case_reasons" in m]
+        self.assertTrue(hits)
+
+    def test_a_param_name_is_declared_once_per_node(self):
+        base, graphs = real()
+        graphs[G2]["nodes"][0]["params"].append({"name": "transaction_ref", "const": "x"})
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "graph" and "declares param" in m]
+        self.assertEqual(len(hits), 1, hits)
+
+    def test_an_optional_input_may_be_given_and_a_node_without_params_declares_none(self):
+        base, graphs = real()
+        graphs[G2]["nodes"][0]["params"].append({"name": "priority", "const": "NORMAL"})
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
+        self.assertNotIn("params", next(n for g in graphs.values() for n in g["nodes"] if n["capability_id"] == "fin.cap.log_complaint_reference"))
