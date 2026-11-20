@@ -8,6 +8,7 @@ package db_test
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -84,9 +85,68 @@ func TestARecordWithNoSnapshotIsNotKeyed(t *testing.T) {
 	}
 }
 
+// keyedRowOf is keyedRow with the outcome as the eighth parameter, for the rows of the next test.
+var keyedRowOf = strings.ReplaceAll(keyedRow, "'REJECT'", "$8::text")
+
+// A435 (the Architect's "the partial index is fine"), INV-21, INV-25 (migration 0034): the database itself allows a tuple at most ONE decision of an outcome that rests on a confirmation,
+// whichever request it names: a second REJECT on the tuple that rests on another declined request is refused by decision_record_input_confirmed_key, which is the backstop of the
+// Writer's rule (trust/recorder otherState: a tuple has one decision of an outcome across confirmation states, so two accepted confirmations cannot give two grants on one input). The index is
+// partial: it covers only decisions that rest on a confirmation, so any number of tuples, snapshots and policy versions, and the NULL state, are unaffected; another outcome on the same
+// tuple, another tenant and every member of the tuple are other keys. All rows are SYNTHETIC.
+func TestADecisionRecordTupleHasAtMostOneDecisionOfAnOutcomeThatRestsOnAConfirmation(t *testing.T) {
+	pool := migrated(t)
+	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
+		if _, err := pool.Exec(ctx(t), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := 0
+	insert := func(k inputKey, outcome, state string) error {
+		n++
+		_, err := pool.Exec(ctx(t), keyedRowOf, fmt.Sprintf("dec_%d", n), k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, keyedState(state), outcome)
+		return err
+	}
+	conflict := func(name string, err error) {
+		t.Helper()
+		var pe *pgconn.PgError
+		if !errors.As(err, &pe) || pe.Code != "23505" || pe.ConstraintName != "decision_record_input_confirmed_key" {
+			t.Errorf("%s: got %v, want a unique violation of decision_record_input_confirmed_key", name, err)
+		}
+	}
+	base := inputKey{"ten_a", "int_01", keyHash(1), "evs_01", "fin.pol@3.1"}
+	if err := insert(base, "CONFIRM", ""); err != nil {
+		t.Fatalf("the CONFIRM, resting on no confirmation: %v", err)
+	}
+	if err := insert(base, "REJECT", "cfr_01DECLINED"); err != nil {
+		t.Fatalf("the REJECT resting on the declined request: %v", err)
+	}
+	conflict("a second REJECT resting on another request", insert(base, "REJECT", "cfr_02OTHER"))
+	if err := insert(base, "ESCALATE", "cfr_02OTHER"); err != nil {
+		t.Errorf("another outcome that rests on a confirmation is its own key (the Writer's rule is per outcome): %v", err)
+	}
+	conflict("a second ESCALATE resting on a third request", insert(base, "ESCALATE", "cfr_03THIRD"))
+	// the members of the tuple and the tenant are each their own key
+	for name, k := range map[string]inputKey{
+		"another tenant":         {"ten_b", base.intentID, base.intentHash, base.snapshot, base.policy},
+		"another intent":         {base.tenant, "int_02", base.intentHash, base.snapshot, base.policy},
+		"another intent hash":    {base.tenant, base.intentID, keyHash(2), base.snapshot, base.policy},
+		"a new context snapshot": {base.tenant, base.intentID, base.intentHash, "evs_02", base.policy},
+		"another policy version": {base.tenant, base.intentID, base.intentHash, base.snapshot, "fin.pol@3.2"},
+	} {
+		if err := insert(k, "REJECT", "cfr_09OTHER"); err != nil {
+			t.Errorf("%s is a different input: %v", name, err)
+		}
+	}
+	// the index covers only decisions that rest on a confirmation: a decision on none (the NULL state) is the key of 0034 alone, and the CONFIRM above already holds that state
+	var pe *pgconn.PgError
+	if err := insert(base, "REJECT", ""); !errors.As(err, &pe) || pe.ConstraintName != "decision_record_input_state_key" {
+		t.Errorf("a second decision resting on no confirmation: got %v, want a violation of decision_record_input_state_key (not of the partial index)", err)
+	}
+}
+
 // A366, INV-21 (migration 0034): the key is the tuple and the confirmation state. Two decisions of one tuple that rest on NO confirmation are one too many (two NULLs are not distinct: the
-// key is over COALESCE of the column); one that rests on no confirmation and one that rests on a request are two decisions; a second of the same request is one too many; another request,
-// or another tenant with the same request, is another key. (Which of two requests the Writer accepts is its own rule, trust/recorder.)
+// key is over COALESCE of the column); one that rests on no confirmation and one that rests on a request are two decisions; a second of the same request is one too many; another tenant
+// with the same request is another key. (Another request on the same tuple and outcome is refused by the partial index of A435, which the next test pins.)
 func TestADecisionRecordInputTupleIsUniquePerConfirmationState(t *testing.T) {
 	pool := migrated(t)
 	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
@@ -116,9 +176,6 @@ func TestADecisionRecordInputTupleIsUniquePerConfirmationState(t *testing.T) {
 		t.Fatalf("a decision that rests on a confirmation, next to the one that rests on none: %v", err)
 	}
 	conflict("a second decision resting on the same confirmation request", insert(base, "cfr_01ACCEPTED"))
-	if err := insert(base, "cfr_02OTHER"); err != nil {
-		t.Errorf("a decision resting on another request is another key: %v", err)
-	}
 	other := base
 	other.tenant = "ten_b"
 	if err := insert(other, "cfr_01ACCEPTED"); err != nil {
