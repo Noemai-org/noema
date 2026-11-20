@@ -154,3 +154,21 @@ func TestNewAnchorsRefusesAConfigurationThatIsNotUsable(t *testing.T) {
 		t.Errorf("a nil reader: %v", err)
 	}
 }
+
+func TestAnchorsKeepTheEventsTheyWereGivenWhateverTheCallerDoesAfterwards(t *testing.T) {
+	w := newWorld(t)
+	w.seal(t, tenantA, snapID, complaintItem("evr_2", "KNOWN", page(true)))
+	events := map[string]intakesources.AnchorEvent{anchorEvent: {Entity: "complaint_ref", Field: "effective_at"}}
+	a, err := intakesources.NewAnchors(listsOf(t, w), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(events, anchorEvent)
+	events["case_closed"] = intakesources.AnchorEvent{Entity: "complaint_ref", Field: "effective_at"}
+	if _, happened, err := a.AnchorTime(ctx(t), tenantA, snapID, anchorEvent); err != nil || happened {
+		t.Errorf("the event it was given: %v, %v", err, happened)
+	}
+	if _, _, err := a.AnchorTime(ctx(t), tenantA, snapID, "case_closed"); !errors.Is(err, intakesources.ErrNoSource) {
+		t.Errorf("an event the caller added afterwards: %v", err)
+	}
+}

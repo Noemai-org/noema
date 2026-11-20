@@ -235,8 +235,9 @@ func (f failingPayloads) Read(context.Context, string, string) ([]byte, error) {
 
 func TestFactsASnapshotThatIsNotWhatWasSealedIsRefused(t *testing.T) {
 	for name, tamper := range map[string]string{
-		"a payload hash is changed": `UPDATE evidence_item SET payload_hash = 'sha256:` + fillHex('c') + `' WHERE evidence_id = 'evr_1'`,
-		"an item is deleted":        `DELETE FROM evidence_item WHERE evidence_id = 'evr_2'`,
+		"a payload hash is changed":  `UPDATE evidence_item SET payload_hash = 'sha256:` + fillHex('c') + `' WHERE evidence_id = 'evr_1'`,
+		"an item is deleted":         `DELETE FROM evidence_item WHERE evidence_id = 'evr_2'`,
+		"an item is of another case": `UPDATE evidence_item SET correlation_id = 'corr_other' WHERE evidence_id = 'evr_2'`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
@@ -315,5 +316,52 @@ func TestNewFactsRefusesListsThatAreNotUsable(t *testing.T) {
 		if _, err := intakesources.NewFacts(w, readTimeout, intakesources.WithLists(l)); !errors.Is(err, intakesources.ErrConfig) {
 			t.Errorf("%s: %v; want ErrConfig", name, err)
 		}
+	}
+}
+
+func TestFactsKeepTheEntitiesTheyWereGivenWhateverTheCallerDoesAfterwards(t *testing.T) {
+	w := newWorld(t)
+	w.seal(t, tenantA, snapID, caseItem("evr_1", "KNOWN", page(true)))
+	l := listsOf(t, w)
+	f, err := intakesources.NewFacts(w, readTimeout, intakesources.WithLists(l))
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(l.Entities, "case")
+	l.Entities["transaction"] = intakesources.ListSpec{Source: caseSource, ScopePrefix: caseScopeOf}
+	if got, err := f.PolicyFacts(ctx(t), listQuery(tenantA), entities("case")); err != nil || got.Entities["case"] == nil {
+		t.Errorf("the entity it was given: %+v, %v", got, err)
+	}
+	if _, err := f.PolicyFacts(ctx(t), listQuery(tenantA), entities("transaction")); !errors.Is(err, intakesources.ErrNoSource) {
+		t.Errorf("an entity the caller added afterwards: %v", err)
+	}
+}
+
+// countingItems answers every read with no items and counts the reads, so that a test can tell that a query was refused before the snapshot reader was asked.
+type countingItems struct{ reads *int }
+
+func (c countingItems) Items(context.Context, string, string) ([]intakesources.SnapshotItem, error) {
+	*c.reads++
+	return nil, intakesources.ErrNoSnapshot
+}
+
+func TestFactsAQueryWithABadSnapshotIDNeverReachesTheSnapshotReader(t *testing.T) {
+	w := newWorld(t)
+	var reads int
+	l := listsOf(t, w)
+	l.Items = countingItems{&reads}
+	f, err := intakesources.NewFacts(w, readTimeout, intakesources.WithLists(l))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"", "snap_1", "evs_1;DROP"} {
+		q := listQuery(tenantA)
+		q.SnapshotID = id
+		if _, err := f.PolicyFacts(ctx(t), q, entities("case")); !errors.Is(err, intakesources.ErrQuery) {
+			t.Errorf("%q: %v; want ErrQuery", id, err)
+		}
+	}
+	if reads != 0 {
+		t.Errorf("the snapshot reader was asked %d times for snapshots that are refused", reads)
 	}
 }

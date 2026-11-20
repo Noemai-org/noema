@@ -81,3 +81,11 @@ func TestPolicyFactsTheEpochIsNotReadForAReadThatNeedsOnlyASlot(t *testing.T) {
 		t.Errorf("an unusable epoch must not spoil a fact that does not use it: %+v, %v", got, err)
 	}
 }
+
+func TestPolicyFactsTheEpochIsTheStoredOneAndNotAConstant(t *testing.T) {
+	doc := `{"intent_node":"` + node + `","slots":` + resolvedSlots + `}`
+	f := facts(t, loginFunc(func(string) (intakesources.Querier, error) { return epochLogin{epochRow{doc, 7}}, nil }))
+	if got, err := f.PolicyFacts(ctx(t), factQuery(tenantA, "int_ep3", 1), vars("logical_resolution_epoch")); err != nil || got.Variables["logical_resolution_epoch"] != predicate.Int(7) {
+		t.Errorf("got %+v, %v; want the stored epoch (the table's check pins it to 1 today, the reader does not)", got, err)
+	}
+}
