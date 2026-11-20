@@ -34,7 +34,7 @@
 // any KILL_SWITCH_* event (KILL_SWITCH_CHANGED, KILL_SWITCH_CLEARED, KILL_SWITCH_CLEAR_REFUSED are in contracts/perd-32-2-event-types.md; this writer emits none of them).
 //
 // The confirmation request of a CONFIRM (TRU-07 PR 2; REQ-TRU-009, INV-25, INV-12, EC-E16; SoT 43.2a; interim defaults of the founder's order, not yet committed). A CONFIRM decision may carry
-// Request.ConfirmationRequest: the eight bound values (principal, intent hash, capability, target, parameters hash, evidence set hash, plan hash, policy version), the approver requirement
+// Request.ConfirmationRequest: the eight bound values (principal, intent hash, capability, target, parameters hash, evidence value, plan hash, policy version; the evidence value is the CONTENT digest, A435, held in the Go field ConfirmationBindingEvidenceHash and named evidence_set_hash in the payload and the contract), the approver requirement
 // (SELF, MAKER_CHECKER or ROLE:<role>), the requester and the expiry in Unix seconds. Any other outcome that carries one is ErrRequest. Before anything is written the writer checks the
 // hashes against the contract's form, that the intent hash is the decision's own and the policy version is the COMPOSITE of every policy version of the decision's basis (decide.CompositePolicyVersion, A341, A367: "sha256:" and the
 // SHA-256 hex of the RFC 8785 form of the sorted, distinct "policy_id@version" list; the ALLOW that follows an ACCEPT recomputes the binding from the same function, so a request bound to
@@ -49,6 +49,10 @@
 // accompanies it. The payload guard is not weakened: a target reference is accepted at /target_ref (ruling A193) and any other string with a run of more than four digits is refused (the
 // append fails and so does the write). Not built: the display and the signature of confirmation-request.v1 (the approver's view is the confirmation store's), expiry (CONFIRMATION_EXPIRED)
 // and the answer (CONFIRMATION_RECEIVED, RecordConfirmation).
+//
+// A435, the evidence component of an ALLOW's binding. The writer recomputes the binding of the confirmation an ALLOW follows from the ALLOW's own step and Request.ConfirmationBindingEvidenceHash,
+// the content digest the CONFIRM was bound to (required, in the Hash form, for an ALLOW after a confirmation; named with no confirmation it is ErrRequest). It never takes the binding's evidence
+// value from the step's EvidenceSetHash: that stays the snapshot's own set hash, which the grant carries, and the Decision Record is unchanged.
 //
 // A186 and A366, the confirmation state of the key: one decision exists for an input tuple AND confirmation state, and migration 0034 enforces it (decision_record_input_state_key: the
 // tuple and COALESCE of decision_record.confirmation_request_id). The state is the confirmation request the decision rests on: for an ALLOW that follows a confirmation, the request the

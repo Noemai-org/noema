@@ -9,7 +9,8 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
 
-// NewConfirmationRequest is the confirmation request a CONFIRM decision creates (SoT 43.2a, REQ-TRU-009). The first eight values are the binding; the writer computes the binding
+// NewConfirmationRequest is the confirmation request a CONFIRM decision creates (SoT 43.2a, REQ-TRU-009). The first eight values are the binding (ConfirmationBindingEvidenceHash is the
+// content digest of A435, which the payload and the contract call evidence_set_hash); the writer computes the binding
 // hash from them with trust/confirm.BindingHash and mints the cfr_ ID itself, so neither is ever taken from the caller. Requirement is the contract's approver requirement (SELF,
 // MAKER_CHECKER or ROLE:<role>), RequesterID the principal that asked (the admitted intent's, INV-12) and ExpiresAt the expiry in Unix seconds.
 type NewConfirmationRequest struct {

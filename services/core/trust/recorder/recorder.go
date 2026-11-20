@@ -119,7 +119,9 @@ type Request struct {
 	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on; empty for every other decision, and any other outcome that names one is ErrRequest
 	// (A366). With a confirmation an ALLOW follows, it is the confirmation state of the decision, which the single-decision key of the input tuple includes.
 	DeclinedRequestID string
-	// ConfirmationBindingEvidenceHash is the evidence component of the binding of the confirmation an ALLOW follows (A435); the grant does not carry it.
+	// ConfirmationBindingEvidenceHash is the evidence component of the binding of the confirmation an ALLOW follows (A435): the content digest of the evidence the decision used, which the
+	// writer needs to recompute that binding (the contract's field is still named evidence_set_hash). It is NOT the grant's evidence_set_hash: a step's EvidenceSetHash stays the snapshot's
+	// set hash, and neither the grant nor the Decision Record carries this value. Required, in the Hash form, for an ALLOW that follows a confirmation; named with no confirmation it is ErrRequest.
 	ConfirmationBindingEvidenceHash contracts.CommonV1Hash
 }
 
@@ -385,8 +387,15 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if r.ConfirmationPlanHash != "" && r.ConfirmationEventID == "" {
 		return decide.Basis{}, "", fmt.Errorf("%w: a plan hash is named with no confirmation", ErrRequest)
 	}
+	if r.ConfirmationBindingEvidenceHash != "" && r.ConfirmationEventID == "" {
+		return decide.Basis{}, "", fmt.Errorf("%w: the evidence value of a binding is named with no confirmation", ErrRequest)
+	}
 	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" && !planMatches(r) {
 		return decide.Basis{}, "", ErrConfirmationPlanMismatch
+	}
+	// A435: the evidence component of the binding of the confirmation an ALLOW follows. It is needed, in the contract's form, exactly there; it is named nowhere else.
+	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" && !hashRe.MatchString(string(r.ConfirmationBindingEvidenceHash)) {
+		return decide.Basis{}, "", fmt.Errorf("%w: an ALLOW after a confirmation names no well-formed evidence value of its binding", ErrRequest)
 	}
 	if !d.HasCompleteBasis() {
 		return decide.Basis{}, "", ErrNoEvaluatedBasis

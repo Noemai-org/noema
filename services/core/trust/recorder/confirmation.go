@@ -46,7 +46,8 @@ func RecordConfirmation(ctx context.Context, tx pgx.Tx, c Confirmation) error {
 
 // bindingOf is the binding the ALLOW's own step has, in the eight values of SoT 43.2a. A confirmation approves one action, so there is exactly one step (checked by the caller). The policy
 // version is the composite of every policy version of the decision's basis (decide.CompositePolicyVersion, A341 interim), the same value the request was created with; the policy a grant
-// binds (grants.BoundPolicy) is not it.
+// binds (grants.BoundPolicy) is not it. The evidence component is the request's ConfirmationBindingEvidenceHash, the content digest (A435), never the step's EvidenceSetHash: that one is
+// the snapshot's set hash, which the grant carries and which the binding does not use.
 func bindingOf(r Request, basis decide.Basis) (string, error) {
 	policy, err := basis.CompositePolicyVersion()
 	if err != nil {
@@ -54,5 +55,5 @@ func bindingOf(r Request, basis decide.Basis) (string, error) {
 	}
 	s := r.Steps[0]
 	return confirm.BindingHash(confirm.BindingInput{PrincipalID: s.PrincipalID, IntentHash: string(r.IntentHash), CapabilityID: s.CapabilityID, TargetRef: s.TargetRef,
-		ParamsHash: string(s.ParamsHash), EvidenceSetHash: string(s.EvidenceSetHash), PlanHash: string(s.PlanHash), PolicyVersion: policy})
+		ParamsHash: string(s.ParamsHash), EvidenceSetHash: string(r.ConfirmationBindingEvidenceHash), PlanHash: string(s.PlanHash), PolicyVersion: policy})
 }
