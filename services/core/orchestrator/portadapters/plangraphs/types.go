@@ -83,11 +83,20 @@ type PackStep struct {
 	Postconditions []string
 }
 
+// SlotDecl is the node's declaration of one slot: the single authority of the slot's kind and resource kind (A454, interim, relayed, not yet committed). ResourceKind is set
+// for SlotKindResource only.
+type SlotDecl struct {
+	Kind         SlotKind
+	ResourceKind string
+}
+
 // PackGraph is the action graph the pack declares for one intent node.
 type PackGraph struct {
 	IntentNode   string
 	GraphVersion string
-	Steps        []PackStep
+	// Slots is the node's slot declarations by slot name; a slot param's slot must be declared here.
+	Slots map[string]SlotDecl
+	Steps []PackStep
 }
 
 // ErrNoGraph is what a Pack returns for an intent node it has no graph for.

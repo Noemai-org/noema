@@ -58,8 +58,17 @@ func intent() plangraphs.IntentSlots {
 		}}
 }
 
+// nodeSlots is the node's slot declaration (A454: the single authority of a slot's kind), SYNTHETIC.
+var nodeSlots = map[string]plangraphs.SlotDecl{
+	"reason":        {Kind: plangraphs.SlotKindReference},
+	"amount":        {Kind: plangraphs.SlotKindQuantity},
+	"question_type": {Kind: plangraphs.SlotKindReference},
+	"obj":           {Kind: plangraphs.SlotKindReference},
+	"amt":           {Kind: plangraphs.SlotKindQuantity},
+}
+
 func packGraph(params ...plangraphs.ParamSpec) plangraphs.PackGraph {
-	return plangraphs.PackGraph{IntentNode: node, GraphVersion: "1.0.0", Steps: []plangraphs.PackStep{
+	return plangraphs.PackGraph{IntentNode: node, GraphVersion: "1.0.0", Slots: nodeSlots, Steps: []plangraphs.PackStep{
 		{NodeID: "create_case", CapabilityID: capCreate, Params: params, Preconditions: []string{"p"}, Postconditions: []string{"q"}},
 		{NodeID: "route_case", CapabilityID: capRoute},
 	}}
@@ -153,14 +162,14 @@ func TestParamFromTextIsRefused(t *testing.T) {
 
 func mapIntent(v any, resolved bool) plangraphs.IntentSlots {
 	in := intent()
-	in.Slots["question_type"] = plangraphs.SlotValue{Resolved: resolved, Value: v, Kind: plangraphs.SlotKindEnum}
+	in.Slots["question_type"] = plangraphs.SlotValue{Resolved: resolved, Value: v, Kind: plangraphs.SlotKindReference}
 	return in
 }
 
 var reasonMap = map[string]string{"ESCALATION_REQUEST": "ESCALATION_REQUESTED", "DISPUTE": "DISPUTE_OPENED"}
 
 func mapParam() plangraphs.ParamSpec {
-	return plangraphs.ParamSpec{Name: "reason_code", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: reasonMap}
+	return plangraphs.ParamSpec{Name: "reason_code", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindReference, Slot: "question_type", Map: reasonMap}
 }
 
 func TestMapLooksTheResolvedSlotUp(t *testing.T) {
@@ -198,9 +207,9 @@ func TestMapNeedsAResolvedSlotAndADeclaration(t *testing.T) {
 	}
 	bad := map[string]plangraphs.ParamSpec{
 		"no from":    {Name: "x", Kind: plangraphs.KindMap, Slot: "", Map: reasonMap},
-		"empty map":  {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: map[string]string{}},
-		"nil map":    {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type"},
-		"empty code": {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: map[string]string{"ESCALATION_REQUEST": ""}},
+		"empty map":  {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindReference, Slot: "question_type", Map: map[string]string{}},
+		"nil map":    {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindReference, Slot: "question_type"},
+		"empty code": {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindReference, Slot: "question_type", Map: map[string]string{"ESCALATION_REQUEST": ""}},
 	}
 	for n, p := range bad {
 		_, a = build(packGraph(p), mapIntent("ESCALATION_REQUEST", true))
@@ -570,7 +579,7 @@ func TestSlotParamsNeedASlotName(t *testing.T) {
 
 // A non-string slot value is never coerced to a key, even when the map has an empty key.
 func TestMapNeverCoercesANonStringValue(t *testing.T) {
-	p := plangraphs.ParamSpec{Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: map[string]string{"": "EMPTY_KEY", "7": "SEVEN"}}
+	p := plangraphs.ParamSpec{Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindReference, Slot: "question_type", Map: map[string]string{"": "EMPTY_KEY", "7": "SEVEN"}}
 	for _, v := range []any{7, true, nil} {
 		_, a := build(packGraph(p), mapIntent(v, true))
 		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrMapValue) {
@@ -579,47 +588,65 @@ func TestMapNeverCoercesANonStringValue(t *testing.T) {
 	}
 }
 
-// A440 (interim, relayed, not yet committed): a slot param declares {slot, kind}; the planner refuses a resolved value of another kind, early and by name.
-var allSlotKinds = []plangraphs.SlotKind{plangraphs.SlotKindResource, plangraphs.SlotKindQuantity, plangraphs.SlotKindParty, plangraphs.SlotKindTimeRef, plangraphs.SlotKindReference, plangraphs.SlotKindEnum}
+// A454 (interim, relayed, not yet committed; amends A440): the kind and resource kind of a slot come from the NODE'S SLOT declaration (the single authority). The param's
+// declaration must EQUAL it, and the resolved value's own kind must equal it. Slot types: Resource, Quantity, Party, TimeRef, Reference; Enum is not one.
+var allSlotKinds = []plangraphs.SlotKind{plangraphs.SlotKindResource, plangraphs.SlotKindQuantity, plangraphs.SlotKindParty, plangraphs.SlotKindTimeRef, plangraphs.SlotKindReference}
 
-func kindIntent(k plangraphs.SlotKind, rk string, v any) plangraphs.IntentSlots {
+const enumKind = plangraphs.SlotKind("Enum")
+
+type kinds struct {
+	declK, declRK, paramK, paramRK, valK, valRK string
+}
+
+func (k kinds) plan(pk plangraphs.ParamKind) (plangraphs.PackGraph, plangraphs.IntentSlots) {
+	g := packGraph(plangraphs.ParamSpec{Name: "amount_ref", Kind: pk, Slot: "s", SlotKind: plangraphs.SlotKind(k.paramK), ResourceKind: k.paramRK, Map: map[string]string{"x": "X"}})
+	g.Slots = map[string]plangraphs.SlotDecl{"s": {Kind: plangraphs.SlotKind(k.declK), ResourceKind: k.declRK}}
 	in := intent()
-	in.Slots["s"] = plangraphs.SlotValue{Resolved: true, Value: v, Kind: k, ResourceKind: rk}
-	return in
+	in.Slots["s"] = plangraphs.SlotValue{Resolved: true, Value: "x", Kind: plangraphs.SlotKind(k.valK), ResourceKind: k.valRK}
+	return g, in
 }
 
-func kindParam(pk plangraphs.ParamKind, k plangraphs.SlotKind, rk string) plangraphs.ParamSpec {
-	return plangraphs.ParamSpec{Name: "amount_ref", Kind: pk, Slot: "s", SlotKind: k, ResourceKind: rk, Map: map[string]string{"x": "X"}}
+func same(k plangraphs.SlotKind) kinds {
+	rk := ""
+	if k == plangraphs.SlotKindResource {
+		rk = "account"
+	}
+	return kinds{string(k), rk, string(k), rk, string(k), rk}
 }
 
-func TestSlotParamKindMatchPlans(t *testing.T) {
+func planKinds(k kinds, pk plangraphs.ParamKind) (trustport.PlanGraph, error) {
+	g, in := k.plan(pk)
+	_, a := build(g, in)
+	return graph(a, req())
+}
+
+func TestSlotKindsAllEqualPlans(t *testing.T) {
 	for _, k := range allSlotKinds {
-		rk := ""
-		if k == plangraphs.SlotKindResource {
-			rk = "account"
+		for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
+			want := "x"
+			if pk == plangraphs.KindMap {
+				want = "X"
+			}
+			if g, err := planKinds(same(k), pk); err != nil || g.Steps[0].Params["amount_ref"] != want {
+				t.Fatalf("%s kind %s: %v %+v", pk, k, err, g)
+			}
 		}
-		_, a := build(packGraph(kindParam(plangraphs.KindSlot, k, rk)), kindIntent(k, rk, "x"))
-		if g, err := graph(a, req()); err != nil || g.Steps[0].Params["amount_ref"] != "x" {
-			t.Fatalf("kind %s: %v %+v", k, err, g)
-		}
-	}
-	_, a := build(packGraph(kindParam(plangraphs.KindMap, plangraphs.SlotKindEnum, "")), kindIntent(plangraphs.SlotKindEnum, "", "x"))
-	if g, err := graph(a, req()); err != nil || g.Steps[0].Params["amount_ref"] != "X" {
-		t.Fatalf("map: %v %+v", err, g)
 	}
 }
 
-func TestSlotValueOfAnotherKindIsRefused(t *testing.T) {
+// The slot's declaration is the authority: a value of another kind, or none, is refused (ErrSlotKind naming the param), whatever the param declares.
+func TestValueOfAnotherKindThanTheSlotIsRefused(t *testing.T) {
 	for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
-		for _, want := range allSlotKinds {
+		for _, decl := range allSlotKinds {
 			for _, have := range append([]plangraphs.SlotKind{""}, allSlotKinds...) {
-				if want == have {
+				if decl == have {
 					continue
 				}
-				_, a := build(packGraph(kindParam(pk, want, "account")), kindIntent(have, "account", "x"))
-				g, err := graph(a, req())
+				k := same(decl)
+				k.valK = string(have)
+				g, err := planKinds(k, pk)
 				if !errors.Is(err, plangraphs.ErrSlotKind) || !errors.Is(err, trustport.ErrPlanGraphInvalid) || !strings.Contains(err.Error(), "amount_ref") {
-					t.Fatalf("%s want %q have %q: err = %v, want ErrSlotKind naming the param", pk, want, have, err)
+					t.Fatalf("%s slot %q value %q: err = %v, want ErrSlotKind naming the param", pk, decl, have, err)
 				}
 				if len(g.Steps) != 0 {
 					t.Fatalf("a refusal returns no step: %+v", g)
@@ -629,23 +656,77 @@ func TestSlotValueOfAnotherKindIsRefused(t *testing.T) {
 	}
 }
 
-func TestSlotParamWithNoOrUnknownKindIsRefused(t *testing.T) {
-	for _, k := range []plangraphs.SlotKind{"", "resource", "Free", "Text", "ENUM"} {
-		for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
-			_, a := build(packGraph(kindParam(pk, k, "")), kindIntent(k, "", "x"))
-			if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrSlotKind) {
-				t.Fatalf("%s kind %q: err = %v, want ErrSlotKind", pk, k, err)
+// Defence in depth: a param whose declaration differs from the node slot's, or is missing, is refused even when the value matches the slot.
+func TestParamDeclarationMustEqualTheSlots(t *testing.T) {
+	for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
+		for _, decl := range allSlotKinds {
+			for _, p := range append([]plangraphs.SlotKind{"", "resource", "Free"}, allSlotKinds...) {
+				if decl == p {
+					continue
+				}
+				k := same(decl)
+				k.paramK = string(p)
+				if _, err := planKinds(k, pk); !errors.Is(err, plangraphs.ErrSlotKind) {
+					t.Fatalf("%s slot %q param %q: err = %v, want ErrSlotKind", pk, decl, p, err)
+				}
 			}
 		}
 	}
 }
 
-func TestResourceKindMustMatch(t *testing.T) {
-	R := plangraphs.SlotKindResource
-	for n, c := range map[string][2]string{"other": {"account", "card"}, "value has none": {"account", ""}, "declaration has none": {"", "account"}, "both none": {"", ""}} {
-		_, a := build(packGraph(kindParam(plangraphs.KindSlot, R, c[0])), kindIntent(R, c[1], "x"))
+// The planner does not read the kind from the param: a param and a value that agree with each other but not with the node slot are refused.
+func TestParamAndValueAgreeButSlotDiffersIsRefused(t *testing.T) {
+	for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
+		for _, decl := range allSlotKinds {
+			for _, other := range allSlotKinds {
+				if decl == other {
+					continue
+				}
+				k := same(other)
+				k.declK, k.declRK = string(decl), ""
+				if decl == plangraphs.SlotKindResource {
+					k.declRK = "account"
+				}
+				if _, err := planKinds(k, pk); !errors.Is(err, plangraphs.ErrSlotKind) {
+					t.Fatalf("%s slot %q param and value %q: err = %v, want ErrSlotKind", pk, decl, other, err)
+				}
+			}
+		}
+	}
+}
+
+func TestSlotWithNoOrInvalidDeclarationIsRefused(t *testing.T) {
+	for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
+		for _, d := range []plangraphs.SlotKind{"", enumKind, "resource", "Free"} {
+			k := kinds{string(d), "", string(d), "", string(d), ""}
+			if _, err := planKinds(k, pk); !errors.Is(err, plangraphs.ErrSlotKind) {
+				t.Fatalf("%s declared kind %q: err = %v, want ErrSlotKind", pk, d, err)
+			}
+		}
+		g, in := same(plangraphs.SlotKindReference).plan(pk)
+		g.Slots = nil
+		_, a := build(g, in)
 		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrSlotKind) {
-			t.Fatalf("%s: err = %v, want ErrSlotKind", n, err)
+			t.Fatalf("%s no declaration for the slot: err = %v, want ErrSlotKind", pk, err)
+		}
+	}
+}
+
+func TestResourceKindComesFromTheSlotAndMustMatch(t *testing.T) {
+	R := string(plangraphs.SlotKindResource)
+	for n, k := range map[string]kinds{
+		"value other":        {R, "account", R, "account", R, "card"},
+		"value none":         {R, "account", R, "account", R, ""},
+		"param other":        {R, "account", R, "card", R, "account"},
+		"param none":         {R, "account", R, "", R, "account"},
+		"slot none":          {R, "", R, "account", R, "account"},
+		"slot none all none": {R, "", R, "", R, ""},
+		"all none but value": {R, "", R, "", R, "account"},
+	} {
+		for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
+			if _, err := planKinds(k, pk); !errors.Is(err, plangraphs.ErrSlotKind) {
+				t.Fatalf("%s %s: err = %v, want ErrSlotKind", pk, n, err)
+			}
 		}
 	}
 }
@@ -661,13 +742,13 @@ func TestSlotTextIsBoundedAndHasNoLongDigitRun(t *testing.T) {
 		"multibyte bound": strings.Repeat("\u00e9", maxText/2+1),
 	}
 	for n, v := range bad {
-		_, a := build(packGraph(kindParam(plangraphs.KindSlot, plangraphs.SlotKindReference, "")), kindIntent(plangraphs.SlotKindReference, "", v))
+		_, a := build(packGraph(refP("amount_ref", "obj")), objIntent(v))
 		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrFreeText) || !errors.Is(err, trustport.ErrPlanGraphInvalid) {
 			t.Fatalf("%s: err = %v, want ErrFreeText", n, err)
 		}
 	}
 	for n, v := range map[string]any{"four digits": "ref 1234 and 5678", "at the bound": strings.Repeat("a", maxText), "date": "2026-11-20"} {
-		_, a := build(packGraph(kindParam(plangraphs.KindSlot, plangraphs.SlotKindReference, "")), kindIntent(plangraphs.SlotKindReference, "", v))
+		_, a := build(packGraph(refP("amount_ref", "obj")), objIntent(v))
 		if _, err := graph(a, req()); err != nil {
 			t.Fatalf("%s: %v", n, err)
 		}
@@ -690,4 +771,14 @@ func TestTextBoundHasNoDefault(t *testing.T) {
 			t.Fatalf("bound %d: err = %v, want ErrConfig", n, err)
 		}
 	}
+}
+
+func refP(name, s string) plangraphs.ParamSpec {
+	return plangraphs.ParamSpec{Name: name, Kind: plangraphs.KindSlot, Slot: s, SlotKind: plangraphs.SlotKindReference}
+}
+
+func objIntent(v any) plangraphs.IntentSlots {
+	in := intent()
+	in.Slots["obj"] = plangraphs.SlotValue{Resolved: true, Value: v, Kind: plangraphs.SlotKindReference}
+	return in
 }
