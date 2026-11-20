@@ -383,7 +383,7 @@ class GraphParams(unittest.TestCase):
         base, graphs = real()
         nodes = {n["node_id"]: {p["name"]: {k: v for k, v in p.items() if k != "name"} for p in n.get("params", [])} for n in graphs[G2]["nodes"]}
         self.assertEqual(nodes["create_escalation_case"].keys(), {"transaction_ref", "reason_code"})
-        self.assertEqual(nodes["create_escalation_case"]["transaction_ref"], {"slot": "subject_resource"})
+        self.assertEqual(nodes["create_escalation_case"]["transaction_ref"], {"slot": "subject_resource", "kind": "Resource", "resource_kind": "fin.transaction"})
         m = nodes["create_escalation_case"]["reason_code"]["map"]
         self.assertEqual(m["from"], "question_type")
         vocab = next(s for s in base["intent_nodes"][0]["slots"] if s["name"] == "question_type")["vocabulary"]
@@ -391,6 +391,20 @@ class GraphParams(unittest.TestCase):
         self.assertLessEqual(set(m["values"].values()), {c["code"] for c in base["case_reasons"]})
         self.assertEqual(nodes["record_investigation_evidence"], {"case_id": {"fact": "case_id"}, "payload": {"evidence_packet": True}})
         self.assertEqual(nodes["route_to_internal_owner"], {"case_id": {"fact": "case_id"}, "owner_queue": {"policy_param": "owner_queue"}})
+
+    def test_every_slot_param_of_every_graph_carries_the_type_of_its_slot(self):
+        """A440 (interim, relayed, not yet committed): `kind` equals the declared type of the intent-node slot; for a Resource `resource_kind` equals the slot's."""
+        base, graphs = real()
+        slots = {s["name"]: s for n in base["intent_nodes"] for s in n["slots"]}
+        seen = 0
+        for g in graphs.values():
+            for n in g["nodes"]:
+                for p in n.get("params", []):
+                    if "slot" in p:
+                        seen += 1
+                        self.assertEqual(p.get("kind"), slots[p["slot"]]["type"], p)
+                        self.assertEqual(p.get("resource_kind"), slots[p["slot"]].get("resource_kind"), p)
+        self.assertGreater(seen, 0)
 
     def test_case_reasons_are_unique_codes(self):
         base, graphs = real()

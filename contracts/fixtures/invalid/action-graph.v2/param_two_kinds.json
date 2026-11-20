@@ -35,7 +35,9 @@
         {
           "name": "transaction_ref",
           "slot": "subject_resource",
-          "const": "x"
+          "const": "x",
+          "kind": "Resource",
+          "resource_kind": "fin.transaction"
         },
         {
           "name": "reason_code",

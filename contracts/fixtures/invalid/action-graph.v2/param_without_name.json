@@ -33,7 +33,9 @@
       "escalation_ref": "HANDOFF",
       "params": [
         {
-          "slot": "subject_resource"
+          "slot": "subject_resource",
+          "kind": "Resource",
+          "resource_kind": "fin.transaction"
         },
         {
           "name": "reason_code",

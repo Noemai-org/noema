@@ -17,5 +17,12 @@
   "param_map_extra_member.json": "additionalProperties",
   "param_evidence_packet_false.json": "const",
   "param_fact_not_a_string.json": "type",
-  "params_not_an_array.json": "type"
+  "params_not_an_array.json": "type",
+  "param_slot_without_kind.json": "required",
+  "param_slot_unknown_kind.json": "enum",
+  "param_kind_without_slot.json": "maxProperties",
+  "param_kind_alone.json": "enum",
+  "param_resource_without_resource_kind.json": "required",
+  "param_resource_kind_on_a_quantity.json": "not",
+  "param_slot_with_a_second_kind.json": "enum"
 }
