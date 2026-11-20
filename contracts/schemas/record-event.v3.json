@@ -78,7 +78,9 @@
         "REQUEST_ID_REUSED",
         "IDEMPOTENCY_COLLISION",
         "CHAIN_BREAK",
-        "CONFIRMATION_REFUSED"
+        "CONFIRMATION_REFUSED",
+        "KILL_SWITCH_CLEARED",
+        "KILL_SWITCH_CLEAR_REFUSED"
       ]
     },
     "GrantVoidReason": {

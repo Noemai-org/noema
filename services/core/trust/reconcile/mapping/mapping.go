@@ -6,6 +6,10 @@
 // a payload list has every listed field equal, the value). A field the payload does not give, or gives as a value the mapping does not list, is left UNSET: absence is never a
 // negative fact (INV-19) and nothing is defaulted. A mapping that is not whole fails at load.
 //
+// Version 2 (ruling A438, interim) adds list entities for sources that say a list (the case system's cases and complaints): `rows_from` names the payload list, `complete` the marker that says the
+// list is the whole answer, and ListRows (lists.go) reads them; "no such row" is concluded only from a list marked complete, anything else is ErrIncomplete (UNKNOWN, never none). Rows does not
+// return them: the reconciliation's rule set has no such entity.
+//
 // May import: the standard library, internal/predicate and the parent package (for the rule set's types).
 //
 // Must never: read the clock, a file or a store; set a row's status (the evidence item's status is the caller's); default a field; name an industry term in code (the pack carries them).
@@ -45,9 +49,11 @@ type fieldSpec struct {
 type rowKey struct{ entity, source string }
 
 type rowSpec struct {
-	Entity string               `json:"entity"`
-	Source string               `json:"source"`
-	Fields map[string]fieldSpec `json:"fields"`
+	Entity   string               `json:"entity"`
+	Source   string               `json:"source"`
+	RowsFrom string               `json:"rows_from"` // set: a list entity, one row per element of this payload list (lists.go)
+	Complete string               `json:"complete"`  // the payload member that says whether the list is the whole answer; only with RowsFrom
+	Fields   map[string]fieldSpec `json:"fields"`
 }
 
 type file struct {
@@ -70,6 +76,7 @@ type Mapping struct {
 	id      string
 	ruleset string
 	rows    []rowSpec
+	lists   []listSpec
 }
 
 // ID is the mapping's identity and version, `<mapping_id>@<version>`: a reconciliation records it next to the rule set's (INV-21).
@@ -80,7 +87,11 @@ func (m *Mapping) RuleSet() string { return m.ruleset }
 
 // Parse loads a mapping. rs is the rule set it must have been written for; sources are the ids of the pack's evidence sources. Anything missing, repeated, unknown or out of
 // the rule set's vocabulary is an error: the pack is refused, never half-loaded.
-func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string, limits Limits) (*Mapping, error) {
+func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string, limits Limits, opts ...Option) (*Mapping, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	if limits.MaxBytes < 1 || limits.MaxDepth < 1 {
 		return nil, fmt.Errorf("%w: the limits must be positive", errMapping)
 	}
@@ -116,8 +127,15 @@ func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string
 		known[s] = true
 	}
 	seen := map[rowKey]bool{}
+	var lists []listSpec
 	for i, r := range f.Rows {
-		if err := checkRow(r, rs.Scope(), known); err != nil {
+		if r.RowsFrom != "" || r.Complete != "" {
+			l, err := checkListRow(r, rs.Scope(), o.scope, known)
+			if err != nil {
+				return nil, fmt.Errorf("%w: rows[%d]: %v", errMapping, i, err)
+			}
+			lists = append(lists, l)
+		} else if err := checkRow(r, rs.Scope(), known); err != nil {
 			return nil, fmt.Errorf("%w: rows[%d]: %v", errMapping, i, err)
 		}
 		key := rowKey{r.Entity, r.Source}
@@ -126,7 +144,7 @@ func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string
 		}
 		seen[key] = true
 	}
-	return &Mapping{id: f.MappingID + "@" + strconv.Itoa(f.Version), ruleset: f.Ruleset, rows: f.Rows}, nil
+	return &Mapping{id: f.MappingID + "@" + strconv.Itoa(f.Version), ruleset: f.Ruleset, rows: f.Rows, lists: lists}, nil
 }
 
 func checkRow(r rowSpec, scope predicate.Scope, known map[string]bool) error {
@@ -197,7 +215,7 @@ func checkSpec(s fieldSpec, typ predicate.Type) error {
 func (m *Mapping) Rows(source string, payload map[string]any) ([]Row, error) {
 	var out []Row
 	for _, spec := range m.rows {
-		if spec.Source != source {
+		if spec.Source != source || spec.RowsFrom != "" { // a list entity is not a reconciliation row: ListRows reads it
 			continue
 		}
 		row := Row{Entity: spec.Entity, Fields: map[string]predicate.Value{}}
