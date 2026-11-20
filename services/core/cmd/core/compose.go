@@ -337,35 +337,106 @@ const EnvInvestigationStartTimeout = "NOEMA_INVESTIGATION_START_TIMEOUT_MS"
 // EnvInvestigationRunTimeout is the bound of one investigation run, in whole milliseconds (A477, interim, relayed, not yet committed). The loader only compares it with the activity timeout.
 const EnvInvestigationRunTimeout = "NOEMA_INVESTIGATION_RUN_TIMEOUT_MS"
 
-// workerMissing names the worker settings that are missing (A486). Red stub.
-func workerMissing(Env) []string { return nil }
+// workerSettings are every setting that asks for a worker. Any one of them present means a worker is wanted; the settings that are then absent are a gap (A486).
+var workerSettings = []string{EnvTemporalAddress, EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA, EnvInvestigationStartTimeout}
 
-// workerConfigured says whether a worker is asked for: at least one worker setting other than NOEMA_TEMPORAL_ADDRESS is present. The address alone is how the base Compose names Temporal
-// and is not a worker configuration (A469; safer reading, interim, relayed, not yet committed). The start deadline is not a trigger either: it is the composition's, read below.
-func workerConfigured(env Env) bool {
-	for _, n := range []string{EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA} {
+// workerMissing names the worker settings that are missing, in a fixed order, and nothing else (A486, interim, relayed, recorded in docs#216; it replaces the earlier reading that a
+// configured worker with a missing setting is fatal). It is empty when no worker setting is present (the plain "worker" gap) and when the set is complete. A client certificate needs its
+// key and the reverse, so the one that is absent is named.
+func workerMissing(env Env) []string {
+	found := false
+	for _, n := range workerSettings {
 		if env.Getenv(n) != "" {
-			return true
+			found = true
 		}
 	}
-	return false
+	if !found {
+		return nil
+	}
+	var m []string
+	for _, n := range []string{EnvTemporalAddress, EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCA, EnvInvestigationStartTimeout} {
+		if env.Getenv(n) == "" {
+			m = append(m, n)
+		}
+	}
+	cert, key := env.Getenv(EnvTemporalTLSCert), env.Getenv(EnvTemporalTLSKey)
+	switch {
+	case cert != "" && key == "":
+		m = append(m, EnvTemporalTLSKey)
+	case cert == "" && key != "":
+		m = append(m, EnvTemporalTLSCert)
+	}
+	return m
 }
 
-// readStartTimeout reads the bound of the dial and the start of the worker: NOEMA_INVESTIGATION_START_TIMEOUT_MS, in whole milliseconds, required, no default (A472, AGENT-16). The error
-// names the setting and never its value.
-func readStartTimeout(env Env) (time.Duration, error) {
-	ms, err := strconv.ParseInt(env.Getenv(EnvInvestigationStartTimeout), 10, 64)
+// readMillis reads a present setting as a positive whole number of milliseconds. The error names the setting and never its value.
+func readMillis(env Env, name string) (time.Duration, error) {
+	ms, err := strconv.ParseInt(env.Getenv(name), 10, 64)
 	if err != nil || ms <= 0 || ms > int64(1<<31) {
-		return 0, fmt.Errorf("%s: a positive whole number of milliseconds is required", EnvInvestigationStartTimeout)
+		return 0, fmt.Errorf("%s: a positive whole number of milliseconds is required", name)
 	}
 	return time.Duration(ms) * time.Millisecond, nil
 }
 
-// buildWorker starts the Temporal worker through startWorker. A worker that is not configured (no worker setting beyond the address) or whose activities are not built (noema#812) is a gap, not
-// an error: there is no worker, /readyz names it, and the process starts (A469). A configured worker with a missing or invalid setting is an error that names it (LoadWorkerConfig, the start
-// deadline); one that was asked to start and cannot is an error and the process does not run without it (A442).
+// readStartTimeout reads the bound of the dial and the start of the worker: NOEMA_INVESTIGATION_START_TIMEOUT_MS, required, no default (A472, AGENT-16).
+func readStartTimeout(env Env) (time.Duration, error) {
+	return readMillis(env, EnvInvestigationStartTimeout)
+}
+
+// checkWorkerSettings refuses a present value that is invalid (A469), whatever else is missing: each present setting is checked by LoadWorkerConfig over an environment in which only the
+// absent ones are filled with valid placeholders, so that a gap is never an error here and the loader's own checks stay the one place a worker setting is judged. It then refuses an
+// activity timeout that is not above the run timeout when both are present, since a live run could be picked up twice (A477).
+func checkWorkerSettings(env Env) error {
+	filled := map[string]string{EnvTemporalAddress: "placeholder.invalid:1", EnvTemporalNamespace: "placeholder", EnvTemporalTaskQueue: "placeholder", EnvTemporalActivityTimeout: "1", EnvTemporalTLSCA: "placeholder"}
+	over := env
+	over.Getenv = func(n string) string {
+		if v := env.Getenv(n); v != "" {
+			return v
+		}
+		if n == EnvTemporalTLSCert || n == EnvTemporalTLSKey {
+			if env.Getenv(EnvTemporalTLSCert) != "" || env.Getenv(EnvTemporalTLSKey) != "" {
+				return "placeholder"
+			}
+			return ""
+		}
+		return filled[n]
+	}
+	if _, err := LoadWorkerConfig(over); err != nil {
+		return err
+	}
+	if env.Getenv(EnvInvestigationStartTimeout) != "" {
+		if _, err := readStartTimeout(env); err != nil {
+			return err
+		}
+	}
+	if env.Getenv(EnvInvestigationRunTimeout) == "" {
+		return nil
+	}
+	run, err := readMillis(env, EnvInvestigationRunTimeout)
+	if err != nil {
+		return err
+	}
+	if env.Getenv(EnvTemporalActivityTimeout) == "" {
+		return nil
+	}
+	act, err := readMillis(env, EnvTemporalActivityTimeout)
+	if err != nil {
+		return err
+	}
+	if act <= run {
+		return fmt.Errorf("%s must be greater than %s", EnvTemporalActivityTimeout, EnvInvestigationRunTimeout)
+	}
+	return nil
+}
+
+// buildWorker starts the Temporal worker through startWorker. A worker setting that is missing (A486) or whose activities are not built (noema#812) is a gap, not an error: there is no
+// worker, /readyz names it, and the process starts. A present value that is invalid, or an activity timeout not above the run timeout, is an error that names the settings and never a
+// value (A469, A477); one that was asked to start and cannot is an error and the process does not run without it (A442).
 func buildWorker(ctx context.Context, env Env, d composeDeps) (*RunningWorker, error) {
-	if !workerConfigured(env) {
+	if err := checkWorkerSettings(env); err != nil {
+		return nil, err
+	}
+	if len(workerMissing(env)) > 0 {
 		return nil, nil
 	}
 	cfg, err := LoadWorkerConfig(env)
@@ -410,16 +481,29 @@ func newProcessLogger(w io.Writer) (*slog.Logger, *redaction.Redactor) {
 
 // processReadiness is the /readyz check of the process: the composition's, plus a "worker" line while no worker runs. Liveness of a running worker is the next commit (noema#794).
 func processReadiness(c Components, api http.Handler, rw *RunningWorker) readiness {
+	return processReadinessGap(c, api, rw, nil)
+}
+
+// processReadinessGap is processReadiness with the worker settings that are missing (A486): each is named as "worker: NAME missing", fixed text, never a value. With none, the gap is the
+// plain "worker" (nothing configured, or the activities not built).
+func processReadinessGap(c Components, api http.Handler, rw *RunningWorker, missingSettings []string) readiness {
 	base := composeReadiness(c, api)
+	gaps := []string{"worker"}
+	if len(missingSettings) > 0 {
+		gaps = nil
+		for _, n := range missingSettings {
+			gaps = append(gaps, "worker: "+n+" missing")
+		}
+	}
 	return func() (bool, string) {
 		ok, reason := base()
 		switch {
 		case rw != nil:
 			return ok, reason
 		case ok:
-			return false, notConfigured([]string{"worker"})
+			return false, notConfigured(gaps)
 		}
-		return false, reason + ", worker"
+		return false, reason + ", " + strings.Join(gaps, ", ")
 	}
 }
 
@@ -444,7 +528,7 @@ func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSourc
 		return p, err
 	}
 	p.Components, p.Trust, p.Worker, p.API = c, parts, rw, api
-	p.Handler = newMux(processReadiness(c, api, rw), api)
+	p.Handler = newMux(processReadinessGap(c, api, rw, workerMissing(env)), api)
 	p.Close = func() {
 		rw.Stop()
 		closeComponents()

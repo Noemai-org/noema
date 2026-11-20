@@ -96,3 +96,16 @@ Rulings used (all "interim, relayed, not yet committed"): the Founder's order of
 - Exact next step: noema#794 (Fatal, Ready) then #812 (activities); then Compose must set `NOEMA_INVESTIGATION_START_TIMEOUT_MS` (bench value 30000) with the other worker settings (EL, `deploy/`).
 - Files to read first: `compose.go` (`workerConfigured`, `readStartTimeout`, `buildWorker`).
 - Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.
+
+# Session 2026-11-20 WAT · STM-01 (main composition, review fix: a partial worker setting is a gap; activity timeout above run timeout)
+
+## Session summary
+- What changed: `compose.go`. A worker setting that is missing is a gap, not fatal (A486): any subset of the worker settings that is incomplete (the address alone, or with some companions; `workerMissing`) starts the process with no worker, nothing dialled, and `/readyz` answers 503 naming each missing setting as `worker: <NAME> missing` (fixed text, no value). A present value that is invalid stays fatal and names the setting only (A469; `checkWorkerSettings`, which runs the loader's own checks over an environment where only the absent settings are filled with placeholders). A complete valid set with the activities not built (noema#812) stays the plain `worker` gap. `NOEMA_INVESTIGATION_START_TIMEOUT_MS` (A472) stays required for a complete worker. New `NOEMA_INVESTIGATION_RUN_TIMEOUT_MS` is read only to compare: when both it and `NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS` are present, an activity timeout not above the run timeout is refused, fatal, naming both settings and no value (A477). The run setting is not read by anything else here and has no default.
+- Tests that pinned the OLD reading and were changed to A486 (not weakened otherwise): in `main_compose_worker_gap_test.go`, `TestAConfiguredWorkerWithAMissingOrInvalidSettingIsFatalAndNamesIt` became `TestAMissingWorkerSettingIsAGapNamedByReadyzAndNotFatal` (the invalid half moved to `TestAPresentButInvalidWorkerSettingIsFatalEvenWithAMissingOne`), and `TestEachWorkerSettingBeyondTheAddressAloneAsksForAWorker` (fatal) became `TestEachWorkerSettingBeyondTheAddressAloneIsAnIncompleteWorkerGap`. New: `TestEveryMissingWorkerSettingIsNamed`, `TestAnActivityTimeoutNotAboveTheRunTimeoutIsRefused`.
+- Safer readings (A332): the run timeout, when invalid, is fatal even with no worker configured (a present invalid value, A469); the activity-versus-run check also applies to an otherwise incomplete worker, since both values are known; with the run timeout absent there is no check.
+- Hand mutation check: 8 mutants of compose.go, 8 killed. `TestReadyzOfTheProductionBuildFailsForAServedTenantWithNoRecordLogin` needs pgsodium and runs in CI only; the full `./cmd/core` suite was not run locally.
+- Rulings: A486, A469, A477 (interim, relayed, recorded in docs#216, not yet merged).
+
+## Pre-work for the next agent
+- Exact next step: noema#794, noema#812; Compose to set the whole worker group and both timeouts (EL, `deploy/`).
+- Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.
