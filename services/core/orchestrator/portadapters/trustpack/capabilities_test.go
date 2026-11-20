@@ -13,26 +13,23 @@ import (
 // Proves REQ-CAP-001, REQ-CAP-002, REQ-TRU-004, REQ-TRU-005; INV-05, INV-14, INV-16, INV-18, BD-08, A255 (the role), A306 (the authorized set).
 
 // newCaps builds the adapter with the pack's escalation graph as the named graph (found by shape, never by a literal ID): the graph ID is configuration (A346).
-func newCaps(t testing.TB, p *trustpack.Pack, r trustpack.Remedies) trustpack.Capabilities {
+func newCaps(t testing.TB, p *trustpack.Pack, r *remedySpy) capsWith {
 	t.Helper()
 	return newCapsFor(t, p, r, escalateGraph(t).ID)
 }
 
-func newCapsFor(t testing.TB, p *trustpack.Pack, r trustpack.Remedies, graphID string) trustpack.Capabilities {
+func newCapsFor(t testing.TB, p *trustpack.Pack, r *remedySpy, graphID string) capsWith {
 	t.Helper()
-	c, err := trustpack.NewCapabilities(p, r, graphID)
+	c, err := trustpack.NewCapabilities(p, graphID)
 	if err != nil {
 		t.Fatalf("NewCapabilities: %v", err)
 	}
-	return c
+	return capsWith{Capabilities: c, r: r}
 }
 
-func TestCapabilitiesNeedAPackAndAPort(t *testing.T) {
-	if _, err := trustpack.NewCapabilities(nil, &remedySpy{}, escalateGraph(t).ID); !errors.Is(err, trustpack.ErrConfig) {
+func TestCapabilitiesNeedAPack(t *testing.T) {
+	if _, err := trustpack.NewCapabilities(nil, escalateGraph(t).ID); !errors.Is(err, trustpack.ErrConfig) {
 		t.Fatalf("no pack: %v", err)
-	}
-	if _, err := trustpack.NewCapabilities(loadReal(t), nil, escalateGraph(t).ID); !errors.Is(err, trustpack.ErrConfig) {
-		t.Fatalf("no remedies port: %v", err)
 	}
 }
 
@@ -77,7 +74,8 @@ func TestRequestedAnswersWhatTheRegistryKnowsForEveryCapabilityOfThePack(t *test
 }
 
 func TestRequestedRefusesWhatTheRegistryDoesNotKnow(t *testing.T) {
-	for _, id := range []string{"x.cap.unknown", "", " ", pack0ID(t) + "x"} {
+	// Not the empty string: as a field of the admitted intent it means "asks for none" (see TestRequestedIsTheFieldOfTheAdmittedIntentAndNothingElse).
+	for _, id := range []string{"x.cap.unknown", " ", pack0ID(t) + "x"} {
 		spy := &remedySpy{id: id, present: true}
 		c := newCaps(t, loadReal(t), spy)
 		got, present, err := c.Requested(ctx(t), admitted("n"))
@@ -98,27 +96,52 @@ func TestRequestedMatchesIDsExactly(t *testing.T) {
 	}
 }
 
-// The adapter asks the store for the admitted intent's own tenant, ID and version, never for another's (REQ-TRU-003).
-func TestRequestedAsksForTheAdmittedIntentOnly(t *testing.T) {
-	spy := &remedySpy{}
-	c := newCaps(t, loadReal(t), spy)
-	a := admitted("n")
-	a.TenantID = otherTenant
-	if _, _, err := c.Requested(ctx(t), a); err != nil {
+// A370: the capability an intent asks for is a field of the admitted intent (RequestedCapability), set by the intent store's adapter from the stored document. The adapter reads
+// nothing else for it: not another tenant's intent, not a port, and nothing of the intent's identity changes the answer (REQ-TRU-003).
+func TestRequestedIsTheFieldOfTheAdmittedIntentAndNothingElse(t *testing.T) {
+	c, err := trustpack.NewCapabilities(loadReal(t), escalateGraph(t).ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(spy.asked) != 1 || spy.asked[0] != otherTenant+"/"+intentIDForTest {
-		t.Fatalf("asked = %v", spy.asked)
+	want := allowedCaps(t)[0].ID
+	for _, tn := range []string{tenant, otherTenant} {
+		a := admitted("n")
+		a.TenantID = tn
+		a.RequestedCapability = want
+		got, present, err := c.Requested(ctx(t), a)
+		if err != nil || !present || got.ID != want || !got.Registered || got.Prohibited {
+			t.Errorf("tenant %s: Requested = %+v, %v, %v; want %s registered, not prohibited", tn, got, present, err, want)
+		}
+	}
+	if got, present, err := c.Requested(ctx(t), admitted("n")); err != nil || present || got != (intake.Capability{}) {
+		t.Errorf("no field: Requested = %+v, %v, %v; want none", got, present, err)
 	}
 }
 
-func TestRequestedFailsClosedOnAFailedStoreAndOnAnIntentWithNoIdentity(t *testing.T) {
-	boom := errors.New("store down")
-	c := newCaps(t, loadReal(t), &remedySpy{err: boom, id: allowedCaps(t)[0].ID, present: true})
-	if got, present, err := c.Requested(ctx(t), admitted("n")); !errors.Is(err, boom) || present || got != (intake.Capability{}) {
-		t.Fatalf("a failed store: %+v, %v, %v", got, present, err)
+// The authorized set is computed from the same field (A346): the escalation root's capability authorizes the escalation graph's writes.
+func TestAuthorizedReadsTheFieldOfTheAdmittedIntent(t *testing.T) {
+	g := escalateGraph(t)
+	c, err := trustpack.NewCapabilities(loadReal(t), g.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	c = newCaps(t, loadReal(t), &remedySpy{})
+	a := admitted("n")
+	if got, err := c.Authorized(ctx(t), a); err != nil || len(got) != 0 {
+		t.Fatalf("no field: Authorized = %v, %v; want empty", got, err)
+	}
+	a.RequestedCapability = nodeCap(g, g.Roots[0])
+	got, err := c.Authorized(ctx(t), a)
+	if err != nil || len(got) == 0 {
+		t.Fatalf("the escalation root's capability: Authorized = %v, %v; want the graph's writes", got, err)
+	}
+	a.RequestedCapability = "fin.cap.not_in_the_pack"
+	if got, err := c.Authorized(ctx(t), a); !errors.Is(err, trustpack.ErrCapability) || got != nil {
+		t.Fatalf("an unknown capability: Authorized = %v, %v; want ErrCapability", got, err)
+	}
+}
+
+func TestRequestedFailsClosedOnAnIntentWithNoIdentity(t *testing.T) {
+	c := newCaps(t, loadReal(t), &remedySpy{})
 	for name, a := range map[string]intake.AdmittedIntent{
 		"no tenant":  {IntentID: intentIDForTest, Version: 1},
 		"no intent":  {TenantID: tenant, Version: 1},
@@ -252,7 +275,9 @@ func TestAuthorizedOfTheInvestigationRootHoldsItsReadsAndNothingOfOtherGraphs(t 
 // Decision (interim, for the Architect): a capability the registry does not know, or a prohibited one, roots no authorization and is an error, so the intake ends in UNKNOWN; it is
 // never "none" and never a set. T4 refuses such a capability before the set is read; this is the second wall (INV-16, BD-08).
 func TestAuthorizedRefusesAnUnknownOrProhibitedCapabilityWithAnError(t *testing.T) {
-	ids := append([]string{"x.cap.unknown", "", " "}, prohibitedCaps(t)...)
+	// The empty string is not in the list: as a field of the admitted intent it means "asks for none" (the Intents adapter never leaves it empty for a slot that is present: that is an
+	// error there, TestGetOfACapabilitySlotThatCannotBeReadIsNotUsable), and none is the empty set.
+	ids := append([]string{"x.cap.unknown", " "}, prohibitedCaps(t)...)
 	for _, id := range ids {
 		c := newCaps(t, loadReal(t), &remedySpy{id: id, present: true})
 		got, err := c.Authorized(ctx(t), admitted("n"))
@@ -288,14 +313,6 @@ func TestAuthorizedOfACapabilityThatRootsNoGraphIsEmptyAndOfNoRemedyIsEmpty(t *t
 	c := newCaps(t, loadReal(t), &remedySpy{present: false})
 	if got, err := c.Authorized(ctx(t), admitted("n")); err != nil || len(got) != 0 {
 		t.Errorf("no remedy: Authorized = %v, %v; want empty", got, err)
-	}
-}
-
-func TestAuthorizedFailsClosedOnAFailedStore(t *testing.T) {
-	boom := errors.New("store down")
-	c := newCaps(t, loadReal(t), &remedySpy{err: boom})
-	if got, err := c.Authorized(ctx(t), admitted("n")); !errors.Is(err, boom) || got != nil {
-		t.Fatalf("Authorized = %v, %v", got, err)
 	}
 }
 
@@ -405,9 +422,6 @@ func TestACancelledContextIsAnErrorForEveryAdapter(t *testing.T) {
 	if ids, err := c.Authorized(done, admitted(node)); !errors.Is(err, context.Canceled) || ids != nil {
 		t.Errorf("Authorized: %v, %v", ids, err)
 	}
-	if len(spy.asked) != 0 {
-		t.Errorf("the store was asked %d times under a done context", len(spy.asked))
-	}
 	if ok, err := newScope(t, loadReal(t)).InScope(done, tenant, node); ok || !errors.Is(err, context.Canceled) {
 		t.Errorf("InScope: %v, %v", ok, err)
 	}
@@ -426,7 +440,7 @@ func TestNewCapabilitiesFailsClosedOnAGraphIDItCannotUse(t *testing.T) {
 		"padded":        escalateGraph(t).ID + " ",
 		"no write node": investigateGraph(t).ID,
 	} {
-		c, err := trustpack.NewCapabilities(loadReal(t), &remedySpy{}, id)
+		c, err := trustpack.NewCapabilities(loadReal(t), id)
 		if !errors.Is(err, trustpack.ErrEscalationGraph) {
 			t.Errorf("%s: err = %v; want ErrEscalationGraph", name, err)
 		}
@@ -434,7 +448,7 @@ func TestNewCapabilitiesFailsClosedOnAGraphIDItCannotUse(t *testing.T) {
 			t.Errorf("%s: the adapter built with an unusable graph answers: %v", name, aerr)
 		}
 	}
-	if _, err := trustpack.NewCapabilities(nil, &remedySpy{}, ""); !errors.Is(err, trustpack.ErrConfig) {
+	if _, err := trustpack.NewCapabilities(nil, ""); !errors.Is(err, trustpack.ErrConfig) {
 		t.Errorf("no pack and no graph ID: err = %v; want ErrConfig", err)
 	}
 }

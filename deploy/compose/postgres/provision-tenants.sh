@@ -1,7 +1,7 @@
 #!/bin/sh
 # Adds the tenant_login mapping rows for NOEMA_TENANTS, after the migrations have run (DEBT-04 option A). Run it as the migration login (noema_migration_login, never the core's noema_core):
 #   NOEMA_TENANTS="ten_aa ten_bb" PGHOST=... PGUSER=noema_migration_login PGPASSWORD=... PGDATABASE=noema deploy/compose/postgres/provision-tenants.sh
-# The tenant rows themselves are created by the tenant-creation step, which must run first. It is idempotent: a login that is
+# The tenant rows themselves are created by create-tenants.sh, run first as the operator's superuser (the table forces row-level security and no role may insert; migration 0030). It is idempotent: a login that is
 # already mapped to the same tenant is left alone; a login mapped to another tenant stops the script.
 set -eu
 # Compose reads its .env for interpolation and does not export it to this shell, so a list set only there would be missed (Codex review of noema#181):

@@ -16,6 +16,7 @@ sys.path.insert(0, str(HERE))
 
 import generate  # noqa: E402
 import ir  # noqa: E402
+import ts  # noqa: E402
 from anchors import fully_anchored  # noqa: E402
 
 
@@ -285,7 +286,7 @@ class TypeScriptOutput(unittest.TestCase):
         roots = {"parse" + m for f, text in files.items() if f in entries for m in re.findall(r"import \{ parse(\w+) \}", text)}
         every = "\n".join(ts.values())
         for fn, f in sorted(defined.items()):
-            uses = len(re.findall(rf"\b{fn}\(", every)) - 1  # the definition itself
+            uses = len(re.findall(rf"\b{fn}\(", every)) - 1 + len(re.findall(rf"\bcRef\({fn}\)", every))  # the definition itself; a rule refers to a parser as cRef(parseX)
             self.assertTrue(fn in roots or uses > 0, f"{fn} in {f} is reached by no root: it would ship in the bundle unused")
         self.assertNotIn("CoreReasonCode", "".join(ts.values()))
         self.assertIn("parseEnumsV1Verdict", defined)  # noema-resolution.v1 uses it, so it stays
@@ -442,3 +443,116 @@ class TypeScriptOutput(unittest.TestCase):
     def test_a_pattern_is_kept_as_written_because_ecma_262_dollar_is_whole_string(self):
         files = generate.render_all(generate.load_schemas())
         self.assertIn('new RegExp("^[0-9]+\\\\.[0-9]+$", "u")', files[f"{generate.TS_DIR}/common_v1.ts"])
+
+
+class TypeScriptConditionals(unittest.TestCase):
+    """noema#682 (REQ-UI-001, REQ-API-001, AGENT-15, INV-02): the TypeScript parser holds the conditional rules of a schema, and a keyword the emitter does not implement is an
+    error, never silence. The behaviour of the emitted checks is tested on the real fixtures in ui/test/contracts.test.mjs."""
+
+    def render(self, **body) -> str:
+        built = ir.build_schemas({"t.v1.json": schema(**body)})
+        return ts.Ts(built).render_schema(built["t.v1.json"])
+
+    def prop(self, **node) -> dict:
+        return {"type": "object", "properties": {"a": {"type": "object", "properties": {"x": {"type": "string"}}, **node}}}
+
+    # One sample per validation or applicator keyword the generator reads: the property schema it sits on, and the keyword itself.
+    SAMPLES = {
+        "pattern": {"type": "string", "pattern": "^a$"},
+        "minLength": {"type": "string", "minLength": 2},
+        "maxLength": {"type": "string", "maxLength": 2},
+        "format": {"type": "string", "format": "date-time"},
+        "minimum": {"type": "integer", "minimum": 1},
+        "maximum": {"type": "integer", "maximum": 1},
+        "exclusiveMinimum": {"type": "number", "exclusiveMinimum": 0},
+        "minItems": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "maxItems": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+        "uniqueItems": {"type": "array", "items": {"type": "string"}, "uniqueItems": True},
+        "contains": {"type": "array", "items": {"type": "string"}, "contains": {"const": "a"}},
+        "prefixItems": {"type": "array", "prefixItems": [{"type": "string"}], "items": False},
+        "minProperties": {"type": "object", "properties": {"x": {"type": "string"}}, "minProperties": 1},
+        "maxProperties": {"type": "object", "properties": {"x": {"type": "string"}}, "maxProperties": 1},
+        "propertyNames": {"type": "object", "additionalProperties": {"type": "string"}, "propertyNames": {"maxLength": 3}},
+        "not": {"type": "string", "not": {"const": "a"}},
+        "if": {"type": "string", "if": {"const": "a"}, "then": {"minLength": 2}},
+        "then": {"type": "string", "then": {"minLength": 2}},
+        "else": {"type": "string", "else": {"minLength": 2}},
+        "anyOf": {"type": "string", "anyOf": [{"minLength": 2}, {"const": "a"}]},
+        "allOf": {"type": "string", "allOf": [{"minLength": 2}]},
+    }
+
+    def test_no_keyword_is_silently_ignored(self):
+        """For each keyword the IR reads: the emitter either writes a check for it (the output changes) or refuses (GenerationError). Output identical to the output without
+        the keyword is the silent drop that let noema#615 ship a parser that accepted eight invalid fixtures."""
+        for kw, node in self.SAMPLES.items():
+            bare = {k: v for k, v in node.items() if k not in (kw, "then", "else")}
+            if kw == "prefixItems":
+                bare["items"] = {"type": "string"}  # `items: false` is not a schema without prefixItems
+            try:
+                with_kw = self.render(type="object", properties={"a": node})
+            except ir.GenerationError:
+                continue
+            without = self.render(type="object", properties={"a": bare})
+            self.assertNotEqual(with_kw, without, f"{kw} is read by the IR and written nowhere in the TypeScript: a silent ignore")
+
+    def test_every_keyword_the_ir_reads_has_a_sample(self):
+        self.assertEqual(sorted(ir.VALIDATION - set(self.SAMPLES)), [], "a keyword was added to ir.VALIDATION without a case in SAMPLES")
+
+    def test_the_keywords_the_emitter_does_not_implement_are_refused(self):
+        for kw in ("format", "then", "else"):
+            with self.assertRaisesRegex(ir.GenerationError, kw, msg=kw):
+                self.render(type="object", properties={"a": self.SAMPLES[kw]})
+
+    def test_unique_items_is_written_as_a_check_and_false_is_nothing(self):
+        """uniqueItems: true is enforced by the parser (cUnique); uniqueItems: false constrains nothing and writes nothing; any other value is refused."""
+        on = self.render(type="object", properties={"a": self.SAMPLES["uniqueItems"]})
+        self.assertIn("cUnique", on)
+        off = self.render(type="object", properties={"a": {**self.SAMPLES["uniqueItems"], "uniqueItems": False}})
+        self.assertNotIn("cUnique", off)
+        with self.assertRaisesRegex(ir.GenerationError, "uniqueItems"):
+            self.render(type="object", properties={"a": {**self.SAMPLES["uniqueItems"], "uniqueItems": "yes"}})
+
+    def test_an_unknown_keyword_inside_a_conditional_is_refused(self):
+        s = {"type": "object", "properties": {"a": {"type": "string"}}, "allOf": [{"if": {"properties": {"a": {"frobnicate": 1}}}, "then": {"required": ["a"]}}]}
+        with self.assertRaisesRegex(ir.GenerationError, "frobnicate"):
+            self.render(**s)
+
+    def test_a_keyword_the_emitter_does_not_implement_in_a_real_contract_stops_generation(self):
+        schemas = generate.load_schemas()
+        schemas["reconstruction.v3.json"]["properties"]["events"]["format"] = "date-time"
+        with self.assertRaisesRegex(ir.GenerationError, r"reconstruction\.v3\.json.*format"):
+            generate.render_all(schemas)
+
+    def test_prefix_items_and_a_conditional_are_written_as_checks(self):
+        cell = lambda kind: {"allOf": [{"$ref": "#/$defs/Cell"}, {"properties": {"kind": {"const": kind}}, "required": ["kind"]}]}  # noqa: E731
+        text = self.render(type="object", properties={
+            "k": {"type": "string"},
+            "pair": {"type": "array", "minItems": 2, "maxItems": 2, "items": False, "prefixItems": [cell("A"), cell("B")]},
+        }, required=["k", "pair"], allOf=[{"if": {"properties": {"k": {"const": "x"}}, "required": ["k"]}, "then": {"required": ["pair"]}}],
+            **{"$defs": {"Cell": {"type": "object", "properties": {"kind": {"type": "string"}}, "required": ["kind"]}}})
+        self.assertIn("cPrefix(", text)
+        self.assertIn("cIf(", text)
+
+    def test_the_ir_keeps_the_rules_its_structure_does_not_carry(self):
+        built = ir.build_schemas(generate.load_schemas())["reconstruction.v3.json"]
+        section = built.named["ReconstructionV3Section"].type
+        self.assertEqual([sorted(r) for r in section.rules], [["allOf"]])
+        sections = next(f for f in built.root.type.fields if f.prop == "sections").type
+        self.assertEqual([sorted(r) for r in sections.rules], [["items", "prefixItems"]])
+        self.assertEqual(sections.item.rules, [], "a member's own rules hold at its position only: they stay with prefixItems")
+        facts = next(f for f in built.named["ReconstructionV3Item"].type.fields if f.prop == "facts").type
+        self.assertEqual([sorted(r) for r in facts.rules], [["maxProperties"]])
+
+    def test_go_and_python_output_does_not_depend_on_the_rules(self):
+        # The rules are for TypeScript. Dropping them all from the IR must not change a byte of the Go or the Pydantic output (noema#682 changed no file of either).
+        schemas = generate.load_schemas()
+        with_rules = generate.render_all(schemas)
+        original = ir.Builder.rules_of
+        ir.Builder.rules_of = lambda self, n, take, path: []
+        try:
+            without = generate.render_all(schemas)
+        finally:
+            ir.Builder.rules_of = original
+        for rel, text in with_rules.items():
+            if not rel.startswith(generate.TS_DIR):
+                self.assertEqual(text, without[rel], rel)

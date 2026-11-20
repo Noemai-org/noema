@@ -3,7 +3,7 @@
 Every failure is kept. A leg that reports an incomplete run or a Tier 0 gate not at zero (exit 1) does not stop the run, so the replay report is still written, but the
 run as a whole fails. A leg that did not run (3) or had bad input (2) stops the run at once: there is nothing to compare. A replay that is not IDENTICAL, or cannot be made, fails it."""
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -27,15 +27,24 @@ def accept_named_exclusions(leg_out: Path, code: int, exclusions: Mapping[str, A
         return code
     try:
         card = json.loads((leg_out / "score" / "scorecard.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return code
+    if not named_exclusion_only(card, exclusions):
+        return code
+    print(f"leg {leg_out.name}: exit 1 accepted: the only errors are named open exclusions ({', '.join(sorted(card['incomplete']['errored']))}); Tier 0 is at zero")
+    return 0
+
+
+def named_exclusion_only(card: Any, exclusions: Container[str]) -> bool:
+    """True when a scorecard's only incompleteness is one or more errored cases that are all named exclusions and Tier 0 is at zero. Pure: it reads no file. Everything else is False:
+    another incomplete reason, any errored case that is not named, no errored case at all, a Tier 0 gate not at zero, a malformed scorecard (Codex P2 on noema#117 and #717)."""
+    try:
         incomplete, tier0 = card["incomplete"], card["tier0"]["all_zero"]
         errored = incomplete["errored"]
         others = [reason for reason, ids in incomplete.items() if reason != "errored" and ids]
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return code
-    if tier0 is not True or others or not errored or not isinstance(errored, list) or not all(isinstance(c, str) and c in exclusions for c in errored):
-        return code
-    print(f"leg {leg_out.name}: exit 1 accepted: the only errors are named open exclusions ({', '.join(sorted(errored))}); Tier 0 is at zero")
-    return 0
+    except (KeyError, TypeError, AttributeError):
+        return False
+    return not (tier0 is not True or others or not errored or not isinstance(errored, list) or not all(isinstance(c, str) and c in exclusions for c in errored))
 
 
 def combine(leg_codes: Sequence[int], replay_code: int) -> int:
