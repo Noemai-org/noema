@@ -11,6 +11,18 @@ export function encodePcm16Mono(samples: Float32Array): Uint8Array {
   return output;
 }
 
+// A191: the model service rejects a PCM frame over 32,000 bytes. The bound is
+// even, so splitting the encoded bytes never breaks a 16-bit sample.
+export const MAX_PCM_FRAME_BYTES = 32_000;
+export function encodePcm16Frames(samples: Float32Array): Uint8Array[] {
+  const encoded = encodePcm16Mono(samples);
+  const frames: Uint8Array[] = [];
+  for (let offset = 0; offset < encoded.length; offset += MAX_PCM_FRAME_BYTES) {
+    frames.push(encoded.slice(offset, offset + MAX_PCM_FRAME_BYTES));
+  }
+  return frames;
+}
+
 // The caller supplies the user-controlled lifetime and the sink. Never persist audio.
 export async function startPcmCapture(
   onPcm: (bytes: Uint8Array) => void,
@@ -53,7 +65,10 @@ export async function startPcmCapture(
       if (stopped || signal.aborted) return;
       try {
         if (event.inputBuffer.numberOfChannels !== 1) throw new Error("Invalid audio channels.");
-        onPcm(encodePcm16Mono(event.inputBuffer.getChannelData(0)));
+        for (const frame of encodePcm16Frames(event.inputBuffer.getChannelData(0))) {
+          if (stopped || signal.aborted) break;
+          onPcm(frame);
+        }
       } catch {
         void stop().then(onFailure, onFailure);
       }
