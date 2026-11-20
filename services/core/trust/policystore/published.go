@@ -12,6 +12,8 @@ import (
 type Publication struct {
 	Version     string
 	PublishedAt int64
+	// DocumentHash is the hash of the policy document the row was published with (migration 0035, A413); empty for a row published before the hash existed (NULL).
+	DocumentHash string
 }
 
 // Querier is the read side that returns several rows: a pool, a connection or a transaction.
