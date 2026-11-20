@@ -222,7 +222,13 @@ def test_the_pin_is_the_configuration_the_run_used_and_holds_no_key(tmp_path: Pa
     assert KEY not in json.dumps(pin)
 
 
-RECORD_ONLY = RecordOnlyInput("BEN-CLEAN-0014", "text", ("en-NG",), "Where is the 20k I sent to Ibrahim this morning?")
+CANONICAL = {"schema_version": "2.0", "request_id": "0b8f3c1e-52a4-4d7e-9a61-5f1d2b8c4a97", "correlation_id": "corr_abcdefghijklmnopqrst", "tenant_id": "ten_synthetic", "session_id": "ses_synthetic",
+             "principal_ref": "usr_synth0014", "channel": "text", "mode": "MODE_1", "text": "Where is the 20k I sent to Ibrahim this morning?", "received_at": "2026-11-16T12:30:00Z"}
+WORLD_ROWS = ({"candidate_id": "cand_aaaaaaaaaaaaaaaaaaaa", "resource_ref": "fin.transaction:TX7992", "amount_minor": 2_000_000, "currency": "NGN", "occurred_at": "2026-11-16T10:00:00Z",
+               "counterparty_display": "Ibrahim Musa", "account_last4": "3644", "direction": "OUTGOING", "beneficiary_alias_match": True},
+              {"candidate_id": "cand_bbbbbbbbbbbbbbbbbbbb", "resource_ref": "fin.transaction:TX7001", "amount_minor": 500_000, "currency": "NGN", "occurred_at": "2026-11-14T12:00:00Z",
+               "counterparty_display": "Ibrahim Musa", "account_last4": "3644", "direction": "OUTGOING", "beneficiary_alias_match": True})
+RECORD_ONLY = RecordOnlyInput("BEN-CLEAN-0014", "text", ("en-NG",), "en-NG", "Where is the 20k I sent to Ibrahim this morning?", CANONICAL, WORLD_ROWS)  # type: ignore[call-arg,unused-ignore]
 
 
 def test_the_dry_backend_prices_the_first_request_of_a_record_only_input_with_no_socket(tmp_path: Path) -> None:
@@ -241,21 +247,25 @@ def test_the_dry_backend_prices_the_first_request_of_a_record_only_input_with_no
 
     run(go())
 
-def test_a_record_only_input_goes_through_the_real_pipeline_with_no_candidates_and_is_recorded_under_its_own_case_id(tmp_path: Path) -> None:
+def test_a_record_only_input_goes_through_the_real_pipeline_with_its_world_rows_as_candidates_and_is_recorded_under_its_own_case_id(tmp_path: Path) -> None:
     async def go() -> None:
         from noema_model.platform.redaction.digit_runs import longest_digit_run
         guard, rec, wire = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), Wire(status=500, reply=b"{}")
         backend = build_backend(False, ENV, guard, rec, args(), inner=wire)
         with pytest.raises(CompileFailed):
             await backend.compile_one(GOLDEN[1])  # a golden with candidates first: the record-only input must not inherit them
+        golden_rows = backend._candidates.rows
         with pytest.raises(CompileFailed):
             await backend.record_one(RECORD_ONLY)
-        assert backend._candidates.rows == ()
+        rows = backend._candidates.rows
+        assert rows != golden_rows and [(r.candidate_id, r.resource_ref, r.amount_minor, r.counterparty_display, r.account_last4, r.beneficiary_alias_match) for r in rows] == [
+            (w["candidate_id"], w["resource_ref"], w["amount_minor"], w["counterparty_display"], w["account_last4"], w["beneficiary_alias_match"]) for w in WORLD_ROWS]
+        assert [r.occurred_at.isoformat() for r in rows] == ["2026-11-16T10:00:00+00:00", "2026-11-14T12:00:00+00:00"]  # the rows' own instants, not the goldens' CANDIDATES_AT
         docs = [json.loads(p.read_text()) for p in sorted((tmp_path / "out" / "recordings").glob("rec-*.json"))]
         mine = [d for d in docs if d["case_id"] == RECORD_ONLY.case_id]
         assert mine and all(d["status"] == 500 for d in mine) and docs[0]["case_id"] == "G-B"
         sent = [body.decode() for _, _, body in wire.sent][len(docs) - len(mine):]
         assert sent and all(longest_digit_run(b) <= 4 and KEY not in b for b in sent)
-        assert any("Where is the" in b for b in sent)  # the utterance is what the pipeline sends
+        assert any("Where is the" in b for b in sent)  # the utterance of the fixture's canonical input is what the pipeline sends
 
     run(go())

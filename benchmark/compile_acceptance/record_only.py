@@ -14,12 +14,14 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, NoReturn
 
 from benchmark.compile_acceptance.golden import RECEIVED_AT
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PATH = ROOT / "benchmark" / "replay" / "g1_inputs.json"
+DEFAULT_FIXTURE = ROOT / "benchmark" / "replay" / "g1_canonical_inputs.json"
 MAX_BYTES = 1 << 20
 MAX_CASES = 20
 MAX_TEXT = 2_000  # canonical-input.v2: "Unicode NFC, trimmed, 1 to 2000 characters"
@@ -45,7 +47,10 @@ class RecordOnlyInput:
     case_id: str
     channel: str
     locale_mix: tuple[str, ...]
+    canonical_locale: str
     text: str
+    canonical: Mapping[str, Any]
+    candidates: tuple[Mapping[str, Any], ...]
 
 
 def _refuse(code: str) -> NoReturn:
@@ -100,7 +105,7 @@ def _case(raw: Any) -> RecordOnlyInput:
         _refuse("SHAPE")
     if not isinstance(locale_mix, list) or not locale_mix or any(not isinstance(x, str) or _LOCALE.fullmatch(x) is None for x in locale_mix):
         _refuse("SHAPE")
-    return RecordOnlyInput(case_id, "text", tuple(locale_mix), _utterance(case["utterances"]))
+    return RecordOnlyInput(case_id, "text", tuple(locale_mix), "", _utterance(case["utterances"]), {}, ())  # UND-16 red: the world rows, the locale and the fixture are not read yet
 
 
 def _stored_digest(doc: dict[str, Any]) -> str:
@@ -161,3 +166,7 @@ def canonical_input(inp: RecordOnlyInput) -> dict[str, Any]:
         "schema_version": "2.0", "request_id": _request_id(inp.case_id), "correlation_id": "corr_" + _letters("record-only-correlation", inp.case_id), "tenant_id": "ten_synthetic", "session_id": "ses_synthetic",
         "principal_ref": "usr_synthetic", "channel": "text", "mode": "MODE_1", "text": inp.text, "received_at": RECEIVED_AT,
     }
+
+
+def candidate_rows(inp: "RecordOnlyInput") -> tuple[dict[str, Any], ...]:
+    raise NotImplementedError("UND-16 red: the candidate rows of the world rows (A439) are not written yet")

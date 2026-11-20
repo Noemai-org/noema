@@ -12,13 +12,13 @@ import re
 import tempfile
 import unittest
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from benchmark.bakeoff.budget import BudgetGuard
 from benchmark.compile_acceptance.golden import GOLDEN, RECEIVED_AT, canonical_input as golden_input
-from benchmark.compile_acceptance.record_only import DEFAULT_PATH, ROOT, RecordOnlyInput, RecordOnlyRefused, canonical_input, load_inputs
+from benchmark.compile_acceptance.record_only import DEFAULT_FIXTURE, DEFAULT_PATH, ROOT, RecordOnlyInput, RecordOnlyRefused, candidate_rows, load_inputs
 from benchmark.compile_acceptance.recording import Recorder
 from benchmark.compile_acceptance.runner import CompileFailed, run_cases, write_run_record
 from benchmark.compile_acceptance.test_cli import KEY, argv, run_main
@@ -33,8 +33,16 @@ def canonical_bytes(doc: Mapping[str, Any]) -> bytes:
     return json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False).encode("utf-8")
 
 
+def world(beneficiary: str = "Chidi Okonkwo", alias: str = "Chidi", last4: str = "3644") -> dict[str, Any]:
+    """The candidate world rows of BO's file (A439): the principal's beneficiaries and transactions, an allowlist of fields, nothing of the world's state and no label."""
+    return {"beneficiaries": [{"beneficiary_id": "ben_0001", "name": beneficiary, "aliases": [alias] if alias else [], "account_last4": last4}],
+            "transactions": [{"ref": "fin.transaction:TX7992", "direction": "OUTGOING", "amount_minor": 250000, "currency": "NGN", "age_minutes": 150, "beneficiary": "ben_0001"},
+                             {"ref": "fin.transaction:TX7001", "direction": "OUTGOING", "amount_minor": 250000, "currency": "NGN", "age_minutes": 3000, "beneficiary": "ben_0001"}]}
+
+
 def case(case_id: str, text: str, locale: list[str], channel: str = "text") -> dict[str, Any]:
-    return {"case_id": case_id, "case_sha256": "sha256:" + "c" * 64, "channel": channel, "locale_mix": locale, "utterances": [{"turn": 1, "text": text}]}
+    return {"case_id": case_id, "case_sha256": "sha256:" + "c" * 64, "channel": channel, "locale_mix": locale, "canonical_locale": "en-NG",
+            "principal": {"principal_id": "usr_synth" + case_id[-4:], "roles": ["customer"]}, "candidates": world(), "utterances": [{"turn": 1, "text": text}]}
 
 
 def five() -> list[dict[str, Any]]:
@@ -55,9 +63,40 @@ def rehash(doc: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
-def write(tmp: str, doc: Mapping[str, Any] | bytes, name: str = "g1_inputs.json") -> Path:
+def _rid(case_id: str) -> str:
+    h = hashlib.sha256(b"test-request:" + case_id.encode()).hexdigest()
+    rid = f"{h[:8]}-{h[8:12]}-4{h[13:16]}-{'89ab'[int(h[16], 16) % 4]}{h[17:20]}-{h[20:32]}"
+    return rid if re.search(r"[a-f]", rid) else "a" + rid[1:]
+
+
+def canonical_for(c: Mapping[str, Any]) -> dict[str, Any]:
+    """What the core's Interpreter port builds for one case (the Go test builds the real fixture): the ten members of canonical-input.v2, no locale hint."""
+    letters = "".join(chr(ord("a") + int(ch, 16) % 26) for ch in hashlib.sha256(c["case_id"].encode()).hexdigest()[:20])
+    return {"schema_version": "2.0", "request_id": _rid(c["case_id"]), "correlation_id": "corr_" + letters, "tenant_id": "ten_synthetic", "session_id": "ses_synthetic",
+            "principal_ref": c["principal"]["principal_id"], "channel": "text", "mode": "MODE_1", "text": c["utterances"][0]["text"].strip(), "received_at": RECEIVED_AT}
+
+
+def fixture_for(doc: Mapping[str, Any], pin: str | None = None) -> dict[str, Any]:
+    """The fixture the Go test would write for `doc`: BO's digest verbatim, the pack reference, one canonical input per case."""
+    return {"label": "SYNTHETIC canonical inputs of the record-only pass", "inputs_sha256": doc["inputs_sha256"] if pin is None else pin, "pack_ref": "fin@1.0.0",
+            "cases": [{"case_id": c["case_id"], "canonical_input": canonical_for(c)} for c in doc["cases"]]}
+
+
+def write(tmp: str, doc: Mapping[str, Any] | bytes, name: str = "g1_inputs.json", fixture: bool = True) -> Path:
+    """The inputs file, and next to it the fixture the Go test would have written for it (when the document is well-formed enough to have one)."""
     path = Path(tmp) / name
     path.write_bytes(doc if isinstance(doc, bytes) else canonical_bytes(doc) + b"\n")
+    if fixture and name == "g1_inputs.json" and isinstance(doc, Mapping):
+        try:
+            write_fixture(tmp, fixture_for(doc))
+        except (KeyError, TypeError, IndexError, AttributeError):
+            pass
+    return path
+
+
+def write_fixture(tmp: str, fx: Mapping[str, Any] | bytes, name: str = "g1_canonical_inputs.json") -> Path:
+    path = Path(tmp) / name
+    path.write_bytes(fx if isinstance(fx, bytes) else canonical_bytes(fx) + b"\n")
     return path
 
 
@@ -73,8 +112,9 @@ class Loading(unittest.TestCase):
     def test_a_well_formed_file_loads_in_order_with_the_inputs_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             got = load_inputs(write(tmp, make_doc()))
-            self.assertEqual([(i.case_id, i.channel, i.locale_mix) for i in got],
-                             [("BEN-CLEAN-0001", "text", ("pcm",)), ("BEN-CLEAN-0014", "text", ("en-NG",)), ("BEN-CLEAN-0027", "text", ("pcm", "en-NG")), ("BEN-TMO-0001", "text", ("pcm",)), ("BEN-TMO-0018", "text", ("en-NG",))])
+            self.assertEqual([(i.case_id, i.channel, i.locale_mix, i.canonical_locale) for i in got],
+                             [("BEN-CLEAN-0001", "text", ("pcm",), "en-NG"), ("BEN-CLEAN-0014", "text", ("en-NG",), "en-NG"), ("BEN-CLEAN-0027", "text", ("pcm", "en-NG"), "en-NG"),
+                              ("BEN-TMO-0001", "text", ("pcm",), "en-NG"), ("BEN-TMO-0018", "text", ("en-NG",), "en-NG")])
             self.assertEqual(got[0].text, SECRET_TEXT)
             self.assertTrue(all(isinstance(i, RecordOnlyInput) for i in got))
 
@@ -93,19 +133,26 @@ class Loading(unittest.TestCase):
     def test_a_key_beyond_the_closed_shape_is_refused_even_when_the_digest_matches(self) -> None:
         # INV-22: nothing but inputs. A file that carries an expectation, an oracle reference, a category, a fault plan, a goal or a principal is not an inputs file, however well it is hashed.
         for where, key in [("top", "expected"), ("top", "oracle_ref"), ("suite", "category"), ("case", "expected"), ("case", "oracle_ref"), ("case", "category"), ("case", "fault_plan"), ("case", "goal"),
-                           ("case", "principal"), ("utterance", "expected"), ("utterance", "intent")]:
+                           ("principal", "expected"), ("principal", "password"), ("candidates", "ledger"), ("beneficiary", "balance"), ("transaction", "oracle_ref"), ("transaction", "is_target"),
+                           ("utterance", "expected"), ("utterance", "intent")]:
             with self.subTest(where=where, key=key), tempfile.TemporaryDirectory() as tmp:
                 doc = make_doc()
-                target = {"top": doc, "suite": doc["suite"], "case": doc["cases"][2], "utterance": doc["cases"][2]["utterances"][0]}[where]
+                c = doc["cases"][2]
+                target = {"top": doc, "suite": doc["suite"], "case": c, "utterance": c["utterances"][0], "principal": c["principal"], "candidates": c["candidates"],
+                          "beneficiary": c["candidates"]["beneficiaries"][0], "transaction": c["candidates"]["transactions"][0]}[where]
                 target[key] = "x"
                 self.assertEqual(refused(write(tmp, rehash(doc))), "SHAPE")
 
     def test_a_missing_key_is_refused(self) -> None:
         for where, key in [("top", "cases"), ("top", "suite"), ("top", "label"), ("top", "inputs_sha256"), ("suite", "seed"), ("suite", "tree_sha256"), ("case", "case_id"), ("case", "case_sha256"), ("case", "channel"),
-                           ("case", "locale_mix"), ("case", "utterances"), ("utterance", "turn"), ("utterance", "text")]:
+                           ("case", "locale_mix"), ("case", "utterances"), ("case", "canonical_locale"), ("case", "principal"), ("case", "candidates"), ("principal", "principal_id"),
+                           ("principal", "roles"), ("candidates", "beneficiaries"), ("candidates", "transactions"), ("beneficiary", "name"), ("beneficiary", "aliases"), ("transaction", "age_minutes"),
+                           ("transaction", "beneficiary"), ("utterance", "turn"), ("utterance", "text")]:
             with self.subTest(where=where, key=key), tempfile.TemporaryDirectory() as tmp:
                 doc = make_doc()
-                target = {"top": doc, "suite": doc["suite"], "case": doc["cases"][0], "utterance": doc["cases"][0]["utterances"][0]}[where]
+                c = doc["cases"][0]
+                target = {"top": doc, "suite": doc["suite"], "case": c, "utterance": c["utterances"][0], "principal": c["principal"], "candidates": c["candidates"],
+                          "beneficiary": c["candidates"]["beneficiaries"][0], "transaction": c["candidates"]["transactions"][0]}[where]
                 del target[key]
                 self.assertEqual(refused(write(tmp, rehash(doc) if key != "inputs_sha256" else doc)), "SHAPE")
 
@@ -122,7 +169,20 @@ class Loading(unittest.TestCase):
             "text not text": with_case(utterances=[{"turn": 1, "text": 7}]), "text with an edge space": with_case(utterances=[{"turn": 1, "text": " a"}]),
             "text not in NFC": with_case(utterances=[{"turn": 1, "text": "e\u0301"}]), "text too long": with_case(utterances=[{"turn": 1, "text": "x" * 2001}]), "turn is a bool": with_case(utterances=[{"turn": True, "text": "a"}]),
             "turn is text": with_case(utterances=[{"turn": "1", "text": "a"}]), "case id shape": with_case(case_id="ben-clean-1"), "case id with a digit run": with_case(case_id="BEN-CLEAN-00012"),
-            "duplicate case ids": with_case() + with_case(), "case digest shape": with_case(case_sha256="nope"), "too many cases": [case(f"BEN-CLEAN-{n:04d}", "a", ["en-NG"]) for n in range(1, 22)],
+            "duplicate case ids": with_case() + with_case(), "canonical locale pcm": with_case(canonical_locale="pcm"), "canonical locale null": with_case(canonical_locale=None),
+            "canonical locale other": with_case(canonical_locale="en-GB"), "principal not an object": with_case(principal="usr_x"), "principal id shape": with_case(principal={"principal_id": "x", "roles": ["customer"]}),
+            "no roles": with_case(principal={"principal_id": "usr_synth0001", "roles": []}), "world not an object": with_case(candidates=[]),
+            "transaction of an unknown beneficiary": with_case(candidates={"beneficiaries": [], "transactions": world()["transactions"]}),
+            "duplicate beneficiary ids": with_case(candidates={"beneficiaries": world()["beneficiaries"] * 2, "transactions": []}),
+            "more than twenty transactions": with_case(candidates={"beneficiaries": world()["beneficiaries"], "transactions": [{**world()["transactions"][0], "ref": f"fin.transaction:TX{n:04d}"} for n in range(21)]}),
+            "name with a run of five digits": with_case(candidates=world("Chidi 12345")), "name empty": with_case(candidates=world("")), "name over 64 characters": with_case(candidates=world("x" * 65)),
+            "name on two lines": with_case(candidates=world("Chidi\nOkonkwo")), "last four not four digits": with_case(candidates=world(last4="36444")),
+            "direction unknown": with_case(candidates={**world(), "transactions": [{**world()["transactions"][0], "direction": "SIDEWAYS"}]}),
+            "amount not an integer": with_case(candidates={**world(), "transactions": [{**world()["transactions"][0], "amount_minor": 12.5}]}),
+            "amount negative": with_case(candidates={**world(), "transactions": [{**world()["transactions"][0], "amount_minor": -1}]}),
+            "age is a bool": with_case(candidates={**world(), "transactions": [{**world()["transactions"][0], "age_minutes": True}]}),
+            "currency shape": with_case(candidates={**world(), "transactions": [{**world()["transactions"][0], "currency": "naira"}]}),
+            "resource ref shape": with_case(candidates={**world(), "transactions": [{**world()["transactions"][0], "ref": "TX7992"}]}), "case digest shape": with_case(case_sha256="nope"), "too many cases": [case(f"BEN-CLEAN-{n:04d}", "a", ["en-NG"]) for n in range(1, 22)],
         }
         for name, cases in bad.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
@@ -159,39 +219,151 @@ class Loading(unittest.TestCase):
             else:
                 self.fail("accepted")
 
-    def test_the_default_file_is_the_one_the_benchmark_owner_publishes(self) -> None:
+    def test_the_default_file_is_the_one_the_benchmark_owner_publishes_and_the_fixture_sits_beside_it(self) -> None:
         self.assertEqual(DEFAULT_PATH, ROOT / "benchmark" / "replay" / "g1_inputs.json")
+        self.assertEqual(DEFAULT_FIXTURE, ROOT / "benchmark" / "replay" / "g1_canonical_inputs.json")
 
 
-class Derived(unittest.TestCase):
-    def inputs(self) -> tuple[RecordOnlyInput, ...]:
+def refused_fixture(tmp: str, fx: Mapping[str, Any] | bytes, doc: Mapping[str, Any] | None = None) -> str:
+    inputs = write(tmp, make_doc() if doc is None else doc, fixture=False)
+    write_fixture(tmp, fx)
+    try:
+        load_inputs(inputs)
+    except RecordOnlyRefused as err:
+        return err.code
+    raise AssertionError("the fixture was accepted")
+
+
+class Fixture(unittest.TestCase):
+    """A460: the requests are what the core's Interpreter port builds. The Go test writes `benchmark/replay/g1_canonical_inputs.json`, pinned to BO's `inputs_sha256`; this pass loads it, proves the pin and
+    takes the canonical inputs from it. It builds none itself (the Python rebuild is rejected), and sends no locale hint."""
+
+    def test_the_canonical_inputs_come_from_the_fixture_in_the_order_of_the_file(self) -> None:
+        doc = make_doc()
         with tempfile.TemporaryDirectory() as tmp:
-            return load_inputs(write(tmp, make_doc()))
+            got = load_inputs(write(tmp, doc))
+        self.assertEqual([i.canonical for i in got], [canonical_for(c) for c in doc["cases"]])
+        for i in got:
+            self.assertEqual(set(i.canonical), {"schema_version", "request_id", "correlation_id", "tenant_id", "session_id", "principal_ref", "channel", "mode", "text", "received_at"})
+            self.assertNotIn("locale_hint", i.canonical)  # no hint is sent, whatever the locale tag says (A460)
+            self.assertEqual(i.canonical["text"], i.text)
 
-    def test_the_canonical_input_has_the_goldens_shape_and_carries_the_utterance_only(self) -> None:
-        golden = golden_input(GOLDEN[0])
-        for inp in self.inputs():
-            doc = canonical_input(inp)
-            self.assertEqual(set(doc), set(golden))
-            self.assertEqual((doc["text"], doc["channel"], doc["mode"], doc["received_at"], doc["tenant_id"], doc["principal_ref"], doc["schema_version"]),
-                             (inp.text, "text", golden["mode"], RECEIVED_AT, golden["tenant_id"], golden["principal_ref"], "2.0"))
-            self.assertNotIn("locale_hint", doc)  # the pipeline detects the locale itself, as for the goldens; the generator's locale mix is not sent
+    def test_the_fixture_must_exist_and_is_a_fixed_file_not_a_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            inputs = write(tmp, make_doc(), fixture=False)
+            with self.assertRaises(RecordOnlyRefused) as ctx:
+                load_inputs(inputs)
+            self.assertEqual(ctx.exception.code, "FIXTURE")
+            real = write_fixture(tmp, fixture_for(make_doc()), "real.json")
+            (Path(tmp) / "g1_canonical_inputs.json").symlink_to(real)
+            with self.assertRaises(RecordOnlyRefused) as ctx:
+                load_inputs(inputs)
+            self.assertEqual(ctx.exception.code, "FIXTURE")
 
-    def test_the_ids_are_derived_from_the_case_id_and_match_the_contracts_patterns(self) -> None:
-        common = json.loads((ROOT / "contracts" / "schemas" / "common.v1.json").read_text())["$defs"]
-        request_rx, corr_rx = re.compile(common["ClientRequestId"]["pattern"]), re.compile(common["CorrelationId"]["pattern"])
-        seen: set[str] = set()
-        for inp in self.inputs():
-            doc = canonical_input(inp)
-            self.assertEqual(doc, canonical_input(inp))  # the same every time (INV-21)
-            self.assertIsNotNone(request_rx.fullmatch(doc["request_id"]))
-            self.assertIsNotNone(corr_rx.fullmatch(doc["correlation_id"]))
-            self.assertRegex(doc["request_id"], r"[a-f]")  # never an all-digit id
-            self.assertNotRegex(doc["correlation_id"], r"[0-9]")  # letters only, so no id carries a digit run (AGENT-13)
-            self.assertNotIn(doc["request_id"], {g.request_id for g in GOLDEN})
-            seen.add(doc["request_id"])
-            seen.add(doc["correlation_id"])
-        self.assertEqual(len(seen), 10)
+    def test_a_fixture_pinned_to_other_inputs_is_refused(self) -> None:
+        for name, pin in {"another digest": "sha256:" + "0" * 64, "not a digest": "nope"}.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(refused_fixture(tmp, fixture_for(make_doc(), pin=pin)), "PIN" if name == "another digest" else "FIXTURE")
+
+    def test_a_fixture_that_does_not_match_the_cases_of_the_file_is_refused(self) -> None:
+        doc = make_doc()
+        for name, mutate in {
+            "a case missing": lambda fx: fx["cases"].pop(),
+            "a case added": lambda fx: fx["cases"].append(dict(fx["cases"][0])),
+            "cases reordered": lambda fx: fx["cases"].reverse(),
+            "another case id": lambda fx: fx["cases"][0].__setitem__("case_id", "BEN-CLEAN-0099"),
+            "an eleventh member (a locale hint)": lambda fx: fx["cases"][0]["canonical_input"].__setitem__("locale_hint", "en-NG"),
+            "a member missing": lambda fx: fx["cases"][0]["canonical_input"].pop("mode"),
+            "another text": lambda fx: fx["cases"][0]["canonical_input"].__setitem__("text", "Where is my money?"),
+            "another principal": lambda fx: fx["cases"][0]["canonical_input"].__setitem__("principal_ref", "usr_other"),
+            "a text channel that is not text": lambda fx: fx["cases"][0]["canonical_input"].__setitem__("channel", "voice"),
+            "a schema version that is not 2.0": lambda fx: fx["cases"][0]["canonical_input"].__setitem__("schema_version", "1.0"),
+            "a request id that is not a UUID": lambda fx: fx["cases"][0]["canonical_input"].__setitem__("request_id", "x"),
+            "an unknown key beside the cases": lambda fx: fx.__setitem__("expected", "x"),
+            "a pack reference that is not one": lambda fx: fx.__setitem__("pack_ref", "x"),
+        }.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                fx = fixture_for(doc)
+                mutate(fx)
+                self.assertEqual(refused_fixture(tmp, fx, doc), "FIXTURE")
+
+    def test_a_fixture_that_is_not_strict_json_is_refused(self) -> None:
+        good = canonical_bytes(fixture_for(make_doc())) + b"\n"
+        for name, raw in {"empty": b"", "not json": b"{", "array": b"[]", "not utf-8": b"\xff\xfe{}", "duplicate key": good.replace(b'"pack_ref"', b'"pack_ref": "fin@1.0.0",\n  "pack_ref"', 1)}.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(refused_fixture(tmp, raw), "FIXTURE")
+
+    def test_a_refusal_names_no_utterance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fx = fixture_for(make_doc())
+            fx["cases"][0]["canonical_input"]["text"] = "something else"
+            try:
+                refused_fixture(tmp, fx)
+            except AssertionError:
+                self.fail("accepted")
+            inputs = Path(tmp) / "g1_inputs.json"
+            with self.assertRaises(RecordOnlyRefused) as ctx:
+                load_inputs(inputs)
+            self.assertEqual(str(ctx.exception), ctx.exception.code)
+            self.assertNotIn("Chidi", str(ctx.exception))
+
+    def test_the_pass_has_no_canonical_input_builder_of_its_own(self) -> None:
+        import benchmark.compile_acceptance.record_only as module
+
+        self.assertFalse(hasattr(module, "canonical_input"))  # the Python rebuild is rejected (A460): the requests are the Go fixture's
+
+
+class Candidates(unittest.TestCase):
+    """A439: the candidates of a request are part of the request, so they come from the world rows of BO's file, not from an empty source. The rows are exactly the members of candidates-response.v1's
+    Candidate, newest first, none of them marked as the target."""
+
+    def rows(self, **kw: str) -> tuple[Mapping[str, Any], ...]:
+        doc = make_doc([case("BEN-CLEAN-0001", SECRET_TEXT, ["pcm"])])
+        if kw:
+            doc["cases"][0]["candidates"] = world(**kw)
+            rehash(doc)
+        with tempfile.TemporaryDirectory() as tmp:
+            return load_inputs(write(tmp, doc))[0].candidates
+
+    def test_the_rows_are_the_nine_members_of_the_contracts_candidate_newest_first(self) -> None:
+        contract = json.loads((ROOT / "contracts" / "schemas" / "candidates-response.v1.json").read_text())["$defs"]["Candidate"]
+        id_rx = re.compile(contract["properties"]["candidate_id"]["pattern"])
+        rows = self.rows()
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(set(row), set(contract["properties"]))
+            self.assertIsNotNone(id_rx.fullmatch(row["candidate_id"]))
+            self.assertRegex(row["candidate_id"], r"^cand_[a-z]+$")  # letters only: no id carries a digit run (AGENT-13)
+            self.assertEqual((row["currency"], row["direction"], row["amount_minor"], row["account_last4"]), ("NGN", "OUTGOING", 250000, "3644"))
+        self.assertEqual([r["resource_ref"] for r in rows], ["fin.transaction:TX7992", "fin.transaction:TX7001"])  # 150 minutes ago, then 3000: newest first
+        self.assertGreater(rows[0]["occurred_at"], rows[1]["occurred_at"])
+
+    def test_the_instant_is_the_goldens_afternoon_minus_the_age(self) -> None:
+        rows = self.rows()
+        base = datetime.strptime(RECEIVED_AT, "%Y-%m-%dT%H:%M:%SZ")
+        self.assertEqual([r["occurred_at"] for r in rows], [(base - timedelta(minutes=m)).strftime("%Y-%m-%dT%H:%M:%SZ") for m in (150, 3000)])
+
+    def test_the_counterparty_is_the_beneficiarys_name_and_the_alias_flag_is_whether_it_has_a_saved_alias(self) -> None:
+        self.assertEqual({r["counterparty_display"] for r in self.rows()}, {"Chidi Okonkwo"})
+        self.assertEqual({r["beneficiary_alias_match"] for r in self.rows()}, {True})
+        self.assertEqual({r["beneficiary_alias_match"] for r in self.rows(alias="")}, {False})
+
+    def test_the_rows_are_the_same_every_time_and_carry_no_label_of_the_target(self) -> None:
+        self.assertEqual(self.rows(), self.rows())
+        for row in self.rows():
+            self.assertFalse({"target", "is_target", "expected", "oracle_ref", "label"} & set(row))
+
+    def test_a_case_with_no_transactions_has_no_candidates(self) -> None:
+        doc = make_doc([case("BEN-CLEAN-0001", SECRET_TEXT, ["pcm"])])
+        doc["cases"][0]["candidates"] = {"beneficiaries": [], "transactions": []}
+        rehash(doc)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(load_inputs(write(tmp, doc))[0].candidates, ())
+
+    def test_candidate_rows_is_a_pure_function_of_the_loaded_case(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            inp = load_inputs(write(tmp, make_doc()))[0]
+        self.assertEqual(candidate_rows(inp), inp.candidates)
 
 
 class Script:
