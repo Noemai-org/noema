@@ -116,7 +116,7 @@ func checkSession(sess orchestrator.Session) error {
 
 // Start makes the investigation of a recorded input, or finds the one an earlier Start made (idempotent per tenant and input, noema#477). created is true only for
 // the call that made the row. The returned Investigation carries the state and version the row has now; a caller that finds a version above 0 must not run it again.
-func (s *Store) Start(ctx context.Context, sess orchestrator.Session, r StartRequest) (orchestrator.Investigation, bool, error) {
+func (s *Store) Start(ctx context.Context, sess orchestrator.Session, authnRef string, r StartRequest) (orchestrator.Investigation, bool, error) {
 	if err := needDeadline(ctx); err != nil {
 		return orchestrator.Investigation{}, false, err
 	}
@@ -297,4 +297,15 @@ func (s *Store) Read(ctx context.Context, sess orchestrator.Session, investigati
 		return Snapshot{}, fmt.Errorf("%sread: %w", errPrefix, err)
 	}
 	return Snapshot{State: orchestrator.State(state), Principal: principal}, nil
+}
+
+// ErrNoRecordedSession marks an investigation whose row carries no principal role and authn reference (a row from before migration 0036): recovery refuses it.
+var ErrNoRecordedSession = errors.New(errPrefix + "the investigation records no session")
+
+// RecordedSession is the session facts the row holds, written at creation from the verified session.
+type RecordedSession struct{ PrincipalID, PrincipalRole, AuthnRef string }
+
+// SessionOf is the read path for recovery.
+func (s *Store) SessionOf(_ context.Context, _ orchestrator.Session, _ string) (RecordedSession, error) {
+	return RecordedSession{}, fmt.Errorf("%w: not implemented", ErrRequest)
 }
