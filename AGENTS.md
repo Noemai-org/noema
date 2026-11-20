@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 2266b54be0ae03687b89a7242a8ef3366bcd062e. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 4878c3618c85dfb93884e1b815c519a4344a16b9. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -471,6 +471,8 @@ Rules for adding an entry:
 Entries:
 
 - 2026-11-15 · a `git add -A` after a red run or a mutant run committed `rapid` counterexample files (`testdata/rapid/**/*.fail`) twice (noema#592, noema#600); each held a mutant's or a stub's failure message, not a defect of the code · before committing, run `git diff --name-only --cached | grep testdata/rapid` and commit a `.fail` only for a real defect, together with its regression test; a CI check on new `.fail` files is a candidate if it happens again · approved by: pending EL review
+- 2026-11-20 · a stray `go build` in `services/core/cmd/core` left a 33.9 MB binary (`core`) that went into a pushed red commit twice (noema#721, noema#823) and forced a close and reopen from a fresh branch (A429, interim, relayed, not yet committed) · `services/core/cmd/core/.gitignore` ignores `/core` (noema#812), and before every commit run `git diff --cached --stat | sort -k3 -n | tail -3` and refuse any staged file over 1 MB; build with `go build -o /dev/null` or `go vet` instead of `go build` · approved by: pending EL review
+- 2026-11-20 · a Go comment named the evidence-mapping manifest id and failed the INV-14 guard `test_the_core_does_not_hard_code_the_ids` (noema#773, noema#830); the guard bans the id string in any non-test `.go` file, comments included · before pushing a change under `services/core`, run `python3 -m unittest tools.packcheck.test_manifest -k hard_code`; write 'the pack's evidence mapping', never the id; a follow-up makes the guard a version-agnostic pattern · approved by: pending EL review
 
 ## 16. Where things are
 
