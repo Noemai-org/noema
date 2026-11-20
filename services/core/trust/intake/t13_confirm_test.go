@@ -2,7 +2,7 @@ package intake
 
 // TRU-07 (PR 2 of the confirmation lanes; REQ-TRU-009, REQ-TRU-008, INV-25, INV-03, INV-12, AGENT-16, EC-E16; SoT 43.2a): T13 records the CONFIRM it returns, creates the confirmation
 // request when none is open, and never returns a CONFIRM the Recorder did not write. Declined is NOT built here: PERD 23.3 gives T13 the terminal result CONFIRM only (stop condition,
-// status/TRU-07-confirm-t13.md); its interim test is TestT13DeclinedIsUnknownForNowAndNothingIsPlannedOrRecorded. All data is SYNTHETIC.
+// status/TRU-07-confirm-t13.md); its test is TestT13DeclinedIsRejectDeclinedByApproverAndIsRecordedOnce. All data is SYNTHETIC.
 
 import (
 	"context"
