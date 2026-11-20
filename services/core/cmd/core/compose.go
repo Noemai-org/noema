@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/session"
@@ -21,7 +22,7 @@ import (
 
 // compose.go is the composition root of the G1 slice (EDG-01 slice 3c). It is the only place that plugs the components other tasks build into the orchestrator,
 // and the only file that does: the people who build a component give a constructor, and the Engineering Lead plugs it in here (the Architect's order of 11 Nov).
-// It holds no product logic. A component that is missing means no composition and a /readyz that names it, so the process never serves half a slice.
+// It holds no product logic. A component that is missing means no composition and a /readyz that names every one that is, so the process never serves half a slice.
 
 // Components is everything the slice needs. Each field is built by another task and handed in:
 //   - Ports.Interpreter: the model service client (UND), behind the input gateway;
@@ -97,35 +98,43 @@ func buildAPI(c Components, e Env, clk clock.Clock, ids session.IDs) (http.Handl
 	return h, nil
 }
 
-// missing names the first absent component, or "" when none is.
-func missing(c Components, api http.Handler) string {
-	switch {
-	case c.Ports.Interpreter == nil:
-		return "interpreter"
-	case c.Ports.Evidence == nil:
-		return "evidence"
-	case c.Ports.Trust == nil:
-		return "trust"
-	case c.Ports.Explainer == nil:
-		return "explainer"
-	case c.Ports.Recorder == nil:
-		return "recorder"
-	case c.Ports.Admissions == nil:
-		return "admissions"
-	case c.Investigations == nil:
-		return "investigations"
-	case api == nil:
-		return "edge chain"
-	case c.Records == nil:
-		return "record reader"
+// missing names every component the composition does not have, in the one order of the table below (the ports first, then the rest), or nil when none is missing. It is the
+// only place that says what a complete slice is: compose refuses and /readyz is not green exactly when it returns a name, and every field of Components has a line here (a
+// test fails for a field without one). A component is one line, so a lane that plugs in a new adapter adds one.
+func missing(c Components, api http.Handler) []string {
+	parts := []struct {
+		name  string
+		built bool
+	}{
+		{"interpreter", c.Ports.Interpreter != nil},
+		{"evidence", c.Ports.Evidence != nil},
+		{"trust", c.Ports.Trust != nil},
+		{"explainer", c.Ports.Explainer != nil},
+		{"recorder", c.Ports.Recorder != nil},
+		{"admissions", c.Ports.Admissions != nil},
+		{"investigations", c.Investigations != nil},
+		{"edge chain", api != nil},
+		{"record reader", c.Records != nil},
+		{"input gateway", c.Gateway != nil},
 	}
-	return ""
+	var names []string
+	for _, p := range parts {
+		if !p.built {
+			names = append(names, p.name)
+		}
+	}
+	return names
+}
+
+// notConfigured is the sentence of a refusal and of /readyz for the names missing returned: the names and nothing else, never a setting's value, a path or a driver's text.
+func notConfigured(names []string) string {
+	return "not configured: " + strings.Join(names, ", ")
 }
 
 // compose builds the runner from the real transition table, or refuses when a component is missing.
 func compose(c Components, api http.Handler) (*App, error) {
-	if name := missing(c, api); name != "" {
-		return nil, fmt.Errorf("compose: %s is not configured", name)
+	if names := missing(c, api); len(names) > 0 {
+		return nil, fmt.Errorf("compose: %s", notConfigured(names))
 	}
 	tab, err := orchestrator.LoadTable()
 	if err != nil {
@@ -138,11 +147,11 @@ func compose(c Components, api http.Handler) (*App, error) {
 	return &App{Runner: r}, nil
 }
 
-// composeReadiness is the /readyz check for a composition: ready only when compose would succeed, and otherwise it says which component is missing.
+// composeReadiness is the /readyz check for a composition: ready only when compose would succeed, and otherwise it names every component that is missing.
 func composeReadiness(c Components, api http.Handler) readiness {
 	return func() (bool, string) {
-		if name := missing(c, api); name != "" {
-			return false, name + " is not configured"
+		if names := missing(c, api); len(names) > 0 {
+			return false, notConfigured(names)
 		}
 		return true, ""
 	}
@@ -150,7 +159,7 @@ func composeReadiness(c Components, api http.Handler) readiness {
 
 // buildComponents builds what main composes, in one place, and returns it with one function that closes every pool opened (safe to call more than once, and returned with an error
 // too). Only adapters that are merged are plugged in: the Record reader, the Admissions port over it (one reader, so a turn's input is confirmed as the session's tenant) and the
-// orchestrator's Recorder and, over the same per-tenant stores, the investigation reader (A243). With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
+// orchestrator's Recorder and, over the same per-tenant stores, the investigation reader (A243), which needs NOEMA_READ_TIMEOUT_MS as well (A319). With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
 // whose adapters are not built stay nil, so /readyz names them (missing). Nothing is dialled here.
 func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger) (Components, func(), error) {
 	var closers []func()
@@ -175,8 +184,13 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		c.Ports.Admissions = admissionsport.Port{Reader: &admission.Reader{DBs: records}}
 	}
 	if recorder != nil {
+		reader, err := buildInvestigationReader(env, recorder) // reads over the same per-tenant orchestrator logins; the bound is NOEMA_READ_TIMEOUT_MS (A243, A319, noema#715)
+		if err != nil {
+			closeAll()
+			return Components{}, closeAll, err
+		}
 		c.Ports.Recorder = recorder
-		c.Investigations = newInvestigationReader(recorder) // reads over the same per-tenant orchestrator logins (A243, noema#601)
+		c.Investigations = reader
 	}
 	return c, closeAll, nil
 }

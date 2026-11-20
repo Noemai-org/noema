@@ -104,6 +104,26 @@ class Refuses(unittest.TestCase):
         text = f"on: push\njobs:\n  j:\n    steps:\n      - uses: {REF}\n      - run: echo\n        with:\n          persist-credentials: false\n"
         self.one(text, "jobs.j.steps[0]")
 
+    def test_a_padded_input_name_is_a_different_input_and_does_not_count(self) -> None:
+        # Codex P2 on noema#729: the runner does not trim input names, so the real `persist-credentials` keeps checkout's default of true.
+        for key in ('" persist-credentials"', '"persist-credentials "', '"\\tpersist-credentials"', '" persist-credentials "'):
+            found = wf(GOOD.replace("persist-credentials: false", f"{key}: false"))
+            self.assertEqual(len(found), 1, (key, found))
+            self.assertIn("without `persist-credentials: false`", found[0])
+
+    def test_a_padded_value_is_not_the_boolean_false(self) -> None:
+        for value in ("' false'", "'false '", "'false\\n'"):
+            found = wf(GOOD.replace("persist-credentials: false", f"persist-credentials: {value}"))
+            self.assertEqual(len(found), 1, (value, found))
+            self.assertIn("something other than false", found[0])
+
+    def test_a_padded_key_beside_the_real_one_leaves_the_real_one_in_charge(self) -> None:
+        self.one(GOOD.replace("persist-credentials: false", "' persist-credentials': false\n          persist-credentials: true"), "something other than false")
+        self.assertEqual(wf(GOOD.replace("persist-credentials: false", "' persist-credentials': true\n          persist-credentials: false")), [])
+
+    def test_a_key_that_is_not_a_string_is_not_the_input(self) -> None:
+        self.one(GOOD.replace("persist-credentials: false", "1: false"), "without `persist-credentials: false`")
+
     def test_set_twice_with_one_of_them_true(self) -> None:
         self.one(GOOD.replace("persist-credentials: false", "persist-credentials: false\n          Persist-Credentials: true"), "something other than false")
 
