@@ -159,3 +159,9 @@ All KILLED (the first batch of two ended in a build error, `declared and not use
 - Open questions (owner): flag 1 (status of the entry), flag 2 (index form), flag 3 (request or step) for the Architect; the migration read (an independent reviewer).
 - Files to read first: `services/core/evidence/snapshot/content_hash.go`, `services/core/trust/recorder/confirmation.go` (`bindingOf`), `services/core/trust/intake/gates_t7_t9.go` (T9), `services/core/migrations/0034_decision_key_confirmation_state.sql`.
 - Do not touch: `/contracts`; `record/payloadguard`; `migrations/README.md` (A145); other migrations than 0034; the pinned vectors without recomputing them with an independent implementation.
+
+## Session 2026-11-20 · TRU-07 (C1, the real-database evidence tests after fin.map.v1@2 landed on main)
+
+- noema#818 (C2) merged the evidence mapping `fin.map.v1@2` (list entities, the case system source) after noema#759. `orchestrator/portadapters/trust/evidence_db_test.go` (mine, from #759) still parsed the pack's mapping as `fin.map.v1@1` with three sources and no scope, so eleven of its tests failed on `main` (`the file is "fin.map.v1@2", not "fin.map.v1@1"`, then `unknown entity "case"`). Seen failing on the merge ref of noema#827 (`tests (1)`, `tests (2)`) and locally on `origin/main`.
+- Fix (test only): the test parses `fin.map.v1@2` with the case system as a fourth source and the pack's own evidence descriptors as the scope (`mappingscope_test.go`, the same helper the reconciler port tests got in #818). The pinned content-hash vectors did not change (the three items of the test case map to the same facts). No production file touched; nothing deleted, weakened or skipped.
+- Verification: `go test ./orchestrator/portadapters/trust/` ok; `go vet` clean; lint OK.
