@@ -42,4 +42,4 @@ A live reply has not been parsed by this code: the first live run is that eviden
 
 ## Tests
 
-`python -m unittest discover -s benchmark -t . -p 'test_*.py'` (the benchmark job) and `cd services/model && pytest tests/test_compile_acceptance_build.py` (the model job).
+`python -m unittest discover -s benchmark -t . -p 'test_*.py'` (the benchmark job) and `cd services/model && pytest tests/test_compile_acceptance_build.py tests/test_compile_acceptance_pool.py` (the model job). `test_pool.py` holds the pool to the pipeline's five concurrent calls plus one spare (`POOL_SIZE` in `build.py`; UND-16).
