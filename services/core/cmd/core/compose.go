@@ -334,6 +334,12 @@ func productionDeps() composeDeps {
 // no default in code (A330, AGENT-16).
 const EnvInvestigationStartTimeout = "NOEMA_INVESTIGATION_START_TIMEOUT_MS"
 
+// EnvInvestigationRunTimeout is the bound of one investigation run, in whole milliseconds (A477, interim, relayed, not yet committed). The loader only compares it with the activity timeout.
+const EnvInvestigationRunTimeout = "NOEMA_INVESTIGATION_RUN_TIMEOUT_MS"
+
+// workerMissing names the worker settings that are missing (A486). Red stub.
+func workerMissing(Env) []string { return nil }
+
 // workerConfigured says whether a worker is asked for: at least one worker setting other than NOEMA_TEMPORAL_ADDRESS is present. The address alone is how the base Compose names Temporal
 // and is not a worker configuration (A469; safer reading, interim, relayed, not yet committed). The start deadline is not a trigger either: it is the composition's, read below.
 func workerConfigured(env Env) bool {
