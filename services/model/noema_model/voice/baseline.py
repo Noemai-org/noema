@@ -17,7 +17,7 @@ import os
 import re
 import stat
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -26,7 +26,7 @@ from noema_model.providers.speech.base import Locale
 from noema_model.voice.bench import AudioOrigin, SessionResult, measure_batch
 from noema_model.voice.latency import Stage, nearest_rank_percentile
 
-_SPEAKER_REF = re.compile(r"[A-Za-z0-9._-]{1,64}")
+_SPEAKER_REF = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}")  # never starts with a dot: the store scan counts such a name as an object without a speaker reference (SR on #824)
 _FILE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}")  # never starts with a dot
 _BYTES_PER_SAMPLE = 2
 
@@ -36,7 +36,9 @@ class StoreError(Exception):
 
 
 class AudioStore:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, now: Callable[[], datetime]) -> None:
+        """`now` is the injected clock (INV-21): an analysis date later than it is refused, because it would extend the retention."""
+        self._now = now
         try:
             info = os.lstat(root)
         except OSError:
@@ -58,6 +60,8 @@ class AudioStore:
             raise StoreError("a file name must be a plain name")
         if analysed_on.tzinfo is None:
             raise StoreError("the analysis date must carry a time zone")
+        if analysed_on > self._now():
+            raise StoreError("the analysis date is in the future and would extend the retention")
         folder = self._root / speaker_ref
         try:
             try:
@@ -68,27 +72,32 @@ class AudioStore:
             else:
                 if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
                     raise StoreError("the speaker folder must be a real directory, not a link")
+                if os.name != "nt" and (info.st_uid != getattr(os, "geteuid")() or stat.S_IMODE(info.st_mode) != 0o700):
+                    raise StoreError("the speaker folder must be owned by the user that runs this and be mode 0700")
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0)
             descriptor = os.open(folder / name, flags, 0o600)
         except FileExistsError:
             raise StoreError("the file already exists and is never overwritten") from None
         except OSError:
             raise StoreError("the audio store could not be written") from None
+        target = folder / name
         try:
-            if os.name != "nt":
-                os.fchmod(descriptor, 0o600)  # not left to the umask
-            written = 0
-            while written < len(data):
-                written += os.write(descriptor, data[written:])
-            os.fsync(descriptor)
+            try:
+                if os.name != "nt":
+                    os.fchmod(descriptor, 0o600)  # not left to the umask
+                written = 0
+                while written < len(data):
+                    written += os.write(descriptor, data[written:])
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            stamp = analysed_on.timestamp()
+            os.utime(target, (stamp, stamp))  # the retention counts from the analysis date
         except OSError:
-            raise StoreError("the audio store could not be written") from None
-        finally:
-            os.close(descriptor)
-        stamp = analysed_on.timestamp()
-        try:
-            os.utime(folder / name, (stamp, stamp))  # the retention counts from the analysis date
-        except OSError:
+            try:
+                os.unlink(target)  # a partial file is never kept: it would hold raw audio and block the name for ever (O_EXCL)
+            except OSError:
+                pass
             raise StoreError("the audio store could not be written") from None
 
 
