@@ -42,7 +42,8 @@ func (s *stack) publish(t *testing.T, version string) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Publish(bg(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pubadm01", PolicyID: policyScope, Version: version, PublishedBy: "adm_synth01"}); err != nil {
+	if err := store.Publish(bg(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pubadm01", PolicyID: policyScope, Version: version, PublishedBy: "adm_synth01",
+		DocumentHash: "sha256:00000000000000000000000000000000000000000000000000000000000000aa"}); err != nil {
 		_ = tx.Rollback(bg(t))
 		return err
 	}
