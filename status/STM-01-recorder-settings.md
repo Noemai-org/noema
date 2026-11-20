@@ -4,7 +4,8 @@ Updated 2026-11-20. Owner: Engineering Lead (built by an agent lane; unreviewed)
 
 ## State
 
-- **Red pushed:** `cmd/core/recorder_settings.go` is a stub that accepts everything; `recorder_settings_test.go` fails on the missing behaviour. Implementation is committed locally and not pushed (EL pushes it after reading the red job).
+- Mutation check (hand, `recorder_settings.go`): 10 of 13 killed; the 3 survivors are equivalent (`ms < 0` after the regex that refuses 0; `%v` for `%s` on a string; returning `s` on the first failure, where it is still zero).
+- **Red pushed (noema#847):** `cmd/core/recorder_settings.go` is a stub that accepts everything; the tests fail on the missing behaviour (the evidence-page guard also fails on the status file at the red head, which the green fixes by naming the PERD source on one line). The implementation is committed locally and not pushed (EL pushes it after reading the red job).
 - Settings (whole milliseconds, A330, no default in code, required): `NOEMA_TRUST_GRANT_LIFETIME_MS`, `NOEMA_TRUST_RECORD_LIFETIME_MS`, `NOEMA_TRUST_TX_TIMEOUT_MS`. The area `TRUST` follows the existing `NOEMA_TRUST_DB_TIMEOUT_MS` of `wire_trust.go`.
 
 ## Values: what the specifications name, and what is bench-only (Founder to confirm)
@@ -41,6 +42,6 @@ So: **grant lifetime** is named, 10 minutes (600000 ms), by the PERD; use it, se
 
 ## Pre-work for the next agent
 - Exact next step: the final main.go PR reads `loadRecorderSettings` and passes the three durations to `trustport.RecorderConfig`; Compose sets the three variables.
-- Open questions (Founder): confirm the record lifetime and the transaction timeout; confirm the grant lifetime of 10 min; the policy id and escalation set from the pack are not part of this PR (they need pack accessors outside this allowlist).
+- Open questions (Founder): confirm the record lifetime and the transaction timeout; confirm the grant lifetime of 10 min (the PERD value, OD-P-31); the policy id and escalation set from the pack are not part of this PR (they need pack accessors outside this allowlist).
 - Files to read first: `services/core/orchestrator/portadapters/trust/recorder.go` (`RecorderConfig`), `cmd/core/wire_trust.go`.
 - Do not touch: `compose.go`, `main.go`.
