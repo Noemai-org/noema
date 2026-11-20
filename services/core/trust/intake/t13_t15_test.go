@@ -309,6 +309,27 @@ func TestT13ConfirmationGivenContinuesAndTheGrantFollowsItsEvent(t *testing.T) {
 	}
 }
 
+// A435, INV-25: an ALLOW that follows a confirmation tells the Recorder the evidence component of the binding the confirmation was given for (the content digest T9 kept), so the writer
+// recomputes the binding without the grant's own evidence set hash; an ALLOW that follows none names no such value (the writer refuses one that does).
+func TestT15AnAllowAfterAConfirmationCarriesTheBindingsEvidenceHashAndOtherwiseNone(t *testing.T) {
+	f := newFake13()
+	f.conf = given13()
+	res := run13(t, newEval13(t, f))
+	if res.Decision.Outcome() != decide.Allow {
+		t.Fatalf("outcome %s, want ALLOW", res.Decision.Outcome())
+	}
+	if got := rec0(t, f).ConfirmationBindingEvidenceHash; got != tSetHash {
+		t.Errorf("the Recorder was given the binding's evidence value %q, want the one T9 kept (%q)", got, tSetHash)
+	}
+	g := newFake13()
+	if res := run13(t, newEval13(t, g)); res.Decision.Outcome() != decide.Allow {
+		t.Fatalf("no confirmation: outcome %s, want ALLOW", res.Decision.Outcome())
+	}
+	if got := rec0(t, g).ConfirmationBindingEvidenceHash; got != "" {
+		t.Errorf("an ALLOW with no confirmation named the binding's evidence value %q", got)
+	}
+}
+
 // A230 (interim), REQ-TRU-009, INV-25: a confirmation was given for ONE plan. If the plan T14 built is another, the confirmation does not authorise it. T14's stop set is empty
 // (PERD 23.3), so the plan that disagrees with what was approved is UNKNOWN PLAN_INVALID, nothing recorded. (The writer refuses the same mismatch as the last line of
 // defence, noema#603.)

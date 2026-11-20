@@ -11,6 +11,9 @@ import (
 
 const tSetHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+// tContentHash is a content digest (A435) distinct from tSetHash, the snapshot's own set hash.
+const tContentHash = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
 // The composite policy versions (A341, interim): "sha256:" and the SHA-256 hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings, computed by an
 // independent Python implementation (see trust/decide policyset_test.go). SYNTHETIC policies.
 const (
@@ -31,8 +34,9 @@ func oneBinding(t *testing.T, f *f13) FreshBinding {
 	return f.bindings[0]
 }
 
-// INV-25, SoT 43.2a: T13 passes the two values only the fresh evaluation knows: the evidence set hash T9 got from the Evidence port and the policy_id@version T11 used.
-func TestT13PassesTheEvidenceSetHashOfT9AndThePolicyVersionOfT11(t *testing.T) {
+// INV-25, SoT 43.2a, A435: T13 passes the two values only the fresh evaluation knows: the content digest of the evidence T9 got from the Evidence port (the contract's field is still
+// named evidence_set_hash) and the composite of the policy versions T11 used.
+func TestT13PassesTheEvidenceContentDigestOfT9AndThePolicyVersionOfT11(t *testing.T) {
 	f := newFake13()
 	f.conf = given13()
 	ev := newEval13(t, f)
@@ -135,15 +139,24 @@ func TestT13EmptyFreshValuesAreStillPassedAndFailOnlyAGivenAnswer(t *testing.T) 
 	}
 }
 
-// INV-25: T9 keeps the evidence set hash the Evidence port gave, in the evaluation, for T13.
-func TestT9KeepsTheEvidenceSetHashForT13(t *testing.T) {
+// INV-25, A435: T9 keeps the content digest the Evidence port gave for the binding, in the evaluation, for T13. The snapshot's own set hash (EvidenceSetHash: the Decision Record's and
+// the grant's) is never what T13 binds: an adapter that gives only the set hash gives no binding value, and T13 then refuses a Given answer.
+func TestT9KeepsTheContentDigestOfTheBindingForT13AndNeverTheSetHash(t *testing.T) {
 	f := newFake()
-	f.evid.EvidenceSetHash = tSetHash
+	f.evid.EvidenceSetHash, f.evid.ConfirmationBindingEvidenceHash = tSetHash, tContentHash
 	e := newEval(t, resolvedView(), f, nil)
 	d, trace := runStep(t, e, decide.T9Evidence)
-	continued(t, "a well-formed hash", d, trace, decide.T9Evidence)
-	if e.confirmationBindingEvidenceHash != tSetHash {
-		t.Errorf("kept %q, want %q", e.confirmationBindingEvidenceHash, tSetHash)
+	continued(t, "both values well formed", d, trace, decide.T9Evidence)
+	if e.confirmationBindingEvidenceHash != tContentHash {
+		t.Errorf("kept %q, want the content digest %q", e.confirmationBindingEvidenceHash, tContentHash)
+	}
+	f = newFake()
+	f.evid.EvidenceSetHash = tSetHash // the adapter gave the set hash and no binding value
+	e = newEval(t, resolvedView(), f, nil)
+	d, trace = runStep(t, e, decide.T9Evidence)
+	continued(t, "only the set hash given", d, trace, decide.T9Evidence)
+	if e.confirmationBindingEvidenceHash != "" {
+		t.Errorf("kept %q for an adapter that gave the set hash only, want empty: the set hash is not the binding's evidence value", e.confirmationBindingEvidenceHash)
 	}
 	f = newFake()
 	e = newEval(t, resolvedView(), f, nil)
@@ -154,29 +167,56 @@ func TestT9KeepsTheEvidenceSetHashForT13(t *testing.T) {
 	}
 }
 
-// INV-16: a non-empty evidence set hash that is not in the contract's form is an unusable answer: UNKNOWN at T9, and the Confirmations port is never reached.
-func TestT9AMalformedEvidenceSetHashIsUnknownAndConfirmationsIsNeverCalled(t *testing.T) {
-	for name, h := range map[string]string{"upper case": "sha256:" + "A" + tSetHash[8:], "too short": "sha256:abc", "no prefix": tSetHash[7:], "another algorithm": "sha512:" + tSetHash[7:], "a space": " " + tSetHash} {
-		f := newFake()
-		f.evid.EvidenceSetHash = h
-		e := newEval(t, resolvedView(), f, nil)
-		c := newFake13()
-		c.conf = given13()
-		e.svc.Ports.Confirmations = c
-		var steps decide.Steps
-		for i := range steps {
-			steps[i] = func(context.Context) decide.StepResult { return decide.Continue() }
+// INV-16, A435: T9 validates BOTH evidence values. A non-empty set hash or content digest that is not in the contract's form is an unusable answer: UNKNOWN at T9, the Confirmations port is
+// never reached and nothing is kept.
+func TestT9AMalformedEvidenceHashOfEitherKindIsUnknownAndConfirmationsIsNeverCalled(t *testing.T) {
+	for kind, set := range map[string]func(*SnapshotEvidence, string){
+		"the set hash":       func(ev *SnapshotEvidence, h string) { ev.EvidenceSetHash = h },
+		"the content digest": func(ev *SnapshotEvidence, h string) { ev.ConfirmationBindingEvidenceHash = h },
+	} {
+		for name, h := range map[string]string{"upper case": "sha256:" + "A" + tSetHash[8:], "too short": "sha256:abc", "no prefix": tSetHash[7:], "another algorithm": "sha512:" + tSetHash[7:], "a space": " " + tSetHash} {
+			f := newFake()
+			f.evid.EvidenceSetHash, f.evid.ConfirmationBindingEvidenceHash = tSetHash, tContentHash
+			set(&f.evid, h)
+			e := newEval(t, resolvedView(), f, nil)
+			c := newFake13()
+			c.conf = given13()
+			e.svc.Ports.Confirmations = c
+			var steps decide.Steps
+			for i := range steps {
+				steps[i] = func(context.Context) decide.StepResult { return decide.Continue() }
+			}
+			steps[decide.T9Evidence-1], steps[decide.T13Confirmation-1] = e.t9, e.t13
+			cx := tctx(t)
+			d, trace := decide.Evaluate(cx, tVersion, steps)
+			failed(t, kind+", "+name, d, trace, decide.T9Evidence, decide.StepFailed)
+			if len(c.bindings) != 0 || c.called("Confirmations.Status") != 0 {
+				t.Errorf("%s, %s: Confirmations.Status was called after a malformed evidence hash", kind, name)
+			}
+			if e.confirmationBindingEvidenceHash != "" {
+				t.Errorf("%s, %s: the malformed hash %q was kept", kind, name, e.confirmationBindingEvidenceHash)
+			}
 		}
-		steps[decide.T9Evidence-1], steps[decide.T13Confirmation-1] = e.t9, e.t13
-		cx := tctx(t)
-		d, trace := decide.Evaluate(cx, tVersion, steps)
-		failed(t, name, d, trace, decide.T9Evidence, decide.StepFailed)
-		if len(c.bindings) != 0 || c.called("Confirmations.Status") != 0 {
-			t.Errorf("%s: Confirmations.Status was called after a malformed evidence set hash", name)
-		}
-		if e.confirmationBindingEvidenceHash != "" {
-			t.Errorf("%s: the malformed hash %q was kept", name, e.confirmationBindingEvidenceHash)
-		}
+	}
+}
+
+// INV-25, A435: through T9 and T13 together, the Confirmations port is given the content digest and not the snapshot's set hash.
+func TestT9ToT13TheConfirmationsPortIsGivenTheContentDigestAndNotTheSetHash(t *testing.T) {
+	f := newFake()
+	f.evid.EvidenceSetHash, f.evid.ConfirmationBindingEvidenceHash = tSetHash, tContentHash
+	e := newEval(t, resolvedView(), f, nil)
+	c := newFake13()
+	c.conf = given13()
+	e.svc.Ports.Confirmations = c
+	e.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}}
+	var steps decide.Steps
+	for i := range steps {
+		steps[i] = func(context.Context) decide.StepResult { return decide.Continue() }
+	}
+	steps[decide.T9Evidence-1], steps[decide.T13Confirmation-1] = e.t9, e.t13
+	decide.Evaluate(tctx(t), tVersion, steps)
+	if got, want := oneBinding(t, c), (FreshBinding{ConfirmationBindingEvidenceHash: tContentHash, PolicyVersion: tPolicySet}); got != want {
+		t.Errorf("FreshBinding %+v, want %+v", got, want)
 	}
 }
 

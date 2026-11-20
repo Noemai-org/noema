@@ -173,7 +173,7 @@ func TestT13ToT15TheRecordRequestFollowsTheInputsAndOnlyTheInputs(t *testing.T) 
 			t.Errorf("%s: the request changed in %v, want %s", c.name, changed, c.field)
 		}
 		for _, other := range changed[1:] {
-			if other != "ConfirmationPlanHash" && other != "PlanHash" {
+			if other != "ConfirmationPlanHash" && other != "PlanHash" && other != "ConfirmationBindingEvidenceHash" { // the binding's evidence follows a confirmation (A435)
 				t.Errorf("%s: the request also changed %s", c.name, other)
 			}
 		}
