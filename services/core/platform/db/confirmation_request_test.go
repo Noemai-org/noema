@@ -125,7 +125,7 @@ func wantSQLState(t *testing.T, err error, code string) {
 	}
 }
 
-func count(t *testing.T, pool *pgxpool.Pool, table string) int {
+func countRows(t *testing.T, pool *pgxpool.Pool, table string) int {
 	t.Helper()
 	var n int
 	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM `+table).Scan(&n); err != nil {
@@ -268,10 +268,10 @@ func TestConfirmationRowsAreIsolatedByTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tbl := range confirmationTables {
-		if n := count(t, w.trustB, tbl); n != 0 {
+		if n := countRows(t, w.trustB, tbl); n != 0 {
 			t.Errorf("tenant B sees %d %s rows of tenant A", n, tbl)
 		}
-		if n := count(t, w.trustA, tbl); n != 1 {
+		if n := countRows(t, w.trustA, tbl); n != 1 {
 			t.Errorf("tenant A sees %d %s rows, want 1", n, tbl)
 		}
 	}
@@ -320,7 +320,7 @@ func TestConfirmationRowsAreInsertOnly(t *testing.T) {
 				}
 			}
 		}
-		if n := count(t, w.admin, tbl); n != 1 {
+		if n := countRows(t, w.admin, tbl); n != 1 {
 			t.Errorf("%s has %d rows after the refused changes, want 1", tbl, n)
 		}
 	}
@@ -351,7 +351,7 @@ func TestOneOpenRequestPerActionAndSupersessionByANewRow(t *testing.T) {
 			t.Errorf("a request of another %s superseded cfr_r1", name)
 		}
 	}
-	if n := count(t, w.admin, "confirmation_request"); n != 1 {
+	if n := countRows(t, w.admin, "confirmation_request"); n != 1 {
 		t.Fatalf("%d requests after the refusals, want 1", n)
 	}
 	// after an answer (an ACCEPT whose binding changed): a fresh request supersedes even before the expiry
@@ -395,8 +395,8 @@ func TestTwoConcurrentRootRequestsCommitOne(t *testing.T) {
 			wantState(t, err, violation)
 		}
 	}
-	if failed != 1 || count(t, w.admin, "confirmation_request") != 1 {
-		t.Fatalf("%d refused, %d rows: want one request", failed, count(t, w.admin, "confirmation_request"))
+	if failed != 1 || countRows(t, w.admin, "confirmation_request") != 1 {
+		t.Fatalf("%d refused, %d rows: want one request", failed, countRows(t, w.admin, "confirmation_request"))
 	}
 }
 
@@ -416,7 +416,7 @@ func TestOneAnswerPerRequestWhoeverTheApprover(t *testing.T) {
 	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n4", "cfr_a1", "prn_4", "MAYBE"), violation)
 	wantState(t, w.answer(w.trustA, "ten_a", "evt_5", "cfr_a1", "prn_4", "ACCEPT"), violation)
 	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n6", "cfr_zzz", "prn_4", "ACCEPT"), violation)
-	if n := count(t, w.admin, "confirmation_answer"); n != 1 {
+	if n := countRows(t, w.admin, "confirmation_answer"); n != 1 {
 		t.Errorf("%d answers, want 1", n)
 	}
 }
@@ -483,7 +483,7 @@ func TestAnIntentVersionBelowOneIsRefused(t *testing.T) {
 			v, b.PrincipalID, b.IntentHash, b.CapabilityID, b.TargetRef, b.ParamsHash, b.EvidenceSetHash, b.PlanHash, b.PolicyVersion, cfHash(b))
 		wantState(t, err, violation)
 	}
-	if n := count(t, w.admin, "confirmation_request"); n != 0 {
+	if n := countRows(t, w.admin, "confirmation_request"); n != 0 {
 		t.Fatalf("%d requests stored with a version below 1", n)
 	}
 }
@@ -513,7 +513,7 @@ func TestAnAnswerAfterTheExpiryOrTheSupersessionIsRefused(t *testing.T) {
 	}
 	wantSQLState(t, w.answer(w.trustA, "ten_a", "cfe_late2", "cfr_e1", "prn_2", "ACCEPT"), "23S01")
 	wantSQLState(t, w.answer(w.trustA, "ten_a", "cfe_late3", "cfr_e1", "prn_2", "DECLINE"), "23S01")
-	if n := count(t, w.admin, "confirmation_answer"); n != 1 {
+	if n := countRows(t, w.admin, "confirmation_answer"); n != 1 {
 		t.Errorf("%d answers, want only the one made before the expiry", n)
 	}
 	// the live head still takes its answer
@@ -545,7 +545,7 @@ func TestAnAnswerAndASupersedeAtOnceNeverLeaveAnAnswerOnASupersededRequest(t *te
 	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM confirmation_answer a JOIN confirmation_request s ON s.tenant_id = a.tenant_id AND s.supersedes_request_id = a.confirmation_request_id`).Scan(&stale); err != nil {
 		t.Fatal(err)
 	}
-	if stale != 0 || ok != 1 || count(t, w.admin, "confirmation_answer") != 0 {
-		t.Fatalf("%d answers on a superseded request, %d writes succeeded, %d answers: want none, exactly the supersede, none", stale, ok, count(t, w.admin, "confirmation_answer"))
+	if stale != 0 || ok != 1 || countRows(t, w.admin, "confirmation_answer") != 0 {
+		t.Fatalf("%d answers on a superseded request, %d writes succeeded, %d answers: want none, exactly the supersede, none", stale, ok, countRows(t, w.admin, "confirmation_answer"))
 	}
 }
