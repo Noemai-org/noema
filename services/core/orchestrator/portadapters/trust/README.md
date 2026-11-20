@@ -45,6 +45,8 @@ The adapters between the orchestrator and Trust (package `trustport`). Each adap
 
 `RecorderAdapter` implements `intake.Recorder`: it writes the Decision Record, the grants and their events with `recorder.Writer` in one transaction it opens and commits. REQ-TRU-009, REQ-AUD-001; INV-03, INV-16, INV-17; EC-E16.
 
+It serves every outcome (A456, interim, relayed, not yet committed): an ALLOW needs its plan hash and carries one grant per write step; a REJECT, CONFIRM or UNKNOWN has no plan hash and no step, so no grant (a step, a plan hash or a confirmation request on another outcome is refused before the transaction). A CONFIRM may carry the new confirmation request, which the Writer records with it and whose ID comes back as `ConfirmationRequestID`. The decision ID is returned for every outcome.
+
 `SealedFacts` is the production `RecordFactSource`. It reads the evidence set hash from the SEALED SNAPSHOT of the evaluation (the snapshot named in the evaluation's own basis, read as the request's tenant through `SnapshotReader`), re-checks it is intact and of the evaluation's own correlation (equal, else `ErrSnapshotNotIntact`), takes the policy from the manifest-verified pack passed in (it must be a policy the evaluation used) and asks a `StepFactSource` for each step's target versions and freeze permission. A `RecordRequest` has no field that can set the evidence hash or a target version, and a test fails if one is added.
 
 The confirmation spend is the writer's and the database's, not a second path in this adapter: the adapter only passes the confirmation event and plan hash on, and `recorder.Writer` and the database's single-use constraint spend it (INV-17).

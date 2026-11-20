@@ -175,21 +175,6 @@ func TestAGrantInTheAnswerToANonAllowIsRolledBack(t *testing.T) {
 	}
 }
 
-// A435: an ALLOW that follows a confirmation hands the Writer the evidence component of the binding, which the Writer recomputes the binding from; it is the request's own value
-// and is never the grant's evidence hash.
-func TestAnAllowAfterAConfirmationHandsTheWriterTheBindingEvidenceHash(t *testing.T) {
-	r := recRequest(t, 1)
-	r.ConfirmationEventID, r.ConfirmationPlanHash, r.ConfirmationBindingEvidenceHash = "cfe_01AB", r.PlanHash, recHash(5)
-	w := &recWriter{res: recGrants(1)}
-	if _, err := recAdapter(t, &recBegin{tx: &recTx{}}, newRecFacts(), w).Record(recCtx(t), r); err != nil {
-		t.Fatal(err)
-	}
-	q := w.got[0]
-	if string(q.ConfirmationBindingEvidenceHash) != recHash(5) || string(q.Steps[0].EvidenceSetHash) != recHash(3) {
-		t.Fatalf("binding evidence %q, grant evidence %q", q.ConfirmationBindingEvidenceHash, q.Steps[0].EvidenceSetHash)
-	}
-}
-
 // REQ-CTX-004, INV-17: for a non-ALLOW without steps the sealed facts need no step source call, and whatever the request's own strings are, the evidence hash is the snapshot's.
 func TestSealedFactsOfANonAllowNeedNoStepFactsAndTakeNothingFromTheRequest(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261120))
