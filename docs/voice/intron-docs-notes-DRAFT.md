@@ -1,5 +1,7 @@
 # Intron (Sahara) official documentation notes: DRAFT
 
+
+> **Authority note (AGENTS section 2, item 3, 20 Nov 2026).** A377 to A379 are relayed Founder rulings recorded in docs#211, which is still open; A380 to A383 are relayed and not yet recorded. Until a non-author Founder merges docs#211 they are not in force: **A180 still governs**, and nothing here lifts it. Every step that depends on them (audio of real speakers, live calls with it) starts only when docs#211 merges; work on synthetic audio proceeds under A241.
 Date: 13 Nov 2026 · Owner: Voice Engineer · Status: **notes only, derived and non-normative.** They decide nothing: no adapter, no interface change, no threshold. Rulings A179 to A182 (docs#168, merged 13 Nov) make Intron the sole integrated speech provider but take effect only with the SoT edit, which has not been made; until it is, none of this is built on. Read by a web fetch of Intron's public pages on 13 Nov 2026 (the privacy-policy lines were supplied to me and are marked so). No account, no key, no live call, no data sent (F4).
 
 Status key: **VERIFIED** = on an official Intron page (URL given). **UNVERIFIED** = not found, not readable, or only a marketing claim. The docs site does not name "Sahara"; the Sahara v2.5 homepage links to it, which is the only tie between them.
