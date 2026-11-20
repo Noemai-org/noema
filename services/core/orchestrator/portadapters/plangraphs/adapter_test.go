@@ -632,7 +632,7 @@ func TestSlotValueOfAnotherKindIsRefused(t *testing.T) {
 func TestSlotParamWithNoOrUnknownKindIsRefused(t *testing.T) {
 	for _, k := range []plangraphs.SlotKind{"", "resource", "Free", "Text", "ENUM"} {
 		for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
-			_, a := build(packGraph(kindParam(pk, k, "")), kindIntent(plangraphs.SlotKindEnum, "", "x"))
+			_, a := build(packGraph(kindParam(pk, k, "")), kindIntent(k, "", "x"))
 			if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrSlotKind) {
 				t.Fatalf("%s kind %q: err = %v, want ErrSlotKind", pk, k, err)
 			}

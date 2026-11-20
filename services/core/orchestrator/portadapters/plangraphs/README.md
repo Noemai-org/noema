@@ -8,6 +8,8 @@ It reads the pack's action graph for an intent node through the `Pack` port (pac
 
 `Graph` (the `trustport.PlanGraphs` method) takes the `PlanContext` from the `PlanContexts` port; `GraphWith` takes it as an argument. Mapping from the intake's PlanRequest (a parallel lane): `Runnable` from `runnable.Runnable` (noema#782), `PolicyParams`, `Facts` and `EvidencePacket` from the same-named fields.
 
-**Open:** the `Pack` implementation of the composition fills `ParamSpec` from noema#765's graph-node `params`. SR condition 1 on noema#762 (an expected kind per slot param) is not built: the six kinds have no kind member.
+**Open:** the `Pack` implementation of the composition fills `ParamSpec` from noema#765's graph-node `params`. 
 
 Tests: `go test -race ./services/core/orchestrator/portadapters/plangraphs/`.
+
+**A440 and SR conditions (interim, relayed, not yet committed):** a slot or map param declares `SlotKind` (Resource, Quantity, Party, TimeRef, Reference, Enum; `ResourceKind` too for Resource); the value carries its own `Kind` and `ResourceKind`; a missing, unknown or different kind is `ErrSlotKind`, refused at planning and named. Every string from a slot (nested too) has no digit run over four and at most `Adapter.MaxTextBytes` bytes (`ErrFreeText`); the bound has no default and zero is `ErrConfig`.

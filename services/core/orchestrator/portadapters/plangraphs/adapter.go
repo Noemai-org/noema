@@ -28,7 +28,7 @@ func (a Adapter) Graph(ctx context.Context, r intake.PlanRequest) (trustport.Pla
 // intent's target (plan.v1 has none; INV-18). A refusal wraps trustport.ErrPlanGraphInvalid, which the Planner maps to intake.ErrPlanInvalid; an error of a port is returned as a
 // dependency failure and is never ErrPlanGraphInvalid. Every returned value is a copy.
 func (a Adapter) GraphWith(ctx context.Context, r intake.PlanRequest, pc PlanContext) (trustport.PlanGraph, error) {
-	if a.Pack == nil || a.Intents == nil {
+	if a.Pack == nil || a.Intents == nil || a.MaxTextBytes <= 0 {
 		return trustport.PlanGraph{}, trustport.ErrConfig
 	}
 	in, err := a.Intents.Slots(ctx, r.TenantID, r.IntentID, r.IntentVersion)
@@ -66,7 +66,7 @@ func (a Adapter) GraphWith(ctx context.Context, r intake.PlanRequest, pc PlanCon
 		if s.TargetRef != "" && s.TargetRef != in.TargetRef {
 			return trustport.PlanGraph{}, fmt.Errorf("%w: step %q", ErrTargetMismatch, s.NodeID)
 		}
-		params, err := buildParams(s, in.Slots, pc)
+		params, err := buildParams(s, in.Slots, pc, a.MaxTextBytes)
 		if err != nil {
 			return trustport.PlanGraph{}, err
 		}
@@ -96,7 +96,7 @@ func runnableSet(pg PackGraph, ids []string) (map[string]bool, error) {
 }
 
 // buildParams builds the params of one step from its declarations. A declaration with an empty or repeated name, or with a kind outside the six, is refused.
-func buildParams(s PackStep, slots map[string]SlotValue, pc PlanContext) (map[string]any, error) {
+func buildParams(s PackStep, slots map[string]SlotValue, pc PlanContext, maxText int) (map[string]any, error) {
 	params := make(map[string]any, len(s.Params))
 	for _, p := range s.Params {
 		if p.Name == "" {
@@ -105,7 +105,7 @@ func buildParams(s PackStep, slots map[string]SlotValue, pc PlanContext) (map[st
 		if _, dup := params[p.Name]; dup {
 			return nil, fmt.Errorf("%w: step %q declares param %q twice", ErrParamSource, s.NodeID, p.Name)
 		}
-		v, err := paramValue(p, s.CapabilityID, slots, pc)
+		v, err := paramValue(p, s.CapabilityID, slots, pc, maxText)
 		if err != nil {
 			return nil, fmt.Errorf("step %q param %q: %w", s.NodeID, p.Name, err)
 		}
@@ -114,14 +114,14 @@ func buildParams(s PackStep, slots map[string]SlotValue, pc PlanContext) (map[st
 	return params, nil
 }
 
-func paramValue(p ParamSpec, capabilityID string, slots map[string]SlotValue, pc PlanContext) (any, error) {
+func paramValue(p ParamSpec, capabilityID string, slots map[string]SlotValue, pc PlanContext, maxText int) (any, error) {
 	switch p.Kind {
 	case KindConst:
 		return copyData(p.Value)
 	case KindSlot:
-		return resolvedSlot(p.Slot, slots)
+		return resolvedSlot(p, slots, maxText)
 	case KindMap:
-		return mapped(p, slots)
+		return mapped(p, slots, maxText)
 	case KindFact:
 		return present(p.Ref, pc.Facts[p.Ref])
 	case KindPolicyParam:
@@ -144,7 +144,7 @@ func present(name, v string) (any, error) {
 }
 
 // mapped looks the RESOLVED value of the slot up in the pack's map. A value that is not a string key of the map is refused, never passed through.
-func mapped(p ParamSpec, slots map[string]SlotValue) (any, error) {
+func mapped(p ParamSpec, slots map[string]SlotValue, maxText int) (any, error) {
 	if len(p.Map) == 0 {
 		return nil, fmt.Errorf("%w: a map param declares no values", ErrParamSource)
 	}
@@ -160,6 +160,9 @@ func mapped(p ParamSpec, slots map[string]SlotValue) (any, error) {
 	if !have || !sv.Resolved {
 		return nil, ErrUnresolvedSlot
 	}
+	if err := checkSlot(p, sv, maxText); err != nil {
+		return nil, err
+	}
 	key, ok := sv.Value.(string)
 	if !ok {
 		return nil, ErrMapValue
@@ -171,15 +174,75 @@ func mapped(p ParamSpec, slots map[string]SlotValue) (any, error) {
 	return code, nil
 }
 
-func resolvedSlot(name string, slots map[string]SlotValue) (any, error) {
-	if name == "" {
+func resolvedSlot(p ParamSpec, slots map[string]SlotValue, maxText int) (any, error) {
+	if p.Slot == "" {
 		return nil, ErrParamSource
 	}
-	sv, ok := slots[name]
+	sv, ok := slots[p.Slot]
 	if !ok || !sv.Resolved {
 		return nil, ErrUnresolvedSlot
 	}
+	if err := checkSlot(p, sv, maxText); err != nil {
+		return nil, err
+	}
 	return copyData(sv.Value)
+}
+
+// checkSlot refuses, before the value is used, a slot param with no valid declared kind, a value whose own kind (or resource kind) is not the declared one (A440), and a string
+// in the value with a digit run over four or longer than maxText (AGENT-13).
+func checkSlot(p ParamSpec, sv SlotValue, maxText int) error {
+	switch p.SlotKind {
+	case SlotKindResource:
+		if p.ResourceKind == "" {
+			return fmt.Errorf("%w: a Resource slot param declares no resource kind", ErrSlotKind)
+		}
+		if sv.ResourceKind != p.ResourceKind {
+			return fmt.Errorf("%w: resource kind %q, want %q", ErrSlotKind, sv.ResourceKind, p.ResourceKind)
+		}
+	case SlotKindQuantity, SlotKindParty, SlotKindTimeRef, SlotKindReference, SlotKindEnum:
+	default:
+		return fmt.Errorf("%w: declared kind %q", ErrSlotKind, p.SlotKind)
+	}
+	if sv.Kind != p.SlotKind {
+		return fmt.Errorf("%w: value kind %q, want %q", ErrSlotKind, sv.Kind, p.SlotKind)
+	}
+	return checkText(sv.Value, maxText)
+}
+
+// checkText walks plain data and refuses a string longer than maxText bytes or holding five or more digits in a row.
+func checkText(v any, maxText int) error {
+	switch x := v.(type) {
+	case string:
+		if len(x) > maxText {
+			return ErrFreeText
+		}
+		run := 0
+		for i := 0; i < len(x); i++ {
+			if x[i] >= '0' && x[i] <= '9' {
+				if run++; run > 4 {
+					return ErrFreeText
+				}
+			} else {
+				run = 0
+			}
+		}
+	case map[string]any:
+		for k, e := range x {
+			if err := checkText(k, maxText); err != nil {
+				return err
+			}
+			if err := checkText(e, maxText); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if err := checkText(e, maxText); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // copyData deep-copies plain data: strings, booleans, integers, and maps and slices of them. Floats (and a json.Number that is not an integer) are refused, because money is
