@@ -71,6 +71,9 @@ func TestAtRiskFromLimitsHasNoDefaultAndRefusesALimitsThatWasNotLoaded(t *testin
 	if !errors.Is(err, intakesources.ErrConfig) || got != (clocks.Ratio{}) {
 		t.Errorf("an unloaded Limits has no at-risk value and no default: got %+v, %v", got, err)
 	}
+	if !errors.Is(err, trustlimits.ErrNotLoaded) {
+		t.Errorf("the cause stays reachable with errors.Is: %v", err)
+	}
 }
 
 func TestAtRiskFromLimitsARefusedDocumentGivesNoFraction(t *testing.T) {

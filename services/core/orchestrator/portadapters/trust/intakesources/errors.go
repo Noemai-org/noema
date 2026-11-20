@@ -4,7 +4,7 @@ import "errors"
 
 // Errors of the readers. Callers compare with errors.Is. None is a decision: the intake turns each into UNKNOWN INTERNAL_ERROR (INV-16).
 var (
-	// ErrConfig marks a reader built without a part it needs, or with a timeout below one (AGENT-16).
+	// ErrConfig marks a reader built without a part it needs, or with a timeout below one (AGENT-16), and a trust limits document that was not loaded (AtRiskFromLimits).
 	ErrConfig = errors.New("intakesources: the reader is not configured")
 	// ErrQuery marks a query the reader refuses before it asks the database: a tenant, an intent or a version outside its shape, or no intent node.
 	ErrQuery = errors.New("intakesources: the query is not usable")
@@ -21,8 +21,6 @@ var (
 	// ErrIntent marks a stored intent that cannot give a fact it does name: a slot without a status, a status outside the contract, a resolved reference on a slot that is not
 	// RESOLVED, an intent node other than the query's.
 	ErrIntent = errors.New("intakesources: the stored intent cannot give this fact")
-	// ErrSetting marks a setting that is missing or not usable. The error names the setting and never echoes its value.
-	ErrSetting = errors.New("intakesources: a setting is missing or not usable")
 )
 
 // failure is an error with a fixed text and a cause that errors.Is can still find: a database or login error can name a server, a login, a tenant or a row, so its text is never
