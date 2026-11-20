@@ -4,19 +4,19 @@
   "label": "SYNTHETIC",
   "note": "The pack manifest of the fintech pack (PCK-02, ruling A333; settles the hash-pin of EVD-06, A320). It lists each pack file the core loads with its SHA-256 and names the evidence-mapping id and the reconciliation rule-set id the core expects, so the core hard-codes neither (INV-14). The core loads through it and refuses a mismatch. A path is relative to the pack directory (packs/). `expected` ids are `<id>@<version>` exactly as the file carries them (mapping_id and version, ruleset_id and version). Every file of a listed kind must be listed: an unlisted file is a packcheck failure. Hash-pinned now, signatures later (A320). Any edit to a listed file needs its SHA-256 updated here, in the same pull request: `sha256sum <file>` gives it. Not yet listed (no consumer yet): graphs, limits, lexicons, templates, schemas, and injection_patterns.v1.json (EVD-06, noema#688; add it with its kind when that merges).",
   "expected": {
-    "evidence_mapping_id": "fin.map.v1@1",
+    "evidence_mapping_id": "fin.map.v1@2",
     "recon_rule_set_id": "fin.recon.rules@1"
   },
   "files": [
     {
       "kind": "pack",
       "path": "fintech_v1.json",
-      "sha256": "02bb2030770c625a539e6e0eb8397f14ed8029ff1bdeae9efa90ce529843e911"
+      "sha256": "db250b570264e8b017c9dc7f6c15dfaba86045a1997dff4037655f8b74e8e3a0"
     },
     {
       "kind": "evidence_mapping",
       "path": "fintech/evidence_mapping/mapping.v1.json",
-      "sha256": "b626a2252a294851c78677ff4b6fb62756292d5393a291871bd0d3b4722ae2e4"
+      "sha256": "a0550f6442fb3dc38e782deebf74e834f3e797595c5a39e6048edd7eb54a1fe8"
     },
     {
       "kind": "recon_rules",
