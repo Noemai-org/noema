@@ -52,7 +52,7 @@ func csCase(id string) adapters.CaseRecord {
 }
 
 func csComplaint(ref, caseID string) adapters.ComplaintRecord {
-	return adapters.ComplaintRecord{ComplaintRef: ref, CaseID: caseID, IdempotencyKey: "key_" + ref, LoggedAt: "2026-11-11T08:30:00Z",
+	return adapters.ComplaintRecord{ComplaintRef: ref, CaseID: caseID, IdempotencyKey: "key_" + ref, LoggedAt: "2026-11-11T08:31:00Z",
 		ClockStartedAt: "2026-11-11T08:30:00Z", TenantID: "ten_aa"}
 }
 
@@ -244,17 +244,17 @@ func TestTheComplaintListHasItsOwnMarker(t *testing.T) {
 }
 
 func TestSeveralCasesGiveOneSortedComplaintListThatIsCompleteOnlyIfEveryReadWas(t *testing.T) {
-	build := func(secondComplete bool) *csRig {
+	build := func(incompleteCase string) *csRig {
 		g := csNew()
 		g.cases.find = func(adapters.CaseQuery) (adapters.CasePage, error) {
 			return csCasePage(true, csCase("c2"), csCase("c1")), nil
 		}
 		g.records.find = func(q adapters.RecordQuery) (adapters.ComplaintPage, error) {
-			return csComplaintPage(q.CaseID != "c2" || secondComplete, csComplaint("cmp_"+q.CaseID, q.CaseID)), nil
+			return csComplaintPage(q.CaseID != incompleteCase, csComplaint("cmp_b"+q.CaseID, q.CaseID), csComplaint("cmp_a"+q.CaseID, q.CaseID)), nil
 		}
 		return g
 	}
-	g := build(true)
+	g := build("")
 	if _, err := g.run(t); err != nil {
 		t.Fatal(err)
 	}
@@ -266,15 +266,37 @@ func TestSeveralCasesGiveOneSortedComplaintListThatIsCompleteOnlyIfEveryReadWas(
 		t.Errorf("case rows are not in case-id order: %#v", rows)
 	}
 	crows, done := csList(t, csGot(t, g, 1))
-	if len(crows) != 2 || !done || crows[0].(map[string]any)["complaint_ref"] != "cmp_c1" {
-		t.Errorf("complaint rows %#v complete %v", crows, done)
+	want := []string{"cmp_ac1", "cmp_bc1", "cmp_ac2", "cmp_bc2"}
+	if len(crows) != len(want) || !done {
+		t.Fatalf("complaint rows %#v complete %v", crows, done)
 	}
-	g = build(false)
+	for i, w := range want {
+		if crows[i].(map[string]any)["complaint_ref"] != w {
+			t.Errorf("complaint row %d is %v, want %s (by case id, then by ref)", i, crows[i].(map[string]any)["complaint_ref"], w)
+		}
+	}
+	if o := csGot(t, g, 1); o.RawHash == hash || !strings.HasPrefix(o.RawHash, "sha256:") || len(o.RawHash) != len(hash) {
+		t.Errorf("the raw hash of two pages must be one digest of both, got %q", o.RawHash)
+	}
+	for _, c := range []string{"c1", "c2"} {
+		g = build(c)
+		if _, err := g.run(t); err != nil {
+			t.Fatal(err)
+		}
+		if o := csGot(t, g, 1); func() bool { _, d := csList(t, o); return d }() || status(o) != contracts.EnumsV1FactStatusUNKNOWN {
+			t.Errorf("an unfinished complaint read of %s must make the whole complaint list unknown", c)
+		}
+	}
+}
+
+func TestAnEmptyCompleteListIsStampedWithTheReadersClock(t *testing.T) {
+	g := csNew()
+	g.cases.find = func(adapters.CaseQuery) (adapters.CasePage, error) { return csCasePage(true), nil }
 	if _, err := g.run(t); err != nil {
 		t.Fatal(err)
 	}
-	if _, done := csList(t, csGot(t, g, 1)); done || status(csGot(t, g, 1)) != contracts.EnumsV1FactStatusUNKNOWN {
-		t.Error("one unfinished complaint read must make the whole complaint list unknown")
+	if o := csGot(t, g, 0); !o.EffectiveAt.Equal(epoch) {
+		t.Errorf("effective_at = %v, want the reader's clock %v", o.EffectiveAt, epoch)
 	}
 }
 
@@ -379,16 +401,41 @@ func TestAListOverTheSizeLimitIsRefusedFailClosedAndOneAtTheLimitIsNot(t *testin
 	if len(g.records.queries) != 0 {
 		t.Error("complaints were read after a refused case list")
 	}
-	if complaintSize >= caseSize {
-		t.Skip("the fixture's complaint payload is not smaller than the case payload; the complaint limit is covered by the shared check")
+	many := func(g *csRig) {
+		g.records.find = func(q adapters.RecordQuery) (adapters.ComplaintPage, error) {
+			var cs []adapters.ComplaintRecord
+			for _, ref := range []string{"cmp_1", "cmp_2", "cmp_3", "cmp_4", "cmp_5", "cmp_6", "cmp_7", "cmp_8"} {
+				cs = append(cs, csComplaint(ref, q.CaseID))
+			}
+			return csComplaintPage(true, cs...), nil
+		}
 	}
 	g = csNew()
+	many(g)
+	if _, err := g.run(t); err != nil {
+		t.Fatal(err)
+	}
+	complaintSize = size(csGot(t, g, 1))
+	if complaintSize <= caseSize {
+		t.Fatalf("fixture: the complaint payload (%d bytes) must be larger than the case payload (%d)", complaintSize, caseSize)
+	}
+	g = csNew()
+	many(g)
+	g.r.MaxPayloadBytes = complaintSize
+	if _, err := g.run(t); err != nil || status(csGot(t, g, 1)) != contracts.EnumsV1FactStatusKNOWN {
+		t.Fatalf("a complaint list of exactly the limit must be read: %v", err)
+	}
+	g = csNew()
+	many(g)
 	g.r.MaxPayloadBytes = complaintSize - 1
 	if _, err := g.run(t); err != nil {
 		t.Fatal(err)
 	}
-	if len(g.rec.got) != 2 || csGot(t, g, 1).Payload != nil || status(csGot(t, g, 1)) != contracts.EnumsV1FactStatusUNKNOWN {
+	if o := csGot(t, g, 1); o.Payload != nil || status(o) != contracts.EnumsV1FactStatusUNKNOWN || o.Read.Class != layer.ReadMalformed {
 		t.Error("a complaint list over the limit must be refused fail closed")
+	}
+	if status(csGot(t, g, 0)) != contracts.EnumsV1FactStatusKNOWN {
+		t.Error("a refused complaint list spoiled the case list")
 	}
 }
 

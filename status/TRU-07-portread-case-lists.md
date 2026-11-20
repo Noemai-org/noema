@@ -1,6 +1,6 @@
 # Session 2026-11-20 · TRU-07 (portread: the case list and the complaint_ref list)
 
-State: RED commit (tests and a stub). The implementation follows in a local commit that EL pushes.
+State: green locally (gofmt, go vet, go test -race of the package, lint); 38 hand mutants of `cases.go`, 5 survived the first tests and each got a test, all killed. DB tests: none in this package. EL pushes.
 
 ## Session summary
 - What changed (PR links): see the PR of branch `feat/TRU-07-portread-case-lists`. `services/core/evidence/portread`: `cases.go` (`CaseSources`, `Reader.ReadCases`), new `Reader` fields `Cases`, `CaseRecords`, `CaseSources`, `MaxPayloadBytes`; `cases_test.go`; README.

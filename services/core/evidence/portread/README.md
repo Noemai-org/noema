@@ -14,6 +14,18 @@ The Evidence Layer's call site for the read ports of `adapters` (ENV-04 wiring s
 | Labels (AGENT-25) | A successful read carries the adapter's own `DataSource` and `Synthetic`; a failed read carries the reader's configured label. |
 | Deadlines (AGENT-16) | The caller's context needs a deadline; each port call gets `ReadTimeout` from configuration (zero refuses every read). |
 
+## Case lists (TRU-07; ruling A461, interim, relayed, not yet committed; A438)
+
+`Reader.ReadCases(ctx, scope, correlationID, transactionRef)` reads the stand-in's case list (`adapters.Case.FindCases`, mock-case's `CasePage`) and its complaint list (`adapters.CaseRecords.FindComplaints`, its own list with its own marker) and records each as one item with the payload `{"items": [...], "complete": bool}`, the keys `ListRows` reads (REQ-CTX-001, REQ-CTX-007; INV-12, INV-19, INV-21).
+
+| Rule | How |
+|---|---|
+| Marker | A list is KNOWN only when its own marker is complete. An incomplete list is UNKNOWN, never an empty none. An empty list marked complete is "no case". |
+| Complaints | Read per case, in case-id order, only from a usable complete case list with at least one case, merged into one list, complete only if every read was. With no case to read them for, no complaint item is recorded. |
+| Fail closed | A page that contradicts its own marker, a record of another tenant, principal or transaction, a missing id or status, a time that does not parse or has no zone, a duplicate id, a provenance without a hash, or a payload over `MaxPayloadBytes` is an UNKNOWN item with no payload. |
+| Limit | `MaxPayloadBytes` comes from configuration; zero refuses `ReadCases` (no default). |
+| Scope | Tenant and principal are the session's, passed to both ports unchanged (INV-12). Only the first page of each list is read. |
+
 Not here: reading a pack, the candidates search (`Transactions`), the `fin.src.settlement` source (the destination answer is recorded under the destination source only), `cmd/core` wiring and the Compose bench profile (Integration Lead; they wait for EDG-01 slice 3b, the session in `cmd/core`).
 
 Tests: `go test -race ./evidence/portread/` (no database; fake ports and a fake recorder).
