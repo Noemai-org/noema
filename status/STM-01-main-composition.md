@@ -38,3 +38,29 @@ Rulings used (all "interim, relayed, not yet committed"): the Founder's order of
 - Open questions (EL): the worker start deadline (reading 4); whether `worker` should be a `/readyz` line before #794 (reading 3).
 - Files to read first: `services/core/cmd/core/compose.go`, `wire_trust.go`, `worker_run.go`.
 - Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`.
+
+# Session 2026-11-20 WAT · STM-01 (main composition, slice 2: the adapters that are on main)
+
+## Session summary
+- What changed: `wire_trust_adapters.go` (`PackSource`, `productionPack`, `trustAdaptersSource`, `UnbuiltAdaptersError`, `unsetAdapters`); `checkTrustAdapters` now uses `unsetAdapters`; `Components.Confirmations` and its route mount (A341, noema#754) with the process logger; `/readyz` names `confirmation route`; `buildAPI` refuses the route with no logger.
+- Merged and verified with `gh api`: #759 #762 #750 #752 #754 #763 #782 #784 #787 #765 #745 #746 #747 #741 #766 #769 #771 #801 #817 #818 #820. Open: #773 #788 #722 #812 #794 #726 #789 #755 #756.
+- Wired now: Capabilities, Scope, Authority (trustpack, over the pack the `PackSource` gives, escalation graph from `NOEMA_TRUST_ESCALATION_GRAPH`); the confirmation route when `Components.Confirmations` is given.
+- Not wired, and why (each is named in the startup error of a process asked for Trust, in this order: Pack, Intents, Writes, Capabilities, Scope, Authority, Candidates, Ownership, Evidence, Reconciler, Policies, Clocks, Confirmations, Planner, Recorder, PackVersion):
+  - Pack, PackVersion: the manifest-verified pack load is noema#773 (open). Production has no pack source; loading `trustpack.LoadPack` over an unverified pack was refused (A333: PackVersion = the manifest-verified pack). EVERY other adapter reads the pack (Intents: pack bytes; Writes: KillSwitch packRef and the write rule; Candidates, Ownership: pack nodes; Reconciler: Pack; Policies and Clocks: the pack's books; Recorder: PolicyID and escalation set), so none is buildable before it.
+  - Evidence: needs `SourceProfiles` (#788, open); `SealedSnapshots` is on main and joins it then.
+  - Confirmations, route store: the store and migration 0032 are #756 (open); `ConfirmationPath` (#750) is on main and needs it. The route's Requests and Answers are the same store, so `Components.Confirmations` stays nil in production and `/readyz` names it.
+  - Planner: three gaps, no decision taken. (1) `plangraphs.Pack` over the pack: action-graph.v2 params have `slot`, `const`, `map`, `fact`, `policy_param`, `evidence_packet` and NO slot kind (A440 asks `{"slot","kind"}`), and the graph is selected by `applies_when`, not by intent node; the A454 Slots would come from the intent node's slot declarations. (2) `plangraphs.Intents` (stored-intent slots) has no implementation on main. (3) `plangraphs.PlanContexts` has none either. Registry: `trustpack.Pack` has no accessor for it.
+  - Recorder: needs the pack's PolicyID and escalation set (`EscalationSetFromPack`), a `StepFactSource`, grant and record lifetimes and `TxTimeout` (Architect's values, no setting yet).
+  - Candidates, Ownership: built per tenant, need the pack nodes plus a reader, ranker and labeller.
+  - Reconciler: `NOEMA_TRUST_RECONCILE_TIMEOUT_MS` is named in its README as the composition's setting; not added, since the adapter needs the pack and snapshots first.
+- Settings added: `NOEMA_TRUST_ESCALATION_GRAPH` (no code default; required once a pack is given). No other.
+- Safer readings taken: (1) the confirmation route logs through the same redacted logger as `AccessLog` (no second logger field), and a route with no logger is a startup error; (2) no unverified pack is ever loaded; (3) `/readyz` is not served when the process refuses to start, so each missing adapter is named in the startup error, and with no Trust setting `/readyz` names `trust` and `confirmation route`; (4) a pack source that returns no pack and no error is no pack.
+- Hand mutation check: 14 mutants, 11 killed. Survivors: `graph == ""` (equivalent: `NewCapabilities` refuses an empty graph and the message names the setting) and the `productionPack` replacement (equivalent: a nil pack takes the same path). Two tests (`TestAPackSourceThatReturnsNothingIsNoPack`, `TestCheckTrustAdaptersNamesTheFirstMissingInStructOrder`) were added after it and are not in the red head.
+- Tests (REQ-TRU-002, REQ-TRU-004, REQ-TRU-005, REQ-TRU-009, REQ-SEC-003; INV-03, INV-12, INV-16, AGENT-13, AGENT-16): `main_compose_adapters_test.go`; readiness tables updated for `confirmation route`.
+- Process note: a build binary (`services/core/cmd/core/core`, 37 MB) was committed by mistake in the first red commit 60cb3d5e on `feat/STM-01-main-composition` and pushed. A429: close and reopen from a fresh branch. `feat/STM-01-main-composition-v2` is the same work with no binary, not pushed.
+
+## Pre-work for the next agent
+- Exact next step: when #773 merges, replace `productionPack` and name `PackVersion` from the verified manifest; then the pack-reading adapters one by one (checklist above).
+- Open questions (EL): where the pack comes from before #773; the Planner gaps; the grant and record lifetimes and `TxTimeout`.
+- Files to read first: `wire_trust_adapters.go`, `compose.go`.
+- Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`.

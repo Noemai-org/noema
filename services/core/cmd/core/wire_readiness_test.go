@@ -123,7 +123,7 @@ func TestSeveralMissingComponentsAreAllNamedInOrder(t *testing.T) {
 	zeroField(t, &c, "Ports.Explainer")
 	zeroField(t, &c, "Ports.Evidence")
 	ok, reason := composeReadiness(c, nil)()
-	if want := wantReason("evidence", "explainer", "edge chain", "input gateway", "confirmation route"); ok || reason != want {
+	if want := wantReason("evidence", "explainer", "edge chain", "input gateway"); ok || reason != want {
 		t.Fatalf("ready %v, reason %q; want %q", ok, reason, want)
 	}
 }
@@ -242,7 +242,7 @@ func TestTheRecordLoginsAreNamedAfterTheRecordReaderInTheStableOrder(t *testing.
 	c.ServedTenants = []string{"ten_aa"}
 	c.Records = loginDBs{}
 	ok, reason := composeReadiness(c, nil)()
-	if want := wantReason("evidence", "edge chain", "record logins", "input gateway", "confirmation route"); ok || reason != want {
+	if want := wantReason("evidence", "edge chain", "record logins", "input gateway"); ok || reason != want {
 		t.Fatalf("ready %v, reason %q; want %q", ok, reason, want)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"strconv"
 	"time"
 
@@ -75,21 +74,10 @@ func loadGrantKeys(dir string, maxActive int) (*grants.Keys, error) {
 	return keyfiles.Load(dir, keyfiles.Options{MaxActive: maxActive})
 }
 
-// checkTrustAdapters returns an error that names the first missing adapter, in the order of the struct's fields.
+// checkTrustAdapters returns an error that names the first missing adapter, in the order of the struct's fields (unsetAdapters has the rule).
 func checkTrustAdapters(a TrustAdapters) error {
-	v := reflect.ValueOf(a)
-	for i := 0; i < v.NumField(); i++ {
-		f := v.Field(i)
-		missing := false
-		switch f.Kind() {
-		case reflect.Interface, reflect.Pointer, reflect.Func, reflect.Map, reflect.Slice, reflect.Chan:
-			missing = f.IsNil() || (f.Kind() == reflect.Interface && f.Elem().Kind() == reflect.Pointer && f.Elem().IsNil())
-		case reflect.String:
-			missing = f.String() == ""
-		}
-		if missing {
-			return errors.New("cmd/core: the Trust service needs the " + v.Type().Field(i).Name + " adapter: it is not configured")
-		}
+	if names := unsetAdapters(a); len(names) > 0 {
+		return errors.New("cmd/core: the Trust service needs the " + names[0] + " adapter: it is not configured")
 	}
 	return nil
 }

@@ -180,3 +180,22 @@ func TestAConfirmationRouteWithoutALoggerIsAStartupError(t *testing.T) {
 		t.Fatalf("error %v; want one naming the confirmation route", err)
 	}
 }
+
+// A pack source that returns no pack and no error is still no pack: the adapters are not built from nothing (INV-16).
+func TestAPackSourceThatReturnsNothingIsNoPack(t *testing.T) {
+	a, err := adaptersAt(t, func(Env) (*trustpack.Pack, error) { return nil, nil }, envMap{EnvTrustEscalationGraph: syntheticEscalationGraph})
+	if names := unbuilt(t, err); names[0] != "Pack" || a.Capabilities != nil {
+		t.Fatalf("names %v, adapters %+v; want the pack named first and nothing built", names, a)
+	}
+}
+
+// With several adapters missing the error names the first in the struct's order, and unsetAdapters names all of them in that order. AGENT-16.
+func TestCheckTrustAdaptersNamesTheFirstMissingInStructOrder(t *testing.T) {
+	err := checkTrustAdapters(TrustAdapters{Intents: fakeIntents{}, Clock: clock.NewManual(time.Unix(1_800_000_000, 0))})
+	if err == nil || !strings.Contains(err.Error(), "the Writes adapter") {
+		t.Fatalf("error %v; want one naming Writes", err)
+	}
+	if got := unsetAdapters(TrustAdapters{Clock: clock.NewManual(time.Unix(1_800_000_000, 0))}); got[0] != "Intents" || got[len(got)-1] != "PackVersion" || len(got) != 15 {
+		t.Fatalf("unset %v; want 15 from Intents to PackVersion", got)
+	}
+}

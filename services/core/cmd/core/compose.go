@@ -79,6 +79,13 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 	if c.Investigations != nil {
 		routes = append(routes, investigationRoute(c.Investigations))
 	}
+	if c.Confirmations != nil {
+		cfg := *c.Confirmations
+		if cfg.Logger == nil {
+			cfg.Logger = c.AccessLog // the one redacted process logger (redactedLog); a route with its own logger keeps it
+		}
+		routes = append(routes, confirmationRoute(cfg))
+	}
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,
@@ -96,6 +103,9 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 func buildAPI(c Components, e Env, clk clock.Clock, ids session.IDs) (http.Handler, error) {
 	if c.Records != nil && c.AccessLog == nil {
 		return nil, errors.New("the Record reader is configured without an access logger: its reads would not be logged (REQ-AUD-003)")
+	}
+	if c.Confirmations != nil && c.AccessLog == nil {
+		return nil, errors.New("the confirmation route is configured without a logger: its refusals would not be logged (A341, AGENT-13)")
 	}
 	routes := apiRoutes(c, ids)
 	h, err := edge.Load(e.Getenv, e.ReadFile, clk, ids, routes)
@@ -127,6 +137,7 @@ func missing(c Components, api http.Handler) []string {
 		{"record reader", c.Records != nil},
 		{"record logins", recordLoginsPresent(c)},
 		{"input gateway", c.Gateway != nil},
+		{"confirmation route", c.Confirmations != nil},
 	}
 	var names []string
 	for _, p := range parts {
