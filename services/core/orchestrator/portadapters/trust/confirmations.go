@@ -122,12 +122,12 @@ func (c ConfirmationPath) Status(ctx context.Context, a intake.AdmittedIntent, f
 	}
 	expired := d.Clock.Now().Unix() > req.ExpiresAt
 	if stored.Answer == nil {
-		if expired || b.PlanHash != planHash || (f.EvidenceSetHash != "" && b.EvidenceSetHash != f.EvidenceSetHash) || (f.PolicyVersion != "" && b.PolicyVersion != f.PolicyVersion) {
+		if expired || b.PlanHash != planHash || (f.ConfirmationBindingEvidenceHash != "" && b.EvidenceSetHash != f.ConfirmationBindingEvidenceHash) || (f.PolicyVersion != "" && b.PolicyVersion != f.PolicyVersion) {
 			return fresh, nil
 		}
 		return intake.Confirmation{Status: intake.ConfirmationPending, RequestID: req.ID}, nil
 	}
-	b.EvidenceSetHash, b.PolicyVersion, b.PlanHash = f.EvidenceSetHash, f.PolicyVersion, planHash
+	b.EvidenceSetHash, b.PolicyVersion, b.PlanHash = f.ConfirmationBindingEvidenceHash, f.PolicyVersion, planHash
 	res, err := confirm.Resolve(req, stored.Answer.Event, b)
 	if err != nil {
 		return intake.Confirmation{}, fmt.Errorf("%w: resolve the confirmation: %v", ErrBadAnswer, err)
