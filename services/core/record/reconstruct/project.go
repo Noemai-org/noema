@@ -157,8 +157,11 @@ var (
 
 // mask keeps only the last four digits of every run of five or more (REQ-AUD-003 "Masked"), whatever the script of the digits. The definition of a run and of the limit is the one in
 // record/payloadguard (A194): this function only delegates, so a separator added there is masked here. It applies to free text and plain scalar facts; references, IDs and enum values
-// are checked by their contract pattern instead and served as written, because the reader matches on them. Masking is idempotent, so text that Explanation already masked is unchanged.
+// are checked by their contract pattern first; an ID or an enum value is served as written, because the reader matches on it, and a resource reference is masked like any scalar after the check (A331). Masking is idempotent, so text that Explanation already masked is unchanged.
 func mask(s string) string { return payloadguard.Mask(s) }
+
+// maskText is mask for customer-visible text, the `text` of a claim: a whole money string is shown as it is (A331). No other fact has that exemption.
+func maskText(s string) string { return payloadguard.MaskText(s) }
 
 // errProjection marks a Record object that cannot be served under the contract. The endpoint refuses rather than serve
 // a partial or invalid narrative.
@@ -191,7 +194,11 @@ func fact(key string, v any, known map[string]bool) (any, error) {
 		if v == nil {
 			return nil, nil
 		}
-		return patternFact(key, v, resourceRe)
+		ref, err := patternFact(key, v, resourceRe)
+		if err != nil {
+			return nil, err
+		}
+		return mask(ref.(string)), nil // a reference is masked like any other string (A331): its body may hold a long run of digits and a letter
 	case "classification":
 		return patternFact(key, v, upperCodeRe)
 	case "candidate_count":
@@ -203,7 +210,7 @@ func fact(key string, v any, known map[string]bool) (any, error) {
 		if !ok || s == "" || len([]rune(s)) > maxClaimText {
 			return nil, projErr("%s is not a string of 1 to %d characters", key, maxClaimText)
 		}
-		return mask(s), nil
+		return maskText(s), nil
 	case "disclosed_refs":
 		list, err := listFact(key, v)
 		if err != nil {
@@ -213,6 +220,9 @@ func fact(key string, v any, known map[string]bool) (any, error) {
 			if !resourceRe.MatchString(r) {
 				return nil, projErr("%s holds %q, which is not a resource reference", key, r)
 			}
+		}
+		for i, r := range list {
+			list[i] = mask(r) // masked like any other string (A331); the reader matches a reference by the same function on both sides
 		}
 		return list, nil
 	}

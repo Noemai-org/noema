@@ -1,0 +1,65 @@
+{
+  "label": "SYNTHETIC. The strict json_schema request format of recording rec-0003 (compile run 44521380842, gpt-6-luna), copied as sent: it drew HTTP 400 from the provider (body not recorded). Schema only; no customer text.",
+  "name": "pipeline_slot_mentions",
+  "schema": {
+    "$defs": {
+      "Mention": {
+        "additionalProperties": false,
+        "description": "One slot as the customer said it. Every field is required, so an absent mention is present=false, not a default.",
+        "properties": {
+          "confidence": {
+            "description": "Your confidence between 0 and 1.",
+            "title": "Confidence",
+            "type": "number"
+          },
+          "present": {
+            "description": "True only if the customer actually mentioned it.",
+            "title": "Present",
+            "type": "boolean"
+          },
+          "proposed_value": {
+            "description": "Your reading of it as plain text, or an empty string.",
+            "title": "Proposed Value",
+            "type": "string"
+          },
+          "surface_form": {
+            "description": "The customer's exact words for it, or an empty string.",
+            "title": "Surface Form",
+            "type": "string"
+          }
+        },
+        "required": [
+          "present",
+          "surface_form",
+          "proposed_value",
+          "confidence"
+        ],
+        "title": "Mention",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "amount": {
+        "$ref": "#/$defs/Mention",
+        "description": "A number the customer mentions, such as an amount of money."
+      },
+      "counterparty": {
+        "$ref": "#/$defs/Mention",
+        "description": "A person or organisation the customer mentions."
+      },
+      "when": {
+        "$ref": "#/$defs/Mention",
+        "description": "A time or period the customer mentions."
+      }
+    },
+    "required": [
+      "amount",
+      "counterparty",
+      "when"
+    ],
+    "title": "SlotMentions_fin_payments_exception_investigate",
+    "type": "object"
+  },
+  "strict": true
+}

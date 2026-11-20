@@ -51,6 +51,13 @@ secrets:
     file: ./secrets/noema_core_password
   temporal_password:
     file: ./secrets/temporal_password
+  # The Decision Grant HMAC keys (SEC-09): two files, so a rotation has two active keys. Compose bind-mounts a file secret and cannot set its mode or owner, and the grant-key loader refuses
+  # a file that is not mode 0400 and owned by its process user, so only the one-shot grant-keys-init step reads these two (as grant.hmac.<version>.key); it copies them into the grant_keys
+  # volume with the right mode and owner. The core never holds the secrets themselves, and no other service holds either (netcheck refuses it, INV-29). SYNTHETIC local values.
+  grant_hmac_key_a:
+    file: ./secrets/grant_hmac_key_a
+  grant_hmac_key_b:
+    file: ./secrets/grant_hmac_key_b
   # The migration login's password (W1 D14a). Mounted into postgres (bootstrap) only; the one-shot migrate step (W4) will be
   # the second and last holder. The core never holds it.
   noema_migrator_password:
@@ -64,6 +71,8 @@ secrets:
 
 volumes:
   postgres_data: {}
+  # The grant key files the core loads: written once by grant-keys-init at mode 0400 owned by the core's user (SEC-09, INV-29). Only that step writes it; only the core mounts it, read-only.
+  grant_keys: {}
 
 services:
   postgres:
@@ -122,6 +131,31 @@ services:
       retries: 30
       start_period: 20s
 
+  # One-shot, as root, no network: turns the two grant key secrets into files the core can load (mode 0400, owner 65532, the core image's nonroot user) and checks it by reading each as that user.
+  # It prints file names, never a key. If it fails, the core does not start (service_completed_successfully).
+  grant-keys-init:
+    image: *python_image
+    profiles: *run_profiles
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      GRANT_KEYS_SRC: /run/secrets
+      GRANT_KEYS_OUT: /out
+      GRANT_KEYS_UID: "65532"
+      GRANT_KEYS_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets:
+      - source: grant_hmac_key_a
+        target: grant.hmac.1.key
+      - source: grant_hmac_key_b
+        target: grant.hmac.2.key
+    volumes:
+      - ./grant-keys/init.py:/init/init.py:ro
+      - grant_keys:/out
+
   core:
     image: noema-core:dev
     build:
@@ -129,6 +163,8 @@ services:
     profiles: *run_profiles
     networks: *core_networks
     depends_on:
+      grant-keys-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       temporal:
@@ -151,6 +187,7 @@ services:
       NOEMA_MODEL_MAX_RESPONSE_BYTES: "65536"
     secrets: [noema_core_password]
     volumes:
+      - grant_keys:/run/grant-keys:ro
       - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
       - ./secrets/tls/core-client.crt:/run/tls/core-client.crt:ro
       - ./secrets/tls/core-client.key:/run/tls/core-client.key:ro
