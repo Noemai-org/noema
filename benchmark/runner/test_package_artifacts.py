@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from benchmark.runner.package_artifacts import StampError, main, stamp_doc, stamp_probes, write_counts
+from benchmark.runner.package_artifacts import StampError, main, stamp_doc, stamp_probes, stamp_reconstructions, write_counts
 
 Json = dict[str, Any]
 SHA = "a" * 40
@@ -22,17 +22,18 @@ def result(case_id: str, effects: Any = None, env: bool = True) -> Json:
                                                                                                          "model_governance_changes": 0, "monetary_calls": 0} if env else None}
 
 
-def write_run(root: Path, results: list[Json]) -> Path:
+def write_run(root: Path, results: list[Json], reconstructions: Any = None) -> Path:
+    (root / "reconstructions.json").write_text(json.dumps({} if reconstructions is None else reconstructions), encoding="utf-8")
     (root / "results").mkdir()
     for i, r in enumerate(results):
         (root / "results" / f"{i:03d}.json").write_text(json.dumps(r), encoding="utf-8")
     return root
 
 
-def new_run(tmp: Path, results: list[Json]) -> Path:
+def new_run(tmp: Path, results: list[Json], reconstructions: Any = None) -> Path:
     run = tmp / "run"
     run.mkdir()
-    return write_run(run, results)
+    return write_run(run, results, reconstructions)
 
 
 class Counts(unittest.TestCase):
@@ -132,6 +133,45 @@ class Stamps(unittest.TestCase):
                 stamp_probes(Path(tmp) / "absent.json", SHA, RUN)
 
 
+class Reconstructions(unittest.TestCase):
+    """The runner writes `reconstructions.json` as `{case: {"initial": <body>}}`; the package reads `{"stamp": {...}, "cases": {...}}`."""
+
+    def test_the_runners_file_is_wrapped_with_the_stamp_and_keeps_its_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = new_run(Path(tmp), [], {"BEN-A-0001": {"initial": {"events": [], "sections": []}}})
+            stamp_reconstructions(run, SHA, RUN)
+            self.assertEqual({"stamp": {"sha": SHA, "run_id": RUN}, "cases": {"BEN-A-0001": {"initial": {"events": [], "sections": []}}}},
+                             json.loads((run / "reconstructions.json").read_text(encoding="utf-8")))
+
+    def test_stamping_twice_with_the_same_stamp_changes_nothing_and_another_stamp_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = new_run(Path(tmp), [], {"BEN-A-0001": {"initial": {}}})
+            stamp_reconstructions(run, SHA, RUN)
+            first = (run / "reconstructions.json").read_bytes()
+            stamp_reconstructions(run, SHA, RUN)
+            self.assertEqual(first, (run / "reconstructions.json").read_bytes())
+            with self.assertRaises(StampError):
+                stamp_reconstructions(run, SHA, "g1-other")
+
+    def test_a_missing_or_unreadable_or_non_object_file_is_an_error_never_an_empty_stamped_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = new_run(Path(tmp), [])
+            (run / "reconstructions.json").unlink()
+            with self.assertRaises(ValueError):
+                stamp_reconstructions(run, SHA, RUN)
+            self.assertFalse((run / "reconstructions.json").exists())
+            for text in ("[]", "null", "7", "not json"):
+                (run / "reconstructions.json").write_text(text, encoding="utf-8")
+                with self.assertRaises(ValueError, msg=text):
+                    stamp_reconstructions(run, SHA, RUN)
+
+    def test_a_file_that_has_a_case_called_stamp_is_still_treated_as_the_runners_flat_file_only_when_unstamped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = new_run(Path(tmp), [], {"stamp": {"initial": {}}})  # a case id cannot be "stamp"; a wrapper must have both keys
+            with self.assertRaises(StampError):
+                stamp_reconstructions(run, SHA, RUN)
+
+
 class Cli(unittest.TestCase):
     def test_it_writes_the_stamp_file_and_the_stamped_counts_and_exits_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -141,6 +181,18 @@ class Cli(unittest.TestCase):
             self.assertEqual({"sha": SHA, "run_id": RUN}, json.loads((run / "stamp.json").read_text(encoding="utf-8")))
             doc = json.loads((run / "mock-case-writes.json").read_text(encoding="utf-8"))
             self.assertEqual({"stamp": {"sha": SHA, "run_id": RUN}, "writes": {"BEN-CLEAN-0001": 0, "BEN-TMO-0001": 1}}, doc)
+
+    def test_it_stamps_the_reconstructions_file_and_exits_two_before_writing_anything_when_it_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = new_run(Path(tmp), [result("BEN-CLEAN-0001")], {"BEN-CLEAN-0001": {"initial": {"events": [], "sections": []}}})
+            self.assertEqual(0, main(["--run", str(run), "--sha", SHA, "--run-id", RUN]))
+            self.assertEqual({"sha": SHA, "run_id": RUN}, json.loads((run / "reconstructions.json").read_text(encoding="utf-8"))["stamp"])
+        with tempfile.TemporaryDirectory() as tmp:
+            run = new_run(Path(tmp), [result("BEN-CLEAN-0001")])
+            (run / "reconstructions.json").unlink()
+            self.assertEqual(2, main(["--run", str(run), "--sha", SHA, "--run-id", RUN]))
+            self.assertFalse((run / "stamp.json").exists())
+            self.assertFalse((run / "mock-case-writes.json").exists())
 
     def test_it_exits_two_and_writes_nothing_on_a_bad_stamp_or_an_unreadable_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

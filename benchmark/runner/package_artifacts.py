@@ -6,7 +6,7 @@
   already wrote and no new source. It fails closed: a case whose result has no environment block, a malformed effect or a count that is not a whole number of at least zero, or that has two results, is
   **not counted** (no entry, never a zero), and the exit code is 1;
 - `stamp.json`: `{"sha", "run_id"}`, the stamp of the run directory (it holds `correlations.json` and the run's other files);
-and, with `--probes`, adds the same stamp to `negative-probes.json` (a stamp already there for another dispatch or run is never overwritten).
+wraps the runner's `reconstructions.json` as `{"stamp": {...}, "cases": {...}}` (it must exist: a full run always writes it), and, with `--probes`, adds the same stamp to `negative-probes.json` (a stamp already there for another dispatch or run is never overwritten).
 Exit 0 every case counted, 1 a case uncounted (the rest is still written), 2 an input is unusable (nothing is written). It reads no oracle label and no expectation. SYNTHETIC."""
 import argparse
 import json
@@ -94,6 +94,30 @@ def stamp_probes(path: Path, sha: str, run_id: str) -> None:
     path.write_bytes(json.dumps(doc, indent=2, sort_keys=True).encode("utf-8") + b"\n")
 
 
+def _stamped_reconstructions(run: Path, sha: str, run_id: str) -> Json | None:
+    """The runner's flat `reconstructions.json` ({case: {"initial": body}}) as `{"stamp": {...}, "cases": {...}}`; None when it already carries exactly this stamp (nothing to write)."""
+    _check(sha, run_id)
+    path = run / "reconstructions.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{path.name} cannot be read: {exc.__class__.__name__}") from None
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path.name} is not a JSON object")
+    stamp = {"sha": sha, "run_id": run_id}
+    if "stamp" in doc:
+        if set(doc) != {"stamp", "cases"} or doc["stamp"] != stamp:
+            raise StampError(f"{path.name} is stamped for another dispatch or run, or is not a stamped wrapper; it is never overwritten")
+        return None
+    return {"stamp": stamp, "cases": doc}
+
+
+def stamp_reconstructions(run: Path, sha: str, run_id: str) -> None:
+    wrapped = _stamped_reconstructions(run, sha, run_id)
+    if wrapped is not None:
+        _write(run / "reconstructions.json", wrapped)
+
+
 def _write(path: Path, doc: Json) -> None:
     path.write_bytes(json.dumps(doc, indent=2, sort_keys=True).encode("utf-8") + b"\n")
 
@@ -108,8 +132,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _check(args.sha, args.run_id)
         counts, uncounted = scan(args.run)
+        wrapped = _stamped_reconstructions(args.run, args.sha, args.run_id)  # read and checked before anything is written
         stamped = stamp_doc("writes", counts, args.sha, args.run_id)
         _write(args.run / "stamp.json", stamped["stamp"])
+        if wrapped is not None:
+            _write(args.run / "reconstructions.json", wrapped)
         _write(args.run / "mock-case-writes.json", stamped)
         if args.probes is not None:
             stamp_probes(args.probes, args.sha, args.run_id)
