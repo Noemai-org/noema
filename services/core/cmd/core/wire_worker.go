@@ -28,12 +28,13 @@ type workerHandle struct {
 }
 
 // Stop stops the worker and closes its connection, once. Safe on nil and to call more than once.
-func (h *workerHandle) Stop() {
+func (h *workerHandle) Stop() error {
 	if h == nil {
-		return
+		return nil
 	}
 	h.stopped.Store(true)
 	h.rw.Stop()
+	return nil
 }
 
 // Readiness is the /readyz check of the worker: not ready when there is no worker (none configured, or it did not start) or when it has stopped, and the reason names the worker.
