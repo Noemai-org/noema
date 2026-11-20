@@ -7,8 +7,8 @@ The Trust intake's production adapters over the pack's data (TRU-02 ports; rulin
 ## What it does
 
 - `LoadPack(root fs.FS, packFile)` reads the pack file and the action graph files it lists (`action_graph_files`, relative to `root`) through the generated contract types, builds the capability registry from the descriptors (`execution/registry`), and refuses the **whole** pack (`ErrPack`) when anything is unsound: an incomplete or repeated descriptor, a monetary write not marked prohibited, a repeated intent node, trust profile or graph, a node naming a profile the pack lacks, a graph with no node or no root, a repeated node, an edge or root that names a node the graph does not have, a graph node whose capability is not registered or is prohibited.
-- `NewCapabilities(pack, remedies, graphID)` implements `intake.Capabilities`:
-  - `Requested` (T4): the capability the intent's `requested_remedy` slot names. Unknown: `Registered` false. Prohibited: `Registered` true and `Prohibited` true (a prohibited capability is registered, REQ-CAP-002). Both are refused by the intake at T4.
+- `NewCapabilities(pack, graphID)` implements `intake.Capabilities`:
+  - `Requested` (T4): the capability the admitted intent asks for: `AdmittedIntent.RequestedCapability` (A370), filled by the Intents adapter from the stored document and the pack. Unknown: `Registered` false. Prohibited: `Registered` true and `Prohibited` true (a prohibited capability is registered, REQ-CAP-002). Both are refused by the intake at T4.
   - `Check` (T14, A255): the registry's answer and `RoleAllowed`: true only for a registered, not prohibited capability whose descriptor lists the role, exactly (no case folding, no trimming, empty role never). A prohibited capability is never allowed, even for a role its descriptor lists.
   - `Authorized` (T11, T12, T14; A306, A346): for an intent whose capability is the capability of a root node of the graph `graphID` (the escalation graph, configuration), the sorted **WRITE** capabilities of that graph and nothing else (no read, no internal node, no other graph's), through the same function `EscalationSetFromPack` uses, so the two cannot drift. For any other registered capability the A306 rule is kept (**assumed**, see Decision 5): every capability of the nodes that depend on a root node whose capability is the intent's, reads included, over every graph that declares it a root, sorted. Unknown or prohibited capability: `ErrCapability` (the intake ends UNKNOWN). Registered capability that roots no graph, and an intent that requests none: empty set, no error (see Decisions). `NewCapabilities` fails closed: an empty graph ID, a graph the pack does not have and a graph with no WRITE node are `ErrEscalationGraph` and no adapter.
 - `NewScope(pack)` implements `intake.Scope` (T5): an intent node is in scope when the pack has it and gives it a trust profile.
@@ -19,14 +19,14 @@ The Trust intake's production adapters over the pack's data (TRU-02 ports; rulin
 
 ```go
 pack, err := trustpack.LoadPack(os.DirFS(packsDir), packFile)            // packsDir, packFile: configuration; the core container must mount the packs directory
-caps, err := trustpack.NewCapabilities(pack, remedies, escalationGraphID) // remedies: trustpack.Remedies over the intent store (below); escalationGraphID: configuration (A346)
+caps, err := trustpack.NewCapabilities(pack, escalationGraphID) // escalationGraphID: configuration (A346)
 scope, err := trustpack.NewScope(pack)
 authority, err := trustpack.NewAuthority(pack)
 escalation, err := trustpack.EscalationSetFromPack(pack, escalationGraphID) // escalationGraphID: configuration, the same value `NewCapabilities` takes
 // ports := intake.Ports{Capabilities: caps, Scope: scope, Authority: authority, ...}; writer.Escalation = escalation
 ```
 
-`Remedies.RequestedRemedy(ctx, tenantID, intentID, version)` returns the value of the stored intent's `requested_remedy` slot (present false when the slot is absent). `intake.AdmittedIntent` carries no slot value, so the adapter asks the intent store for it; the intent store's own adapter (pgx, EL) implements it with the same tenant-scoped read as `intake.Intents.Get`. Every error from it is an error here, never "no remedy".
+There is no second port for the remedy (A370). `intake.AdmittedIntent.RequestedCapability` carries the capability the stored intent asks for; `trust.StoredIntents.Get` fills it (the node's Reference slot whose pack declaration has `references: capability`; an unreadable slot is an error there, never "none"), and `Verify` holds it to the stored one. An empty field means the intent asks for none.
 
 ## Decisions made (interim, for the Architect; each has a test)
 

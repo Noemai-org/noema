@@ -129,7 +129,7 @@ func TestCrashChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	led := &ledger.Ledger{Pool: execPool, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: recordsig.Local("outcome-e2e", map[string]chain.Signer{"core-execution": ring}, "core-trust")}, RollbackTimeout: time.Minute}
+	led := &ledger.Ledger{Pool: execPool, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: recordsig.Local("outcome-e2e", map[string]chain.Signer{"core-execution": ring}, "core-trust")}, RollbackTimeout: time.Minute, SerializationAttempts: 3}
 	cases, err := synthetic_tushe.NewCaseClient(os.Getenv(envMockURL), os.Getenv(envMockTok), nil)
 	if err != nil {
 		t.Fatal(err)
