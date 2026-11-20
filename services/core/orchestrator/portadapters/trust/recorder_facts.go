@@ -19,6 +19,7 @@ type SealedFactsConfig struct {
 	Snapshots SnapshotReader
 	PolicyID  string
 	Steps     StepFactSource
+	Facts     ItemFacts
 }
 
 // SealedFacts implements RecordFactSource over the sealed snapshot of the evaluation (TRU-12; A377 items 6 and 7). The evidence set hash is the sealed snapshot's, which the

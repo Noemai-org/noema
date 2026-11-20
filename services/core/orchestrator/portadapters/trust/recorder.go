@@ -70,9 +70,10 @@ type RecordStepFacts struct {
 // RecordFacts is what the composition adds to a RecordRequest: the policy the record and the grants bind, the hash of the evidence set, and one RecordStepFacts per write step, in
 // step order. The stores behind it (T9 to T11) belong to other lanes.
 type RecordFacts struct {
-	PolicyID        string
-	EvidenceSetHash string
-	Steps           []RecordStepFacts
+	PolicyID                        string
+	EvidenceSetHash                 string
+	ConfirmationBindingEvidenceHash string
+	Steps                           []RecordStepFacts
 }
 
 // RecordFactSource gives the facts of one request.
