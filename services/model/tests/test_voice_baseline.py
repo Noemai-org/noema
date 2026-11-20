@@ -40,6 +40,10 @@ from tests.support_voice import CAPS, REQUEST
 POSIX = pytest.mark.skipif(os.name == "nt", reason="file modes are POSIX")
 ANALYSED = datetime(2026, 11, 20, 9, 30, tzinfo=UTC)
 
+
+def NOW() -> datetime:  # the injected clock: a day after the analysis date used in these tests
+    return datetime(2026, 11, 21, 9, 30, tzinfo=UTC)
+
 SETTINGS = dict(stt_final_s=20.0, response_s=1.0, tts_first_s=10.0, session_s=40.0, read_s=2.0, close_s=1.0, hold_s=5.0, concurrency=1, min_pause_s=2.0,
                 connections_per_minute=3, connections_per_session=2, budget_minutes=20.0)
 
@@ -61,7 +65,7 @@ def make_store(tmp_path: Path) -> Path:
 @POSIX
 def test_a_recording_is_written_under_its_speaker_folder_with_modes_0700_and_0600_and_the_analysis_date_as_its_modification_time(tmp_path: Path) -> None:
     root = make_store(tmp_path)
-    AudioStore(root).write("spk-01", "u1.pcm", b"\x00\x01" * 10, ANALYSED)
+    AudioStore(root, NOW).write("spk-01", "u1.pcm", b"\x00\x01" * 10, ANALYSED)
     folder, file = root / "spk-01", root / "spk-01" / "u1.pcm"
     assert stat.S_IMODE(folder.stat().st_mode) == 0o700 and stat.S_IMODE(file.stat().st_mode) == 0o600
     assert file.read_bytes() == b"\x00\x01" * 10 and file.stat().st_mtime == ANALYSED.timestamp()
@@ -72,7 +76,7 @@ def test_the_modes_do_not_depend_on_the_callers_umask(tmp_path: Path) -> None:
     root = make_store(tmp_path)
     old = os.umask(0o000)
     try:
-        AudioStore(root).write("spk-02", "u1.pcm", b"abcd", ANALYSED)
+        AudioStore(root, NOW).write("spk-02", "u1.pcm", b"abcd", ANALYSED)
     finally:
         os.umask(old)
     assert stat.S_IMODE((root / "spk-02").stat().st_mode) == 0o700 and stat.S_IMODE((root / "spk-02" / "u1.pcm").stat().st_mode) == 0o600
@@ -86,7 +90,7 @@ def test_a_store_that_is_not_exactly_mode_0700_is_refused(tmp_path: Path, mode: 
     root.chmod(mode)
     try:
         with pytest.raises(StoreError):
-            AudioStore(root)
+            AudioStore(root, NOW)
     finally:
         root.chmod(0o700)
 
@@ -95,7 +99,7 @@ def test_a_store_that_does_not_exist_or_is_a_file_is_refused(tmp_path: Path) -> 
     (tmp_path / "file").write_text("x")
     for target in (tmp_path / "absent", tmp_path / "file"):
         with pytest.raises(StoreError):
-            AudioStore(target)
+            AudioStore(target, NOW)
 
 
 @POSIX
@@ -104,14 +108,14 @@ def test_a_store_that_is_a_symbolic_link_is_refused(tmp_path: Path) -> None:
     link = tmp_path / "link"
     link.symlink_to(real)
     with pytest.raises(StoreError):
-        AudioStore(link)
+        AudioStore(link, NOW)
 
 
-@pytest.mark.parametrize("ref", ["", ".", "..", "a/b", "../x", "a b", "naira\n", "x" * 65, "é", "/abs"])
+@pytest.mark.parametrize("ref", ["", ".", "..", ".hidden", ".a", "a/b", "../x", "a b", "naira\n", "x" * 65, "é", "/abs"])
 def test_a_speaker_reference_that_is_not_a_plain_name_is_refused_and_nothing_is_written(tmp_path: Path, ref: str) -> None:
     root = make_store(tmp_path) if os.name != "nt" else tmp_path
     with pytest.raises(StoreError):
-        AudioStore(root).write(ref, "u1.pcm", b"x", ANALYSED)
+        AudioStore(root, NOW).write(ref, "u1.pcm", b"x", ANALYSED)
     assert [p for p in root.rglob("*") if p.is_file()] == []
 
 
@@ -119,13 +123,13 @@ def test_a_speaker_reference_that_is_not_a_plain_name_is_refused_and_nothing_is_
 def test_a_file_name_that_is_not_a_plain_name_is_refused(tmp_path: Path, name: str) -> None:
     root = make_store(tmp_path) if os.name != "nt" else tmp_path
     with pytest.raises(StoreError):
-        AudioStore(root).write("spk-01", name, b"x", ANALYSED)
+        AudioStore(root, NOW).write("spk-01", name, b"x", ANALYSED)
 
 
 @POSIX
 def test_an_existing_file_is_never_overwritten(tmp_path: Path) -> None:
     root = make_store(tmp_path)
-    store = AudioStore(root)
+    store = AudioStore(root, NOW)
     store.write("spk-01", "u1.pcm", b"first", ANALYSED)
     with pytest.raises(StoreError):
         store.write("spk-01", "u1.pcm", b"second", ANALYSED)
@@ -139,14 +143,14 @@ def test_a_symbolic_link_in_place_of_a_speaker_folder_is_not_followed(tmp_path: 
     outside.mkdir()
     (root / "spk-03").symlink_to(outside)
     with pytest.raises(StoreError):
-        AudioStore(root).write("spk-03", "u1.pcm", b"x", ANALYSED)
+        AudioStore(root, NOW).write("spk-03", "u1.pcm", b"x", ANALYSED)
     assert list(outside.iterdir()) == []  # nothing went outside the store
 
 
 def test_an_analysis_date_without_a_timezone_is_refused(tmp_path: Path) -> None:
     root = make_store(tmp_path) if os.name != "nt" else tmp_path
     with pytest.raises(StoreError):
-        AudioStore(root).write("spk-01", "u1.pcm", b"x", datetime(2026, 11, 20, 9, 30))
+        AudioStore(root, NOW).write("spk-01", "u1.pcm", b"x", datetime(2026, 11, 20, 9, 30))
 
 
 # ---- the settings, the pause and the budget -------------------------------------------------------------------------------------------------------------------------------
@@ -350,3 +354,42 @@ def test_the_report_has_counts_stages_failures_budget_and_accuracy_and_nothing_t
 def test_a_report_of_no_sessions_is_refused() -> None:
     with pytest.raises(ValueError):
         build_report([], wers=[], target_ms=1800, spent={"generation_s": 0.0, "stt_s": 0.0, "spoken_s": 0.0}, budget_s=1200.0, dropped=0)
+
+
+# ---- SR's findings on noema#824 at 8a9c6985 ----------------------------------------------------------------------------------------------------------------------------------
+
+
+@POSIX
+def test_an_existing_speaker_folder_with_the_wrong_mode_is_refused_and_one_with_mode_0700_is_used(tmp_path: Path) -> None:
+    root = make_store(tmp_path)
+    folder = root / "spk-04"
+    folder.mkdir()
+    folder.chmod(0o755)
+    with pytest.raises(StoreError):
+        AudioStore(root, NOW).write("spk-04", "u1.pcm", b"x", ANALYSED)
+    assert list(folder.iterdir()) == []
+    folder.chmod(0o700)
+    AudioStore(root, NOW).write("spk-04", "u1.pcm", b"x", ANALYSED)
+    assert (folder / "u1.pcm").read_bytes() == b"x"
+
+
+@POSIX
+def test_a_write_that_fails_part_way_leaves_no_partial_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = make_store(tmp_path)
+
+    def failing(descriptor: int, data: bytes) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "write", failing)
+    with pytest.raises(StoreError):
+        AudioStore(root, NOW).write("spk-05", "u1.pcm", b"abcdef", ANALYSED)
+    monkeypatch.undo()
+    assert not (root / "spk-05" / "u1.pcm").exists()  # an orphan would block the name for ever (O_EXCL) and hold raw audio
+
+
+def test_an_analysis_date_later_than_now_is_refused_because_it_would_extend_the_retention(tmp_path: Path) -> None:
+    root = make_store(tmp_path) if os.name != "nt" else tmp_path
+    store = AudioStore(root, NOW)
+    with pytest.raises(StoreError):
+        store.write("spk-06", "u1.pcm", b"x", NOW().replace(minute=31))
+    store.write("spk-06", "u2.pcm", b"x", NOW())  # exactly now is allowed
