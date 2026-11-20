@@ -40,3 +40,12 @@ test("REQ-UI-004 INV-22: an injected case list is refused without rendering it",
   assert.match(html, /unavailable/i);
   assert.deepEqual(scanScorecardText(html), []);
 });
+
+test("A446: an inexact JSON integer cannot be displayed as an exact family count", async () => {
+  const scorecard = await fixture("two_cases_clean");
+  scorecard.by_family.B1.n = JSON.parse("9007199254740993");
+  const html = render(scorecard);
+  assert.match(html, /unavailable/i);
+  assert.ok(!html.includes("9007199254740992"));
+  assert.deepEqual(scanScorecardText(html), []);
+});
