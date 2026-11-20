@@ -34,9 +34,10 @@ func ctx(t testing.TB) context.Context {
 }
 
 type result struct {
-	Ts, Level, Service, Power, Event, CorrelationID, Msg, Result, Reason, SQLState string
-	AppliedCount                                                                   int `json:"applied_count"`
-	Applied                                                                        []string
+	Ts, Level, Service, Power, Event, Msg, Result, Reason, SQLState string
+	CorrelationID                                                   string `json:"correlation_id"`
+	AppliedCount                                                    int    `json:"applied_count"`
+	Applied                                                         []string
 }
 
 type world struct {
