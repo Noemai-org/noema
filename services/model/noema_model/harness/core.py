@@ -49,6 +49,7 @@ from noema_model.harness.decide_types import (
 from noema_model.harness.errors import HarnessRejection, Reason
 from noema_model.harness.fields import RenderedField, clean, data_block, render_fields
 from noema_model.harness.templates import DECIDE_V2, PromptTemplate
+from noema_model.harness.strict_schema import strict_schema_problems
 from noema_model.platform.clock import Clock
 from noema_model.platform.masking import MaskingLimits
 from noema_model.platform.redaction import Redactor
@@ -160,20 +161,6 @@ def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def _check_json(text: str) -> None:
     """Refuse what a lenient parser would quietly accept: NaN, Infinity and a repeated key (the last would win)."""
     json.loads(text, parse_constant=_no_constants, object_pairs_hook=_no_duplicate_keys)
-
-
-def _strict_shape(node: Any) -> bool:
-    """Every object in the schema lists all its properties as required and forbids others (what strict structured
-    output modes need, and what makes a missing field a rejection instead of a default)."""
-    if isinstance(node, dict):
-        if "properties" in node and (
-            set(node.get("required", ())) != set(node["properties"]) or node.get("additionalProperties") is not False
-        ):
-            return False
-        return all(_strict_shape(v) for v in node.values())
-    if isinstance(node, list):
-        return all(_strict_shape(v) for v in node)
-    return True
 
 
 class Harness:
@@ -366,7 +353,7 @@ class Harness:
             return cached
         config = output_type.model_config
         schema = output_type.model_json_schema()
-        if config.get("extra") != "forbid" or config.get("strict") is not True or not _strict_shape(schema):
+        if config.get("extra") != "forbid" or config.get("strict") is not True or strict_schema_problems(schema):
             raise HarnessRejection(Reason.OUTPUT_TYPE_UNSAFE)
         self._schemas[output_type] = schema
         return schema
