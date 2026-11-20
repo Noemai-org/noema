@@ -20,7 +20,28 @@
       "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
       "on_failure": "ESCALATE",
       "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
-      "escalation_ref": "HANDOFF"
+      "escalation_ref": "HANDOFF",
+      "params": [
+        {
+          "name": "transaction_ref",
+          "slot": "subject_resource"
+        },
+        {
+          "name": "reason_code",
+          "map": {
+            "from": "question_type",
+            "values": {
+              "STATUS": "PAYMENT_STATUS_QUERY",
+              "WHY": "PAYMENT_DELAY_EXPLANATION",
+              "RESEND_ADVICE": "RESEND_ADVICE_REQUEST",
+              "REVERSAL_STATUS": "REVERSAL_STATUS_QUERY",
+              "ESCALATION_REQUEST": "CUSTOMER_ESCALATION_REQUEST",
+              "CASE_STATUS": "CASE_STATUS_QUERY",
+              "RECONSTRUCT": "PAYMENT_RECONSTRUCTION"
+            }
+          }
+        }
+      ]
     },
     {
       "node_id": "record_investigation_evidence",
@@ -36,7 +57,17 @@
       "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
       "on_failure": "ESCALATE",
       "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
-      "escalation_ref": "CASE"
+      "escalation_ref": "CASE",
+      "params": [
+        {
+          "name": "case_id",
+          "fact": "case_id"
+        },
+        {
+          "name": "payload",
+          "evidence_packet": true
+        }
+      ]
     },
     {
       "node_id": "route_to_internal_owner",
@@ -51,7 +82,17 @@
       "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
       "on_failure": "ESCALATE",
       "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
-      "escalation_ref": "CASE"
+      "escalation_ref": "CASE",
+      "params": [
+        {
+          "name": "case_id",
+          "fact": "case_id"
+        },
+        {
+          "name": "owner_queue",
+          "policy_param": "owner_queue"
+        }
+      ]
     }
   ],
   "edges": [

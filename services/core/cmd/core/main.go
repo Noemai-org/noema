@@ -98,7 +98,7 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// The components other tasks build are plugged in here as their constructors land (nothing else is configured yet, so /readyz names the first one missing).
+	// The components other tasks build are plugged in here as their constructors land (/readyz names every one that is still missing).
 	env := Env{Getenv: os.Getenv, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
 	clk := clock.System{}
 	components, closeComponents, err := buildComponents(ctx, env, clk, ids.New(clk, nil), logger)
