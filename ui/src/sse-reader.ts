@@ -1,4 +1,5 @@
 import { parseSseEventV1, type SseEventV1 } from "./contract_types/customer.js";
+import { RESPONSE_FRAME_LIMIT_BYTES } from "./transport-limits.js";
 
 type Receiver = (event: SseEventV1) => void;
 interface Frame { name: string; data: string[]; size: number }
@@ -49,23 +50,35 @@ export async function readEventStream(response: Response, receive: Receiver, max
     await response.body?.cancel();
     throw invalid();
   }
+  maxFrameBytes = Math.min(maxFrameBytes, RESPONSE_FRAME_LIMIT_BYTES);
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const frame: Frame = { name: "", data: [], size: 0 };
   let pending = "";
+  // Limit each decoded slice and refuse an oversized unfinished line before
+  // appending it to the buffered text. One network chunk may contain frames
+  // belonging to several events, so a chunk-wide size test is not sufficient.
+  const consume = (part: string, done: boolean) => {
+    const firstEnd = part.search(/[\r\n]/u);
+    const prefix = firstEnd < 0 ? part : part.slice(0, firstEnd);
+    if (frame.size + encoder.encode(pending).byteLength + encoder.encode(prefix).byteLength > maxFrameBytes) throw invalid();
+    pending += part;
+    for (;;) {
+      const end = pending.search(/[\r\n]/u);
+      if (end < 0 || (!done && pending[end] === "\r" && end === pending.length - 1)) break;
+      const newline = pending[end] === "\r" && pending[end + 1] === "\n" ? 2 : 1;
+      line(frame, pending.slice(0, end), newline, maxFrameBytes, receive);
+      pending = pending.slice(end + newline);
+    }
+    if (frame.size + encoder.encode(pending).byteLength > maxFrameBytes) throw invalid();
+  };
   try {
     for (;;) {
       const chunk = await reader.read();
-      pending += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
-      for (;;) {
-        const end = pending.search(/[\r\n]/u);
-        if (end < 0 || (!chunk.done && pending[end] === "\r" && end === pending.length - 1)) break;
-        const newline = pending[end] === "\r" && pending[end + 1] === "\n" ? 2 : 1;
-        line(frame, pending.slice(0, end), newline, maxFrameBytes, receive);
-        pending = pending.slice(end + newline);
+      if (chunk.done) { consume(decoder.decode(), true); break; }
+      for (let offset = 0; offset < chunk.value.byteLength; offset += 4096) {
+        consume(decoder.decode(chunk.value.subarray(offset, offset + 4096), { stream: true }), false);
       }
-      if (frame.size + encoder.encode(pending).byteLength > maxFrameBytes) throw invalid();
-      if (chunk.done) break;
     }
     if (pending !== "" || frame.size !== 0) throw new StreamInterruptedError();
   } finally {

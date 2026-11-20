@@ -1,5 +1,6 @@
 import { parseCommonV1InvestigationId } from "./contract_types/common_v1.js";
 import { parseInvestigationResponseV1, type InvestigationResponseV1 } from "./contract_types/customer.js";
+import { RESPONSE_FRAME_LIMIT_BYTES } from "./transport-limits.js";
 
 interface RefetchInput {
   baseUrl: string;
@@ -53,7 +54,7 @@ export async function fetchInvestigation(input: RefetchInput): Promise<Investiga
       await response.body?.cancel();
       throw unavailable();
     }
-    return parseInvestigationResponseV1(JSON.parse(await boundedText(response, input.maxResponseBytes)));
+    return parseInvestigationResponseV1(JSON.parse(await boundedText(response, Math.min(input.maxResponseBytes, RESPONSE_FRAME_LIMIT_BYTES))));
   } catch {
     throw unavailable();
   }
