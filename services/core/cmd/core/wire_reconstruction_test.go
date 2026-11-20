@@ -102,6 +102,13 @@ func (w *reconWorld) story(t *testing.T, tenant, corr, evr, dec, class string) {
 // prodLogged builds the components and the protected API the way the process does, with the given logger as the process logger (the access log is made from it).
 func (w *reconWorld) prodLogged(t *testing.T, iss *edgetest.Issuer, log *slog.Logger) http.Handler {
 	t.Helper()
+	_, h := w.prodComponents(t, iss, log)
+	return h
+}
+
+// prodComponents is prodLogged with the components too: the deployment serves three tenants and only two of them have a Record login (ten_cc has none).
+func (w *reconWorld) prodComponents(t *testing.T, iss *edgetest.Issuer, log *slog.Logger) (Components, http.Handler) {
+	t.Helper()
 	e := w.settings(t)
 	for k, v := range sessionEnv(t, iss) {
 		e[k] = v
@@ -117,7 +124,7 @@ func (w *reconWorld) prodLogged(t *testing.T, iss *edgetest.Issuer, log *slog.Lo
 	if err != nil || h == nil {
 		t.Fatalf("api %v, %v", h, err)
 	}
-	return h
+	return c, h
 }
 
 func recon(h http.Handler, authz, corr string, mutate func(*http.Request)) *httptest.ResponseRecorder {
@@ -365,5 +372,94 @@ func TestTheAccessLogIsRedacted(t *testing.T) {
 	}
 	if got := lines[0]["correlation_id"]; got != "corr_******6789" || strings.Contains(logBuf.String(), "0123456789") {
 		t.Errorf("correlation_id %v, line %s; want the digit run masked to its last four", got, logBuf.String())
+	}
+}
+
+// A434 (interim; DEC-2026-11-20-architect-rulings-a358-a453), REQ-AUD-003, REQ-API-002, AGENT-13: a tenant the core serves but that has no Record login is a deployment defect. Through
+// the production build on a real PostgreSQL: a request of that tenant's audit session gets 503 DEPENDENCY_UNAVAILABLE, never a 401 and never a 500, in the bytes of the route's one
+// error envelope (the generated type, one encoder, the request's own correlation ID, the asked one never echoed), with fixed text that carries no tenant, login or driver text, and one
+// RECORD_ACCESSED line with the outcome code, the role and the principal.
+func TestAServedTenantWithNoRecordLoginIs503DependencyUnavailableInTheRoutesOneEnvelope(t *testing.T) {
+	w := newReconWorld(t)
+	iss := edgetest.NewIssuer(t)
+	var logBuf bytes.Buffer
+	h := w.prodLogged(t, iss, slog.New(slog.NewJSONHandler(&logBuf, nil)))
+	rec := recon(h, bearerAs(iss, session.RoleAudit, "ten_cc", "prn_9"), reconShared, nil)
+	if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusInternalServerError || rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("%d %s; want 503, never 401 and never 500", rec.Code, rec.Body.String())
+	}
+	var env contracts.ErrorsV2ErrorEnvelope
+	dec := json.NewDecoder(bytes.NewReader(rec.Body.Bytes()))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&env); err != nil {
+		t.Fatalf("the body is not an errors.v2 envelope: %v", err)
+	}
+	if string(env.Error.Code) != "DEPENDENCY_UNAVAILABLE" || env.Error.Message != "The Record is not available." || !env.Error.Retryable {
+		t.Errorf("code %s, message %q, retryable %v; want DEPENDENCY_UNAVAILABLE, the fixed text, retryable as the contract's code for a dependency", env.Error.Code, env.Error.Message, env.Error.Retryable)
+	}
+	again, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again)+"\n" != rec.Body.String() {
+		t.Errorf("the bytes are not the generated envelope of the one encoder: %q", rec.Body.String())
+	}
+	if corr := string(env.Error.CorrelationId); corr == "" || rec.Header().Get("Noema-Correlation-Id") != corr || corr == reconShared || rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("correlation %q, header %q, content type %q; want the request's own ID, in both, not the asked one", corr, rec.Header().Get("Noema-Correlation-Id"), rec.Header().Get("Content-Type"))
+	}
+	for _, leak := range []string{"ten_", "tenant", "login", "pool", "postgres", "record_read", reconShared} {
+		if strings.Contains(strings.ToLower(rec.Body.String()), strings.ToLower(leak)) {
+			t.Errorf("the answer carries %q: %s", leak, rec.Body.String())
+		}
+	}
+	// The route's other errors are the same shape: status and code and text aside, the same content type and the same key order and encoding.
+	nf := recon(h, bearerAs(iss, session.RoleAudit, "ten_aa", "prn_9"), reconAbsent, nil)
+	if nf.Code != http.StatusNotFound || nf.Header().Get("Content-Type") != rec.Header().Get("Content-Type") {
+		t.Errorf("the not-found: %d, content type %q", nf.Code, nf.Header().Get("Content-Type"))
+	}
+	lines := accessLines(t, &logBuf)
+	if len(lines) != 2 { // the 503 and the not-found
+		t.Fatalf("%d RECORD_ACCESSED lines for two requests that reached the handler: %s", len(lines), logBuf.String())
+	}
+	l := lines[0]
+	if l["tenant_id"] != "ten_cc" || l["principal"] != "auditor:prn_9" || l["role"] != "audit" || l["correlation_id"] != reconShared || l["outcome"] != "DEPENDENCY_UNAVAILABLE" {
+		t.Errorf("the line %v; want tenant ten_cc, principal auditor:prn_9, role audit, the correlation read and outcome DEPENDENCY_UNAVAILABLE", l)
+	}
+	// A tenant the core does not serve is still the session layer's 401 and writes no line (A434 leaves it as it is).
+	foreign := recon(h, bearerAs(iss, session.RoleAudit, "ten_zz", "prn_9"), reconShared, nil)
+	if code, _ := errBody(t, foreign); foreign.Code != http.StatusUnauthorized || code != "SESSION_INVALID" || len(accessLines(t, &logBuf)) != 2 {
+		t.Errorf("a tenant not served: %d %s; want 401 SESSION_INVALID and no new line", foreign.Code, foreign.Body.String())
+	}
+}
+
+// A434: /readyz of the production build is not ready while a served tenant has no Record login, and names the component by a fixed name that carries no tenant ID. The same build with
+// a login for every tenant it serves does not name it. The check is the one composeReadiness runs, the one main hands to the mux.
+func TestReadyzOfTheProductionBuildFailsForAServedTenantWithNoRecordLogin(t *testing.T) {
+	w := newReconWorld(t)
+	iss := edgetest.NewIssuer(t)
+	c, h := w.prodComponents(t, iss, discardLog()) // serves ten_aa, ten_bb, ten_cc; logins for the first two
+	code, body, raw := readyz(t, composeReadiness(c, h))
+	if code != http.StatusServiceUnavailable || body["status"] != "not_ready" || !strings.Contains(body["reason"], "record logins") || len(body) != 2 {
+		t.Fatalf("status %d, body %s; want 503, not_ready and the record logins named", code, raw)
+	}
+	for _, leak := range []string{"ten_", "tenant", "postgres", "record_read_", "127.0.0.1"} {
+		if strings.Contains(raw, leak) {
+			t.Errorf("the body %s carries %q", raw, leak)
+		}
+	}
+	// With the tenants the logins cover, the logins are not named (the ports with no adapter yet still are).
+	e := w.settings(t)
+	for k, v := range sessionEnv(t, iss) {
+		e[k] = v
+	}
+	e[edge.EnvTenants] = "ten_aa,ten_bb"
+	clk := clock.NewManual(apiEpoch)
+	ok, closer, err := buildComponents(t.Context(), osEnv(e), clk, ids.New(clk, nil), discardLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer()
+	if _, _, raw := readyz(t, composeReadiness(ok, h)); strings.Contains(raw, "record logins") {
+		t.Errorf("every served tenant has a login but /readyz names them: %s", raw)
 	}
 }

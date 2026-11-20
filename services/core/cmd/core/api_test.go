@@ -36,8 +36,8 @@ type envMap map[string]string
 
 func (e envMap) get(k string) string { return e[k] }
 
-// failingDBs is a Record reader that cannot be reached: the handler answers 500 after it has authenticated and authorised the caller, which is what the test needs to
-// see. It remembers the tenant it was asked for.
+// failingDBs is a Record reader with no login for any tenant: the handler answers 503 DEPENDENCY_UNAVAILABLE (A434) after it has authenticated and authorised the caller, which is
+// what the test needs to see. It remembers the tenant it was asked for.
 type failingDBs struct{ asked []string }
 
 func (f *failingDBs) For(tenant string) (reconstruct.TxBeginner, error) {
@@ -121,8 +121,8 @@ func TestTheReconstructionRouteIsMountedForAuditOnlyBehindTheSessionAndTheRoleGa
 	}
 	path := "/v1/reconstructions/corr_ABC123"
 	rec := call(h, path+"?tenant_id=tnt_x", bearer(iss, session.RoleAudit, "tnt_other"))
-	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") {
-		t.Errorf("audit: %d %s; want the handler's answer", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "DEPENDENCY_UNAVAILABLE") {
+		t.Errorf("audit: %d %s; want the handler's answer, 503 DEPENDENCY_UNAVAILABLE (A434)", rec.Code, rec.Body.String())
 	}
 	if len(dbs.asked) != 1 || dbs.asked[0] != "tnt_other" {
 		t.Errorf("the Record reader was asked for %v; want the token's tenant once, not the query's", dbs.asked)
@@ -237,11 +237,11 @@ func TestACallThatReachesTheReconstructionHandlerIsLoggedAsRecordAccessed(t *tes
 	if err != nil || h == nil {
 		t.Fatalf("handler %v, error %v", h, err)
 	}
-	if rec := call(h, "/v1/reconstructions/corr_ABC123", bearer(iss, session.RoleAudit, "tnt_other")); rec.Code != http.StatusInternalServerError {
-		t.Fatalf("answer %d %s", rec.Code, rec.Body.String())
+	if rec := call(h, "/v1/reconstructions/corr_ABC123", bearer(iss, session.RoleAudit, "tnt_other")); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("answer %d %s; want 503 (A434)", rec.Code, rec.Body.String())
 	}
 	line := buf.String()
-	for _, want := range []string{`"msg":"RECORD_ACCESSED"`, `"tenant_id":"tnt_other"`, `"outcome":"INTERNAL_SAFETY_BLOCK"`} {
+	for _, want := range []string{`"msg":"RECORD_ACCESSED"`, `"tenant_id":"tnt_other"`, `"outcome":"DEPENDENCY_UNAVAILABLE"`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("access log %q lacks %s", line, want)
 		}

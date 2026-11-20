@@ -42,6 +42,9 @@ type Components struct {
 	Gateway *inputgateway.Gateway
 	// Investigations reads the caller's own investigation (the read-only store method of A243); GET /v1/investigations/{id} is mounted only with it.
 	Investigations InvestigationReader
+	// ServedTenants is every tenant this deployment serves, as the session settings name them (NOEMA_SESSION_TENANTS). It is not a component: it is what the Record reader is
+	// checked against (A434).
+	ServedTenants []string
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
 }

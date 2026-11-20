@@ -343,8 +343,8 @@ func TestTheProductionRouteTableAndWhoMayCallEachRoute(t *testing.T) {
 	}
 }
 
-// REQ-AUD-003, A110, A370 as relayed: through the production build, audit reaches the reconstruction handler (it answers as itself: tenant C has no Record reader login, so it
-// refuses with its own error and not the role gate's not found), and ops, a customer and an approver never do: each gets the role gate's not-found shape.
+// REQ-AUD-003, A110, A370 as relayed, A434: through the production build, audit reaches the reconstruction handler (it answers as itself: tenant C has no Record reader login, so it
+// answers 503 DEPENDENCY_UNAVAILABLE and not the role gate's not found), and ops, a customer and an approver never do: each gets the role gate's not-found shape.
 func TestTheReconstructionRouteIsReachedByAuditAndNoOneElseInTheProductionBuild(t *testing.T) {
 	w := newWireWorld(t)
 	iss := edgetest.NewIssuer(t)
@@ -352,8 +352,8 @@ func TestTheReconstructionRouteIsReachedByAuditAndNoOneElseInTheProductionBuild(
 	defer closer()
 	const path = "/v1/reconstructions/corr_ABC123"
 	rec := call(h, path, bearerAs(iss, session.RoleAudit, "ten_cc", "prn_9"))
-	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") {
-		t.Errorf("audit: %d %s; want the handler's own answer", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "DEPENDENCY_UNAVAILABLE") {
+		t.Errorf("audit: %d %s; want the handler's own answer, 503 DEPENDENCY_UNAVAILABLE (A434)", rec.Code, rec.Body.String())
 	}
 	for _, role := range []session.Role{session.RoleOps, session.RoleCustomer, session.RoleApprover} {
 		rec := call(h, path, bearerAs(iss, role, "ten_cc", "prn_9"))
