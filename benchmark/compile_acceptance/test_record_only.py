@@ -21,7 +21,7 @@ from benchmark.compile_acceptance.golden import GOLDEN, RECEIVED_AT, canonical_i
 from benchmark.compile_acceptance.record_only import DEFAULT_PATH, ROOT, RecordOnlyInput, RecordOnlyRefused, canonical_input, load_inputs
 from benchmark.compile_acceptance.recording import Recorder
 from benchmark.compile_acceptance.runner import CompileFailed, run_cases, write_run_record
-from benchmark.compile_acceptance.test_cli import argv, run_main
+from benchmark.compile_acceptance.test_cli import KEY, argv, run_main
 from benchmark.compile_acceptance.test_golden import good
 
 SECRET_TEXT = "Wetin happen to the N2,500 wey I send Chidi dis morning?"
@@ -119,7 +119,8 @@ class Loading(unittest.TestCase):
             "no cases": [], "voice channel": with_case(channel="voice"), "unknown channel": with_case(channel="sms"), "empty locale mix": with_case(locale_mix=[]), "locale not a list": with_case(locale_mix="pcm"),
             "locale entry not text": with_case(locale_mix=[1]), "locale entry empty": with_case(locale_mix=[""]), "no utterance": with_case(utterances=[]), "two utterances": with_case(utterances=[
                 {"turn": 1, "text": "a"}, {"turn": 2, "text": "b"}]), "empty text": with_case(utterances=[{"turn": 1, "text": ""}]), "blank text": with_case(utterances=[{"turn": 1, "text": "   "}]),
-            "text not text": with_case(utterances=[{"turn": 1, "text": 7}]), "text too long": with_case(utterances=[{"turn": 1, "text": "x" * 2001}]), "turn is a bool": with_case(utterances=[{"turn": True, "text": "a"}]),
+            "text not text": with_case(utterances=[{"turn": 1, "text": 7}]), "text with an edge space": with_case(utterances=[{"turn": 1, "text": " a"}]),
+            "text not in NFC": with_case(utterances=[{"turn": 1, "text": "e\u0301"}]), "text too long": with_case(utterances=[{"turn": 1, "text": "x" * 2001}]), "turn is a bool": with_case(utterances=[{"turn": True, "text": "a"}]),
             "turn is text": with_case(utterances=[{"turn": "1", "text": "a"}]), "case id shape": with_case(case_id="ben-clean-1"), "case id with a digit run": with_case(case_id="BEN-CLEAN-00012"),
             "duplicate case ids": with_case() + with_case(), "case digest shape": with_case(case_sha256="nope"), "too many cases": [case(f"BEN-CLEAN-{n:04d}", "a", ["en-NG"]) for n in range(1, 22)],
         }
@@ -199,9 +200,11 @@ class Script:
     def __init__(self, guard: BudgetGuard, recorder: Recorder, *, spend: int = 1_000, fail: frozenset[str] = frozenset(), bug: frozenset[str] = frozenset(), answer: Mapping[str, Any] | None = None) -> None:
         self.guard, self.recorder, self.spend, self.fail, self.bug, self.answer, self.calls = guard, recorder, spend, fail, bug, answer, 0
         self.order: list[str] = []
+        self.attempted: list[str] = []
         self.seen_case_ids: list[str] = []
 
     def _call(self, case_id: str) -> None:
+        self.attempted.append(case_id)
         self.guard.authorize(self.spend)  # the guard decides before a call is made, as in the transport
         self.order.append(case_id)
         self.guard.settle(self.spend, self.spend)
@@ -310,7 +313,7 @@ class Loop(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([(r.case_id, r.status) for r in result.record_only], [(i, "NOT_RUN") for i in IDS])
             self.assertEqual((result.calls, result.stopped, result.exit_code), (2, True, 1))
             self.assertEqual(s.order, ["G-A", "G-B"])  # the third golden is refused by the guard before its call is made
-            self.assertFalse(set(IDS) & set(s.order))
+            self.assertFalse(set(IDS) & set(s.attempted))  # not even attempted: the stop was already there
 
     async def test_a_stop_during_the_pass_is_kept_and_the_rest_are_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -321,6 +324,15 @@ class Loop(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([r.status for r in result.record_only], ["RECORDED", "RECORDED", "NOT_RUN", "NOT_RUN", "NOT_RUN"])
             self.assertEqual([c.status for c in result.cases], ["MET"] * 5)
             self.assertEqual((result.stopped, result.exit_code, result.calls), (True, 1, 7))
+
+    async def test_a_stop_at_the_last_input_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = BudgetGuard(limit_micros=9_500)  # nine calls fit, the tenth is refused
+            rec = recorder(Path(tmp))
+            s = Script(guard, rec, spend=1_000)
+            result = await self.run_all(tmp, guard, s, rec)
+            self.assertEqual([r.status for r in result.record_only], ["RECORDED"] * 4 + ["NOT_RUN"])
+            self.assertEqual((result.stopped, result.exit_code), (True, 1))
 
     async def test_the_guard_counts_every_record_only_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -367,7 +379,7 @@ class Command(unittest.TestCase):
     def test_a_run_with_the_file_records_the_pass_names_it_in_the_summary_and_the_run_record(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = write(tmp, make_doc())
-            code, out, _, built = run_main(argv(tmp, record_only=path), {"OPENAI_API_KEY": "sk-test-not-a-real-key-0000"})
+            code, out, _, built = run_main(argv(tmp, record_only=path), {"OPENAI_API_KEY": KEY})
             self.assertEqual(code, 0)
             self.assertEqual(built[0].calls(), 10)
             run = json.loads((Path(tmp) / "out" / "run.json").read_text())
@@ -384,7 +396,7 @@ class Command(unittest.TestCase):
     def test_a_failure_of_a_record_only_case_is_shown_and_does_not_change_the_exit_code(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = write(tmp, make_doc())
-            code, out, _, _ = run_main(argv(tmp, record_only=path), {"OPENAI_API_KEY": "sk-test-not-a-real-key-0000"}, fail_record_only=True)
+            code, out, _, _ = run_main(argv(tmp, record_only=path), {"OPENAI_API_KEY": KEY}, fail_record_only=True)
             self.assertEqual(code, 0)
             self.assertEqual(out.count(" ERROR"), 5)
             run = json.loads((Path(tmp) / "out" / "run.json").read_text())
@@ -392,12 +404,12 @@ class Command(unittest.TestCase):
 
     def test_a_golden_failure_is_still_exit_one_with_the_pass_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            code, _, _, _ = run_main(argv(tmp, record_only=write(tmp, make_doc())), {"OPENAI_API_KEY": "sk-test-not-a-real-key-0000"}, fail=True)
+            code, _, _, _ = run_main(argv(tmp, record_only=write(tmp, make_doc())), {"OPENAI_API_KEY": KEY}, fail=True)
             self.assertEqual(code, 1)
 
     def test_the_goldens_only_flag_runs_no_record_only_case(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            code, out, _, built = run_main(argv(tmp), {"OPENAI_API_KEY": "sk-test-not-a-real-key-0000"})
+            code, out, _, built = run_main(argv(tmp), {"OPENAI_API_KEY": KEY})
             self.assertEqual((code, built[0].calls()), (0, 5))
             run = json.loads((Path(tmp) / "out" / "run.json").read_text())
             self.assertEqual((run["record_only_count"], run["record_only"]), (0, []))
@@ -413,7 +425,7 @@ class Command(unittest.TestCase):
                     doc["cases"][0]["expected"] = "x"
                     rehash(doc)
                 path = Path(tmp) / "absent.json" if name == "missing" else write(tmp, doc)
-                code, out, err, built = run_main(argv(tmp, record_only=path), {"OPENAI_API_KEY": "sk-test-not-a-real-key-0000"})
+                code, out, err, built = run_main(argv(tmp, record_only=path), {"OPENAI_API_KEY": KEY})
                 self.assertEqual((code, built), (2, []))
                 self.assertFalse((Path(tmp) / "out").exists())
                 self.assertNotIn("Chidi", out + err)
@@ -422,7 +434,7 @@ class Command(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = argv(tmp)
             base.remove("--skip-record-only")
-            code, _, err, built = run_main(base + ["--record-only-inputs", str(Path(tmp) / "nope.json")], {"OPENAI_API_KEY": "sk-test-not-a-real-key-0000"})
+            code, _, err, built = run_main(base + ["--record-only-inputs", str(Path(tmp) / "nope.json")], {"OPENAI_API_KEY": KEY})
             self.assertEqual((code, built), (2, []))
             self.assertIn("record-only", err)
 
@@ -441,7 +453,7 @@ class Command(unittest.TestCase):
 
     def test_the_key_is_in_no_file_and_no_line_of_output_with_the_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            key = "sk-test-not-a-real-key-0000"
+            key = KEY
             _, out, err, _ = run_main(argv(tmp, record_only=write(tmp, make_doc())), {"OPENAI_API_KEY": key})
             self.assertNotIn(key, out + err)
             for p in (Path(tmp) / "out").rglob("*"):

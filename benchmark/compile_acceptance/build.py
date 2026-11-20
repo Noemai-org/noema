@@ -17,6 +17,8 @@ from typing import Any
 
 from benchmark.bakeoff.budget import BudgetExceeded, BudgetGuard, projected_micros
 from benchmark.compile_acceptance.golden import Golden, canonical_input
+from benchmark.compile_acceptance.record_only import RecordOnlyInput
+from benchmark.compile_acceptance.record_only import canonical_input as record_only_input
 from benchmark.compile_acceptance.recording import Recorder
 from benchmark.compile_acceptance.runner import CompileFailed
 
@@ -118,13 +120,20 @@ class LiveBackend:
 
     async def compile_one(self, g: Golden) -> Mapping[str, Any]:
         types = import_module("noema_model.understanding.resolution")
-        self._transport.case_id = g.case_id
-        self._recorder.case_id = g.case_id
-        self._candidates.rows = tuple(
-            types.Candidate(f"c{n}", f"fin.transaction:TX{chr(ord('A') + n)}", amount, "NGN", CANDIDATES_AT, who, "0001", "OUTGOING", True) for n, (who, amount) in enumerate(g.candidates))
+        rows = tuple(types.Candidate(f"c{n}", f"fin.transaction:TX{chr(ord('A') + n)}", amount, "NGN", CANDIDATES_AT, who, "0001", "OUTGOING", True) for n, (who, amount) in enumerate(g.candidates))
+        return await self._compile(g.case_id, canonical_input(g), rows)
+
+    async def record_one(self, inp: RecordOnlyInput) -> Mapping[str, Any]:
+        """One input of the record-only pass (A361, A372): the same service, the same recorder, and an EMPTY candidate source: the file holds inputs only, and nothing is invented for it."""
+        return await self._compile(inp.case_id, record_only_input(inp), ())
+
+    async def _compile(self, case_id: str, canonical: Mapping[str, Any], rows: tuple[Any, ...]) -> Mapping[str, Any]:
+        self._transport.case_id = case_id
+        self._recorder.case_id = case_id
+        self._candidates.rows = rows
         compiler = import_module("noema_model.understanding.compiler.service")
         try:
-            return dict(await self._service.run(canonical_input(g), self._pack_ref, None))
+            return dict(await self._service.run(dict(canonical), self._pack_ref, None))
         except (compiler.ProviderUnavailable, compiler.InputInvalid) as err:
             raise CompileFailed(f"the compile service gave no usable proposal ({type(err).__name__})") from None
 

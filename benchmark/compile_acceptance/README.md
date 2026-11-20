@@ -36,6 +36,12 @@ It is started only by `.github/workflows/bench-live-compile.yml` (noema#569), wi
 
 The cost counted for a call is what the reply's own `usage` gives at the frozen rate card, or the worst-case projection when a reply reports none (`benchmark/bakeoff/budget.py`; a failed call is settled at its projection). The hard stop is whole dollars (1 to 5) counted with `--prior-spent-micros`.
 
+## The record-only pass (A361, A372)
+
+After the five goldens the run takes the five G1 inputs of `benchmark/replay/g1_inputs.json` (BO, noema#804: BEN-CLEAN-0001, -0014, -0027 and BEN-TMO-0001, -0018; utterance, channel and locale mix only) through the same compile service and records every call with the same recorder, each under its own case id (`recordings/manifest.json` keeps its shape; the pass is told apart by `case_id`). **Nothing is compared with an expectation and none is invented** (INV-22): the verdict and the exit code depend on the goldens only, and a failure of a record-only case is recorded as `ERROR` in `run.json` (`record_only`, `record_only_count`) and in the summary, never hidden. The cost guard applies to every call; a stop stays and the rest are `NOT_RUN`. The dry run prices their first requests too.
+
+`record_only.py` reads the file from `--record-only-inputs` (default: the path above) and **refuses to start (exit 2, nothing built or written)** unless it is a regular file of at most 1 MiB, strict JSON, of exactly the closed shape of BO's exporter (a key beyond it, an expectation or an oracle reference included, is a refusal even with a matching digest), and its own `inputs_sha256` equals the digest recomputed by the exporter's rule. The refusal carries one fixed code and never a piece of the file. `--skip-record-only` runs the goldens only (tests; the workflow does not pass it). The record-only cases are compiled with an empty candidate source and without a locale hint: the file is inputs only, so nothing is invented, and the requests stay consistent with the goldens'. Until noema#804 is on `main` the default run refuses.
+
 ## What it does not show
 
 A live reply has not been parsed by this code: the first live run is that evidence, and it is the Founder's to dispatch (noema#338, A198). The candidate source is synthetic and in memory (the core is not involved). `build.py` repeats two small pieces of `noema_model.understanding.compiler.wiring` (the pack view and the minter), which is noema#635 and not on `main`; they become an import when it is (debt in `status/UND-16.md`).
