@@ -1,3 +1,5 @@
 # Fingerprints of findings that are not secrets. Each line needs a reason above it; review additions like a change to .gitleaks.toml.
 # 35be13a (noema#222, SEC-03): the AWS documentation's public example secret access key, used as a leak-scanner test input. It was assembled at run time from 2e87c15 on; the earlier commit stays in the range.
 35be13af4c6af1f0c4cc171adfbefc83174637aa:tools/ci/test_leakscan.py:generic-api-key:334
+# 5ba5245 (noema#772, BEN-03): a false positive on keyword arguments of a Python call in a test (the call that names the two list fields of a reader: not a credential). The parameters are renamed from the next commit on; the earlier commit stays in the range, so its finding is ignored by fingerprint, as for 35be13a.
+5ba5245c27876b7d3b5218138b6940c9b416753e:benchmark/oracle_client/test_tushe_readonly.py:generic-api-key:106
