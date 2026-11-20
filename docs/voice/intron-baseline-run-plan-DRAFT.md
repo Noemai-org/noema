@@ -2,6 +2,8 @@
 
 Status: DRAFT. Task VOI-16; REQ-VOI-001, REQ-VOI-004, REQ-NFR-003; rulings A241, A324, A377 to A383. It sets no threshold of its own: every value below is the Architect's (A380), passed to the code as an argument with no default in code (AGENT-16). Every vendor limit named here is in `docs/voice/intron-docs-notes-DRAFT.md` (noema#625) with its source page; none is repeated as a number in this plan.
 
+> **Authority note (AGENTS section 2, item 3, 20 Nov 2026).** A377 to A379 are relayed Founder rulings recorded in docs#211, which is still open; A380 to A383 are relayed and not yet recorded. Until a non-author Founder merges docs#211 they are not in force: **A180 still governs**, and nothing here lifts it. Every step that depends on them (audio of real speakers, live calls with it) starts only when docs#211 merges; work on synthetic audio proceeds under A241.
+
 ## 1. What the run is, and is not
 
 - It runs on Intron's **current** streaming endpoints and measures, for each short push-to-talk utterance, the accuracy of the transcript and the time of each stage of one voice turn: speech-to-text (end of speech to final transcript), the response stage, and text-to-speech (answer text to the first audio chunk). It is the **baseline**: it is recorded as measured. The latency verdict against the 1.8 s target is taken on Intron's real-time endpoints when they are enabled (A324).
