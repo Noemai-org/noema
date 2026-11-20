@@ -40,7 +40,7 @@ test("scorecard-view.v1: every valid fixture parses (and there are some)", () =>
   for (const f of validFiles()) assert.doesNotThrow(() => parseView(valid(f)), `scorecard-view/${f}`);
 });
 
-// Every invalid fixture of the view breaks a shape or a bound (additionalProperties, type, required, minItems), none sits under an if/then or allOf (noema#682 does not apply),
+// Every invalid fixture of the view breaks a shape or a bound (additionalProperties, type, required, minItems, uniqueItems), none sits under an if/then or allOf (noema#682 does not apply),
 // so a parser must refuse every one of them.
 test("scorecard-view.v1: every invalid fixture is refused", () => {
   const expectations = JSON.parse(readFileSync(join(INVALID, "expectations.json"), "utf8"));

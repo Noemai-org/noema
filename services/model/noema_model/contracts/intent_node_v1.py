@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Annotated
 from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
-from .common_v1 import CommonV1PackId, CommonV1Semver, CommonV1SlotName, CommonV1Vertical
+from .common_v1 import CommonV1PackId, CommonV1Predicate, CommonV1Semver, CommonV1SlotName, CommonV1Vertical
 
 class IntentNodeV1DisambiguationStrategy(StrEnum):
     """IntentNodeV1DisambiguationStrategy Source: intent-node.v1.json#/properties/disambiguation/properties/strategy"""
@@ -74,6 +74,7 @@ class IntentNodeV1(ContractModel):
     lexicon_refs: list[CommonV1PackId] | None = Field(default=None)
     trust_profile: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')] | None
     outcome_definitions: list[CommonV1PackId]
+    write_when: CommonV1Predicate | None = Field(default=None)
     examples: list[Annotated[str, StringConstraints(min_length=1)]]
 
 

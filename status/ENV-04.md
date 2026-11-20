@@ -179,3 +179,13 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **Tamper signal (open, not decided):** a payload that does not match its sealed hash becomes UNKNOWN silently (A260). Where it is surfaced (a Record event or a metric) is for REC and SEC to decide; this package does not emit one. It is DEBT-44 (the Founder's order of 17 Nov 2026); A287 settles the earlier findings.
 - **EL note 2 (done):** README says the freshness bound is the layer's. **EL note 3 (answered, not coded):** in the real mapping each source feeds exactly one row, so "one row's field missing while another row of the same source is present" cannot occur end to end; the per-row path is in `internal_test.go`. A test with a second row for a source needs a mapping row the Architect has not approved (A245).
 - Debt: DEBT-44 (the tamper signal). Conflicts raised: none.
+
+# Session 2026-11-19 · ENV-04 G1 evidence: SR's two first-dispatch conditions (noema#436, A323)
+## Session summary
+- What changed: `benchmark/runner/evidence.py` (each probe has its own principal, letters only; the unknown correlation is recorded; new `record-access` command), `benchmark/runner/test_evidence.py`, `.github/workflows/bench-g1-stack.yml` (job-log capture, `access` step, show step after a clean scan, Result fails on the access check), `benchmark/runner/test_g1_workflow.py`.
+- Why: SR's conditions of 15 Nov: (1) the core's access log must show the reconstruction handler ran for the control and the unknown-correlation probe and for no refusal; (2) the job log is as public as an artifact, so runner, generator, scorer and evidence output goes to files that the leak scan covers and is shown only after a clean scan.
+- Risks, and how they are contained: the workflow is IL's file (A323); this edit is the conditions only, no smoke mode. `make bench-up` output (image builds, paths) still goes to the job log: it carries no case data. A probe principal has no digit, so it adds no digit run to the core log or the scan.
+- Tests added (REQ-SEC-004, INV-12, INV-22; criterion 9 of noema#436): `test_evidence.py` (ProbePrincipals, RecordAccess: 9 tests), `test_g1_workflow.py` (3 tests). Mutants: 12 of the evidence logic and 7 of the workflow, each killed.
+## Pre-work for the next agent
+- Exact next step: IL merges main into the smoke-mode change over these step names; the first dispatch counts only after Codex, SR and a Founder.
+- Do not touch: the leak scan's planted kinds.
