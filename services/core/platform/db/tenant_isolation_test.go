@@ -11,14 +11,25 @@ import (
 	"testing"
 )
 
-// registryTables hold a tenant_id as their key, not as tenant data. A power login may read `tenant` (SELECT only: the ledger reads its own tenant's kill switch) and nothing of
-// tenant_login. FINDING for the Security Reviewer (status/SEC-08.md): `tenant` has no row-level security, so any power login can list every tenant's ID and name; the smallest
-// fix is a policy on it bound to the login's tenant (migration 0029, C1's number), with the verification logins reading all.
+// registryTables hold a tenant_id as their key, not as tenant data, and are reviewed by hand: `tenant_login` is read only by the SECURITY DEFINER *_login_tenant functions. `tenant` is NOT
+// here any more: migration 0030 (noema#716) forces row-level security on it with a policy bound to the login's tenant, so it is held to the same rule as every tenant table.
 var registryTables = map[string]string{
-	"tenant":       "the registry of tenants: tenant_id is its key; power logins may SELECT it and nothing more (see the finding above)",
 	"tenant_login": "the map from a login to its tenant and power; read only by the SECURITY DEFINER *_login_tenant functions",
 }
+
+// powerReadOnlyTables are the tables a power login may SELECT and nothing more: the ledger reads its own tenant's kill switch (`tenant`, its rows bound to the login's tenant by 0030)
+// and no power login touches `tenant_login`.
+var powerReadOnlyTables = map[string]string{
+	"tenant":       "the tenant registry: power logins SELECT their own tenant's row (policy tenant_own_row, migration 0030) and nothing more",
+	"tenant_login": registryTables["tenant_login"],
+}
 var registryReadable = map[string]bool{"tenant": true}
+
+// verificationHalts are the only write policies a verification login holds, each named with the exact expressions it may have: the chain verifier may set a tenant's kill switch
+// after a proven break and produce no other row (REC-05; migration 0030, tenant_verify_halt: USING true, WITH CHECK kill_switch; the column grant of 0006 is UPDATE (kill_switch) only).
+var verificationHalts = map[string]policyRow{
+	"tenant_verify_halt": {table: "tenant", name: "tenant_verify_halt", cmd: "w", roles: "record_verify", using: "true", check: "kill_switch"},
+}
 
 // verificationRoles read every tenant's chain to verify its hash links (REC-05, SEC-09): SELECT only, by policy and by grant.
 var verificationRoles = map[string]bool{"evidence_verify": true, "record_verify": true}
@@ -88,6 +99,8 @@ func TestEveryTenantTableForcesRowSecurityWithAPolicyBoundToTheLoginsTenant(t *t
 				// the policy compares tenant_id with the tenant of the session's login: the only ways in are that tenant's own rows
 			case p.cmd == "r" && strings.TrimSpace(p.using) == "true" && p.check == "" && onlyVerificationRoles(p.roles):
 				// a verification login reads the chain of every tenant and can write nothing (SELECT-only policy, SELECT-only grant)
+			case isTheReviewedHalt(p):
+				// the one write a verification login has: it may only produce a tenant row whose kill switch is on (it cannot clear it, and cannot rename a tenant)
 			default:
 				t.Errorf("%s policy %s (%s for %s) is not bound to the login's tenant: using %q, check %q", name, p.name, p.cmd, p.roles, p.using, p.check)
 			}
@@ -181,6 +194,11 @@ func TestEveryTableWithNoTenantIDHasBeenReviewed(t *testing.T) {
 	}
 }
 
+func isTheReviewedHalt(p policyRow) bool {
+	want, ok := verificationHalts[p.name]
+	return ok && p.table == want.table && p.cmd == want.cmd && p.roles == want.roles && strings.TrimSpace(p.using) == want.using && strings.TrimSpace(p.check) == want.check
+}
+
 func onlyVerificationRoles(roles string) bool {
 	for _, r := range strings.Split(roles, ",") {
 		if !verificationRoles[r] {
@@ -210,14 +228,14 @@ func TestTheVerificationLoginsCanOnlyReadAndThePowerLoginsCanOnlyReadTheRegistry
 		rows.Close()
 	}
 	for _, role := range []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw"} {
-		for table := range registryTables {
+		for table := range powerReadOnlyTables {
 			for _, priv := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
 				var can bool
 				if err := pool.QueryRow(ctx(t), `SELECT has_table_privilege($1, $2, $3)`, role, "public."+table, priv).Scan(&can); err != nil {
 					t.Fatal(err)
 				}
 				if can && !(priv == "SELECT" && registryReadable[table]) {
-					t.Errorf("%s holds %s on %s (%s)", role, priv, table, registryTables[table])
+					t.Errorf("%s holds %s on %s (%s)", role, priv, table, powerReadOnlyTables[table])
 				}
 			}
 		}
