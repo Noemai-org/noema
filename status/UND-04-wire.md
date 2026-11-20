@@ -140,6 +140,24 @@ Reused, unchanged: the five `NOEMA_MODEL_*` settings (mutual TLS, the response b
 - Files to read first: `services/core/platform/packload/README.md`, `services/core/cmd/core/wire_understanding.go`, `services/core/orchestrator/portadapters/interpreter/port.go`.
 - Do not touch: `orchestrator.Session` without the Architect, `packs/fintech/manifest.v1.json` (a change needs its digests updated in the same pull request, A333).
 
+# Session 2026-11-20 15:00 WAT · UND-04 (wire, rework on the Architect's ruling)
+
+## Session summary
+- What changed (PR links): noema#773. The typing of the pack's evidence descriptors moves out of `cmd/core` into `trust/reconcile/mapping` as `mapping.ScopeFromDescriptors`, beside `WithScope`; `buildUnderstanding` calls it and passes the result to `mapping.WithScope`. The ruling says "evidence/mapping": no such package exists, and the evidence mapping lives in `trust/reconcile/mapping`, where `WithScope` and the list rows are, so it went there (to be confirmed by the Architect or EL).
+- `fin.src.case_system` is the pack's id for the case system, the source the version 2 mapping's `case` and `complaint_ref` list rows read from. The start already passes it: `evidenceSources` reads every id from the pack's `evidence_sources`, so no id is a Go literal in core (INV-14). A pin test (`TestTheMappingBuiltFromTheRealPackServesTheCaseSystemsLists`) says the Mapping built from the real pack answers for that source and concludes "no case" only from a page marked complete.
+- Why: A438; the ruling relayed by the Founder: "Pass WithScope plus fin.src.case_system. Swap the resolver once #789 merges. Move evidenceScope to evidence/mapping."
+- Risks, and how they are contained: a move with the same behaviour and the same three tests (now `trust/reconcile/mapping/scope_test.go`); the function names no pack content in an error (AGENT-13).
+- Tests added (REQ, INV, US or EC IDs): INV-14, INV-19; REQ-RES-001, REQ-CTX-001.
+- Regression cases added: none (a move).
+- Debt entries: none.
+- Conflicts raised: the package name "evidence/mapping" in the ruling versus `trust/reconcile/mapping` on main.
+
+## Pre-work for the next agent
+- Exact next step: the resolver swap to the `orchestrator.Session` fields waits for noema#789 (A408); not done here.
+- Open questions (Architect or EL): the package for `ScopeFromDescriptors`.
+- Files to read first: `services/core/trust/reconcile/mapping/scope.go`, `services/core/cmd/core/wire_understanding.go`.
+- Do not touch: `orchestrator.Session` until #789 merges.
+
 ## Messages
 
 | Date (UTC) | From | To | Purpose | What the receiver used it for |
