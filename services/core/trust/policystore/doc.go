@@ -12,7 +12,8 @@
 //
 // The publication row keeps document_hash, the hash of the policy document (policy.DocumentHash; migration 0035, ruling on noema#771, interim). Publish requires it and the database
 // requires it for every new publication; a publication made before the migration keeps a NULL hash. This package does not compute the hash and does not import trust/policy: the caller
-// passes it. The documents themselves are not stored (DEBT-23).
+// passes it. The POLICY_PUBLISHED event carries the same hash as document_hash, written in the same transaction (ruling on noema#771, INTERIM: relayed by the Founder in session,
+// not yet committed, AGENTS section 2.3). The documents themselves are not stored (DEBT-23).
 //
 // The active version of a policy_id is the highest one published for it, returned as policy_id@version, the form a Decision Grant binds
 // (decision-grant.v1 policy_version). A policy with no publication has no active version and the result is "".

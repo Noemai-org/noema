@@ -68,7 +68,8 @@ type Store struct {
 	Appender *chain.Appender
 }
 
-// Publish records the version and writes POLICY_PUBLISHED, in the caller's transaction (tx). If the version is not higher than the active one the database
+// Publish records the version and writes POLICY_PUBLISHED, in the caller's transaction (tx). The event's payload names the policy, the version, the publisher and the document_hash the row stores
+// (ruling on noema#771, INTERIM: relayed by the Founder in session, not yet committed, AGENTS section 2.3); the hash is a typed sha256 value, which the Record's payload guard accepts whole. If the version is not higher than the active one the database
 // refuses it (ErrNotNewer) and nothing is written. The caller commits or rolls back.
 func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 	if _, ok := ctx.Deadline(); !ok {
@@ -93,7 +94,7 @@ func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 	}
 	ref := "pol_" + underscored(r.PolicyID) + "_" + underscored(r.Version)
 	_, err = s.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: "admin:" + r.PublishedBy,
-		EventType: "POLICY_PUBLISHED", ObjectRef: ref, Payload: map[string]any{"policy_id": r.PolicyID, "version": r.Version, "published_by": r.PublishedBy}})
+		EventType: "POLICY_PUBLISHED", ObjectRef: ref, Payload: map[string]any{"policy_id": r.PolicyID, "version": r.Version, "published_by": r.PublishedBy, "document_hash": r.DocumentHash}})
 	if err != nil {
 		return &storeError{text: errPrefix + "the publication could not be appended to the Record", cause: err}
 	}
