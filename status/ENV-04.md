@@ -212,3 +212,6 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 ## Pre-work for the next agent
 - Exact next step: IL merges main into the smoke-mode change over these step names; the first dispatch counts only after Codex, SR and a Founder.
 - Do not touch: the leak scan's planted kinds.
+
+# Session 2026-11-20 · ENV-04 · Codex's `.env` finding on noema#790 (IL)
+- Codex P2 (twice): the stand-in fallback overrode a tenant list set only in Compose's `.env`. `deploy/compose/bench_tenants.sh` now gives the one effective list (the shell, then `.env`, then the stand-in tenant; an empty result is no list) and `make bench-up` passes it to `secrets_local.sh` and to Compose (`BENCH_TENANTS`). `test_bench_tenants.py` runs the script on ten cases (shell wins, `.env` only, quoted, comment, look-alike, empty shell value, the fallback as an argument) and reads the real Makefile. Merged main once (conflict only in `compose-scripts.yml`, both sides kept).
