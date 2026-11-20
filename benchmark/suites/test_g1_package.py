@@ -18,7 +18,7 @@ SIX = ["BEN-A-0001", "BEN-A-0002", "BEN-CLEAN-0001", "BEN-CLEAN-1007", "BEN-TMO-
 
 def inputs() -> Json:
     return {
-        "dispatch_sha": SHA, "run_id": "g1-20261120", "fault_plan_id": "plan_1", "data_label": "stand-in", "us06_cases": ["BEN-TMO-0001"], "us01_cases": ["BEN-CLEAN-0001"],
+        "dispatch_sha": SHA, "run_id": "g1-20261120", "fault_plan_id": "plan_1", "data_label": "stand-in", "us06_cases": ["BEN-TMO-0001"], "us01_cases": ["BEN-CLEAN-0001"], "tenant_id": "ten_alpha",
         "g1_cases": list(SIX), "required_checks": ["g1-stack"],
         "rows": {str(n): {"link": URL, "read_by_bo": True} for n in range(1, 13)},
         "not_tested": ["live Tushe (data is the stand-in)", "the model side is the replay provider"],
@@ -76,13 +76,13 @@ def section(kind: str, *facts: Json) -> Json:
 US06_EVENTS = ["DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
 
 
-def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED") -> Json:
-    return {"events": [event(n, k) for n, k in enumerate(kinds or US06_EVENTS, start=1)],
+def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED", corr: str = "corr_tmo", tenant: str = "ten_alpha") -> Json:
+    return {"tenant_id": tenant, "correlation_id": corr, "events": [event(n, k) for n, k in enumerate(kinds or US06_EVENTS, start=1)],
             "sections": [section("DECISION", {"decision_outcome": "ALLOW"}), section("ACTION", {"execution_state": state}), section("VERIFICATION", {"verdict": verdict})]}
 
 
-def recon01(kinds: list[str] | None = None, outcome: str = "ALLOW") -> Json:
-    return {"events": [event(n, k) for n, k in enumerate(kinds if kinds is not None else ["INTENT_ADMITTED", "DECISION_MADE"], start=1)],
+def recon01(kinds: list[str] | None = None, outcome: str = "ALLOW", corr: str = "corr_clean", tenant: str = "ten_alpha") -> Json:
+    return {"tenant_id": tenant, "correlation_id": corr, "events": [event(n, k) for n, k in enumerate(kinds if kinds is not None else ["INTENT_ADMITTED", "DECISION_MADE"], start=1)],
             "sections": [section("DECISION", {"decision_outcome": outcome}), section("ACTION"), section("VERIFICATION")]}
 
 
@@ -90,8 +90,12 @@ def recons() -> Json:
     return {"BEN-TMO-0001": {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06()}, "BEN-CLEAN-0001": {"initial": recon01()}}
 
 
+CORRELATIONS = {"BEN-TMO-0001": "corr_tmo", "BEN-CLEAN-0001": "corr_clean"}
+
+
 def art(**over: Any) -> Json:
-    return {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), "reconstructions": recons(), "mock_case_writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0}, **over}
+    return {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), "reconstructions": recons(), "mock_case_writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0},
+            "correlations": dict(CORRELATIONS), **over}
 
 
 def make(i: Json | None = None, a: Json | None = None, b: Json | None = None, r: Json | None = None, artifacts: Json | None = None) -> str:
@@ -478,6 +482,70 @@ class RowTwo(unittest.TestCase):
 
     def test_the_us_01_cases_are_required_input_disjoint_from_the_us_06_cases_and_inside_the_g1_cases(self) -> None:
         mutations: list[Callable[[Json], Any]] = [lambda i: i.pop("us01_cases"), lambda i: i.update(us01_cases=[]), lambda i: i.update(us01_cases=["BEN-TMO-0001"]), lambda i: i.update(us01_cases=["BEN-NOT-IN-G1"])]
+        for mutate in mutations:
+            i = inputs()
+            mutate(i)
+            with self.assertRaises(PackageError):
+                make(i)
+
+
+class RowTwoBinding(unittest.TestCase):
+    """Codex P2s on noema#717 at 3776f387: the 'no second grant' rule must hold in every US-06 phase, and the reconstructions must be the ones of THIS run's case (tenant and correlation id from the
+    run's own correlations.json), the same in every phase; otherwise a replayed or cross-case document with equal counts satisfies the row."""
+
+    def row2(self, **art_over: Any) -> str:
+        return row(make(artifacts=art(**art_over)), 2)
+
+    def phases(self, doc: Json) -> Json:
+        return {"BEN-TMO-0001": {"initial": doc, "after_recovery": doc, "after_replay": doc}, "BEN-CLEAN-0001": {"initial": recon01()}}
+
+    def test_a_second_grant_issued_is_not_met_when_it_is_consistent_in_every_phase(self) -> None:
+        second = recon06([*US06_EVENTS, "GRANT_ISSUED"])
+        self.assertIn("**NOT MET**", self.row2(reconstructions=self.phases(second)))
+        self.assertIn("GRANT_ISSUED", self.row2(reconstructions=self.phases(second)))
+
+    def test_a_us_06_case_with_no_grant_issued_at_all_is_not_met(self) -> None:
+        none = recon06([k for k in US06_EVENTS if k != "GRANT_ISSUED"])
+        self.assertIn("**NOT MET**", self.row2(reconstructions=self.phases(none)))
+
+    def test_a_phase_of_another_correlation_or_tenant_is_not_met(self) -> None:
+        for name, bad in (("another correlation", recon06(corr="corr_other")), ("another tenant", recon06(tenant="ten_other"))):
+            for phase in ("initial", "after_recovery", "after_replay"):
+                r = self.phases(recon06())
+                r["BEN-TMO-0001"][phase] = bad
+                self.assertIn("**NOT MET**", self.row2(reconstructions=r), f"{name} in {phase}")
+            self.assertIn("**NOT MET**", self.row2(reconstructions=self.phases(bad)), f"{name} in every phase")
+
+    def test_a_missing_or_unreadable_identity_is_not_met(self) -> None:
+        for field in ("tenant_id", "correlation_id"):
+            for value in (None, "", 7):
+                doc = recon06()
+                doc[field] = value
+                self.assertIn("**NOT MET**", self.row2(reconstructions=self.phases(doc)), f"{field}={value!r}")
+            doc = recon06()
+            del doc[field]
+            self.assertIn("**NOT MET**", self.row2(reconstructions=self.phases(doc)), f"no {field}")
+
+    def test_a_cross_case_document_does_not_satisfy_the_row(self) -> None:
+        r = self.phases(recon06())
+        r["BEN-CLEAN-0001"] = {"initial": recon06()}  # a US-06 document offered for the US-01 case: right shape, wrong correlation
+        self.assertIn("**NOT MET**", self.row2(reconstructions=r))
+        swapped = self.phases(recon06(corr="corr_clean"))
+        self.assertIn("**NOT MET**", self.row2(reconstructions=swapped))
+
+    def test_the_us_01_reconstruction_is_bound_to_its_correlation_and_the_tenant(self) -> None:
+        for bad in (recon01(corr="corr_other"), recon01(tenant="ten_other")):
+            r = self.phases(recon06())
+            r["BEN-CLEAN-0001"] = {"initial": bad}
+            self.assertIn("**NOT MET**", self.row2(reconstructions=r))
+
+    def test_the_run_correlations_are_required_and_must_name_every_us_06_and_us_01_case(self) -> None:
+        bad: Any
+        for bad in (None, "x", [], {}, {"BEN-TMO-0001": "corr_tmo"}, {"BEN-CLEAN-0001": "corr_clean"}, {"BEN-TMO-0001": "", "BEN-CLEAN-0001": "corr_clean"}, {"BEN-TMO-0001": 7, "BEN-CLEAN-0001": "corr_clean"}):
+            self.assertIn("**NOT MET**", self.row2(correlations=bad), str(bad))
+
+    def test_the_tenant_is_required_input(self) -> None:
+        mutations: list[Callable[[Json], Any]] = [lambda i: i.pop("tenant_id"), lambda i: i.update(tenant_id=""), lambda i: i.update(tenant_id=7)]
         for mutate in mutations:
             i = inputs()
             mutate(i)

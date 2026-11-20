@@ -107,3 +107,14 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 - Exact next step: IL names the mock-case log format and the runner's per-request record (asked on 19 Nov); then the extractor and the runner writer are added with tests.
 - Do not touch: the gate conditions.
 
+# Session 2026-11-20 · BEN-05 · Codex's two P2s on row 2 at 3776f387
+
+## Session summary
+- P2 (no second grant): the US-06 check now requires exactly one GRANT_ISSUED too, in every phase (a second issuance, consistent across the three phases, no longer passes; none at all fails).
+- P2 (bind the phases to the case and the run): every reconstruction must carry the run's tenant (new input `tenant_id`) and the case's own correlation id from the run's `correlations.json` (new artifact, flag `--correlations`), the same in every phase, for US-06 and US-01; a missing, empty or non-text identity, another tenant, another correlation, a cross-case document or a case missing from `correlations.json` is NOT MET.
+- Tests: 8 new (all red before the fix); 62 in the file pass; mypy --strict and lint clean; 11 mutations of the new logic, 9 caught and 2 equivalent (the identity check already rejects a missing run correlation).
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: SR's two suggestions after this: IL stamps the dispatch SHA and run id into the artifacts and the package compares them; row 12 through the SEC-07 scanner (noema#802) once it merges.
+

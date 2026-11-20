@@ -1,9 +1,9 @@
 """BEN-05: the G1 evidence package skeleton (noema#566, section 4), rendered in minutes after the run from the run's own files.
 
-`python -m benchmark.suites.g1_package --inputs F --a-score F --b-score F --replay F --check-runs F --leak-scan F --probes F --reconstructions F --mock-case-writes F --out DIR`. It decides nothing (AGENT-16) and never says MET for what
-it cannot tie to evidence. Row 2 is computed from the reconstructions and the mock-case write counts (A375): US-06 shows one GRANT_SPENT, one DISPATCH_ATTEMPTED and one RECEIPT classified
+`python -m benchmark.suites.g1_package --inputs F --a-score F --b-score F --replay F --check-runs F --leak-scan F --probes F --reconstructions F --mock-case-writes F --correlations F --out DIR`. It decides nothing (AGENT-16) and never says MET for what
+it cannot tie to evidence. Row 2 is computed from the reconstructions and the mock-case write counts (A375): US-06 shows one GRANT_ISSUED (no second grant), one GRANT_SPENT, one DISPATCH_ATTEMPTED and one RECEIPT classified
 OUTCOME_UNKNOWN, then a read by key and an ACHIEVED verdict, the same counts after a recovery sweep and after a replay, and one write; US-01 shows ALLOW with no GRANT_* event, no dispatch and zero
-writes (a grant on US-01 fails the row). Rows 5, 8 and 9 are computed from the run's artifacts, not attested (ruling A355): row 5 from the check-runs JSON (every check run at the dispatch SHA completed and
+writes (a grant on US-01 fails the row). Every reconstruction must be the run's tenant's and the case's own correlation (the run's correlations.json), the same in every phase. Rows 5, 8 and 9 are computed from the run's artifacts, not attested (ruling A355): row 5 from the check-runs JSON (every check run at the dispatch SHA completed and
 green, the required checks present and successful), row 8 from the leak-scan output (the probe saw every planted kind, a clean scan that read something, no failure line), row 9 from the probe results
 (the two separate refusals, the control and the unknown correlation for every case, recomputed from status and code, never from an `ok` flag). Rows 10 (both scorecards bound to their replay legs,
 complete or only named exclusions, Tier 0 at zero) and 11 (every expected G1 case of both stories IDENTICAL in the replay, once each, unless it is a named exclusion; never the unknown-outcome case)
@@ -67,6 +67,8 @@ def _need(inputs: Mapping[str, Any]) -> None:
     us01 = inputs.get("us01_cases")
     if not _strings(us01) or not set(us01 or []) <= set(inputs["g1_cases"]) or set(us01 or []) & set(inputs["us06_cases"]):
         raise PackageError("inputs.us01_cases must name the US-01 cases, inside g1_cases and apart from the unknown-outcome cases")
+    if not _text_value(inputs.get("tenant_id")):
+        raise PackageError("inputs.tenant_id is required: the reconstructions must be the run's tenant's")
     if not isinstance(inputs.get("rows"), dict) or not isinstance(inputs.get("not_tested"), list):
         raise PackageError("inputs.rows and inputs.not_tested are required")
 
@@ -216,7 +218,7 @@ def _us06_problem(doc: Any) -> tuple[str | None, tuple[int, ...]]:
         return "the reconstruction is unreadable", ()
     kinds = [k for _, k in events]
     counts = tuple(kinds.count(k) for k in COUNTED)
-    for kind in ("GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERDICT"):
+    for kind in ("GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERDICT"):
         if kinds.count(kind) != 1:
             return f"{kinds.count(kind)} {kind} events, not exactly one", counts
     if not kinds.count("VERIFICATION_READ"):
@@ -243,13 +245,31 @@ def _us01_problem(doc: Any) -> str | None:
     return None
 
 
-def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any) -> tuple[bool, str]:
-    if not isinstance(docs, Mapping) or not isinstance(writes, Mapping):
-        return False, "the reconstructions or the mock-case write counts are not readable"
+def _identity_problem(doc: Any, tenant: str, correlation: Any) -> str | None:
+    """A reconstruction must be this run's tenant's and the case's own conversation (`correlations.json` of the run), or equal counts of another document would satisfy the row."""
+    if not isinstance(doc, Mapping) or not _text_value(doc.get("tenant_id")) or not _text_value(doc.get("correlation_id")):
+        return "the reconstruction carries no tenant or correlation id"
+    if doc["tenant_id"] != tenant:
+        return f"the reconstruction is of tenant {doc['tenant_id']!r}, not the run's"
+    if doc["correlation_id"] != correlation:
+        return f"the reconstruction is of correlation {doc['correlation_id']!r}, not the run's {correlation!r}"
+    return None
+
+
+def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any, correlations: Any) -> tuple[bool, str]:
+    if not isinstance(docs, Mapping) or not isinstance(writes, Mapping) or not isinstance(correlations, Mapping):
+        return False, "the reconstructions, the mock-case write counts or the run's correlations are not readable"
+    for case in [*inputs["us06_cases"], *inputs["us01_cases"]]:
+        if not _text_value(correlations.get(case)):
+            return False, f"{case}: the run's correlations.json names no correlation id for it"
     for case in inputs["us06_cases"]:
         phases = docs.get(case)
         if not isinstance(phases, Mapping) or not all(isinstance(phases.get(ph), Mapping) for ph in PHASES):
             return False, f"{case}: the reconstructions initially, after a recovery sweep and after a replay are all required"
+        for ph in PHASES:
+            identity = _identity_problem(phases[ph], inputs["tenant_id"], correlations.get(case))
+            if identity:
+                return False, f"{case} ({ph}): {identity}"
         results = {ph: _us06_problem(phases[ph]) for ph in PHASES}
         for ph in PHASES:
             if results[ph][0]:
@@ -260,7 +280,7 @@ def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any) -> tuple[bool, str]
             return False, f"{case}: the mock-case log shows {writes.get(case)!r} writes, not exactly one"
     for case in inputs["us01_cases"]:
         phases = docs.get(case)
-        problem = _us01_problem(phases.get("initial")) if isinstance(phases, Mapping) else "no reconstruction"
+        problem = (_identity_problem(phases.get("initial"), inputs["tenant_id"], correlations.get(case)) or _us01_problem(phases.get("initial"))) if isinstance(phases, Mapping) else "no reconstruction"
         if problem:
             return False, f"{case}: {problem}"
         if writes.get(case) != 0 or type(writes.get(case)) is not int:
@@ -270,7 +290,7 @@ def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any) -> tuple[bool, str]
 
 def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str, Any], replay: Mapping[str, Any], artifacts: Mapping[str, Any]) -> tuple[bool, str]:
     if n == 2:
-        return _row2(inputs, artifacts.get("reconstructions"), artifacts.get("mock_case_writes"))
+        return _row2(inputs, artifacts.get("reconstructions"), artifacts.get("mock_case_writes"), artifacts.get("correlations"))
     if n == 5:
         return _row5(inputs, replay, artifacts.get("check_runs"))
     if n == 8:
@@ -349,15 +369,15 @@ def _json_documents(text: str) -> list[Any]:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m benchmark.suites.g1_package", description=__doc__)
-    for flag in ("inputs", "a-score", "b-score", "replay", "check-runs", "leak-scan", "probes", "reconstructions", "mock-case-writes", "out"):
+    for flag in ("inputs", "a-score", "b-score", "replay", "check-runs", "leak-scan", "probes", "reconstructions", "mock-case-writes", "correlations", "out"):
         p.add_argument(f"--{flag}", required=True)
     args = p.parse_args(argv)
     try:
-        inputs, a, b, replay, probes, reconstructions, writes = (json.loads(Path(getattr(args, f)).read_text(encoding="utf-8"))
-                                                                 for f in ("inputs", "a_score", "b_score", "replay", "probes", "reconstructions", "mock_case_writes"))
+        inputs, a, b, replay, probes, reconstructions, writes, correlations = (json.loads(Path(getattr(args, f)).read_text(encoding="utf-8"))
+                                                                              for f in ("inputs", "a_score", "b_score", "replay", "probes", "reconstructions", "mock_case_writes", "correlations"))
         pages = _json_documents(Path(args.check_runs).read_text(encoding="utf-8"))
         text = render(inputs, a, b, replay, {"check_runs": pages[0] if len(pages) == 1 else pages, "leak_scan": Path(args.leak_scan).read_text(encoding="utf-8"), "probes": probes,
-                                  "reconstructions": reconstructions, "mock_case_writes": writes})
+                                  "reconstructions": reconstructions, "mock_case_writes": writes, "correlations": correlations})
     except (OSError, ValueError, PackageError) as exc:
         sys.stderr.write(f"g1 package: {exc}\n")
         return 2
