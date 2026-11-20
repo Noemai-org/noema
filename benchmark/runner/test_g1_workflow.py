@@ -135,6 +135,18 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn("netcheck", summary.group(0))
 
     # A444 (BO, noema#821): the package step stamps the run directory and the probes file and counts each case's writes from the runner's own results.
+    def test_every_step_that_calls_compose_exports_the_variables_the_overlay_requires(self) -> None:
+        # Codex P2 on noema#730: exports of one step do not reach the next, and bench-stack.yml requires NOEMA_BENCH_OUT, NOEMA_BENCH_UID, NOEMA_BENCH_GID and NOEMA_BENCH_MAX_BODY_BYTES with `${...:?}`,
+        # so a step that calls `$compose` without them fails at configuration, before it runs anything. Each step that defines the compose command exports all four, from the same expressions.
+        steps = re.split(r"(?m)^      - ", self.text)
+        called = [s for s in steps if 'compose="docker compose' in s]
+        self.assertGreaterEqual(len(called), 4, "the run, evidence, package and access steps call compose")
+        for step in called:
+            name = step.splitlines()[0][:70]
+            for variable in ('NOEMA_BENCH_OUT="$PWD/benchmark/out"', 'NOEMA_BENCH_UID="$(id -u)"', 'NOEMA_BENCH_GID="$(id -g)"', "NOEMA_BENCH_MAX_BODY_BYTES="):
+                self.assertIn(variable, step, f"{name}: calls compose without {variable.split('=')[0]}")
+            self.assertRegex(step, r"export NOEMA_BENCH_OUT=.*STANDIN_TENANT_ID=ten_alpha", name)
+
     def test_the_package_step_runs_after_the_evidence_and_before_the_scan_and_a_failure_fails_the_result(self) -> None:
         step = re.search(r"(?ms)- id: package\n(.*?)(?=^      - )", self.text)
         assert step, "no package step"

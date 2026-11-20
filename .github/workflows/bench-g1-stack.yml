@@ -190,6 +190,7 @@ jobs:
         if: always() && inputs.mode == 'full'
         run: |
           set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
           compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
           mkdir -p benchmark/out/joblog
           $compose exec -T bench-runner python -m benchmark.runner.package_artifacts --run /bench-out/run --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --probes /bench-out/evidence/negative-probes.json >> benchmark/out/joblog/package.log 2>&1
