@@ -240,3 +240,19 @@ def test_an_unexpected_error_from_the_audio_source_degrades_to_text_with_a_fixed
 def test_an_unexpected_error_from_the_provider_itself_degrades_the_same_way() -> None:
     result = go(Fake(raises=RuntimeError("secret text of the provider")), mic())
     assert result.utterance is None and result.offer_text and result.failure is ProviderFailure.UNAVAILABLE and "secret" not in repr(result)
+
+
+# ---- Codex P2 on noema#805 at bd892465: the class name is constrained before it is exposed ------------------------------------------------------------------------------------
+
+
+def test_a_builtin_exception_class_name_is_kept_and_any_other_class_gets_a_fixed_category() -> None:
+    assert go(Fake(raises=RuntimeError("x")), mic()).error_type == "RuntimeError"
+    assert go(Fake(raises=OSError("x")), mic()).error_type == "OSError"
+
+
+@pytest.mark.parametrize("name", ["Account1234567890", "Bad\nName", "naira50000", "x" * 500, "Ünï", ""])
+def test_a_dynamically_named_exception_class_cannot_put_text_or_digits_into_the_result(name: str) -> None:
+    odd = type(name, (RuntimeError,), {})  # a class whose name is whatever a provider or source chose
+    result = go(Fake(raises=odd("x")), mic())
+    assert result.failure is ProviderFailure.UNAVAILABLE and result.error_type == "UnexpectedError"
+    assert name not in repr(result) or name == ""
