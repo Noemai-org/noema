@@ -323,3 +323,27 @@ def test_a_runtime_failure_while_the_stream_is_closed_after_the_first_audio_is_r
     clock = Clock()
     result = run(asyncio.wait_for(session(clock, Stt(clock), RuntimeFailsOnCloseTts(clock), FakeCore(clock), utterance()), timeout=GUARD_S))
     assert result.failure is ProviderFailure.UNAVAILABLE  # the session counts as a failure in the batch (see _counted)
+
+
+# ---- Codex P2 on noema#694 at 4a1f676f: a TimeoutError raised BY the stream is not the harness's cleanup deadline -----------------------------------------------------------------
+
+
+class TimeoutOnCloseTts(Tts):
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        try:
+            async for chunk in super().synthesize(request):
+                yield chunk
+        finally:
+            raise TimeoutError("the provider's own shutdown timed out")
+
+
+def test_a_timeout_raised_by_the_stream_while_it_closes_is_a_recorded_failure_not_an_abandoned_close() -> None:
+    clock = Clock()
+    result = run(asyncio.wait_for(session(clock, Stt(clock), TimeoutOnCloseTts(clock), FakeCore(clock), utterance()), timeout=GUARD_S))
+    assert result.failure is ProviderFailure.UNAVAILABLE  # counted as a failure in the batch (see _counted), though the timeline reached its last stage
+
+
+def test_a_close_that_outlasts_the_cleanup_deadline_is_still_abandoned_and_the_session_stays_complete() -> None:
+    clock = Clock()
+    result = run(asyncio.wait_for(session(clock, Stt(clock), Tts(clock, hang="close"), FakeCore(clock), utterance()), timeout=GUARD_S))
+    assert result.timeline.complete and result.failure is None
