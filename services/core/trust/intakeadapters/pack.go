@@ -151,7 +151,7 @@ func LoadPolicyBook(packs ...[]byte) (*PolicyBook, error) {
 	if len(packs) == 0 {
 		return nil, fmt.Errorf("%w: no pack", ErrPack)
 	}
-	b := &PolicyBook{versions: map[string]policy.Version{}}
+	b := &PolicyBook{versions: map[string]policy.Version{}, hashes: map[string]string{}}
 	readsOf := map[string]struct{ vars, ents []string }{}
 	for i, raw := range packs {
 		top, err := topLevel(raw, "policy", "capabilities", "predicate_variables", "evidence_descriptors")
@@ -180,6 +180,9 @@ func LoadPolicyBook(packs ...[]byte) (*PolicyBook, error) {
 			return nil, fail(ErrPack, "a policy version is given twice", fmt.Errorf("version %s", doc.Version()))
 		}
 		b.versions[doc.Version()] = doc
+		if h, err := policy.DocumentHash(top["policy"]); err == nil {
+			b.hashes[doc.Version()] = h // a document with no single reading has no hash: no row can rest on it, so a published row for that version is a drift (A413)
+		}
 		for _, r := range rules.Rules {
 			vars, ents := reads(r.Condition, vocab.Scope)
 			for _, target := range r.AppliesTo {
