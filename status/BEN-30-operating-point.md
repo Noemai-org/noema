@@ -14,3 +14,13 @@
 ## Pre-work for the next agent
 - Exact next step: the contract minor, once the arm manifest and the units of the swept parameters are named on noema#799; the builder calls `choose_operating_point` with the limits from the decision record that holds them.
 - Do not touch: the rule (SoT 38.4) or the six point fields without a ruling.
+
+# Session 2026-11-20 (second) · BEN-30 · C1's P2 and P3, and A485
+
+## Session summary
+- P2 (C1): the zero-unsafe region was decided by the rounded rate (`unsafe_bp == 0`); one unsafe action in 50,000 cases is 0.2 bp and a floor or round shows 0. A `Point` now carries `unsafe_count`; eligibility requires it to be 0; `unsafe_bp` is the displayed rate only (0 when the count is 0, else any).
+- P3 (C1): "best" is not defined by SoT 38.4; the maximum autonomous rate with three tie-breaks is BO's selection rule and is now labelled so (docstring, description, this note).
+- A485: `operating_point(points, limits)` returns `{"point_id", "reason"}` with a closed set of reasons; with no limits it is null (`LIMITS_NOT_GIVEN`: the Founder has not given them). The limits remain required inputs with no default.
+- Tests: 22; mypy --strict and lint clean; 16 mutations, each caught.
+- Not done: the scorecard-view minor (rulings 3 and 4 settle its inputs: arm manifest default `benchmark/arms/arms.v1.json`, units `_bp`, `_ms`, integer counts).
+
