@@ -97,7 +97,7 @@ func casePage(complete any, items ...map[string]any) map[string]any {
 
 func aCase(id, status string) map[string]any {
 	return map[string]any{"case_id": id, "reference": "R", "status": status, "owner_queue": "fin.queue.payments_ops", "priority": "NORMAL", "transaction_ref": "fin.transaction:TX1",
-		"created_by_intent": "int_aa", "epoch": float64(3), "created_at": "2026-11-14T09:00:00Z"}
+		"created_by_intent": "int_aa", "epoch": json.Number("3"), "created_at": "2026-11-14T09:00:00Z"}
 }
 
 // --- loading -------------------------------------------------------------------------------------------------------------------------------
@@ -157,11 +157,24 @@ func TestAMappingWhoseListRowIsNotWholeOrNotInAScopeIsRefusedAtLoad(t *testing.T
 	}
 	// an entity of the rule set cannot also be a list entity of the extra scope: one entity, one meaning
 	both := predicate.Scope{Entities: map[string]map[string]predicate.Type{"switch": {"state": predicate.EnumOf("SUCCESSFUL")}}}
-	doc := strings.Replace(string(listDoc(rs.ID(), nil)), `"entity":"case","source":"fin.src.case_system","rows_from"`, `"entity":"switch","source":"fin.src.case_system","rows_from"`, 1)
-	doc = strings.Replace(doc, `"id":{"path":"case_id"},"subject":{"path":"transaction_ref"},"status":{"path":"status","map":{"OPEN":"OPEN","ROUTED":"ROUTED"}},
-   "created_by_intent":{"path":"created_by_intent"},"owner_queue":{"path":"owner_queue"},"epoch":{"path":"epoch"}`, `"state":{"path":"status","map":{"OPEN":"SUCCESSFUL"}}`, 1)
-	if _, err := mapping.Parse([]byte(doc), rs, append(sources(t), caseSystem), "fin.map.v1@2", limits, mapping.WithScope(both)); err == nil {
+	listOfSwitch := `{"mapping_id":"fin.map.v1","version":2,"label":"SYNTHETIC","ruleset":"` + rs.ID() + `","note":"n","rows":[
+ {"entity":"switch","source":"fin.src.case_system","rows_from":"items","complete":"complete","fields":{"state":{"path":"status","map":{"OPEN":"SUCCESSFUL"}}}}]}`
+	if _, err := mapping.Parse([]byte(listOfSwitch), rs, append(sources(t), caseSystem), "fin.map.v1@2", limits, mapping.WithScope(both)); err == nil {
 		t.Error("an entity that is in both scopes loaded")
+	}
+	// the same document with the entity in the extra scope only is whole: the refusal above is for the right reason
+	other := predicate.Scope{Entities: map[string]map[string]predicate.Type{"ghost": {"state": predicate.EnumOf("SUCCESSFUL")}}}
+	if _, err := mapping.Parse([]byte(strings.Replace(listOfSwitch, `"entity":"switch"`, `"entity":"ghost"`, 1)), rs, append(sources(t), caseSystem), "fin.map.v1@2", limits, mapping.WithScope(other)); err != nil {
+		t.Errorf("control: the same list row of an entity of the extra scope only must load: %v", err)
+	}
+	// complete belongs to a list entity; on a plain row it is refused, not ignored
+	plain := `{"mapping_id":"fin.map.v1","version":2,"label":"SYNTHETIC","ruleset":"` + rs.ID() + `","note":"n","rows":[
+ {"entity":"switch","source":"fin.src.switch","complete":"complete","fields":{"state":{"path":"semantic_status","map":{"SUCCESS":"SUCCESSFUL"}}}}]}`
+	if _, err := mapping.Parse([]byte(plain), rs, sources(t), "fin.map.v1@2", limits, mapping.WithScope(packScope(t))); err == nil {
+		t.Error("a plain row with a complete marker loaded")
+	}
+	if _, err := mapping.Parse([]byte(strings.Replace(plain, `"complete":"complete",`, ``, 1)), rs, sources(t), "fin.map.v1@2", limits, mapping.WithScope(packScope(t))); err != nil {
+		t.Errorf("control: the plain row without the marker must load: %v", err)
 	}
 }
 
@@ -179,7 +192,7 @@ func TestAnEmptyListMarkedCompleteIsNoCaseAndAnythingElseIsUnknown(t *testing.T)
 		"marker missing empty": casePage(nil),
 		"marker missing, case": casePage(nil, aCase("case_1", "OPEN")),
 		"marker a string":      casePage("true"),
-		"marker a number":      casePage(float64(1)),
+		"marker a number":      casePage(json.Number("1")),
 		"marker null":          casePage(nil), // replaced below
 	}
 	notComplete["marker null"]["complete"] = nil
@@ -242,7 +255,7 @@ func TestTheCaseRowsCarryTheirTypedFieldsInThePagesOrder(t *testing.T) {
 
 func TestAnIntegerFieldIsAWholeNumberInRangeInAnyOfTheDecodersShapes(t *testing.T) {
 	m := mustLists(t)
-	ok := map[string]any{"float64": float64(7), "json.Number": json.Number("7"), "int": 7, "int64": int64(7)}
+	ok := map[string]any{"json.Number": json.Number("7"), "int": 7, "int64": int64(7), "json.Number with leading zeros": json.Number("007")}
 	for name, v := range ok {
 		c := aCase("case_1", "OPEN")
 		c["epoch"] = v
@@ -251,7 +264,7 @@ func TestAnIntegerFieldIsAWholeNumberInRangeInAnyOfTheDecodersShapes(t *testing.
 			t.Errorf("%s: %v, %v", name, rows, err)
 		}
 	}
-	for name, v := range map[string]any{"fraction": 3.5, "a string": "3", "negative zero as text": "-0", "too large": float64(1 << 60), "a bool": true, "null": nil, "json.Number fraction": json.Number("2.5")} {
+	for name, v := range map[string]any{"a string": "3", "a bool": true, "null": nil, "json.Number fraction": json.Number("2.5"), "json.Number exponent": json.Number("1e2"), "too large": json.Number("1152921504606846976"), "just over the bound": json.Number("9007199254740992"), "empty": json.Number("")} {
 		c := aCase("case_1", "OPEN")
 		c["epoch"] = v
 		rows, err := m.ListRows(caseSystem, "case", casePage(true, c))
@@ -268,15 +281,16 @@ func TestAnIntegerFieldIsAWholeNumberInRangeInAnyOfTheDecodersShapes(t *testing.
 func TestAFieldTheElementDoesNotGiveOrGivesAsAnotherShapeIsLeftUnset(t *testing.T) {
 	m := mustLists(t)
 	bad := map[string]func(map[string]any){
-		"status not listed":   func(c map[string]any) { c["status"] = "CLOSED" },
-		"status not a string": func(c map[string]any) { c["status"] = 1 },
-		"id missing":          func(c map[string]any) { delete(c, "case_id") },
-		"id empty":            func(c map[string]any) { c["case_id"] = "" },
-		"id a number":         func(c map[string]any) { c["case_id"] = float64(5) },
-		"queue empty":         func(c map[string]any) { c["owner_queue"] = "" },
-		"intent missing":      func(c map[string]any) { delete(c, "created_by_intent") },
+		"status not listed":     func(c map[string]any) { c["status"] = "CLOSED" },
+		"status not a string":   func(c map[string]any) { c["status"] = 1 },
+		"id missing":            func(c map[string]any) { delete(c, "case_id") },
+		"id empty":              func(c map[string]any) { c["case_id"] = "" },
+		"id a number":           func(c map[string]any) { c["case_id"] = json.Number("5") },
+		"id has a control char": func(c map[string]any) { c["case_id"] = "case\n1" },
+		"queue empty":           func(c map[string]any) { c["owner_queue"] = "" },
+		"intent missing":        func(c map[string]any) { delete(c, "created_by_intent") },
 	}
-	fieldOf := map[string]string{"status not listed": "status", "status not a string": "status", "id missing": "id", "id empty": "id", "id a number": "id", "queue empty": "owner_queue", "intent missing": "created_by_intent"}
+	fieldOf := map[string]string{"status not listed": "status", "status not a string": "status", "id missing": "id", "id empty": "id", "id a number": "id", "id has a control char": "id", "queue empty": "owner_queue", "intent missing": "created_by_intent"}
 	for name, mutate := range bad {
 		c := aCase("case_1", "OPEN")
 		mutate(c)
@@ -310,7 +324,7 @@ func TestTheClockAnchorIsAnRFC3339InstantOrUnset(t *testing.T) {
 	if got := at("2026-11-14T10:00:00+01:00"); got != predicate.Time(utc) {
 		t.Errorf("+01:00 = %v, want the same instant", got)
 	}
-	for _, bad := range []any{"2026-11-14", "2026-11-14T09:00:00", "", "yesterday", float64(1), nil} {
+	for _, bad := range []any{"2026-11-14", "2026-11-14T09:00:00", "", "yesterday", json.Number("1"), nil} {
 		if got := at(bad); !got.IsNull() {
 			t.Errorf("%v gave %v; an instant the mapping cannot read is left UNSET, never defaulted", bad, got)
 		}

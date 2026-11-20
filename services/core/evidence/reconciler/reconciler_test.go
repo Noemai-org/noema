@@ -33,7 +33,7 @@ const (
 	ledger   = "fin.src.core_ledger"
 	sw       = "fin.src.switch"
 	dest     = "fin.src.destination"
-	expected = "fin.map.v1@1"
+	expected = "fin.map.v1@2"
 )
 
 var (
@@ -63,7 +63,7 @@ func ruleSet(t *testing.T) *reconcile.RuleSet {
 
 func theMapping(t *testing.T, rs *reconcile.RuleSet) *mapping.Mapping {
 	t.Helper()
-	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest, "fin.src.case_system"}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(packDir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestTheReconciliationIDFollowsTheStatusOfAnItemAndTheMapping(t *testing.T) 
 	base := build(t, ledgerPosted(), switchIs("SUCCESS"), destIs("CREDITED"))
 	rs := ruleSet(t)
 	raw := strings.Replace(string(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json")), `"mapping_id": "fin.map.v1"`, `"mapping_id": "fin.map.v2"`, 1)
-	m2, err := mapping.Parse([]byte(raw), rs, []string{ledger, sw, dest}, "fin.map.v2@1", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	m2, err := mapping.Parse([]byte(raw), rs, []string{ledger, sw, dest, "fin.src.case_system"}, "fin.map.v2@2", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(packDir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Skipf("the mapping cannot be re-identified in this fixture: %v", err)
 	}
