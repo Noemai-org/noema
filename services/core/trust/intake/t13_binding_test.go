@@ -144,8 +144,9 @@ func TestConfirmationDeclinedIsItsOwnStatus(t *testing.T) {
 }
 
 // REQ-TRU-009, SoT 43.2a (the Founder's order of 19 Nov 2026, CR docs#209, interim until committed): a Declined answer ends T13 in REJECT DECLINED_BY_APPROVER, not UNKNOWN. This
-// replaces the interim test of noema#757 that pinned "Declined is UNKNOWN", the reading this decision supersedes. Nothing is planned, recorded or requested.
-func TestT13DeclinedIsRejectNotUnknownAndNothingIsPlannedRecordedOrRequested(t *testing.T) {
+// replaces the interim test of noema#757 that pinned "Declined is UNKNOWN", the reading this decision supersedes. A435 (interim, relayed): the REJECT is recorded once; nothing is
+// planned or requested.
+func TestT13DeclinedIsRejectNotUnknownRecordedOnceAndNothingIsPlannedOrRequested(t *testing.T) {
 	for name, c := range map[string]Confirmation{
 		"a bare decline":                {Status: ConfirmationDeclined, RequestID: "cfr_synth0001"},
 		"a decline that names an event": {Status: ConfirmationDeclined, RequestID: "cfr_synth0001", EventID: "cfe_synth0001", PlanHash: tPlanHash},
@@ -153,12 +154,13 @@ func TestT13DeclinedIsRejectNotUnknownAndNothingIsPlannedRecordedOrRequested(t *
 	} {
 		f := newFake13()
 		f.conf = c
+		f.rec = RecordResult{DecisionID: "dec_synth0002"}
 		res := run13(t, newEval13(t, f))
 		if res.Decision.Outcome() != decide.Reject {
 			t.Errorf("%s: outcome %s %v, want REJECT", name, res.Decision.Outcome(), codes13(res.Decision))
 		}
-		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 || f.called("Recorder.RequestConfirmation") != 0 {
-			t.Errorf("%s: planner, recorder or request creation after a decline: %v", name, f.calls)
+		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 1 || f.called("Recorder.RequestConfirmation") != 0 {
+			t.Errorf("%s: want one Record and no plan or request creation after a decline: %v", name, f.calls)
 		}
 	}
 }
