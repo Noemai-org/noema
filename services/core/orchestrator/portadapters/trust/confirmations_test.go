@@ -72,7 +72,7 @@ func cpAdmitted() intake.AdmittedIntent {
 }
 
 func cpFresh() intake.FreshBinding {
-	return intake.FreshBinding{EvidenceSetHash: "sha256:cc", PolicyVersion: "pol_1"}
+	return intake.FreshBinding{ConfirmationBindingEvidenceHash: "sha256:cc", PolicyVersion: "pol_1"}
 }
 
 func cpBinding() confirm.BindingInput {
@@ -163,7 +163,7 @@ func TestStatusIsPureAndRepeatable(t *testing.T) {
 func TestStatusAGivenAnswerWithAnEmptyFreshValueIsRefusedNeverGiven(t *testing.T) {
 	for name, f := range map[string]intake.FreshBinding{
 		"no evidence hash":  {PolicyVersion: "pol_1"},
-		"no policy version": {EvidenceSetHash: "sha256:cc"},
+		"no policy version": {ConfirmationBindingEvidenceHash: "sha256:cc"},
 		"both empty":        {},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -210,7 +210,7 @@ func TestStatusExpiredIsPendingWithANewRequestAndNeverGiven(t *testing.T) {
 
 func TestStatusBindingChangedAndPolicyChangedAreAPendingNewRequest(t *testing.T) {
 	cases := map[string]func(*intake.FreshBinding){
-		"evidence changed": func(f *intake.FreshBinding) { f.EvidenceSetHash = "sha256:ff" },
+		"evidence changed": func(f *intake.FreshBinding) { f.ConfirmationBindingEvidenceHash = "sha256:ff" },
 		"policy changed":   func(f *intake.FreshBinding) { f.PolicyVersion = "pol_2" },
 	}
 	for name, mutate := range cases {
@@ -287,10 +287,10 @@ func TestStatusPropertyNoGivenFromANonProceed(t *testing.T) {
 			Response: confirm.Response(pick("ACCEPT", "ACCEPT", "DECLINE", "MAYBE", "")), At: cpNow.Add(time.Duration(rng.Intn(7200)-3600) * time.Second).Unix()})
 		stored.Request.ExpiresAt = cpNow.Add(time.Duration(rng.Intn(7200)-3600) * time.Second).Unix()
 		w := cpBuild(t, req, &cpStore{req: stored, found: true})
-		f := intake.FreshBinding{EvidenceSetHash: pick("sha256:cc", "sha256:c2", ""), PolicyVersion: pick("pol_1", "pol_2", "")}
+		f := intake.FreshBinding{ConfirmationBindingEvidenceHash: pick("sha256:cc", "sha256:c2", ""), PolicyVersion: pick("pol_1", "pol_2", "")}
 		got, err := w.path.Status(cpCtx(t), cpAdmitted(), f)
 		fresh := cpBinding()
-		fresh.EvidenceSetHash, fresh.PolicyVersion = f.EvidenceSetHash, f.PolicyVersion
+		fresh.EvidenceSetHash, fresh.PolicyVersion = f.ConfirmationBindingEvidenceHash, f.PolicyVersion
 		res, rerr := confirm.Resolve(stored.Request, stored.Answer.Event, fresh)
 		wantGiven := rerr == nil && res == confirm.Proceed && cpNow.Unix() <= stored.Request.ExpiresAt
 		isGiven := err == nil && got.Status == intake.ConfirmationGiven
@@ -479,18 +479,18 @@ func TestStatusChangedEvidenceContentSupersedesTheRequest(t *testing.T) {
 	req := cpAnswered("SELF", cpAccept("prn_1"))
 	req.Request.Binding.EvidenceSetHash = before
 	w := cpBuild(t, "SELF", &cpStore{req: req, found: true})
-	got, err := w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{EvidenceSetHash: same, PolicyVersion: "pol_1"})
+	got, err := w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{ConfirmationBindingEvidenceHash: same, PolicyVersion: "pol_1"})
 	if err != nil || got.Status != intake.ConfirmationGiven {
 		t.Fatalf("same content: %+v %v", got, err)
 	}
-	got, err = w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{EvidenceSetHash: changed, PolicyVersion: "pol_1"})
+	got, err = w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{ConfirmationBindingEvidenceHash: changed, PolicyVersion: "pol_1"})
 	if err != nil || got.Status != intake.ConfirmationPending || got.NewRequest == nil || got.EventID != "" {
 		t.Fatalf("changed content: %+v %v", got, err)
 	}
 	open := cpOpen("SELF")
 	open.Request.Binding.EvidenceSetHash = before
 	w = cpBuild(t, "SELF", &cpStore{req: open, found: true})
-	got, err = w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{EvidenceSetHash: changed, PolicyVersion: "pol_1"})
+	got, err = w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{ConfirmationBindingEvidenceHash: changed, PolicyVersion: "pol_1"})
 	if err != nil || got.Status != intake.ConfirmationPending || got.RequestID != "" || got.NewRequest == nil {
 		t.Fatalf("open request, changed content: %+v %v", got, err)
 	}
