@@ -171,7 +171,8 @@ func TestTheProductionSeamsHoldWhatIsMergedAndInventNothing(t *testing.T) {
 		t.Errorf("worker seams: dial %v, activities source %v; want the dial and no activities yet", d.WorkerDial != nil, d.WorkerActivities != nil)
 	}
 	a, err := d.TrustAdapters(Env{}, nil, clock.NewManual(time.Unix(1_800_000_000, 0)))
-	if err != nil || a.Clock == nil || a.PackVersion != "" || a.Intents != nil {
-		t.Errorf("production Trust adapters %+v, error %v; want only the clock", a, err)
+	var u *UnbuiltAdaptersError
+	if !errors.As(err, &u) || a.Intents != nil || a.Capabilities != nil || a.PackVersion != "" {
+		t.Errorf("production Trust adapters %+v, error %v; want none built and every one named", a, err)
 	}
 }

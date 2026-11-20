@@ -50,6 +50,8 @@ type Components struct {
 	ServedTenants []string
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
+	// Confirmations is the confirmation route's ports (POST /v1/confirmations/{confirmation_request_id}, A341, noema#754); the route is mounted only with it.
+	Confirmations *confirmationRouteConfig
 }
 
 // Env is the process's configuration source, injected so that tests do not touch the real environment. Nothing read through it has a default (AGENT-16).
@@ -288,10 +290,8 @@ type composeDeps struct {
 // lacks, and a configured worker without activities is not started (A442). Nothing is dialled here.
 func productionDeps() composeDeps {
 	return composeDeps{
-		LoadKeys: loadGrantKeys,
-		TrustAdapters: func(_ Env, _ reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error) {
-			return TrustAdapters{Clock: clk}, nil
-		},
+		LoadKeys:         loadGrantKeys,
+		TrustAdapters:    trustAdaptersSource(productionPack),
 		WorkerDial:       dialTemporal,
 		WorkerActivities: func() *workflows.EscalateActivities { return nil },
 	}
