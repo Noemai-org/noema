@@ -49,3 +49,28 @@ func TestAnAllowAndAConfirmLeaveDeclinedRequestIDEmpty(t *testing.T) {
 		t.Errorf("a CONFIRM was recorded with DeclinedRequestID %q, want empty", got)
 	}
 }
+
+// A470, REQ-TRU-009, INV-25: a REJECT DECLINED_BY_APPROVER names the request that was declined, so the writer can store the decision with the request it rests on; the answer's own
+// RequestID is that request. An answer that names no request leaves it empty (the field is optional).
+func TestADeclinedRejectNamesTheDeclinedRequest(t *testing.T) {
+	f := newFake13()
+	f.conf = Confirmation{Status: ConfirmationDeclined, RequestID: "cfr_synth0001"}
+	f.rec = RecordResult{DecisionID: "dec_synth0002"}
+	res := run13(t, newEval13(t, f))
+	if res.Decision.Outcome() != decide.Reject {
+		t.Fatalf("outcome %s, want REJECT", res.Decision.Outcome())
+	}
+	if got := declinedRequestIDOf(t, rec0(t, f)); got != "cfr_synth0001" {
+		t.Errorf("the REJECT was recorded with DeclinedRequestID %q, want the declined request cfr_synth0001", got)
+	}
+
+	none := newFake13()
+	none.conf = Confirmation{Status: ConfirmationDeclined}
+	none.rec = RecordResult{DecisionID: "dec_synth0002"}
+	if res = run13(t, newEval13(t, none)); res.Decision.Outcome() != decide.Reject {
+		t.Fatalf("outcome %s, want REJECT", res.Decision.Outcome())
+	}
+	if got := declinedRequestIDOf(t, rec0(t, none)); got != "" {
+		t.Errorf("a decline that names no request was recorded with DeclinedRequestID %q, want empty", got)
+	}
+}
