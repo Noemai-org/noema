@@ -36,6 +36,8 @@ def expected_counts(text: str, wanted: set[str]) -> tuple[dict[str, int], list[s
             problems.append(f"requests line {number}: a status that is not an integer, a kind outside {sorted(KINDS)} or a correlation that is not a string")
             continue
         if corr not in wanted:
+            if kind == "probe":
+                continue  # the evidence's unknown-correlation probe names a correlation that does not exist on purpose; it adds nothing to the expected count (Codex P2 on noema#730)
             problems.append(f"requests line {number}: a correlation that is not a case of this run")
             continue
         if kind == "reconstruction" and status == 200:

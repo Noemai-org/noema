@@ -198,10 +198,24 @@ class G1StackWorkflow(unittest.TestCase):
 
     def test_the_leak_scan_allow_file_names_only_numeric_fields_and_the_scorers_metadata_lines(self) -> None:
         allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
-        self.assertEqual(len([l for l in allow if l.strip()]), 13)
+        self.assertEqual(len([l for l in allow if l.strip()]), 14)
         for line in allow:
             if line.strip():
                 self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
+
+    def test_the_stamp_of_the_evidence_files_passes_the_scan_and_nothing_wider_does(self) -> None:
+        # Codex P2 on noema#730: the stamp carries the run id (digits) and the commit SHA (40 hexadecimal, which can hold a run of five digits). The allow file lets exactly those two lines through the
+        # digit-run rule; a number under any other key, or a 12-digit value under the stamp's key that is not a run id, is still found.
+        stamp = '{\n  "met": true,\n  "stamp": {\n    "run_id": "44318438906",\n    "sha": "0123456789abcdef0123456789abcdef01234567"\n  }\n}\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "out").mkdir()
+            (root / "out" / "negative-probes.json").write_text(stamp, encoding="utf-8")
+            self.assertEqual(self.scan(root / "out"), 0)
+            self.assertEqual(self.scan(root / "out", use_allow=False), 1, "without the allow file the stamp is a finding")
+            for leak in ('  "account": "0123456789"\n', '    "run_id": "x 0123456789"\n', '    "sha": "0123456789abcdef0123456789abcdef01234567 0123456789"\n'):  # the SHA is one hexadecimal token, which the digit rule does not read as a run
+                (root / "out" / "negative-probes.json").write_text(stamp + leak, encoding="utf-8")
+                self.assertEqual(self.scan(root / "out"), 1, leak)
 
     def test_a_captured_service_log_is_not_scanned_with_the_model_access_log_on(self) -> None:
         # Codex P1 on noema#591: uvicorn's access line carries the client's ephemeral port, five digits, on every request and on the health check every three seconds, so a captured model

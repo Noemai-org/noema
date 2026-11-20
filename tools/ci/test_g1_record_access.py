@@ -71,6 +71,16 @@ class RecordAccessed(unittest.TestCase):
                 self.assertEqual(code, 1, text)
                 self.assertNotIn("Bearer", text)
 
+    def test_a_negative_probe_may_name_a_correlation_that_does_not_exist_but_a_read_may_not(self) -> None:
+        # Codex P2 on noema#730: the evidence's unknown-correlation probe requests a reconstruction of a correlation that is not in correlations.json, and expects a 404. That is a legitimate
+        # probe, not a read of another run: it must not make the record NOT MET. A reconstruction or case request for a correlation outside the run still is.
+        probe = request("corr_does_not_exist", kind="probe", status=404)
+        self.assertEqual(self.check(self.GOOD, requests=ONE_EACH + [probe])[0], 0)
+        self.assertEqual(self.check(self.GOOD, requests=ONE_EACH + [request("corr_does_not_exist", kind="reconstruction", status=404)])[0], 1)
+        self.assertEqual(self.check(self.GOOD, requests=ONE_EACH + [request("corr_does_not_exist", kind="case")])[0], 1)
+        # a probe that WAS served adds a SERVED line the record does not expect, so it still fails
+        self.assertEqual(self.check(self.GOOD + [line("corr_does_not_exist", "SERVED")], requests=ONE_EACH + [probe])[0], 1)
+
     def test_a_malformed_request_line_or_a_request_for_another_run_is_not_met(self) -> None:
         for what, requests in (
             ("not json", json.dumps(ONE_EACH[0]) + "\nnot json\n"),

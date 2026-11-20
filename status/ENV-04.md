@@ -212,3 +212,9 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 
 # Session 2026-11-20 · ENV-04 · the stamp for the G1 package (noema#717; IL)
 - The first line of `benchmark/out/leak-scan.txt` is `stamp: <dispatch sha> <run id>`, and `fault-plans.json` and `negative-probes.json` carry a top-level `"stamp": {"sha", "run_id"}` (`benchmark.runner.evidence --sha --run-id`: 40 lowercase hexadecimal and digits, both or neither, refused before anything is read). `reconstructions.json` is BO's writer: BO stamps it the same way.
+
+# Session 2026-11-20 · ENV-04 · Codex and SR on noema#730 (IL)
+- The rulings behind the conditions are committed now: A323 and A325 in `docs/decisions/DEC-2026-11-18-architect-rulings-a317-a328.md`, A354 and A355 in `DEC-2026-11-19-architect-rulings-a341-a357.md`. The earlier line "the rulings are not yet committed" is superseded by those records. Gap against A323's text: A323 says the stack-check also checks `/readyz` and the netcheck; as built it checks that every service is running and, where it has a health check, healthy. `/readyz` and the netcheck are not in the workflow yet (follow-up).
+- Codex P2 (the evidence's unknown-correlation probe made the request record NOT MET): a request of kind `probe` may name a correlation outside the run; a `reconstruction` or `case` request may not.
+- Codex P2 (the stamp's run id is a digit run the artifact scan found): one anchored allow pattern for the `"run_id"` line (14 patterns). The SHA is one hexadecimal token, which the digit rule does not read as a run, so it needs none.
+- Not changed: `print` in the CI checkers (AGENTS §7's rule is for service code; every `tools/ci` CLI writes its result to stdout, 54 call sites), and the request-record writer (BO's, agreed by message; until it exists a full run is NOT RUN, never a pass).
