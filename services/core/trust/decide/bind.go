@@ -105,7 +105,7 @@ func Bind(open Open, a Answer, now int64, maxRounds int) (Binding, error) {
 		candidateOf[o.ID] = o.CandidateID
 	}
 	// "None of these" is an option_id the core minted (A275). It is one answer on its own: it is never rejected, and it is not combined with a rejection or with the choice of an
-	// option.
+	// option (A432, A458).
 	noneSelected := a.Selected == open.NoneOptionID
 	none := a.None || noneSelected
 	for _, id := range a.Rejected {
@@ -113,7 +113,7 @@ func Bind(open Open, a Answer, now int64, maxRounds int) (Binding, error) {
 			return Binding{}, ErrNoneRejected
 		}
 	}
-	if noneSelected && len(a.Rejected) > 0 || a.None && a.Selected != "" && !noneSelected {
+	if none && (len(a.Rejected) > 0 || a.Selected != "" && !noneSelected) { // A458: none, as the flag or as the id, with a rejected or another selected option
 		return Binding{}, ErrNoneCombined
 	}
 	var cs []Constraint
