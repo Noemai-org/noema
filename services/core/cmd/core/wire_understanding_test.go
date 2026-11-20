@@ -37,6 +37,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/platform/packload"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile/mapping"
 	"github.com/Noemai-org/noema/services/core/understanding"
 	"github.com/Noemai-org/noema/services/core/understanding/interpreter"
 )
@@ -349,6 +350,38 @@ func TestTheRealPackLoadsThroughItsManifest(t *testing.T) {
 	}
 	if p.SealTimeout != 1500*time.Millisecond {
 		t.Errorf("the seal bound is %v; the setting says 1500 ms", p.SealTimeout)
+	}
+}
+
+// A438 and the ruling on noema#773 ("pass WithScope plus fin.src.case_system"): the evidence mapping the start builds from the real pack reads the case system's lists. The source id comes from the
+// pack's own evidence_sources (never a literal in core) and the case and complaint_ref entities are typed by the scope the pack's descriptors give. A start that omitted either would refuse the
+// version 2 mapping, so this pins that the built Mapping answers for that source, and that the list is concluded from a page marked complete only (INV-19).
+func TestTheMappingBuiltFromTheRealPackServesTheCaseSystemsLists(t *testing.T) {
+	m := newModelStub(t)
+	root := filepath.Join("..", "..", "..", "..", "packs")
+	p, err := buildUnd(t, undSettings(root, m), undFakeRecorder(t, "ten_aa"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const caseSystem = "fin.src.case_system"
+	pk := readJSON(t, filepath.Join(root, "fintech_v1.json"))
+	found := false
+	for _, s := range pk["evidence_sources"].([]any) {
+		if s.(map[string]any)["source_id"] == caseSystem {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the real pack does not name %s as an evidence source", caseSystem)
+	}
+	for _, entity := range []string{"case", "complaint_ref"} {
+		rows, err := p.Mapping.ListRows(caseSystem, entity, map[string]any{"items": []any{}, "complete": true})
+		if err != nil || len(rows) != 0 {
+			t.Errorf("%s from a complete empty page: %v rows, %v; want none and no error", entity, rows, err)
+		}
+		if _, err := p.Mapping.ListRows(caseSystem, entity, map[string]any{"items": []any{}}); !errors.Is(err, mapping.ErrIncomplete) {
+			t.Errorf("%s from a page with no marker: %v; want ErrIncomplete (INV-19)", entity, err)
+		}
 	}
 }
 

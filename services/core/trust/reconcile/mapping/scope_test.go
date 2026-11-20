@@ -1,4 +1,4 @@
-package main
+package mapping_test
 
 import (
 	"os"
@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/internal/predicate"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile/mapping"
 )
 
-// Tests of evidenceScope: the typed fields of the pack's evidence entities, which the evidence mapping needs for its list entities (fin.map.v1@2, A438). UND-04; A320, A333, A438.
+// Tests of mapping.ScopeFromDescriptors (moved from cmd/core by the ruling on noema#773: it sits beside WithScope): the typed fields of the pack's evidence entities, which the evidence mapping needs for its list entities (fin.map.v1@2, A438). UND-04; A320, A333, A438.
 
 func scopePack(t *testing.T, descriptors string) []byte {
 	t.Helper()
@@ -17,11 +18,11 @@ func scopePack(t *testing.T, descriptors string) []byte {
 }
 
 func TestTheScopeOfTheRealPackTypesTheCaseAndComplaintEntities(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packs", "fintech_v1.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "packs", "fintech_v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sc, err := evidenceScope(raw)
+	sc, err := mapping.ScopeFromDescriptors(raw)
 	if err != nil {
 		t.Fatalf("the real pack's descriptors must give a scope: %v", err)
 	}
@@ -51,7 +52,7 @@ func TestTheScopeRefusesDescriptorsThatAreNotSound(t *testing.T) {
 		"a value on a type that is not": `[{"entity":"a","source":"s","fields":{"id":{"type":"Reference","values":["X"]}}}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			sc, err := evidenceScope(scopePack(t, tc))
+			sc, err := mapping.ScopeFromDescriptors(scopePack(t, tc))
 			if err == nil {
 				t.Fatalf("accepted: %+v", sc)
 			}
@@ -60,13 +61,13 @@ func TestTheScopeRefusesDescriptorsThatAreNotSound(t *testing.T) {
 			}
 		})
 	}
-	if _, err := evidenceScope([]byte(`{"pack_id":"fin"}`)); err == nil {
+	if _, err := mapping.ScopeFromDescriptors([]byte(`{"pack_id":"fin"}`)); err == nil {
 		t.Error("a pack with no evidence_descriptors member was accepted")
 	}
 }
 
 func TestTheScopeTypesEveryFieldKindTheContractAllows(t *testing.T) {
-	sc, err := evidenceScope(scopePack(t, `[{"entity":"a","source":"s","fields":{"s":{"type":"String"},"i":{"type":"Integer"},"b":{"type":"Boolean"},"t":{"type":"Timestamp"},"d":{"type":"Duration"},"r":{"type":"Reference"},"e":{"type":"Enum","values":["ONE","TWO"]}}}]`))
+	sc, err := mapping.ScopeFromDescriptors(scopePack(t, `[{"entity":"a","source":"s","fields":{"s":{"type":"String"},"i":{"type":"Integer"},"b":{"type":"Boolean"},"t":{"type":"Timestamp"},"d":{"type":"Duration"},"r":{"type":"Reference"},"e":{"type":"Enum","values":["ONE","TWO"]}}}]`))
 	if err != nil {
 		t.Fatal(err)
 	}
