@@ -85,6 +85,16 @@ const (
 // parameters or another action (EC-E06). Nothing was spent; the controller voids the grant.
 var ErrKeyCollision = errors.New(errPrefix + "idempotency key collision")
 
+// ErrSpendRetryable is what a Ledger returns from Spend, wrapped around the database's own error and matched with errors.Is, when the database kept refusing the spend
+// with a serialization failure through every attempt the Ledger is allowed (noema#714, Architect ruling A339, relayed). It tells "try again" from a refusal: nothing was
+// spent, written or dispatched, the grant is still ISSUED, and presenting it again can succeed with no change by the caller. Execute returns it, wrapped, unchanged in
+// meaning: it is never a void, a receipt or an outcome.
+var ErrSpendRetryable = errors.New(errPrefix + "the spend did not commit and the grant is unspent: present it again")
+
+// CodeSpendRetryable is the code of contracts/schemas/errors.v2.json (RetryableErrorCode) under which an edge reports ErrSpendRetryable: the database, a dependency, could
+// not serialise the spend now. No new code was added for it.
+const CodeSpendRetryable = "DEPENDENCY_UNAVAILABLE"
+
 // ExecutionState is the Execution Receipt state (contracts enums ExecutionState). Execution never writes
 // SUCCEEDED: that word belongs to Outcome.
 type ExecutionState string
@@ -107,8 +117,8 @@ const (
 	TransportAck2xx          TransportClass = "ACK_2XX"
 	TransportVersionConflict TransportClass = "VERSION_CONFLICT_409_412"
 	TransportDuplicate409    TransportClass = "DUPLICATE_409_SAME_KEY"
-	// TransportDuplicateCreate: a create conditional on absence was refused because the target already holds a case for
-	// the subject and epoch under another key. The string is the error code DUPLICATE_CREATE of contracts/schemas/errors.v2.json.
+	// TransportDuplicateCreate: a create conditional on absence was refused because the target already holds a case (or a
+	// complaint for the case) for the subject and epoch under another key. The string is the error code DUPLICATE_CREATE of contracts/schemas/errors.v2.json.
 	TransportDuplicateCreate TransportClass = "DUPLICATE_CREATE"
 	TransportRejected4xx     TransportClass = "REJECTED_4XX"
 	TransportTimeout         TransportClass = "TIMEOUT"

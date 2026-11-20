@@ -131,6 +131,8 @@ def record_event_fixtures() -> tuple[dict[str, dict], dict[str, dict], dict[str,
     valid["principal_id_64_characters"] = one(actor="operator:" + "a" * 64)
     valid["payload_with_integers"] = one(payload={"n": [0, 1, -7, 9007199254740991, -9007199254740991]})
     valid["security_event"] = one("core-execution", event_type="SECURITY_EVENT", kind="IDEMPOTENCY_COLLISION", object_ref="grt_0001")
+    valid["security_event_confirmation_refused"] = one("core-edge", event_type="SECURITY_EVENT", kind="CONFIRMATION_REFUSED", object_ref="cnf_0001",
+                                                       actor="customer:usr_synth_014")
     for reason in VOID_REASONS:
         valid[f"grant_voided_{reason.lower()}"] = one("core-execution", event_type="GRANT_VOIDED", reason=reason, object_ref="grt_0001",
                                                       payload={"grant_id": "grt_0001", "reason": reason})
@@ -218,7 +220,58 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
     valid = {p.stem: convert_reconstruction(json.loads(p.read_text())) for p in sorted((FIXTURES / "valid" / "reconstruction").glob("*.json"))}
     inv_dir = FIXTURES / "invalid" / "reconstruction"
     invalid = {p.stem: convert_reconstruction(json.loads(p.read_text())) for p in sorted(inv_dir.glob("*.json")) if p.name != "expectations.json"}
-    return valid, invalid, (inv_dir / "expectations.json").read_text()
+    expect = json.loads((inv_dir / "expectations.json").read_text())
+    # v3 only (A272): the digit pattern sits on the free-text facts `text` and each item of `reason_codes`, and on nothing else. Built from the converted full write case, so the
+    # chain stays valid; the v1 and v2 schemas have no such pattern, so these are not v1 sources.
+    base = valid["full_write_case"]
+
+    def with_fact(**facts: object) -> dict:
+        doc = copy.deepcopy(base)
+        for section in doc["sections"]:
+            for item in section["items"]:
+                if "fact_id" in item["facts"]:  # the EXPLANATION item: one claim, its text and its bound status
+                    item["facts"].update(facts)
+        return doc
+
+    valid["id_fact_with_five_digits_in_a_row"] = with_fact(object_id="obj_01HX12345ABCDEFGHJKMNPQRST")  # a minted <prefix>_<ULID> is served as written (A193)
+    invalid["text_fact_with_five_joined_digits"] = with_fact(text="the amount 12 345 was held")
+    invalid["reason_codes_item_with_five_joined_digits"] = with_fact(reason_codes=["STATE_KNOWN", "ACCOUNT_1234-5678"])
+    expect["text_fact_with_five_joined_digits.json"] = "oneOf"
+    expect["reason_codes_item_with_five_joined_digits.json"] = "oneOf"
+    # A278 (final): the rule is by VALUE, not by key. A fact value is a typed or minted ID by shape with a letter in its body, a resource reference with a letter in its body, or a
+    # string without five digits joined by separators; any key. The values below are refused or accepted for what they are, under keys the contract does not name.
+    refused = {
+        "request_id_uuid_of_31_digits_joined_by_dashes": {"request_id": "41111111-1111-4111-8111-11111111111a"},  # the client's own UUID: a customer-typed string
+        "id_fact_holding_a_card_number": {"payer_id": "4111 1111 1111 1111"},  # not an ID by shape: digits only
+        "typed_id_with_digits_only_in_its_body": {"payer_id": "usr_88213"},  # a prefix on a number is a number
+        "reference_fact_with_sixteen_digits_after_the_colon": {"resolved_target": "fin.account:0123456789012345"},  # a bare account number with a prefix
+        "unlisted_key_with_a_card_number_in_a_sentence": {"note": "card 4111 1111 1111 1111 expired"},
+        "array_fact_item_with_a_card_number": {"counterparties": ["fin.transaction:TX8213", "4111-1111-1111-1111"]},
+        # Tightenings (A308, A317 to A328, interim): the information separators U+001C to U+001F join digits; ten digits joined by commas are refused; a minted ID is exactly
+        # `<prefix>_<ULID>`, and every other typed ID meets the five-digit rule (the Security Reviewer's case on noema#664: a letter at the end of a long digit string).
+        "text_fact_with_unit_separator_joined_digits": {"text": "the amount 1234\u001f5678 was held"},
+        "text_fact_with_ten_comma_joined_digits": {"text": "card 4111, 1111, 1111, 1111 expired"},
+        "minted_id_of_31_characters_ending_in_a_letter": {"object_id": "ab_" + "1" * 30 + "a"},
+        "typed_id_with_sixteen_digits_and_a_letter_at_the_end": {"payer_id": "ten_4111111111111111a"},
+        "minted_id_whose_first_ulid_character_is_8": {"object_id": "obj_81HX12345ABCDEFGHJKMNPQRST"},
+        "minted_id_with_a_letter_outside_the_ulid_alphabet": {"object_id": "obj_01HX12345ABCDEFGHJKMNPQRSI"},
+        "minted_id_in_lower_case": {"object_id": "obj_01hx12345abcdefghjkmnpqrst"},
+        "minted_id_of_26_digits": {"object_id": "obj_" + "01" * 13},
+    }
+    for name, facts in refused.items():
+        invalid[name] = with_fact(**facts)
+        expect[name + ".json"] = "oneOf"
+    accepted = {
+        "id_fact_recev_1005": {"receipt_id": "recev_1005"},  # an ID with a letter in its body and at most four digits in a row
+        "reference_fact_with_digits_and_a_letter": {"resolved_target": "fin.transaction:TX88213"},  # five digits, but a reference with a letter in its body (A242)
+        "text_fact_with_four_digits": {"text": "the amount ending 1234 was held"},
+        "unlisted_key_with_a_sentence": {"note": "held for review"},
+        "text_fact_with_nine_comma_joined_digits": {"text": "the amount 123,456,789 was held"},  # nine digits: the limit is ten
+        "text_fact_with_a_comma_grouped_amount": {"text": "the amount 20,000,000 was held"},  # eight digits, commas end no run of five, and ten are not reached
+    }
+    for name, facts in accepted.items():
+        valid[name] = with_fact(**facts)
+    return valid, invalid, json.dumps(expect, indent=2) + "\n"
 
 
 # ---- the payload-hash vectors: checked here, produced by an independent implementation ---------------------------------

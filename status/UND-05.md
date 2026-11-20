@@ -128,3 +128,17 @@
 - Exact next step: the `Minter` and the wiring in `main.py` (after mTLS, noema#555), then the `benchmark/compile_acceptance` runner (noema#546).
 - Files to read first: `compiler/README.md`, `compiler/compiler.py`.
 - Do not touch: the generated contracts; the pack's numbers.
+
+# Session 2026-11-15 · UND-05 · the wiring (compile service built in main.py, mTLS-gated)
+
+## Session summary
+- What changed (PR to follow, after noema#598 merges): `understanding/compiler/wiring.py` (`build_compile_service`, `require_mtls_listener`, `PackFileResolver`, `DerivedMinter`), a hook in `main.py` (`create_app` builds the service only when `NOEMA_MODEL_COMPILE_CONFIG` names a file), `tests/test_compile_wiring.py` (49 tests), the compiler README.
+- Why: the Founder's order of 15 Nov 2026 ("the compiler should be wired into main.py"), under the Security Reviewer's condition on noema#544 and noema#555: no compiler on a plain listener. The service refuses to start unless `UVICORN_SSL_CERT_REQS` is `2` with the certificate, key and CA set.
+- Risks, and how they are contained: opt-in by a named file, so nothing changes for a process that does not name one; every number comes from the file (AGENT-16); 27 hand mutants killed. **The check reads the settings, not the socket**, so it refuses a misconfiguration; it does not prove who the peer is.
+- Defaults taken (AGENT-02), stated: `DerivedMinter` (noema#580 is open); the pack is the one file the configuration names, held by the id and version it carries; a harness that was not built refuses to start.
+- Tests added (REQ-INT-001, REQ-API-005, REQ-SEC-002; INV-02, INV-12, INV-29): 49, including a real request through the route, the service, the compiler, the pipeline (a scripted provider and a fake Evidence transport are the only doubles) and the schema gate.
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Interpreter adapter (noema#565) must overwrite `source.raw_ref` (`unset`) with the core's object reference; the core's candidates endpoint needs its handler; IL sets `NOEMA_MODEL_COMPILE_CONFIG` and the file in Compose after noema#568.
+- Do not merge before: noema#568 and noema#563 (mTLS both sides), the answer to noema#580 (or an explicit acceptance of the default).

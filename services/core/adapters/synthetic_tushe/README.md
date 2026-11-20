@@ -64,3 +64,13 @@ Tests: `standin_client_test.go` (the pinned assertion vector of the stand-in REA
 - A read returns the record with the hash of the bytes received (`RawHash`); a body that is not exactly the record asked for (another tenant, another ID, a payload that does not match its hash, an unknown member) is `MALFORMED`. A page carries the completeness marker: complete has no cursor, incomplete has one, anything else is `MALFORMED`; an empty complete page means none.
 
 Tests: `records_test.go` (the request and every status; wire shapes from `synthetic/mock_case/internal/api/openapi.json`) and `adapters/outcome_e2e/records_test.go` (the same operations against the real mock-case).
+
+## The transition log and the event feed (ENV-05; ruling A310; delta v1.3 section 3)
+
+`TusheReader` (`tushe_log_reader.go`) reads `GET /v1/accounts/{accountId}/payouts/{payoutId}/transitions` and the event feed (`GET /v1/events?after={sequence}&limit={n}`, read forward on `sequence`, never on a timestamp) into the neutral types of `adapters/tushe_log.go`. GET only; no redirect; no retry; the credential from a file, never in an error; every failure is a `*ReadError` (UNAVAILABLE for a timeout or a 5xx, UNAUTHORIZED, NOT_FOUND, and MALFORMED for a body it cannot read, which is UNKNOWN to the caller and never "no rows").
+
+**What it asserts, and what it does not.** The transition row has exactly the members the delta names (`seq`, `lifecycle`, `fromState`, `toState`, `source`, `sourceRef`, `inferred`, `injected`, `reason`, `occurredAt`, `observedAt`, `actor`, `request.{id, idempotencyKey}`); a member it does not name is refused as drift. The sequence of a log must strictly rise and the feed's sequence must rise past its cursor: a repeat or a rewind is MALFORMED. An event needs `id`, `sequence` (a JSON number) and `traceId`; every other member is kept in `Raw`.
+
+**Not in any governing document, so a parameter or left raw, never guessed (asked on noema#690):** how an API key is presented (the caller passes `PresentBearer` or `PresentAPIKeyHeader`; there is no default); the envelope of each list (`ListShapes`: the body is the array, or the array is a member of a named name; no default); the type of each member beyond what the tests pin; what a state means (states are raw strings; none is mapped); whether `fromState` is null on the first row (null reads as an empty string); the audit-events shape (`GET /v1/audit-events` is not read); which transition member is the `traceId` of the two-call join (BO's plan, noema#627). The fixtures in `testdata/tushe_v1_3/` hold only the delta's members and are SYNTHETIC; no part of this has been observed against Tushe.
+
+**Tests:** `tushe_log_reader_test.go`, from `services/core/`: `go test ./adapters/synthetic_tushe/`.

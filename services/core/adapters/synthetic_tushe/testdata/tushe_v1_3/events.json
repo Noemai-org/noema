@@ -1,0 +1,7 @@
+[
+  {"id": "syn-evt-1", "sequence": 10, "traceId": "syn-trace-1", "type": "payout.created"},
+  {"id": "syn-evt-2", "sequence": 11, "traceId": "syn-trace-1", "type": "payout.submitted"},
+  {"id": "syn-evt-3", "sequence": 15, "traceId": "syn-trace-2", "type": "payout.settled", "extra": {"nested": true}},
+  {"id": "syn-evt-4", "sequence": 16, "traceId": "syn-trace-2", "type": "payout.arrived"},
+  {"id": "syn-evt-5", "sequence": 20, "traceId": "syn-trace-3", "type": "payout.created"}
+]

@@ -140,6 +140,7 @@ class RecordEventV3SecurityKind(StrEnum):
     REQUEST_ID_REUSED = 'REQUEST_ID_REUSED'
     IDEMPOTENCY_COLLISION = 'IDEMPOTENCY_COLLISION'
     CHAIN_BREAK = 'CHAIN_BREAK'
+    CONFIRMATION_REFUSED = 'CONFIRMATION_REFUSED'
 
 
 class RecordEventV3RecordEvent(ContractModel):
@@ -160,7 +161,7 @@ class RecordEventV3RecordEvent(ContractModel):
     object_ref: Annotated[str, StringConstraints(pattern='\\A[a-z]{2,6}_[0-9A-Za-z_]{2,64}\\Z')]
     payload_hash: CommonV1Hash
     at: CommonV1Timestamp
-    reason: str | None = Field(default=None)
+    reason: Annotated[str, StringConstraints(pattern='\\A[A-Z_]{1,64}\\Z', max_length=64)] | None = Field(default=None)
 
 
 # RecordEventV3. Source: record-event.v3.json

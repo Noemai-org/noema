@@ -20,6 +20,8 @@ jobs:
       COMPOSE_BENCH: docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml --profile bench
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Say which user and path the stack will use
         run: |
           echo "NOEMA_BENCH_OUT=$PWD/benchmark/out" >> "$GITHUB_ENV"

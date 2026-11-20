@@ -6,24 +6,23 @@ May import: the standard library.
 
 Must never: pass a secret, a full account number or raw audio through unmasked (AGENT-13).
 
-A digit run (one separator between digits counts as part of the run: an ASCII space or hyphen, any Unicode space or dash such as a
-non-breaking hyphen, an en dash, a no-break or thin space, a full-width hyphen; digits of every script) of `min_digits` or more is an
-account-number candidate and is masked to its last four digits. A comma ends a run, so an amount written
-"20,000,000" is not masked. A shorter run (an amount, a phone-number fragment) is left alone, because masking an
+A run of digits is what `digit_runs` finds: the model service has one definition of it (digits of every script, joined by any number of separators, as the Record's guard in the
+core reads them), and this module masks exactly those runs. A run of `min_digits` or more is an account-number candidate and is masked to its last four digits. A comma, a plus sign or
+a letter ends a run, so an amount written "20,000,000" is not masked. A string that is wholly an amount ("NGN 12,345.00", `money.is_money`; A279, A270) is left alone, because
+the dot would otherwise join the last group to its decimals into a run of five. A shorter run (an amount, a phone-number fragment) is left alone, because masking an
 amount would destroy the slot the customer is asking about. `min_digits` comes from configuration (AGENT-16): a
 change moves what reaches a provider, so it goes through a decision record.
 """
 
 import re
+import unicodedata
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from noema_model.platform.masking import MaskingLimits
+from noema_model.platform.redaction.digit_runs import digit_runs
+from noema_model.platform.redaction.money import is_money
 
-# One separator between two digits: ASCII space and hyphen, the Unicode spaces (no-break, en quad to hair, narrow no-break, medium mathematical, ideographic, ogham) and the
-# Unicode dashes (hyphen to horizontal bar, minus sign, small and full-width hyphen-minus). A comma, a newline or a tab is none of them and ends a run.
-_SEPARATOR = " \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d"
-_RUN = re.compile(rf"\d(?:[{_SEPARATOR}]?\d)*")
 _SECRET_KEY = re.compile(r"(api[_-]?key|authorization|auth|token|secret|password|passwd|credential|bearer)", re.I)
 REDACTED = "[REDACTED]"
 KEPT_DIGITS = 4
@@ -41,15 +40,21 @@ class Redactor:
         return cls(limits.min_masked_run)
 
     def mask_account_numbers(self, text: str) -> str:
-        """Replace every account-number candidate with asterisks plus its last four digits."""
+        """Replace every account-number candidate with asterisks plus its last four digits. A string that is wholly an amount (A279, A270) is returned as it is."""
 
-        def mask(match: re.Match[str]) -> str:
-            digits = re.sub(r"\D", "", match.group(0))
-            if len(digits) < self._min_digits:
-                return match.group(0)
-            return "*" * (len(digits) - KEPT_DIGITS) + digits[-KEPT_DIGITS:]
-
-        return _RUN.sub(mask, text)
+        if is_money(text):
+            return text
+        parts: list[str] = []
+        position = 0
+        for start, end, count in digit_runs(text):
+            if count < self._min_digits:
+                continue
+            digits = [char for char in text[start:end] if unicodedata.category(char) == "Nd"]
+            parts.append(text[position:start])
+            parts.append("*" * (count - KEPT_DIGITS) + "".join(digits[-KEPT_DIGITS:]))
+            position = end
+        parts.append(text[position:])
+        return "".join(parts)
 
     def redact(self, value: Any) -> Any:
         """Redact a JSON-like value for a log line: secrets by key name, account numbers by pattern."""
