@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Noemai-org/noema/services/core/workflows"
 )
@@ -38,9 +39,10 @@ type Connection interface {
 
 // RunningWorker is a started worker and its connection. Stop is safe to call more than once.
 type RunningWorker struct {
-	once sync.Once
-	w    temporalWorker
-	c    Connection
+	once    sync.Once
+	stopped atomic.Bool
+	w       temporalWorker
+	c       Connection
 }
 
 // Stop stops the worker and closes the connection, once.
@@ -49,6 +51,7 @@ func (r *RunningWorker) Stop() {
 		return
 	}
 	r.once.Do(func() {
+		r.stopped.Store(true)
 		r.w.Stop()
 		r.c.Close()
 	})
@@ -76,8 +79,49 @@ func startWorker(ctx context.Context, cfg *WorkerConfig, dial func(context.Conte
 	return &RunningWorker{w: w, c: conn}, nil
 }
 
-// Fatal, Ready, Check and withWorker: STUBS (red).
-func (r *RunningWorker) Fatal() <-chan error                { return nil }
-func (r *RunningWorker) Ready() bool                        { return true }
-func (r *RunningWorker) Check() (bool, string)              { return true, "" }
-func withWorker(next readiness, _ *RunningWorker) readiness { return next }
+// fataler is the optional part of a Connection that reports a worker that died on its own (worker_dial.go; REQ-OPS-003, AGENT-07).
+type fataler interface {
+	Fatal() <-chan error
+	Ready() bool
+}
+
+// Fatal delivers, once, the error that stopped the worker on its own. main selects on it and exits non-zero so Compose restarts the process (A442, interim, relayed, not yet
+// committed). A connection with no fatal hook, or a nil handle, never delivers (a nil channel blocks).
+func (r *RunningWorker) Fatal() <-chan error {
+	if r == nil {
+		return nil
+	}
+	if f, ok := r.c.(fataler); ok {
+		return f.Fatal()
+	}
+	return nil
+}
+
+// Ready is false for no worker, a stopped worker and a worker that died on its own.
+func (r *RunningWorker) Ready() bool {
+	if r == nil || r.stopped.Load() {
+		return false
+	}
+	if f, ok := r.c.(fataler); ok {
+		return f.Ready()
+	}
+	return true
+}
+
+// Check is the readiness of the worker alone: it names `worker` when it is down.
+func (r *RunningWorker) Check() (bool, string) {
+	if !r.Ready() {
+		return false, "worker is not running"
+	}
+	return true, ""
+}
+
+// withWorker adds the worker to a readiness check: the first reason of next wins, then the worker's. There is no degraded mode (A442).
+func withWorker(next readiness, r *RunningWorker) readiness {
+	return func() (bool, string) {
+		if ok, reason := next(); !ok {
+			return false, reason
+		}
+		return r.Check()
+	}
+}
