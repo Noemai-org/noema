@@ -66,7 +66,7 @@ func (a Adapter) GraphWith(ctx context.Context, r intake.PlanRequest, pc PlanCon
 		if s.TargetRef != "" && s.TargetRef != in.TargetRef {
 			return trustport.PlanGraph{}, fmt.Errorf("%w: step %q", ErrTargetMismatch, s.NodeID)
 		}
-		params, err := buildParams(s, in.Slots, pc, a.MaxTextBytes)
+		params, err := buildParams(s, pg.Slots, in.Slots, pc, a.MaxTextBytes)
 		if err != nil {
 			return trustport.PlanGraph{}, err
 		}
@@ -96,7 +96,7 @@ func runnableSet(pg PackGraph, ids []string) (map[string]bool, error) {
 }
 
 // buildParams builds the params of one step from its declarations. A declaration with an empty or repeated name, or with a kind outside the six, is refused.
-func buildParams(s PackStep, slots map[string]SlotValue, pc PlanContext, maxText int) (map[string]any, error) {
+func buildParams(s PackStep, decls map[string]SlotDecl, slots map[string]SlotValue, pc PlanContext, maxText int) (map[string]any, error) {
 	params := make(map[string]any, len(s.Params))
 	for _, p := range s.Params {
 		if p.Name == "" {
@@ -105,7 +105,7 @@ func buildParams(s PackStep, slots map[string]SlotValue, pc PlanContext, maxText
 		if _, dup := params[p.Name]; dup {
 			return nil, fmt.Errorf("%w: step %q declares param %q twice", ErrParamSource, s.NodeID, p.Name)
 		}
-		v, err := paramValue(p, s.CapabilityID, slots, pc, maxText)
+		v, err := paramValue(p, s.CapabilityID, decls, slots, pc, maxText)
 		if err != nil {
 			return nil, fmt.Errorf("step %q param %q: %w", s.NodeID, p.Name, err)
 		}
@@ -114,14 +114,14 @@ func buildParams(s PackStep, slots map[string]SlotValue, pc PlanContext, maxText
 	return params, nil
 }
 
-func paramValue(p ParamSpec, capabilityID string, slots map[string]SlotValue, pc PlanContext, maxText int) (any, error) {
+func paramValue(p ParamSpec, capabilityID string, decls map[string]SlotDecl, slots map[string]SlotValue, pc PlanContext, maxText int) (any, error) {
 	switch p.Kind {
 	case KindConst:
 		return copyData(p.Value)
 	case KindSlot:
-		return resolvedSlot(p, slots, maxText)
+		return resolvedSlot(p, decls, slots, maxText)
 	case KindMap:
-		return mapped(p, slots, maxText)
+		return mapped(p, decls, slots, maxText)
 	case KindFact:
 		return present(p.Ref, pc.Facts[p.Ref])
 	case KindPolicyParam:
@@ -144,7 +144,7 @@ func present(name, v string) (any, error) {
 }
 
 // mapped looks the RESOLVED value of the slot up in the pack's map. A value that is not a string key of the map is refused, never passed through.
-func mapped(p ParamSpec, slots map[string]SlotValue, maxText int) (any, error) {
+func mapped(p ParamSpec, decls map[string]SlotDecl, slots map[string]SlotValue, maxText int) (any, error) {
 	if len(p.Map) == 0 {
 		return nil, fmt.Errorf("%w: a map param declares no values", ErrParamSource)
 	}
@@ -160,7 +160,7 @@ func mapped(p ParamSpec, slots map[string]SlotValue, maxText int) (any, error) {
 	if !have || !sv.Resolved {
 		return nil, ErrUnresolvedSlot
 	}
-	if err := checkSlot(p, sv, maxText); err != nil {
+	if err := checkSlot(p, decls[p.Slot], sv, maxText); err != nil {
 		return nil, err
 	}
 	key, ok := sv.Value.(string)
@@ -174,7 +174,7 @@ func mapped(p ParamSpec, slots map[string]SlotValue, maxText int) (any, error) {
 	return code, nil
 }
 
-func resolvedSlot(p ParamSpec, slots map[string]SlotValue, maxText int) (any, error) {
+func resolvedSlot(p ParamSpec, decls map[string]SlotDecl, slots map[string]SlotValue, maxText int) (any, error) {
 	if p.Slot == "" {
 		return nil, ErrParamSource
 	}
@@ -182,29 +182,33 @@ func resolvedSlot(p ParamSpec, slots map[string]SlotValue, maxText int) (any, er
 	if !ok || !sv.Resolved {
 		return nil, ErrUnresolvedSlot
 	}
-	if err := checkSlot(p, sv, maxText); err != nil {
+	if err := checkSlot(p, decls[p.Slot], sv, maxText); err != nil {
 		return nil, err
 	}
 	return copyData(sv.Value)
 }
 
-// checkSlot refuses, before the value is used, a slot param with no valid declared kind, a value whose own kind (or resource kind) is not the declared one (A440), and a string
-// in the value with a digit run over four or longer than maxText (AGENT-13).
-func checkSlot(p ParamSpec, sv SlotValue, maxText int) error {
-	switch p.SlotKind {
+// checkSlot refuses, before the value is used: a slot the node does not declare with a valid kind (Enum is not a slot type); a param whose declared kind or resource kind is not
+// the node slot's; a value whose own kind or resource kind is not the node slot's (A454, interim, relayed, not yet committed: the node slot is the single authority); and a
+// string in the value with a digit run over four or longer than maxText (AGENT-13).
+func checkSlot(p ParamSpec, d SlotDecl, sv SlotValue, maxText int) error {
+	switch d.Kind {
 	case SlotKindResource:
-		if p.ResourceKind == "" {
-			return fmt.Errorf("%w: a Resource slot param declares no resource kind", ErrSlotKind)
+		if d.ResourceKind == "" {
+			return fmt.Errorf("%w: the node's Resource slot %q declares no resource kind", ErrSlotKind, p.Slot)
 		}
-		if sv.ResourceKind != p.ResourceKind {
-			return fmt.Errorf("%w: resource kind %q, want %q", ErrSlotKind, sv.ResourceKind, p.ResourceKind)
+	case SlotKindQuantity, SlotKindParty, SlotKindTimeRef, SlotKindReference:
+		if d.ResourceKind != "" {
+			return fmt.Errorf("%w: the node's %s slot %q declares a resource kind", ErrSlotKind, d.Kind, p.Slot)
 		}
-	case SlotKindQuantity, SlotKindParty, SlotKindTimeRef, SlotKindReference, SlotKindEnum:
 	default:
-		return fmt.Errorf("%w: declared kind %q", ErrSlotKind, p.SlotKind)
+		return fmt.Errorf("%w: the node declares slot %q with kind %q", ErrSlotKind, p.Slot, d.Kind)
 	}
-	if sv.Kind != p.SlotKind {
-		return fmt.Errorf("%w: value kind %q, want %q", ErrSlotKind, sv.Kind, p.SlotKind)
+	if p.SlotKind != d.Kind || p.ResourceKind != d.ResourceKind {
+		return fmt.Errorf("%w: the param declares %q/%q, the node slot is %q/%q", ErrSlotKind, p.SlotKind, p.ResourceKind, d.Kind, d.ResourceKind)
+	}
+	if sv.Kind != d.Kind || sv.ResourceKind != d.ResourceKind {
+		return fmt.Errorf("%w: value kind %q/%q, the node slot is %q/%q", ErrSlotKind, sv.Kind, sv.ResourceKind, d.Kind, d.ResourceKind)
 	}
 	return checkText(sv.Value, maxText)
 }

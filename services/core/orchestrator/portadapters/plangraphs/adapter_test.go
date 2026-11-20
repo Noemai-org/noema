@@ -782,3 +782,15 @@ func objIntent(v any) plangraphs.IntentSlots {
 	in.Slots["obj"] = plangraphs.SlotValue{Resolved: true, Value: v, Kind: plangraphs.SlotKindReference}
 	return in
 }
+
+// A slot that is not a Resource declares no resource kind, even when the param and the value repeat it.
+func TestNonResourceSlotWithAResourceKindIsRefused(t *testing.T) {
+	for _, k := range allSlotKinds {
+		if k == plangraphs.SlotKindResource {
+			continue
+		}
+		if _, err := planKinds(kinds{string(k), "account", string(k), "account", string(k), "account"}, plangraphs.KindSlot); !errors.Is(err, plangraphs.ErrSlotKind) {
+			t.Fatalf("kind %s: err = %v, want ErrSlotKind", k, err)
+		}
+	}
+}

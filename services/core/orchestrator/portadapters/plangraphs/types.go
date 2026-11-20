@@ -30,17 +30,16 @@ const (
 	KindEvidencePacket ParamKind = "evidence_packet"
 )
 
-// SlotKind is the type of a slot (A440, interim, relayed, not yet committed): a slot param declares the kind it expects, and the planner refuses a resolved value of another kind.
+// SlotKind is the type of a slot (A440, interim, relayed, not yet committed): the node's slot declaration is the authority; a slot param only declares the same kind, and the planner refuses a resolved value of another kind.
 type SlotKind string
 
-// The six slot kinds. For SlotKindResource the declaration and the value also carry a resource kind.
+// The five slot types (A454: Enum is not one). For SlotKindResource the declaration and the value also carry a resource kind.
 const (
 	SlotKindResource  SlotKind = "Resource"
 	SlotKindQuantity  SlotKind = "Quantity"
 	SlotKindParty     SlotKind = "Party"
 	SlotKindTimeRef   SlotKind = "TimeRef"
 	SlotKindReference SlotKind = "Reference"
-	SlotKindEnum      SlotKind = "Enum"
 )
 
 // ParamSpec is the pack's declaration of one step param. Which fields apply depends on Kind: slot uses Slot; const uses Value; map uses Slot and Map; fact and policy_param
