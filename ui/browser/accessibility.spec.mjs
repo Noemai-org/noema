@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { assertAccessible } from "./flow-a11y.mjs";
 import { readFile } from "node:fs/promises";
 
 // Synthetic UI only. Axe and its rules run locally; no external script or host.
@@ -24,6 +24,5 @@ test("REQ-UI-001: the customer overlay has no automated WCAG A/AA violations", a
   await page.addStyleTag({ content: stylesheet });
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--noema-color-text").trim())).not.toBe("");
   await expect(page.getByRole("textbox", { name: "Your message" })).toBeVisible();
-  const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-  expect(result.violations).toEqual([]);
+  await assertAccessible(page);
 });
