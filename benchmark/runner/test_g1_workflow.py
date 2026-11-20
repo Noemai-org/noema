@@ -116,6 +116,24 @@ class G1StackWorkflow(unittest.TestCase):
         for command in ("fault-plans", "probes"):
             self.assertIn("python -m benchmark.runner.evidence " + command, self.script)
 
+    # A445 (interim): the stack-check reports /readyz and the netcheck now, and requires them once the final composition PR merges.
+    def test_the_stack_check_reports_readyz_and_the_netcheck_and_does_not_require_them_yet(self) -> None:
+        block = re.search(r'(?s)if \[ "\$MODE" = stack-check \]; then(.*?)\n          else\n', self.script)
+        assert block, "no stack-check block"
+        self.assertIn('HTTPConnection("core", 8080', block.group(1))
+        self.assertIn('"/readyz"', block.group(1))
+        self.assertIn("deploy/compose/netcheck/profiles.py", block.group(1))
+        self.assertIn('echo "readyz=${readyz:-not-checked}" >> "$GITHUB_OUTPUT"', self.script)
+        self.assertIn('echo "netcheck=${netcheck:-not-checked}" >> "$GITHUB_OUTPUT"', self.script)
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        self.assertIn('READINESS_REQUIRED: "false"', result.group(0))  # flipped to "true" by the final composition PR (A445)
+        self.assertRegex(result.group(0), r'(?s)\[ "\$READINESS_REQUIRED" = true \].*READYZ.*NETCHECK')
+        summary = re.search(r"(?ms)- name: Summary.*?(?=^      - name:)", self.text)
+        assert summary
+        self.assertIn("/readyz", summary.group(0))
+        self.assertIn("netcheck", summary.group(0))
+
     def test_the_record_access_check_takes_the_runners_request_record(self) -> None:
         # A354: the expected RECORD_ACCESSED count is derived from the run's own request record (benchmark/out/run/requests.jsonl), not a constant.
         self.assertIn("--requests benchmark/out/run/requests.jsonl", self.script)

@@ -99,6 +99,13 @@ jobs:
               esac
             done
             [ "$collector_dead" -eq 0 ] || code=3
+            # A445 (interim): reported now, required once the final composition PR merges (READINESS_REQUIRED in the Result step). /readyz is asked from the runner, which is on the core's network;
+            # the netcheck is the static profile check over the resolved Compose configuration. Neither changes the stack-check's own code here.
+            readyz="$($compose exec -T bench-runner python -c 'import http.client as h; c = h.HTTPConnection("core", 8080, timeout=5); c.request("GET", "/readyz"); print(c.getresponse().status)' 2>/dev/null | tail -n 1)"
+            echo "stack-check: /readyz answered ${readyz:-nothing}"
+            netcheck=0
+            python3 -I deploy/compose/netcheck/profiles.py > /dev/null 2>&1 || netcheck=$?
+            echo "stack-check: netcheck (static profiles) exit $netcheck"
           else
             $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite
             gen=$?
@@ -130,6 +137,8 @@ jobs:
           fi
           sleep 2
           kill "$logpid" 2>/dev/null
+          echo "readyz=${readyz:-not-checked}" >> "$GITHUB_OUTPUT"
+          echo "netcheck=${netcheck:-not-checked}" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
       # A388: browser checks against the running stack, opt-in. FE owns the specs and the stack config (ui/playwright.stack.config.mjs, tests under ui/browser-stack/). Without that config the step is NOT
       # RUN (exit 3), never a pass; the checks are not evidence for G1. The UI publishes on 127.0.0.1:8082 only. `npm ci` only: the lock file decides what runs. The Chrome of the runner image is used.
@@ -206,9 +215,12 @@ jobs:
           RUN_ID: ${{ steps.run.outputs.run_id }}
           FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
           PROBES: ${{ steps.evidence.outputs.probes }}
+          READYZ: ${{ steps.run.outputs.readyz }}
+          NETCHECK: ${{ steps.run.outputs.netcheck }}
         run: |
           {
             echo "## bench-g1-stack: mode $MODE, run id $RUN_ID, exit code $CODE"
+            [ "$MODE" = stack-check ] && echo "Readiness, reported (A445): /readyz answered ${READYZ:-nothing}; netcheck (static profiles) exit ${NETCHECK:-missing}. Required only once the final composition PR merges."
             [ "$MODE" = stack-check ] && echo "**STACK-CHECK: the stack came up (or did not). This is NOT EVIDENCE for G1: no suite ran and nothing was scored.**"
             case "$CODE" in
               0) echo "Complete, scored, and Tier 0 is all zero." ;;
@@ -281,11 +293,19 @@ jobs:
           COLLECTED: ${{ steps.logs.outputs.collected }}
           RECORD_ACCESSED: ${{ steps.access.outputs.record_accessed }}
           PLAYWRIGHT: ${{ steps.playwright.outputs.playwright }}
+          READYZ: ${{ steps.run.outputs.readyz }}
+          NETCHECK: ${{ steps.run.outputs.netcheck }}
+          # A445: reported now; the final composition PR flips this to "true", and then a stack-check whose core does not answer /readyz 200, or whose netcheck fails, fails.
+          READINESS_REQUIRED: "false"
           WANT_PLAYWRIGHT: ${{ inputs.playwright }}
         run: |
           fail=0
           if [ "$WANT_PLAYWRIGHT" = true ]; then
             [ "${PLAYWRIGHT:-missing}" = 0 ] || { echo "::error::The browser checks were asked for and did not pass (exit ${PLAYWRIGHT:-missing}; 3 is NOT RUN). They are not evidence for G1."; fail=1; }
+          fi
+          if [ "$READINESS_REQUIRED" = true ] && [ "$MODE" = stack-check ]; then
+            [ "${READYZ:-missing}" = 200 ] || { echo "::error::stack-check: /readyz answered ${READYZ:-nothing}, not 200."; fail=1; }
+            [ "${NETCHECK:-missing}" = 0 ] || { echo "::error::stack-check: the netcheck exit ${NETCHECK:-missing}."; fail=1; }
           fi
           if [ "$MODE" = stack-check ]; then
             [ "$CODE" = 0 ] || { echo "::error::stack-check: the stack did not come up (code ${CODE:-missing})."; fail=1; }

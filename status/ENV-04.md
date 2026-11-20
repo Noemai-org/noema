@@ -218,3 +218,7 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Codex P2 (the evidence's unknown-correlation probe made the request record NOT MET): a request of kind `probe` may name a correlation outside the run; a `reconstruction` or `case` request may not.
 - Codex P2 (the stamp's run id is a digit run the artifact scan found): one anchored allow pattern for the `"run_id"` line (14 patterns). The SHA is one hexadecimal token, which the digit rule does not read as a run, so it needs none.
 - Not changed: `print` in the CI checkers (AGENTS §7's rule is for service code; every `tools/ci` CLI writes its result to stdout, 54 call sites), and the request-record writer (BO's, agreed by message; until it exists a full run is NOT RUN, never a pass).
+
+# Session 2026-11-20 · ENV-04 · A445 on noema#730: readiness reported by the stack-check (IL)
+- The stack-check now reports `/readyz` (asked from the runner, on the core's network) and the static netcheck (`deploy/compose/netcheck/profiles.py`) in the job log, the Summary and step outputs. `READINESS_REQUIRED` in the Result step is `"false"` now; the final composition PR flips it, after which a core that does not answer 200 or a failing netcheck fails the stack-check (A445, interim). The `print` rule is for `services/` (A445): Codex's P1 on this PR is answered on that ruling.
+- Not verified: no live run; the runner's `http.client` call and the netcheck on the Actions runner.
