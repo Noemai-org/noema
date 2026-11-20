@@ -29,11 +29,12 @@ from noema_model.understanding.pipeline.types import (
     PipelineInput,
     PipelineResult,
     Proposal,
+    ScreenStage,
 )
 
 __all__ = (
     "BindingProposal", "CandidateQuery", "CandidateRequestInvalid", "CandidateScopeError", "CandidateSource",
     "CandidateSourceError", "FlagSpec", "LocaleOption",
     "MentionProposal", "NodeCatalogue", "NormalisedSlots", "Outcome", "PipelineConfig", "PipelineInput",
-    "PipelineResult", "Proposal", "build_query", "propose_binding", "run_pipeline",
+    "PipelineResult", "Proposal", "ScreenStage", "build_query", "propose_binding", "run_pipeline",
 )
