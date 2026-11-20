@@ -14,7 +14,7 @@ State: PR noema#788 (draft), red head `0f4ac968`. Built by Core Engineer 2 (C2).
 - Conflicts raised: none.
 
 ## Pre-work for the next agent
-- Exact next step: EL's `wire_trust` calls `trustport.NewPackProfiles(doc.IntentNodes, doc.TrustProfiles)` and `NewEvidence(snapshots, profiles, clock)`.
+- Exact next step: EL's `wire_trust` calls `trustport.NewPackProfiles(doc.IntentNodes, doc.TrustProfiles)` and `NewEvidence(snapshots, profiles, clock, facts)`.
 - Open questions (owner): may a profile require no source (today refused; Architect)? Does EL want `trustpack.Pack` to expose its node and profile slices so the pack is decoded once (EL)?
 - Files to read first: `evidence.go` (`SourceRules`, `usable`), `trust-profile.v1.json`, `packs/fintech_v1.json`.
 - Do not touch: `trustpack/**` (EL's), `cmd/core/**`.

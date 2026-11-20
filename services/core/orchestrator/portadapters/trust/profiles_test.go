@@ -214,7 +214,7 @@ func TestSprComposesWithTheEvidenceAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev, err := trustport.NewEvidence(evdStoreOf(evdWorld(t)), p, clock.NewManual(evdNow))
+	ev, err := trustport.NewEvidence(evdStoreOf(evdWorld(t)), p, clock.NewManual(evdNow), &evdFacts{})
 	if err != nil {
 		t.Fatal(err)
 	}
