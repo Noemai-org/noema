@@ -28,8 +28,15 @@ function details(kind: ReconstructionV3SectionKind, facts: Record<string, unknow
   return out.filter((text): text is string => text !== null);
 }
 
-// Presentation only. Authorization and the access Record are enforced by the core.
-export function EvidencePanel({ reconstruction }: { reconstruction: unknown }) {
+// Fail closed while the generated parser can accept invalid conditional fixtures
+// (#707). Do not expose the prototype before the validation boundary is fixed.
+export function EvidencePanel(_props: { reconstruction: unknown }) {
+  return h("p", { role: "status" }, "This evidence is unavailable.");
+}
+
+// Unmounted prototype, retained for the fixture work once #707 is merged.
+// Authorization and the access Record must still be enforced by the core.
+function renderValidatedEvidencePanel({ reconstruction }: { reconstruction: unknown }) {
   let value;
   try {
     value = parseReconstructionV3(reconstruction);
