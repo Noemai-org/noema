@@ -28,7 +28,9 @@ LEXICON_FILE = ROOT / "packs" / "fintech" / "lexicons" / "fin.lex.en_ng.json"
 MASKING_LIMITS = ROOT / "packs" / "fintech" / "limits" / "masking_limits.json"
 OUT_OF_SCOPE_NODE = "fin.meta.out_of_scope"
 # Settings of this run, not safety thresholds: the pool is the number of provider calls that may be in flight at once; the three bounds are the compile service's own (noema#635 reads them from a file).
-POOL_SIZE = 4
+# The pipeline starts five calls together (run.py step 2) and a full pool refuses a call at once, so the pool is five plus one spare for a call whose caller timed out and whose thread still holds its
+# worker. Four refused the injection screen in run 44521380842 (UND-16); test_pool.py reads the five from the pipeline.
+POOL_SIZE = 6
 COMPILE_TIMEOUT_S = 240.0
 MAX_PROPOSAL_BYTES = 65_536
 MAX_REQUEST_BYTES = 65_536
@@ -68,7 +70,9 @@ class RecordingTransport:
             reply = await self._inner.post(url, headers, body, timeout_s, max_bytes)
         except errors.ProviderError as err:
             self._guard.settle(None, projected)
-            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=err.kind.name, projected_micros=projected, cost_micros=projected)
+            # A372: a refusal that came from this service's own full pool (`local`: nothing was sent) is its own label, not a provider outage. Accounting is unchanged (open question in the PR).
+            label = "POOL_REFUSED" if err.local else err.kind.name
+            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=label, projected_micros=projected, cost_micros=projected)
             self.calls += 1
             raise
         actual = _usage_micros(reply.body, self._in, self._out)
