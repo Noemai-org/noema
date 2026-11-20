@@ -1,0 +1,15 @@
+# Retention purge of the private raw-audio store (A451; REQ-VOI-004). A systemd unit for the BENCH HOST, installed by a Founder or the host's administrator, never by CI or Compose.
+# The store's path and the retention in days are values of the host, read from the environment file below; this repository holds neither (AGENT-16), and the file must be readable by the
+# account that owns the store only (mode 0600). Adjust the path of store.sh to where this repository is checked out on the host.
+[Unit]
+Description=Purge raw audio older than the retention (noema bench host)
+
+[Service]
+Type=oneshot
+User=noema-voice
+EnvironmentFile=/etc/noema/audio-store.env
+ExecStart=/bin/sh /opt/noema/deploy/compose/audio-store/store.sh purge
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=-/var/lib/noema-audio
