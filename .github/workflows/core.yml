@@ -28,7 +28,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
-            if git diff --name-only "$base" HEAD | grep -qE '^(services/core/|deploy/spike/pgsodium/|\.github/workflows/core\.yml|tools/ci/go_shard)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+            if git diff --name-only "$base" HEAD | grep -qE '^(services/core/|deploy/spike/pgsodium/|\.github/workflows/core\.yml|tools/ci/go_shard|benchmark/replay/g1_)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
           else
             echo run=true >> "$GITHUB_OUTPUT"
           fi
@@ -97,6 +97,27 @@ jobs:
           test "$status" -eq 0
           grep -Eq 'RECORD_VERIFY_CI_RESULT clean tenants=[1-9][0-9]* events=[1-9][0-9]*$' "$RUNNER_TEMP/record-verify.txt"
           test "$(grep -c -- '--- PASS: TestRecordVerifyCITamperingFailsTheJob/' "$RUNNER_TEMP/record-verify.txt")" -eq 7
+      # UND-16 (REQ-INT-001, REQ-BEN-004; INV-21, INV-22; A460, A478): the G1 replay fixture equals what the core's Interpreter port builds now. The generator is a Go test in the interpreter port's package; the two
+      # paths are given here, on its command line, because the core holds no benchmark-aware string (REQ-TST-006) and the lint has no exemption (A478). The fresh output goes to a temp file and is compared byte
+      # for byte with the committed fixture (the tree is never written). Inert while the generator is not on the tree; once it is, a missing fixture, a skipped generator or any difference fails the job.
+      - name: G1 replay fixture equals fresh generator output (UND-16, A460)
+        if: matrix.shard == 0
+        env:
+          G1_GENERATOR: services/core/orchestrator/portadapters/interpreter/g1_fixture_build_test.go
+          G1_INPUTS: benchmark/replay/g1_inputs.json
+          G1_FIXTURE: benchmark/replay/g1_canonical_inputs.json
+        run: |
+          set -eu
+          if [ ! -f "$G1_GENERATOR" ]; then echo "the generator is not on this tree: nothing to prove"; exit 0; fi
+          test -f "$G1_FIXTURE"
+          test -f "$G1_INPUTS"
+          fresh="$RUNNER_TEMP/g1_fresh.json"
+          rm -f "$fresh"
+          (cd services/core && go test -count=1 -v -run '^TestWriteG1Fixture$' ./orchestrator/portadapters/interpreter/ -args -g1-inputs "$GITHUB_WORKSPACE/$G1_INPUTS" -g1-fixture "$fresh") | tee "$RUNNER_TEMP/g1-gen.txt"
+          grep -q -- '--- PASS: TestWriteG1Fixture' "$RUNNER_TEMP/g1-gen.txt"
+          if grep -q -- '--- SKIP' "$RUNNER_TEMP/g1-gen.txt"; then echo "the generator was skipped"; exit 1; fi
+          test -s "$fresh"
+          cmp "$fresh" "$G1_FIXTURE"
   # The checks that need no database, in parallel with the shards so no shard carries them: formatting, vet, the shard coverage, the build and the image.
   static:
     needs: changed
