@@ -7,5 +7,6 @@
   "missing_failure_count.json": "required",
   "extra_top_level.json": "additionalProperties",
   "ten_gates.json": "minItems",
-  "rate_without_exact_bound.json": "required"
+  "rate_without_exact_bound.json": "required",
+  "understanding_families_repeated.json": "uniqueItems"
 }
