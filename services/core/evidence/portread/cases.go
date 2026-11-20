@@ -4,7 +4,7 @@ package portread
 // INV-12, INV-19, INV-21; AGENT-09).
 //
 // The stand-in's case list is mock-case's CasePage: its items and its own `complete` marker. The complaint_ref list is its own list, read from FindComplaints, with its own
-// marker. Each is recorded as one evidence item whose payload is `{"items": [...], "complete": <bool>}`, the keys the evidence mapping's list entities read (fin.map.v1@2,
+// marker. Each is recorded as one evidence item whose payload is `{"items": [...], "complete": <bool>}`, the keys the evidence mapping's list entities read (the pack's evidence mapping,
 // ListRows). A list is KNOWN only when its own marker says it is the whole answer: an incomplete list is UNKNOWN, never an empty "none" (INV-19). An answer the reader cannot use
 // is an UNKNOWN item with no payload, not an error and not a guess.
 
