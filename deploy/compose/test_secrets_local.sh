@@ -36,6 +36,15 @@ done
 for f in grant_hmac_key_a grant_hmac_key_b; do
   [ "$(stat -c %a "$work/secrets/$f")" = "600" ] || fail "secrets/$f is not mode 600"
 done
+# The core-trust signing seed (A445; LoadRing reads core-trust.ed25519.<version>.key holding the seed as 64 lower-case hexadecimal characters): made, distinct from the grant keys, mode 600 so only the
+# one-shot step that will set its mode and owner reads it, and kept on a second run (a regenerated seed would orphan the public key C1's tenant-init registers).
+[ -s "$work/secrets/core_trust_ed25519_seed_1" ] || fail "secrets/core_trust_ed25519_seed_1 was not made"
+printf '%s' "$(cat "$work/secrets/core_trust_ed25519_seed_1")" | grep -Eq '^[0-9a-f]{64}$' || fail "the core-trust seed is not 64 lower-case hexadecimal characters"
+[ "$(cat "$work/secrets/core_trust_ed25519_seed_1")" != "$(cat "$work/secrets/grant_hmac_key_a")" ] || fail "the core-trust seed is a grant key"
+[ "$(stat -c %a "$work/secrets/core_trust_ed25519_seed_1")" = "600" ] || fail "secrets/core_trust_ed25519_seed_1 is not mode 600"
+cp "$work/secrets/core_trust_ed25519_seed_1" "$work/seed.first"
+( cd "$work" && sh secrets_local.sh >/dev/null )
+cmp -s "$work/seed.first" "$work/secrets/core_trust_ed25519_seed_1" || fail "a second run replaced the core-trust seed"
 # The mTLS material for the core and the model service (noema#555) is made too, kept on a second run, and leaves no CA key behind.
 for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key; do
   [ -s "$work/secrets/tls/$f" ] || fail "secrets/tls/$f was not made"
