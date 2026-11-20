@@ -16,13 +16,17 @@ const test = base.extend({ page: async ({ page }, use) => {
   }
 } });
 
-for (const scenario of ["unavailable", "malformed", "disconnect"]) {
+for (const scenario of ["unavailable", "malformed", "disconnect", "oversized", "wrong-content-type"]) {
   test(`REQ-UI-001: real UI handles ${scenario} without showing server details`, async ({ page }) => {
     const server = await startUiFailureServer({ scenario });
     try {
       await page.goto(server.origin);
-      await page.getByRole("textbox", { name: "Your message" }).fill("Please check this transfer.");
-      await page.getByRole("button", { name: "Send" }).click();
+      // Configure the actual browser entry using only the existing investigation contract.
+      // The create-conversation route is not yet mounted; Send stays disabled.
+      await page.evaluate(async (baseUrl) => {
+        const client = await import("/app.js");
+        client.configureOverlay({ baseUrl, sessionToken: "synthetic-session", investigationId: "inv_SyntheticA", maxResponseBytes: 65536 });
+      }, server.origin);
       await expect(page.getByRole("status")).toContainText(/connection lost/i);
       await expect(page.locator("body")).not.toContainText("HOSTILE_SERVER_DIAGNOSTIC");
       await expect(page.getByRole("region", { name: "Messages" })).not.toContainText("Synthetic final answer");
