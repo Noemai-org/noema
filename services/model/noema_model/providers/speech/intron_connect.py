@@ -1,7 +1,8 @@
 """The WebSocket connect factory of the Intron adapters (VOI-01, REQ-VOI-002, INV-29, AGENT-13, AGENT-16; rulings A249, A380).
 
 The one place in the model service that opens a WebSocket (`websockets` 17.3, approved by A249). `websocket_connector(...)` returns the `Connect` the adapters take: `connect(url, headers)`
-gives a `Connection` with `send`, `recv` and `close`. Every timeout and the largest message are arguments with no default (AGENT-16). The client uses no proxy (a proxy would see the key
+gives a `Connection` with `send`, `recv` and `close`. Every timeout and the largest message are arguments with no default (AGENT-16). The adapters build only `wss://` addresses (`secure_netloc` refuses anything else), so the key header travels only over TLS in production; this function connects to the address it is given and does not itself
+refuse `ws://` (the tests use the loopback interface of the test process). The client uses no proxy (a proxy would see the key
 header), no compression and no user-agent string. Failures become the adapters' own: a refusal by the server is a ProviderError with no body, header or address in it (401 and 403
 REJECTED, 429 RATE_LIMITED, anything else UNAVAILABLE); a dropped connection is `ConnectionClosed`; an open that does not finish in time is TimeoutError; a refused TCP connection stays an
 OSError; only text frames are accepted (a binary frame is MALFORMED).
