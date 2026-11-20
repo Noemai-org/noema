@@ -58,7 +58,9 @@ type ItemFacts interface {
 var _ ItemFacts = (*reconciler.Reconciler)(nil)
 
 // Evidence implements intake.Evidence: the T9 read of the Trust intake. It reports the freshness and the fact status of the items of a sealed snapshot as the Decision Record
-// keeps them, from what was sealed and verified, never from what a caller supplied (REQ-TRU-001, REQ-CTX-003, REQ-CTX-004). The freshness and the status are the stored columns; the value the confirmation binds is the digest of the facts the mapping gives from the stored payloads (the facts source).
+// keeps them, from what was sealed and verified, never from what a caller supplied (REQ-TRU-001, REQ-CTX-003, REQ-CTX-004). The freshness and the status are the stored columns; the
+// snapshot's own set hash is given as it is stored (EvidenceSetHash); the value the confirmation binds, given separately (ConfirmationBindingEvidenceHash, A435), is the digest of the
+// facts the mapping gives from the stored payloads (the facts source) with the items' statuses.
 type Evidence struct {
 	snapshots SnapshotReader
 	profiles  SourceProfiles
@@ -122,7 +124,7 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 	if err != nil {
 		return intake.SnapshotEvidence{}, err
 	}
-	out := intake.SnapshotEvidence{IntentID: s.Intent.IntentID, IntentVersion: s.Intent.Version, EvidenceSetHash: content, Items: make([]intake.SourceItem, len(ordered))}
+	out := intake.SnapshotEvidence{IntentID: s.Intent.IntentID, IntentVersion: s.Intent.Version, EvidenceSetHash: s.EvidenceSetHash, ConfirmationBindingEvidenceHash: content, Items: make([]intake.SourceItem, len(ordered))}
 	present := make(map[string]bool, len(ordered))
 	for i, it := range ordered {
 		limit, by := it.SLASeconds, decide.LimitBySource
@@ -141,10 +143,12 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 	return out, nil
 }
 
-// contentHash is the evidence value the confirmation binds (A365 refined): the content hash of the items' (source, source record ID, facts digest), where an item's facts digest is the
-// digest of its MAPPED, NORMALIZED facts, which the facts source (the Reconciler) reads from the stored payload and maps with the evidence mapping the Reconciler classifies with. A re-read
-// of unchanged facts gives the same value under new evidence IDs and whatever differs in the raw payload (a volatile or unmapped field); a changed mapped fact gives another. The set
-// hash the snapshot stores (over the evidence IDs) is verified by intact and is not what is given.
+// contentHash is the evidence value the confirmation binds (A365 refined, A435): the content hash of the items' (source, source record ID, facts digest, status), where an item's facts
+// digest is the digest of its MAPPED, NORMALIZED facts, which the facts source (the Reconciler) reads from the stored payload and maps with the evidence mapping the Reconciler
+// classifies with, and its status is the item's fact status as sealed and as the Reconciler gives it to the item's rows. A re-read of unchanged facts gives the same value under new
+// evidence IDs and whatever differs in the raw payload (a volatile or unmapped field); a changed mapped fact or status gives another. It is given as ConfirmationBindingEvidenceHash
+// and only the binding uses it: the snapshot's own set hash (over the evidence IDs), verified by intact, is given unchanged as EvidenceSetHash, and the Decision Record and the grant
+// keep that one.
 //
 // Fail closed (INV-19, REQ-NFR-002): an item with no source record ID, whose payload cannot be read or is not the sealed one, that the mapping cannot use, or whose facts cannot be
 // digested makes the snapshot unusable as evidence. The cause stays reachable behind the fixed text. No payload is read before every item has a record ID.
@@ -165,7 +169,7 @@ func (e Evidence) contentHash(ctx context.Context, tenantID string, items []Seal
 		if err != nil {
 			return "", wrapped(ErrSnapshotNotIntact, err)
 		}
-		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, FactsDigest: digest}
+		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, FactsDigest: digest, Status: it.Status}
 	}
 	h, err := snapshot.ContentHash(in)
 	if err != nil {
