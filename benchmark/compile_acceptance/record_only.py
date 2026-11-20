@@ -8,7 +8,7 @@ What a request is made of (A439, A460):
   `benchmark/replay/g1_canonical_inputs.json`, pinned to BO's `inputs_sha256`. This pass loads that fixture and proves the pin; it builds no canonical input of its own (a Python rebuild is not the core's code, and
   was rejected). The port sends no locale hint, so none is sent: the locale of every case is en-NG (what the UI sends), `locale_mix` stays a tag.
 - **The candidates are part of the request.** They come from the world rows of BO's file (the principal's beneficiaries and transactions, an allowlist of fields, no label of the target), as the rows of
-  `candidates-response.v1`'s Candidate, newest first. The rule that turns a world row into a candidate is `_rows` below.
+  `candidates-response.v1`'s Candidate, newest first. The rule that turns the world rows into candidates is `candidate_rows` below.
 
 The files are read from paths and trusted for nothing they do not prove. Each must be a regular file (no symlink) of at most 1 MiB, strict JSON (no duplicate key, no NaN), of exactly the closed shape BO's exporter and
 the Go test write: a key beyond it, an expectation or an oracle reference included, is a refusal even if the digest matches. The inputs file's own `inputs_sha256` is recomputed by the exporter's rule (the document
@@ -175,37 +175,47 @@ def _world(raw: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return by_id, rows
 
 
-def _letters(*parts: str) -> str:
-    """Twenty letters derived from the parts: an id that carries no digit, so no id of a request holds a digit run (AGENT-13)."""
-    digest = hashlib.sha256(b"".join(len(p.encode()).to_bytes(4, "big") + p.encode() for p in parts)).digest()
-    number, out = int.from_bytes(digest, "big"), []
-    for _ in range(20):
-        number, rest = divmod(number, 26)
-        out.append(chr(ord("a") + rest))
-    return "".join(out)
-
-
 def _instant(minutes_ago: int) -> str:
     return (datetime.strptime(RECEIVED_AT, "%Y-%m-%dT%H:%M:%SZ") - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _rows(case_id: str, beneficiaries: Mapping[str, Any], transactions: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
-    """The rule of a candidate (A439): one row per transaction of the world; the counterparty is the beneficiary's name, the last four digits are the beneficiary's, the alias flag is whether the beneficiary has a
-    saved alias, the instant is the run's synthetic afternoon (the goldens') minus the age; the id is letters derived from the case and the reference. Newest first, ties by id ascending: the order the model
-    service's candidate reader requires. Nothing says which row is the target."""
+_REF_ID = re.compile(r"[0-9A-Za-z]{2,32}")  # candidates-response.v1: candidate_id is `cand_` and 2 to 32 letters or digits
+
+
+def _candidate_id(ref: str) -> str:
+    """`cand_` and the id part of the resource reference (`fin.transaction:TX7992` gives `cand_TX7992`). An id part that is not 2 to 32 letters or digits, or that holds a run of five digits (a digit run
+    over four never travels to a provider, AGENT-13), is not a candidate id: the file is refused, nothing is hashed or invented."""
+    part = ref.split(":", 1)[1]
+    if _REF_ID.fullmatch(part) is None or _DIGIT_RUN.search(part) is not None:
+        _refuse("SHAPE")
+    return "cand_" + part
+
+
+def _rows(beneficiaries: Mapping[str, Any], transactions: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
     out = []
     for t in transactions:
         b = beneficiaries[t["beneficiary"]]
-        out.append({"candidate_id": "cand_" + _letters("record-only-candidate", case_id, t["ref"]), "resource_ref": t["ref"], "amount_minor": t["amount_minor"], "currency": t["currency"],
-                    "occurred_at": _instant(t["age_minutes"]), "counterparty_display": b["name"], "account_last4": b["account_last4"], "direction": t["direction"],
-                    "beneficiary_alias_match": len(b["aliases"]) > 0})
+        out.append({"candidate_id": _candidate_id(t["ref"]), "resource_ref": t["ref"], "amount_minor": t["amount_minor"], "currency": t["currency"], "occurred_at": _instant(t["age_minutes"]),
+                    "counterparty_display": b["name"], "account_last4": b["account_last4"], "direction": t["direction"], "beneficiary_alias_match": len(b["aliases"]) > 0})
+    if len({r["candidate_id"] for r in out}) != len(out):
+        _refuse("SHAPE")  # two references with one id part
     by_id = sorted(out, key=lambda r: r["candidate_id"])
     return tuple(sorted(by_id, key=lambda r: r["occurred_at"], reverse=True))  # a stable sort: ties stay in id order
 
 
-def candidate_rows(inp: RecordOnlyInput) -> tuple[Mapping[str, Any], ...]:
-    """The candidate rows of a loaded case (A439): the ones it was loaded with, from its world rows."""
-    return inp.candidates
+def candidate_rows(world: Any) -> tuple[dict[str, Any], ...]:
+    """The candidates of a case (A439): the rows of `candidates-response.v1`'s Candidate that BO's world rows of the case stand for. ONE pure, deterministic function: it reads nothing but its argument and the
+    goldens' fixed instant, and does not touch its argument. Raises RecordOnlyRefused (SHAPE) for a world that is not exactly BO's shape.
+    - `candidate_id`: `cand_` and the id part of the transaction's reference (`fin.transaction:TX7992` gives `cand_TX7992`).
+    - `resource_ref`, `amount_minor`, `currency`, `direction`: the transaction's own.
+    - `occurred_at`: the fixed instant of the run (the goldens' synthetic afternoon, `RECEIVED_AT`) minus `age_minutes`, as RFC 3339 UTC.
+    - `counterparty_display`: the beneficiary's name as the file gives it, the goldens' convention (a synthetic full name such as "Tunde Adeyemi"); the contract's mask is about digits, so a name with a run of five
+      digits is refused, one line, at most 64 characters.
+    - `account_last4`: the beneficiary's.
+    - `beneficiary_alias_match`: true iff the beneficiary has at least one saved alias (the 'relationship' feature of the ranking reads it that way).
+    Newest first (`occurred_at` descending), ties by `candidate_id` ascending, at most 20 rows. Nothing says which row is the target."""
+    beneficiaries, transactions = _world(world)
+    return _rows(beneficiaries, transactions)
 
 
 def _case(raw: Any) -> tuple[RecordOnlyInput, str]:
@@ -219,9 +229,9 @@ def _case(raw: Any) -> tuple[RecordOnlyInput, str]:
     if case["canonical_locale"] != CANONICAL_LOCALE:  # A460: en-NG for all five; null (a mix) or another locale is not a case of this pass
         _refuse("SHAPE")
     principal_id = _principal(case["principal"])
-    beneficiaries, transactions = _world(case["candidates"])
+    candidates = candidate_rows(case["candidates"])
     text = _utterance(case["utterances"])
-    return RecordOnlyInput(case_id, "text", tuple(locale_mix), CANONICAL_LOCALE, text, {}, _rows(case_id, beneficiaries, transactions)), principal_id
+    return RecordOnlyInput(case_id, "text", tuple(locale_mix), CANONICAL_LOCALE, text, {}, candidates), principal_id
 
 
 def _stored_digest(doc: dict[str, Any]) -> str:

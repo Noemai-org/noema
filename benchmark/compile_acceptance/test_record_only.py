@@ -346,9 +346,10 @@ class Candidates(unittest.TestCase):
         for row in rows:
             self.assertEqual(set(row), set(contract["properties"]))
             self.assertIsNotNone(id_rx.fullmatch(row["candidate_id"]))
-            self.assertRegex(row["candidate_id"], r"^cand_[a-z]+$")  # letters only: no id carries a digit run (AGENT-13)
+            self.assertRegex(row["candidate_id"], r"^cand_TX[0-9]{4}$")  # cand_ and the id part of the reference (BO's refs: TX and four digits): no digit run over four (AGENT-13)
             self.assertEqual((row["currency"], row["direction"], row["amount_minor"], row["account_last4"]), ("NGN", "OUTGOING", 250000, "3644"))
         self.assertEqual([r["resource_ref"] for r in rows], ["fin.transaction:TX7992", "fin.transaction:TX7001"])  # 150 minutes ago, then 3000: newest first
+        self.assertEqual([r["candidate_id"] for r in rows], ["cand_TX7992", "cand_TX7001"])  # the id part of the reference, nothing hashed
         self.assertGreater(rows[0]["occurred_at"], rows[1]["occurred_at"])
 
     def test_the_instant_is_the_goldens_afternoon_minus_the_age(self) -> None:
@@ -373,10 +374,53 @@ class Candidates(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(load_inputs(write(tmp, doc))[0].candidates, ())
 
-    def test_candidate_rows_is_a_pure_function_of_the_loaded_case(self) -> None:
+    def test_candidate_rows_is_a_pure_deterministic_function_of_the_world_rows(self) -> None:
+        import copy
+        w = world()
+        before = copy.deepcopy(w)
+        first, second = candidate_rows(w), candidate_rows(w)
+        self.assertEqual(first, second)
+        self.assertEqual(w, before)  # the input is not touched
         with tempfile.TemporaryDirectory() as tmp:
-            inp = load_inputs(write(tmp, make_doc()))[0]
-        self.assertEqual(candidate_rows(inp), inp.candidates)
+            self.assertEqual(load_inputs(write(tmp, make_doc()))[0].candidates, first)  # what a case is loaded with is this function's answer
+
+    def test_the_order_is_newest_first_then_candidate_id_ascending_whatever_the_input_order(self) -> None:
+        tx = world()["transactions"]
+        w = {"beneficiaries": world()["beneficiaries"], "transactions": [
+            {**tx[0], "ref": "fin.transaction:TX0003", "age_minutes": 10}, {**tx[0], "ref": "fin.transaction:TX0001", "age_minutes": 10}, {**tx[0], "ref": "fin.transaction:TX0002", "age_minutes": 5},
+            {**tx[0], "ref": "fin.transaction:TX0004", "age_minutes": 900}]}
+        want = ["cand_TX0002", "cand_TX0001", "cand_TX0003", "cand_TX0004"]  # 5 minutes ago, then the two at 10 by id ascending, then 900
+        self.assertEqual([r["candidate_id"] for r in candidate_rows(w)], want)
+        self.assertEqual([r["candidate_id"] for r in candidate_rows({**w, "transactions": list(reversed(w["transactions"]))})], want)
+
+    def test_an_age_of_zero_is_the_instant_itself_and_the_age_is_taken_away_not_added(self) -> None:
+        tx = world()["transactions"][0]
+        rows = candidate_rows({"beneficiaries": world()["beneficiaries"], "transactions": [{**tx, "age_minutes": 0}, {**tx, "ref": "fin.transaction:TX0002", "age_minutes": 1}]})
+        self.assertEqual([r["occurred_at"] for r in rows], [RECEIVED_AT, "2026-11-16T12:29:00Z"])
+
+    def test_the_counterparty_display_is_the_goldens_convention_the_name_as_given(self) -> None:
+        # the goldens show a synthetic full name ("Tunde Adeyemi"); the contract's mask is about digits (at most four in a row), so a name is shown as BO gives it
+        self.assertEqual({r["counterparty_display"] for r in candidate_rows(world("Tunde Adeyemi"))}, {"Tunde Adeyemi"})
+
+    def test_a_reference_whose_id_cannot_be_a_candidate_id_is_refused(self) -> None:
+        tx = world()["transactions"][0]
+        for name, refs in {"hyphen in the id": ["fin.transaction:TX-79"], "dot in the id": ["fin.transaction:TX.79"], "one character": ["fin.transaction:T"], "over 32 characters": ["fin.transaction:" + "T" * 33],
+                           "a run of five digits": ["fin.transaction:TX12345"], "two references with one id": ["fin.transaction:TX7992", "fin.payment:TX7992"]}.items():
+            with self.subTest(name), self.assertRaises(RecordOnlyRefused) as ctx:
+                candidate_rows({"beneficiaries": world()["beneficiaries"], "transactions": [{**tx, "ref": r} for r in refs]})
+            self.assertEqual(ctx.exception.code, "SHAPE")
+
+    def test_the_direction_is_the_transactions_own(self) -> None:
+        tx = world()["transactions"][0]
+        rows = candidate_rows({"beneficiaries": world()["beneficiaries"], "transactions": [{**tx, "direction": "INCOMING"}, {**tx, "ref": "fin.transaction:TX0002", "age_minutes": 200}]})
+        self.assertEqual([r["direction"] for r in rows], ["INCOMING", "OUTGOING"])
+
+    def test_at_most_twenty_rows(self) -> None:
+        tx = world()["transactions"][0]
+        twenty = [{**tx, "ref": f"fin.transaction:TX{n:04d}"} for n in range(20)]
+        self.assertEqual(len(candidate_rows({"beneficiaries": world()["beneficiaries"], "transactions": twenty})), 20)
+        with self.assertRaises(RecordOnlyRefused):
+            candidate_rows({"beneficiaries": world()["beneficiaries"], "transactions": twenty + [{**tx, "ref": "fin.transaction:TX0099"}]})
 
 
 class Script:
