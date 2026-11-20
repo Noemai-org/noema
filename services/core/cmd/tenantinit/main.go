@@ -158,16 +158,19 @@ func loadPublicKeys(dir string, maxActive int) ([]registeredKey, error) {
 	return keys, nil
 }
 
-// connect reads the DSN from its file (a regular file, not a link, not empty) and opens one connection. No error carries the DSN or any part of it.
+// connect reads the DSN from its file (a regular file, not a link, owned by the caller, mode without group or other bits, not empty) and opens one connection. No error carries the DSN or any part of it.
 func connect(ctx context.Context, path string) (*pgx.Conn, error) {
 	return connectAs(ctx, path, uint32(os.Geteuid()))
 }
 
-// connectAs is connect for a caller whose effective uid is euid.
+// connectAs is connect for a caller whose effective uid is euid. The DSN file is a regular file (not a link), owned by the caller, with no group or other permission bit, as the
+// other one-shots' secret files are (SR on noema#852).
 func connectAs(ctx context.Context, path string, euid uint32) (*pgx.Conn, error) {
-	_ = euid
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes || info.Mode().Perm()&0o077 != 0 {
+		return nil, errDSNUnusable
+	}
+	if owner, ok := fileOwner(info); !ok || owner != euid {
 		return nil, errDSNUnusable
 	}
 	raw, err := os.ReadFile(path)

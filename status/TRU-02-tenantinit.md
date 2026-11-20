@@ -43,3 +43,16 @@ Exit 0 done or already done; 1 refused (nothing changed); 2 usage; 3 could not r
 - Open questions (owner): the ten above (Architect; IL for 2).
 - Files to read first: `services/core/cmd/tenantinit/README.md`, `services/core/migrations/0013_receipt_signature.sql` (`key_register`), `services/core/migrations/0030_tenant_row_security.sql`, `deploy/compose/postgres/create-tenants.sh`.
 - Do not touch: `services/core/migrations/`, `execution/signing` (the command only calls `LoadRing`), `deploy/compose/` (the Compose one-shots are IL's).
+
+# Session 2026-11-20 17:50 WAT · TRU-02 (tenantinit, the Security Reviewer's DSN note)
+
+## Session summary
+- What changed (PR links): noema#852: the DSN file is read only if it is a regular file (not a link), owned by the caller (`connectAs(ctx, path, euid)`), with no group or other permission bit; any other file is the fixed refusal "the DSN file cannot be used" (exit 3, nothing written). `owner_unix.go` / `owner_other.go` supply the owner (a platform without one refuses, fail closed).
+- Why: the Security Reviewer's note on noema#852 asked for the same checks as the other one-shots' secret files; the first version checked only "regular file and size".
+- Tests added (REQ-SEC-005; INV-12, AGENT-13, A347): `dsn_file_test.go`: eight modes with a group or other bit are refused with nothing written; a file of another owner is refused and one of the caller (mode 0600) is used. Seen failing in CI (RED `ba30dab8`, shard `tests (2)`: exactly these two tests).
+- Regression cases added: none. Debt entries: none.
+- Conflicts raised: the tenant-row CONFLICT block on noema#852 is open (A353 guard versus A484); this change is independent of it.
+
+## Pre-work for the next agent
+- Exact next step: the Architect's answer on the tenant rows and the login (see the PR comments); then either drop the tenant half or amend the guard.
+- Do not touch: `deploy/compose/postgres/test_provision_env.sh` (the guard) without that decision.
