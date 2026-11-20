@@ -59,6 +59,9 @@ jobs:
       - name: audio-store test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: sh deploy/compose/audio-store/test_store.sh
+      - name: The core image carries the operator commands and the rotation drill job is sealed (SEC-09)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/test_grantdrill_job.py
       - name: audio-store never leaves the host (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: python3 -I deploy/compose/audio-store/test_never_leaves_the_host.py
