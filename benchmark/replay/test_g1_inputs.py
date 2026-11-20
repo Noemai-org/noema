@@ -12,7 +12,10 @@ from benchmark.generator.generate import generate
 from benchmark.replay.g1_inputs import CASES, PATH, SEED, build, canonical, main
 
 Json = dict[str, Any]
-FORBIDDEN = {"expected", "oracle_ref", "fault_plan", "families", "goal", "category", "safety_gate_relevance", "permitted_capabilities", "events_timeline", "known_facts_fixture", "principal"}
+FORBIDDEN = {"expected", "oracle_ref", "fault_plan", "families", "goal", "category", "safety_gate_relevance", "permitted_capabilities", "events_timeline", "known_facts_fixture",
+             "ledger", "switch", "destination", "settlement", "owner", "enterprise_strings", "display_name"}
+BENEFICIARY_KEYS = {"beneficiary_id", "name", "aliases", "account_last4"}
+TRANSACTION_KEYS = {"ref", "direction", "amount_minor", "currency", "age_minutes", "beneficiary"}
 
 
 class Export(unittest.TestCase):
@@ -30,7 +33,9 @@ class Export(unittest.TestCase):
 
     def test_each_case_carries_only_inputs_never_an_expectation_or_an_oracle_reference(self) -> None:
         for c in self.doc["cases"]:
-            self.assertEqual({"case_id", "channel", "locale_mix", "utterances", "case_sha256"}, set(c), c["case_id"])
+            self.assertEqual({"case_id", "channel", "locale_mix", "canonical_locale", "principal", "candidates", "utterances", "case_sha256"}, set(c), c["case_id"])
+            self.assertEqual({"principal_id", "roles"}, set(c["principal"]))
+            self.assertEqual({"beneficiaries", "transactions"}, set(c["candidates"]))
             for u in c["utterances"]:
                 self.assertEqual({"turn", "text"}, set(u))
         text = json.dumps(self.doc["cases"])  # the label itself says "no oracle reference"; the cases must not
@@ -43,6 +48,47 @@ class Export(unittest.TestCase):
             self.assertEqual(src["utterances"], c["utterances"])
             self.assertEqual(src["locale_mix"], c["locale_mix"])
             self.assertEqual(src["channel"], c["channel"])
+
+    def test_the_candidate_world_rows_are_the_principals_own_with_only_request_visible_fields(self) -> None:
+        """A439: candidates are part of the request, so the candidate world rows are exported, inputs only: an allowlist of fields, and none of the world's state (ledger, switch, destination,
+        settlement), which is what a case is built to find out. Only rows the case's own principal owns."""
+        for c in self.doc["cases"]:
+            src = self.suite.cases[c["case_id"]]
+            fx = self.suite.fixtures[src["known_facts_fixture"]]
+            pid = src["principal"]["principal_id"]
+            self.assertEqual({"principal_id": pid, "roles": src["principal"]["roles"]}, c["principal"])
+            want_b = [{k: b[k] for k in BENEFICIARY_KEYS} for b in fx["beneficiaries"] if b["owner"] == pid]
+            want_t = [{k: x[k] for k in TRANSACTION_KEYS} for x in fx["transactions"] if x["owner"] == pid]
+            self.assertEqual(want_b, c["candidates"]["beneficiaries"], c["case_id"])
+            self.assertEqual(want_t, c["candidates"]["transactions"], c["case_id"])
+            self.assertTrue(c["candidates"]["beneficiaries"] and c["candidates"]["transactions"], c["case_id"])
+            for b in c["candidates"]["beneficiaries"]:
+                self.assertEqual(BENEFICIARY_KEYS, set(b))
+            for x in c["candidates"]["transactions"]:
+                self.assertEqual(TRANSACTION_KEYS, set(x))
+                self.assertIn(x["beneficiary"], {b["beneficiary_id"] for b in c["candidates"]["beneficiaries"]})
+
+    def test_rows_of_another_principal_are_never_exported(self) -> None:
+        suite = generate(SEED)
+        src = suite.cases["BEN-TMO-0001"]
+        fx = suite.fixtures[src["known_facts_fixture"]]
+        fx["beneficiaries"].append({"beneficiary_id": "ben_9999", "owner": "usr_other", "name": "Someone Else", "aliases": [], "account_last4": "0000"})
+        fx["transactions"].append({"ref": "fin.transaction:TX9999", "owner": "usr_other", "beneficiary": "ben_9999", "direction": "OUTGOING", "amount_minor": 1, "currency": "NGN", "age_minutes": 1,
+                                   "ledger": "POSTED", "switch": "OK", "destination": "OK", "settlement": "OK"})
+        out = json.dumps(build(suite)["cases"])
+        self.assertNotIn("ben_9999", out)
+        self.assertNotIn("TX9999", out)
+
+    def test_the_canonical_locale_is_not_guessed(self) -> None:
+        """A439: the locale sent is the canonical locale only, and locale_mix is not sent. The generated case names no canonical locale, so it is the only entry of a one-entry mix and null when
+        the mix has several (the rule is written in the file); nothing is chosen on the compile run's behalf."""
+        for c in self.doc["cases"]:
+            if len(c["locale_mix"]) == 1:
+                self.assertEqual(c["locale_mix"][0], c["canonical_locale"], c["case_id"])
+            else:
+                self.assertIsNone(c["canonical_locale"], c["case_id"])
+        self.assertIn("null", self.doc["canonical_locale_rule"])
+        self.assertTrue(any(len(c["locale_mix"]) > 1 for c in self.doc["cases"]))  # BEN-CLEAN-0027 is a mix, so the rule is exercised
 
     def test_it_is_digest_pinned_to_the_suite_the_generator_and_the_inputs(self) -> None:
         self.assertEqual(20261020, self.doc["suite"]["seed"])
