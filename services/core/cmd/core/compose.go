@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,9 +16,11 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/redaction"
 	"github.com/Noemai-org/noema/services/core/record/admission"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
+	"github.com/Noemai-org/noema/services/core/workflows"
 )
 
 // compose.go is the composition root of the G1 slice (EDG-01 slice 3c). It is the only place that plugs the components other tasks build into the orchestrator,
@@ -193,4 +196,50 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		c.Investigations = reader
 	}
 	return c, closeAll, nil
+}
+
+// composeDeps are the seams of the process composition (STM-01 main): what the production build gets from adapter packages and the real loaders, and what a test replaces.
+type composeDeps struct {
+	LoadKeys         KeyLoader
+	TrustAdapters    func(env Env, records reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error)
+	WorkerDial       func(context.Context, *WorkerConfig) (Connection, error)
+	WorkerActivities func() *workflows.EscalateActivities
+}
+
+// productionDeps is the real build. RED STUB.
+func productionDeps() composeDeps { return composeDeps{} }
+
+// buildComponentsWith is buildComponents with its seams. RED STUB: Trust is not built.
+func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger, _ composeDeps) (Components, TrustParts, func(), error) {
+	c, closer, err := buildComponents(ctx, env, clk, ids, logger)
+	return c, TrustParts{}, closer, err
+}
+
+// buildWorker starts the Temporal worker when it is configured. RED STUB.
+func buildWorker(context.Context, Env, composeDeps) (*RunningWorker, error) { return nil, nil }
+
+// Process is the composed core. RED STUB.
+type Process struct {
+	Logger      *slog.Logger
+	TraceFilter func(map[string]string) map[string]string
+	Components  Components
+	Trust       TrustParts
+	API         http.Handler
+	Handler     http.Handler
+	Worker      *RunningWorker
+	Close       func()
+}
+
+// newProcessLogger is the logger every component receives. RED STUB: no redactor.
+func newProcessLogger(w io.Writer) (*slog.Logger, *redaction.Redactor) {
+	return slog.New(slog.NewJSONHandler(w, nil)), redaction.New()
+}
+
+// newProcess composes the process. RED STUB.
+func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, sink io.Writer, d composeDeps) (*Process, error) {
+	logger, red := newProcessLogger(sink)
+	c, tp, closer, err := buildComponentsWith(ctx, env, clk, ids, logger, d)
+	p := &Process{Logger: logger, TraceFilter: func(m map[string]string) map[string]string { return m }, Components: c, Trust: tp, Close: closer}
+	_ = red
+	return p, err
 }
