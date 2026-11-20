@@ -37,8 +37,8 @@ func (w *world) publish(t *testing.T, version string) {
 		t.Cleanup(func() { trustLogins.Delete(w) })
 	}
 	trust := v.(*pgxpool.Pool)
-	if _, err := trust.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by) VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01')`,
-		tenant, policy, version); err != nil {
+	if _, err := trust.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, document_hash) VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', $4)`,
+		tenant, policy, version, "sha256:00000000000000000000000000000000000000000000000000000000000000aa"); err != nil {
 		t.Fatal(err)
 	}
 }

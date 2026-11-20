@@ -73,7 +73,8 @@
       "items": {
         "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
       },
-      "uniqueItems": true
+      "uniqueItems": true,
+      "minItems": 1
     },
     "max_evidence_age_seconds": {
       "type": "integer",

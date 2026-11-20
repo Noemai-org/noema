@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"pgregory.net/rapid"
 
+	"github.com/Noemai-org/noema/services/core/evidence/layer"
+	"github.com/Noemai-org/noema/services/core/evidence/reconciler"
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
@@ -34,7 +36,7 @@ const (
 	evdNode   = "fin.payments.exception.investigate"
 	evdLedger = "fin.src.core_ledger"
 	evdSwitch = "fin.src.switch"
-	evdSettle = "fin.src.settlement"
+	evdSettle = "fin.src.destination" // the third source of the fintech evidence mapping (the name is the old one)
 	evdSecret = "SECRETROW"
 )
 
@@ -52,8 +54,8 @@ func evdHash(n int) string { return fmt.Sprintf("sha256:%064x", n) }
 
 // evdItem is a KNOWN item of one source, read 42 seconds before the evaluation, with a source limit of 600 seconds.
 func evdItem(n int, source string) trustport.SealedItem {
-	return trustport.SealedItem{EvidenceID: fmt.Sprintf("evr_%02d", n), CorrelationID: evdCorr, Source: source, ReadAt: evdNow.Add(-42 * time.Second),
-		EffectiveAt: evdNow.Add(-60 * time.Second), SLASeconds: 600, Status: "KNOWN", PayloadHash: evdHash(n)}
+	return trustport.SealedItem{EvidenceID: fmt.Sprintf("evr_%02d", n), CorrelationID: evdCorr, Source: source, SourceRecordID: fmt.Sprintf("rec-%02d", n), ReadAt: evdNow.Add(-42 * time.Second),
+		PayloadRef: fmt.Sprintf("pay/rec-%02d/evr_%02d", n, n), EffectiveAt: evdNow.Add(-60 * time.Second), SLASeconds: 600, Status: "KNOWN", PayloadHash: evdHash(n)}
 }
 
 // evdSeal is the snapshot as the sealer stores it: the ids sorted, the hash the one the database computes, the intent the correlation's latest, admitted before every read.
@@ -121,9 +123,55 @@ func evdRules() *evdProfiles {
 	return &evdProfiles{rules: trustport.SourceRules{RequiredSources: []string{evdLedger, evdSwitch, evdSettle}, MaxAgeSeconds: 300}}
 }
 
+// evdFacts is the facts port of the unit tests (the real one, the Reconciler's, runs in evidence_db_test.go over the real payloads and the real mapping). By default an item's fact is
+// one row, entity "evd", status KNOWN, with one enum field that names its source record, whatever its payload hash or evidence ID: the raw payload is not what is bound. A test
+// overrides the facts of a source record, or makes an item's facts fail.
+type evdFacts struct {
+	override map[string][]snapshot.Fact // by source record ID
+	fail     map[string]error           // by source record ID
+	empty    bool
+	calls    []evdFactsCall
+}
+
+type evdFactsCall struct {
+	tenant string
+	item   layer.Item
+}
+
+func (f *evdFacts) Facts(_ context.Context, tenantID string, it layer.Item) ([]snapshot.Fact, error) {
+	f.calls = append(f.calls, evdFactsCall{tenantID, it})
+	rec := evdRecordOfRef(it.PayloadRef)
+	if err := f.fail[rec]; err != nil {
+		return nil, err
+	}
+	if f.empty {
+		return nil, nil
+	}
+	if o, ok := f.override[rec]; ok {
+		return o, nil
+	}
+	return []snapshot.Fact{{Entity: "evd", Status: "KNOWN", Fields: map[string]snapshot.FactValue{"state": {Kind: snapshot.KindEnum, Text: "S-" + rec}}}}, nil
+}
+
+var _ trustport.ItemFacts = (*evdFacts)(nil)
+
+// evdRecordOfRef is the source record ID of an item of these tests, which evdItem writes into the payload reference as "pay/<record>/<evidence id>" (the port is given the layer item,
+// which does not carry the record ID).
+func evdRecordOfRef(ref string) string {
+	if parts := strings.Split(ref, "/"); len(parts) == 3 {
+		return parts[1]
+	}
+	return ""
+}
+
 func evdAdapter(t testing.TB, s trustport.SnapshotReader, p trustport.SourceProfiles) trustport.Evidence {
 	t.Helper()
-	e, err := trustport.NewEvidence(s, p, clock.NewManual(evdNow))
+	return evdAdapterWith(t, s, p, &evdFacts{})
+}
+
+func evdAdapterWith(t testing.TB, s trustport.SnapshotReader, p trustport.SourceProfiles, f trustport.ItemFacts) trustport.Evidence {
+	t.Helper()
+	e, err := trustport.NewEvidence(s, p, clock.NewManual(evdNow), f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,11 +199,12 @@ func TestEvidenceReportsTheFreshnessThatWasSealed(t *testing.T) {
 	a.SLASeconds = 600 // the profile's 300 is stricter
 	b.SLASeconds, b.Status, b.ReadAt = 120, "UNKNOWN", evdNow.Add(-100*time.Second)
 	c.SLASeconds, c.Status = 300, "INFERRED" // equal to the profile's: the source set it
-	got, err := evdRead(t, evdStoreOf(evdSeal(t, c, a, b)), evdRules())
+	sealed := evdSeal(t, c, a, b)
+	got, err := evdRead(t, evdStoreOf(sealed), evdRules())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, Items: []intake.SourceItem{
+	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, EvidenceSetHash: sealed.EvidenceSetHash, ConfirmationBindingEvidenceHash: evdMixedContentHash, Items: []intake.SourceItem{
 		{Status: contracts.EnumsV1FactStatusKNOWN, Freshness: decide.Freshness{EvidenceID: "evr_01", EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: evdLedger,
 			AgeSeconds: 42, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}},
 		{Status: contracts.EnumsV1FactStatusUNKNOWN, Freshness: decide.Freshness{EvidenceID: "evr_02", EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: evdSwitch,
@@ -352,9 +401,14 @@ func TestEvidenceRefusesACallThatCannotBeAnsweredSafely(t *testing.T) {
 		t.Errorf("a refused call reached a port: store %v, profile %v", s.calls, p.asked)
 	}
 	for name, build := range map[string]func() (trustport.Evidence, error){
-		"no reader":  func() (trustport.Evidence, error) { return trustport.NewEvidence(nil, p, clock.NewManual(evdNow)) },
-		"no profile": func() (trustport.Evidence, error) { return trustport.NewEvidence(s, nil, clock.NewManual(evdNow)) },
-		"no clock":   func() (trustport.Evidence, error) { return trustport.NewEvidence(s, p, nil) },
+		"no reader": func() (trustport.Evidence, error) {
+			return trustport.NewEvidence(nil, p, clock.NewManual(evdNow), &evdFacts{})
+		},
+		"no profile": func() (trustport.Evidence, error) {
+			return trustport.NewEvidence(s, nil, clock.NewManual(evdNow), &evdFacts{})
+		},
+		"no clock": func() (trustport.Evidence, error) { return trustport.NewEvidence(s, p, nil, &evdFacts{}) },
+		"no facts": func() (trustport.Evidence, error) { return trustport.NewEvidence(s, p, clock.NewManual(evdNow), nil) },
 	} {
 		if _, err := build(); !errors.Is(err, trustport.ErrConfig) {
 			t.Errorf("%s: err = %v, want ErrConfig", name, err)
@@ -632,5 +686,194 @@ func TestEvidenceReaderNeedsItsConfiguration(t *testing.T) {
 	}
 	if _, err := (trustport.SealedSnapshots{}).Sealed(evdCtx(t), evdTenant, evdSnap); !errors.Is(err, trustport.ErrConfig) {
 		t.Errorf("the zero reader: err = %v, want ErrConfig", err)
+	}
+}
+
+// evdContentHash is the content hash of the usual three items (evdItem 1 to 3, all KNOWN) with the default facts of evdFacts (entity "evd", KNOWN, state "S-<record>"): the sorted
+// (source, source record ID, facts digest, status) entries, computed by an independent Python implementation (a scratch script, not committed: the digest of each item's facts, then
+// SHA-256 over LP("noema.evidence_content_set.v3") and the length-prefixed fields of each entry in sorted order), not by the code under test. The scratch script also reproduced the
+// v2 value of the earlier test (ec82b699...) with the three-element entry, which shows that its framing is the code's. evdMixedContentHash is the same with the item statuses KNOWN,
+// UNKNOWN and INFERRED of TestEvidenceReportsTheFreshnessThatWasSealed (the stub's facts keep their own status KNOWN: the entry's status is the item's).
+const (
+	evdContentHash      = "sha256:2db8023c8c9c1e3e400518ca894ba58eb07a1c676083d9d108a2abe3683003c0"
+	evdMixedContentHash = "sha256:89f6fdcc6e8174ae80bc47af2adf60c39efa64d5fcddf0fdce38804570549055"
+)
+
+// A365 refined, A435, REQ-TRU-009, INV-25, INV-17: T9 gives two values and never one for the other. EvidenceSetHash is the snapshot's own set hash over the evidence IDs and payload
+// hashes (what the Decision Record and the grant keep, unchanged); ConfirmationBindingEvidenceHash is the CONTENT hash of the sealed items (over the digest of their mapped facts and
+// their status), which only the confirmation binding uses.
+func TestEvidenceGivesTheSnapshotsSetHashAndSeparatelyTheContentDigestOfTheBinding(t *testing.T) {
+	s := evdWorld(t)
+	got, err := evdRead(t, evdStoreOf(s), evdRules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EvidenceSetHash != s.EvidenceSetHash {
+		t.Errorf("EvidenceSetHash %q, want the snapshot's own set hash %s", got.EvidenceSetHash, s.EvidenceSetHash)
+	}
+	if got.ConfirmationBindingEvidenceHash != evdContentHash {
+		t.Errorf("ConfirmationBindingEvidenceHash %q, want the content hash %s", got.ConfirmationBindingEvidenceHash, evdContentHash)
+	}
+	if got.EvidenceSetHash == got.ConfirmationBindingEvidenceHash {
+		t.Error("the two values are one: the set hash over the evidence IDs and the content digest are different values")
+	}
+}
+
+// evdReRead is the usual three items read again: new evidence IDs, another payload hash for each (the raw payload differs between reads in a volatile or unmapped field), the same
+// source records and the same mapped facts.
+func evdReRead() []trustport.SealedItem {
+	var again []trustport.SealedItem
+	for i, it := range []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)} {
+		it.EvidenceID = fmt.Sprintf("evr_%02d", 40+i) // the evidence layer mints a new ID for every read
+		it.PayloadHash = evdHash(500 + i)             // and the raw payload differs
+		again = append(again, it)
+	}
+	return again
+}
+
+// A365 refined: the same facts read again under other evidence IDs, with other raw payload hashes (another snapshot), is the same value, so an approval of the first binds the
+// re-evaluation over the second. A changed record ID, source or MAPPED FACT is another value; a changed raw payload hash alone is not. The sealed set hashes of the two snapshots
+// differ, which is the finding this closes.
+func TestEvidenceTheSameFactsUnderNewIDsAndPayloadsIsTheSameValueAndChangedFactsAreNot(t *testing.T) {
+	first := evdWorld(t)
+	again := evdReRead()
+	second := evdSeal(t, again...)
+	if first.EvidenceSetHash == second.EvidenceSetHash {
+		t.Fatal("the test is void: the two snapshots have the same set hash")
+	}
+	a, errA := evdRead(t, evdStoreOf(first), evdRules())
+	b, errB := evdRead(t, evdStoreOf(second), evdRules())
+	if errA != nil || errB != nil || a.ConfirmationBindingEvidenceHash == "" || a.ConfirmationBindingEvidenceHash != b.ConfirmationBindingEvidenceHash {
+		t.Fatalf("unchanged facts: %q (%v) and %q (%v), want one value", a.ConfirmationBindingEvidenceHash, errA, b.ConfirmationBindingEvidenceHash, errB)
+	}
+	if a.EvidenceSetHash != first.EvidenceSetHash || b.EvidenceSetHash != second.EvidenceSetHash || a.EvidenceSetHash == b.EvidenceSetHash {
+		t.Errorf("the set hashes %q and %q must stay each snapshot's own (%q and %q): the Decision Record and the grant keep them", a.EvidenceSetHash, b.EvidenceSetHash, first.EvidenceSetHash, second.EvidenceSetHash)
+	}
+	for name, edit := range map[string]func(*trustport.SealedItem){
+		"a record ID": func(it *trustport.SealedItem) { it.SourceRecordID = "rec-changed" },
+		"a source":    func(it *trustport.SealedItem) { it.Source = "fin.src.other" },
+	} {
+		items := append([]trustport.SealedItem(nil), again...)
+		edit(&items[1])
+		c, err := evdRead(t, evdStoreOf(evdSeal(t, items...)), &evdProfiles{rules: trustport.SourceRules{MaxAgeSeconds: 300}})
+		if err != nil || c.ConfirmationBindingEvidenceHash == "" || c.ConfirmationBindingEvidenceHash == a.ConfirmationBindingEvidenceHash {
+			t.Errorf("%s changed: %q (%v), the unchanged value is %q", name, c.ConfirmationBindingEvidenceHash, err, a.ConfirmationBindingEvidenceHash)
+		}
+	}
+	facts := &evdFacts{override: map[string][]snapshot.Fact{"rec-02": {{Entity: "evd", Status: "KNOWN", Fields: map[string]snapshot.FactValue{"state": {Kind: snapshot.KindEnum, Text: "S-changed"}}}}}}
+	c, err := evdAdapterWith(t, evdStoreOf(second), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+	if err != nil || c.ConfirmationBindingEvidenceHash == "" || c.ConfirmationBindingEvidenceHash == a.ConfirmationBindingEvidenceHash {
+		t.Errorf("a mapped fact changed: %q (%v), the unchanged value is %q", c.ConfirmationBindingEvidenceHash, err, a.ConfirmationBindingEvidenceHash)
+	}
+}
+
+// A435: the status of an item is part of the binding's entry. The same record, source and facts with another item status (the Reconciler gives the item's own status to its rows) is
+// another value, and so is a status the facts carry on their own.
+func TestEvidenceTheStatusOfAnItemIsPartOfTheBindingValue(t *testing.T) {
+	base, err := evdRead(t, evdStoreOf(evdWorld(t)), evdRules())
+	if err != nil || base.ConfirmationBindingEvidenceHash != evdContentHash {
+		t.Fatalf("the base: %q, %v", base.ConfirmationBindingEvidenceHash, err)
+	}
+	for _, st := range []string{"STALE", "UNKNOWN", "INFERRED", "AMBIGUOUS", "UNAVAILABLE", "CONTRADICTORY", "UNAUTHORIZED"} {
+		items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
+		items[1].Status = st
+		got, err := evdRead(t, evdStoreOf(evdSeal(t, items...)), evdRules())
+		if err != nil || got.ConfirmationBindingEvidenceHash == "" || got.ConfirmationBindingEvidenceHash == base.ConfirmationBindingEvidenceHash {
+			t.Errorf("item status %s: %q (%v), the KNOWN value is %q", st, got.ConfirmationBindingEvidenceHash, err, base.ConfirmationBindingEvidenceHash)
+		}
+	}
+}
+
+// A365 refined: the digest the adapter binds is of the FACTS, not of the stored payload hash. Two snapshots whose items differ only in the payload hash give one value; the same
+// payload hashes with other facts give another.
+func TestEvidenceBindsTheFactsAndNotTheStoredPayloadHash(t *testing.T) {
+	base := evdWorld(t)
+	items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
+	for i := range items {
+		items[i].PayloadHash = evdHash(900 + i)
+	}
+	other := evdSeal(t, items...)
+	a, errA := evdRead(t, evdStoreOf(base), evdRules())
+	b, errB := evdRead(t, evdStoreOf(other), evdRules())
+	if errA != nil || errB != nil || a.ConfirmationBindingEvidenceHash != b.ConfirmationBindingEvidenceHash {
+		t.Fatalf("payload hashes only: %q (%v) and %q (%v), want one value", a.ConfirmationBindingEvidenceHash, errA, b.ConfirmationBindingEvidenceHash, errB)
+	}
+	if a.EvidenceSetHash == b.EvidenceSetHash {
+		t.Error("the set hash follows the payload hashes: the two snapshots must keep their own")
+	}
+}
+
+// A365 refined: the facts port is asked once for each item, as the caller's tenant, with the item's reference and hash as sealed, and only for a snapshot that verified: a tampered
+// snapshot is refused before any payload is read.
+func TestEvidenceAsksForTheFactsOfEachItemAsTheCallersTenantAndOnlyAfterTheSnapshotVerified(t *testing.T) {
+	facts := &evdFacts{}
+	if _, err := evdAdapterWith(t, evdStoreOf(evdWorld(t)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap); err != nil {
+		t.Fatal(err)
+	}
+	if len(facts.calls) != 3 {
+		t.Fatalf("the facts port was asked %d times, want 3", len(facts.calls))
+	}
+	for _, c := range facts.calls {
+		if c.tenant != evdTenant || c.item.PayloadRef == "" || c.item.PayloadHash == "" || c.item.EvidenceID == "" || c.item.Source == "" || c.item.Status != contracts.EnumsV1FactStatusKNOWN {
+			t.Errorf("a call carried %+v", c)
+		}
+	}
+	tampered := evdWorld(t)
+	tampered.Items[0].PayloadHash = evdHash(998)
+	facts = &evdFacts{}
+	_, err := evdAdapterWith(t, evdStoreOf(tampered), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+	if !errors.Is(err, trustport.ErrSnapshotNotIntact) || len(facts.calls) != 0 {
+		t.Errorf("a tampered snapshot: err %v, %d payload reads; want ErrSnapshotNotIntact and none", err, len(facts.calls))
+	}
+}
+
+// A365 refined, REQ-NFR-002, INV-19: an item whose payload cannot be read or mapped makes the snapshot not usable as evidence (fail closed): the facts port fails, gives no fact, gives
+// facts that cannot be digested, or refuses the payload. T9 ends UNKNOWN, the answer is empty and the text of the error carries no payload, row or store text (AGENT-13).
+func TestEvidenceAnItemWhoseFactsCannotBeHadIsNotEvidence(t *testing.T) {
+	const leak = "dial postgres://trust_rw:s3cret@db.internal/noema"
+	bad := []snapshot.Fact{{Entity: "", Status: "KNOWN"}}
+	for name, facts := range map[string]*evdFacts{
+		"the payload store failed":       {fail: map[string]error{"rec-02": fmt.Errorf("%w: %s", reconciler.ErrRead, leak)}},
+		"the payload is not the sealed":  {fail: map[string]error{"rec-03": fmt.Errorf("%w: %s", reconciler.ErrPayload, leak)}},
+		"the item cannot be mapped":      {fail: map[string]error{"rec-01": reconciler.ErrItem}},
+		"no fact at all":                 {empty: true},
+		"a fact that cannot be digested": {override: map[string][]snapshot.Fact{"rec-02": bad}},
+	} {
+		got, err := evdAdapterWith(t, evdStoreOf(evdWorld(t)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+		if !errors.Is(err, trustport.ErrSnapshotNotIntact) {
+			t.Errorf("%s: err = %v, want ErrSnapshotNotIntact", name, err)
+			continue
+		}
+		evdNothing(t, got)
+		for _, l := range []string{"postgres", "s3cret", "db.internal", "rec-0"} {
+			if strings.Contains(err.Error(), l) {
+				t.Errorf("%s: the error carries %q: %v", name, l, err)
+			}
+		}
+	}
+}
+
+// A365 refined: the cause stays reachable behind the fixed text, so an operator can tell an unreadable payload from a payload that is not the sealed one.
+func TestEvidenceKeepsTheCauseOfAnUnusablePayloadBehindTheFixedText(t *testing.T) {
+	facts := &evdFacts{fail: map[string]error{"rec-02": fmt.Errorf("%w: hidden", reconciler.ErrPayload)}}
+	_, err := evdAdapterWith(t, evdStoreOf(evdWorld(t)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+	if !errors.Is(err, trustport.ErrSnapshotNotIntact) || !errors.Is(err, reconciler.ErrPayload) {
+		t.Errorf("err = %v, want ErrSnapshotNotIntact over reconciler.ErrPayload", err)
+	}
+}
+
+// A365, REQ-NFR-002: an item with no source record ID cannot be bound by its content, so the snapshot is not usable as evidence and T9 ends UNKNOWN; it is never given a hash over
+// what is left.
+func TestEvidenceAnItemWithNoSourceRecordIDIsNotEvidence(t *testing.T) {
+	items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
+	items[2].SourceRecordID = ""
+	facts := &evdFacts{}
+	got, err := evdAdapterWith(t, evdStoreOf(evdSeal(t, items...)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+	if !errors.Is(err, trustport.ErrSnapshotNotIntact) {
+		t.Errorf("err = %v, want ErrSnapshotNotIntact", err)
+	}
+	evdNothing(t, got)
+	if len(facts.calls) != 0 { // nothing is read for a snapshot that cannot be bound anyway
+		t.Errorf("%d payloads were read for a snapshot with an item that has no record ID", len(facts.calls))
 	}
 }
