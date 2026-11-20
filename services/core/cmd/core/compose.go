@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/session"
@@ -165,6 +166,14 @@ func composeReadiness(c Components, api http.Handler) readiness {
 // orchestrator's Recorder and, over the same per-tenant stores, the investigation reader (A243), which needs NOEMA_READ_TIMEOUT_MS as well (A319). With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
 // whose adapters are not built stay nil, so /readyz names them (missing). Nothing is dialled here.
 func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger) (Components, func(), error) {
+	c, _, closer, err := buildComponentsWith(ctx, env, clk, ids, logger, productionDeps())
+	return c, closer, err
+}
+
+// buildComponentsWith is buildComponents with its seams, and it also returns the Trust parts the write path needs later (the Bindings, the grant keys, the intake service). Trust is
+// built here, once, with buildTrust, and only when one of the Trust settings is given (trustRequested): with none there is nothing and no error, and /readyz names "trust"; with
+// any, buildTrust requires the rest and names the one that is missing (A330, AGENT-16). The grant keys are loaded by buildTrust from NOEMA_GRANT_KEY_DIR and nowhere else (INV-29).
+func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger, d composeDeps) (Components, TrustParts, func(), error) {
 	var closers []func()
 	closeAll := func() {
 		for i := len(closers) - 1; i >= 0; i-- {
@@ -173,13 +182,13 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 	}
 	records, closeRecords, err := buildRecordReader(ctx, env)
 	if err != nil {
-		return Components{}, closeAll, err
+		return Components{}, TrustParts{}, closeAll, err
 	}
 	closers = append(closers, closeRecords)
 	recorder, closeRecorder, err := buildRecorder(ctx, env, clk, ids, records)
 	if err != nil {
 		closeAll()
-		return Components{}, closeAll, err
+		return Components{}, TrustParts{}, closeAll, err
 	}
 	closers = append(closers, closeRecorder)
 	c := Components{Records: records, AccessLog: logger}
@@ -190,12 +199,42 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		reader, err := buildInvestigationReader(env, recorder) // reads over the same per-tenant orchestrator logins; the bound is NOEMA_READ_TIMEOUT_MS (A243, A319, noema#715)
 		if err != nil {
 			closeAll()
-			return Components{}, closeAll, err
+			return Components{}, TrustParts{}, closeAll, err
 		}
 		c.Ports.Recorder = recorder
 		c.Investigations = reader
 	}
-	return c, closeAll, nil
+	var parts TrustParts
+	if trustRequested(env) {
+		if d.TrustAdapters == nil {
+			closeAll()
+			return Components{}, TrustParts{}, closeAll, errors.New("cmd/core: the Trust adapters are not configured")
+		}
+		adapters, err := d.TrustAdapters(env, records, clk)
+		if err != nil {
+			closeAll()
+			return Components{}, TrustParts{}, closeAll, err
+		}
+		var closeTrust func()
+		parts, closeTrust, err = buildTrust(ctx, env, records, adapters, d.LoadKeys)
+		if err != nil {
+			closeAll()
+			return Components{}, TrustParts{}, closeAll, err
+		}
+		closers = append(closers, closeTrust)
+		c.Ports.Trust = parts.Trust
+	}
+	return c, parts, closeAll, nil
+}
+
+// trustRequested says whether any setting that only Trust uses is given. NOEMA_TRUST_DSN_DIR is not one: the payload reader reads it too, so it alone does not ask for Trust.
+func trustRequested(env Env) bool {
+	for _, n := range []string{EnvTrustDBTimeout, EnvGrantKeyDir, EnvGrantKeyMaxActive} {
+		if env.Getenv(n) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // composeDeps are the seams of the process composition (STM-01 main): what the production build gets from adapter packages and the real loaders, and what a test replaces.
@@ -206,19 +245,41 @@ type composeDeps struct {
 	WorkerActivities func() *workflows.EscalateActivities
 }
 
-// productionDeps is the real build. RED STUB.
-func productionDeps() composeDeps { return composeDeps{} }
-
-// buildComponentsWith is buildComponents with its seams. RED STUB: Trust is not built.
-func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger, _ composeDeps) (Components, TrustParts, func(), error) {
-	c, closer, err := buildComponents(ctx, env, clk, ids, logger)
-	return c, TrustParts{}, closer, err
+// productionDeps is the real build: the grant keys through keyfiles.Load (INV-29) and the Temporal dial of worker_dial.go. The intake adapters other tasks build, and the worker's
+// activities, are added here as each merges and never from a fake; until then the Trust adapter source gives only the clock, so a process asked for Trust names the first adapter it
+// lacks, and a configured worker without activities is not started (A442). Nothing is dialled here.
+func productionDeps() composeDeps {
+	return composeDeps{
+		LoadKeys: loadGrantKeys,
+		TrustAdapters: func(_ Env, _ reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error) {
+			return TrustAdapters{Clock: clk}, nil
+		},
+		WorkerDial:       dialTemporal,
+		WorkerActivities: func() *workflows.EscalateActivities { return nil },
+	}
 }
 
-// buildWorker starts the Temporal worker when it is configured. RED STUB.
-func buildWorker(context.Context, Env, composeDeps) (*RunningWorker, error) { return nil, nil }
+// workerStartTimeout bounds the dial and the start of the worker. It is structural (a process must not wait for Temporal for ever), not a safety number.
+const workerStartTimeout = 30 * time.Second
 
-// Process is the composed core. RED STUB.
+// buildWorker starts the Temporal worker through startWorker when it is configured (LoadWorkerConfig). With no Temporal setting there is no worker and no error. A configured worker
+// that cannot start is an error and the process does not run without it: no silent degraded mode (A442).
+func buildWorker(ctx context.Context, env Env, d composeDeps) (*RunningWorker, error) {
+	cfg, err := LoadWorkerConfig(env)
+	if err != nil || cfg == nil {
+		return nil, err
+	}
+	var acts *workflows.EscalateActivities
+	if d.WorkerActivities != nil {
+		acts = d.WorkerActivities()
+	}
+	ctx, cancel := context.WithTimeout(ctx, workerStartTimeout)
+	defer cancel()
+	return startWorker(ctx, cfg, d.WorkerDial, acts)
+}
+
+// Process is the composed core: the redacting logger every component received, the trace attribute filter (the core has no tracer yet; the filter is the one a tracer must use), what
+// buildComponentsWith made, the protected API, the handler of the health routes and the API, and the worker. Close stops the worker and closes every pool, safe to call more than once.
 type Process struct {
 	Logger      *slog.Logger
 	TraceFilter func(map[string]string) map[string]string
@@ -230,16 +291,53 @@ type Process struct {
 	Close       func()
 }
 
-// newProcessLogger is the logger every component receives. RED STUB: no redactor.
+// newProcessLogger makes the one logger of the process: JSON to w through the redactor (SEC-03; REQ-SEC-003, AGENT-13). No message or attribute reaches w with a secret-looking
+// value or a digit run longer than four.
 func newProcessLogger(w io.Writer) (*slog.Logger, *redaction.Redactor) {
-	return slog.New(slog.NewJSONHandler(w, nil)), redaction.New()
+	red := redaction.New()
+	return slog.New(red.Handler(slog.NewJSONHandler(w, nil))), red
 }
 
-// newProcess composes the process. RED STUB.
+// processReadiness is the /readyz check of the process: the composition's, plus a "worker" line while no worker runs. Liveness of a running worker is the next commit (noema#794).
+func processReadiness(c Components, api http.Handler, rw *RunningWorker) readiness {
+	base := composeReadiness(c, api)
+	return func() (bool, string) {
+		ok, reason := base()
+		switch {
+		case rw != nil:
+			return ok, reason
+		case ok:
+			return false, notConfigured([]string{"worker"})
+		}
+		return false, reason + ", worker"
+	}
+}
+
+// newProcess composes the process. The Process is never nil: on an error it still holds the logger (the caller logs the error through it) and a Close that releases what was opened.
 func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, sink io.Writer, d composeDeps) (*Process, error) {
 	logger, red := newProcessLogger(sink)
-	c, tp, closer, err := buildComponentsWith(ctx, env, clk, ids, logger, d)
-	p := &Process{Logger: logger, TraceFilter: func(m map[string]string) map[string]string { return m }, Components: c, Trust: tp, Close: closer}
-	_ = red
-	return p, err
+	p := &Process{Logger: logger, TraceFilter: red.FilterAttributes, Close: func() {}}
+	c, parts, closeComponents, err := buildComponentsWith(ctx, env, clk, ids, logger, d)
+	p.Close = closeComponents
+	if err != nil {
+		return p, err
+	}
+	rw, err := buildWorker(ctx, env, d)
+	if err != nil {
+		closeComponents()
+		return p, err
+	}
+	api, err := buildAPI(c, env, clk, ids)
+	if err != nil {
+		rw.Stop()
+		closeComponents()
+		return p, err
+	}
+	p.Components, p.Trust, p.Worker, p.API = c, parts, rw, api
+	p.Handler = newMux(processReadiness(c, api, rw), api)
+	p.Close = func() {
+		rw.Stop()
+		closeComponents()
+	}
+	return p, nil
 }

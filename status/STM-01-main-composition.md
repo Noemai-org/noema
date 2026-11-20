@@ -16,6 +16,8 @@ Rulings used (all "interim, relayed, not yet committed"): the Founder's order of
   4. The worker start deadline is a structural constant (`workerStartTimeout`), not a setting and not a safety number; EL to confirm or turn it into `NOEMA_TEMPORAL_START_TIMEOUT_MS`.
   5. There is no tracer in the core (no OpenTelemetry dependency on main; adding one needs AGENT-14 approval). The redactor's trace filter is exposed as `Process.TraceFilter` for the tracer's commit; it is tested.
   6. No new setting is added by this slice.
+- Hand mutation check: 18 mutants of compose.go, 17 killed. The survivor removes the append of `closeTrust` to the closers: the pools connect lazily, so a missed close is not observable without a database (CI only).
+- Three tests (`TestEachTrustOnlySettingAloneAsksForTrust`, `TestAFullCompositionIsNotReadyWithoutAWorker`, `TestTheProductionSeamsHoldWhatIsMergedAndInventNothing`) were added in the green commit after the mutation check; they were not in the red head.
 - NOT built (not on main): `PackVersion` from the manifest-verified pack and `CorrelationOf` (A333): #773 owns the pack load; `TrustAdapters.PackVersion` stays empty in production, which `buildTrust` already refuses. `RunningWorker.Ready/Fatal`: #794.
 - Tests added (REQ-SEC-003, REQ-SEC-005, REQ-VER-004, REQ-EXE-006, REQ-OBS-002; INV-03, INV-12, INV-29, AGENT-13, AGENT-16): `main_compose_trust_test.go`, `main_compose_worker_test.go`, `main_compose_logger_test.go`.
 - Regression cases added: none. Debt entries: none. Conflicts raised: none.

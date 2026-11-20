@@ -152,3 +152,26 @@ func TestAProcessWithAWorkerThatDoesNotStartIsNotComposed(t *testing.T) {
 	}
 	p.Close()
 }
+
+// A composition that is otherwise complete is still not ready while no worker runs, and is ready with one (noema#794 adds its liveness).
+func TestAFullCompositionIsNotReadyWithoutAWorker(t *testing.T) {
+	if ok, reason := processReadiness(full(), okAPI, nil)(); ok || reason != wantReason("worker") {
+		t.Errorf("no worker: ready %v, reason %q; want not ready and %q", ok, reason, wantReason("worker"))
+	}
+	if ok, reason := processReadiness(full(), okAPI, &RunningWorker{})(); !ok || reason != "" {
+		t.Errorf("a worker runs: ready %v, reason %q; want ready", ok, reason)
+	}
+}
+
+// The production seams: the real Temporal dial is plugged in, there are no worker activities yet (noema#812), and no pack version is invented for Trust (A333: it comes from the
+// manifest-verified pack, noema#773).
+func TestTheProductionSeamsHoldWhatIsMergedAndInventNothing(t *testing.T) {
+	d := productionDeps()
+	if d.WorkerDial == nil || d.WorkerActivities == nil || d.WorkerActivities() != nil {
+		t.Errorf("worker seams: dial %v, activities source %v; want the dial and no activities yet", d.WorkerDial != nil, d.WorkerActivities != nil)
+	}
+	a, err := d.TrustAdapters(Env{}, nil, clock.NewManual(time.Unix(1_800_000_000, 0)))
+	if err != nil || a.Clock == nil || a.PackVersion != "" || a.Intents != nil {
+		t.Errorf("production Trust adapters %+v, error %v; want only the clock", a, err)
+	}
+}

@@ -99,7 +99,7 @@ func TestAnyTrustSettingMakesEveryOtherRequiredAndTheErrorNamesTheMissingOne(t *
 		}
 		closer()
 		for _, secret := range []string{synthPassword, e[EnvTrustDSNDir], e[EnvRecordReadDSNDir], "postgres://"} {
-			if strings.Contains(err.Error(), secret) {
+			if secret != "" && strings.Contains(err.Error(), secret) {
 				t.Errorf("%s missing: the error carries %q", missing, secret)
 			}
 		}
@@ -156,5 +156,20 @@ func TestTheProductionKeyLoaderRefusesADirectoryWithNoKeys(t *testing.T) {
 	}
 	if keys, err := d.LoadKeys(t.TempDir(), 1); err == nil || keys != nil {
 		t.Fatalf("an empty key directory gave keys %v, error %v", keys != nil, err)
+	}
+}
+
+// A330: each Trust-only setting by itself asks for Trust, so a partial configuration is an error and never a silent absence of Trust.
+func TestEachTrustOnlySettingAloneAsksForTrust(t *testing.T) {
+	for _, only := range []string{EnvTrustDBTimeout, EnvGrantKeyDir, EnvGrantKeyMaxActive} {
+		e := mcEnv(t, EnvTrustDSNDir, EnvTrustDBTimeout, EnvGrantKeyDir, EnvGrantKeyMaxActive)
+		e[only] = trustEnv(t)[only]
+		l, calls := &loaded{}, &mcCalls{}
+		_, _, closer, err := mcBuild(t, e, mcDeps(l, calls))
+		if err == nil || calls.adapters != 1 {
+			t.Errorf("%s alone: error %v, adapters asked %d; want an error from buildTrust", only, err, calls.adapters)
+			continue
+		}
+		closer()
 	}
 }
