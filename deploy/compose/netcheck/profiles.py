@@ -550,6 +550,8 @@ def self_test(configs):
         "trust-dsn-init adds a capability it does not need": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].append("DAC_OVERRIDE")),
         "trust-dsn-init loses a capability it needs": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].remove("SETGID")),
         "trust-dsn-init is dropped": ("bench", lambda c: c["services"].pop("trust-dsn-init")),
+        "the bench core's pack size bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_PACK_MAX_BYTES": "4194304"})),
+        "the bench core loses the pack manifest setting": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PACK_MANIFEST")),
         "the bench core's store timeout changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_STORE_TIMEOUT_MS": "5000"})),
         "the bench core loses a settings-table value": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_DB_SERIALIZATION_ATTEMPTS")),
         "the bench core sets the at-risk limit itself": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TRUST_AT_RISK_BPS": "2500"})),
