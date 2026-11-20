@@ -125,3 +125,16 @@ func TestNoConstantHoldsTheWorkerStartDeadline(t *testing.T) {
 		}
 	}
 }
+
+// Each worker setting beyond the address, given alone with it, asks for a worker: the process is then refused (a companion is missing), never started quietly.
+func TestEachWorkerSettingBeyondTheAddressAloneAsksForAWorker(t *testing.T) {
+	full := mcWorkerEnv()
+	full[EnvTemporalTLSCert], full[EnvTemporalTLSKey] = "/synthetic/c.pem", "/synthetic/k.pem"
+	for _, n := range []string{EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA} {
+		e := envMap{EnvTemporalAddress: "temporal.synthetic:7233", n: full[n]}
+		var log []string
+		if rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true)); rw != nil || err == nil || len(log) != 0 {
+			t.Errorf("%s with the address: worker %v, error %v; want a fatal error for the missing companion", n, rw, err)
+		}
+	}
+}

@@ -81,3 +81,18 @@ Rulings used (all "interim, relayed, not yet committed"): the Founder's order of
 - Open questions (EL): the compose worker settings (above).
 - Files to read first: `compose.go` (`buildComponentsWith`, `missing`), `wire_trust.go` (`trustSettings`).
 - Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.
+
+# Session 2026-11-20 WAT · STM-01 (main composition, review fix: the worker is a gap until configured; the start deadline is a setting)
+
+## Session summary
+- What changed: `buildWorker` (compose.go). A worker is configured only when a worker setting OTHER than `NOEMA_TEMPORAL_ADDRESS` is present (`workerConfigured`); otherwise, or when the activities are not built (noema#812), there is no worker, the process starts and `/readyz` names `worker` (A469, A475). Once configured, a missing or invalid companion (`LoadWorkerConfig`) or start deadline stays fatal, naming the setting and never the value. The 30 s constant `workerStartTimeout` is gone: the deadline is the required setting `NOEMA_INVESTIGATION_START_TIMEOUT_MS` (`readStartTimeout`; no default, positive whole milliseconds; A472, A330). A worker that was started and then dies still exits the process non-zero (A442): that is noema#794's `Fatal` path, unchanged and not built here; no existing test was weakened.
+- Why: the base Compose sets `NOEMA_TEMPORAL_ADDRESS` only, which made `LoadWorkerConfig` refuse a partial setting and the core exit 1 (CI `compose` red). Rulings A469, A472, A475 (interim, relayed, recorded in docs#216, not yet merged).
+- Safer readings taken: (1) the address alone is not a worker configuration; (2) the start deadline setting alone does not configure a worker and is not asked for without one; (3) a valid configured worker with no activities is a gap, not an error (the old `ErrWorkerNotStarted` for it is replaced; a start that fails is still `ErrWorkerNotStarted`).
+- Tests (REQ-VER-004, REQ-EXE-006; INV-30, AGENT-16): `main_compose_worker_gap_test.go` (7 tests); `main_compose_worker_test.go`: the no-activities expectations moved to the gap tests, `mcWorkerEnv` gains the new setting.
+- Hand mutation check: 6 mutants of `buildWorker` and `workerConfigured`, 6 killed. `TestReadyzOfTheProductionBuildFailsForAServedTenantWithNoRecordLogin` needs pgsodium and runs in CI only.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: noema#794 (Fatal, Ready) then #812 (activities); then Compose must set `NOEMA_INVESTIGATION_START_TIMEOUT_MS` (bench value 30000) with the other worker settings (EL, `deploy/`).
+- Files to read first: `compose.go` (`workerConfigured`, `readStartTimeout`, `buildWorker`).
+- Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.

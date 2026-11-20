@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -333,21 +334,50 @@ func productionDeps() composeDeps {
 // no default in code (A330, AGENT-16).
 const EnvInvestigationStartTimeout = "NOEMA_INVESTIGATION_START_TIMEOUT_MS"
 
-// workerStartTimeout bounds the dial and the start of the worker. It is structural (a process must not wait for Temporal for ever), not a safety number.
-const workerStartTimeout = 30 * time.Second
+// workerConfigured says whether a worker is asked for: at least one worker setting other than NOEMA_TEMPORAL_ADDRESS is present. The address alone is how the base Compose names Temporal
+// and is not a worker configuration (A469; safer reading, interim, relayed, not yet committed). The start deadline is not a trigger either: it is the composition's, read below.
+func workerConfigured(env Env) bool {
+	for _, n := range []string{EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA} {
+		if env.Getenv(n) != "" {
+			return true
+		}
+	}
+	return false
+}
 
-// buildWorker starts the Temporal worker through startWorker when it is configured (LoadWorkerConfig). With no Temporal setting there is no worker and no error. A configured worker
-// that cannot start is an error and the process does not run without it: no silent degraded mode (A442).
+// readStartTimeout reads the bound of the dial and the start of the worker: NOEMA_INVESTIGATION_START_TIMEOUT_MS, in whole milliseconds, required, no default (A472, AGENT-16). The error
+// names the setting and never its value.
+func readStartTimeout(env Env) (time.Duration, error) {
+	ms, err := strconv.ParseInt(env.Getenv(EnvInvestigationStartTimeout), 10, 64)
+	if err != nil || ms <= 0 || ms > int64(1<<31) {
+		return 0, fmt.Errorf("%s: a positive whole number of milliseconds is required", EnvInvestigationStartTimeout)
+	}
+	return time.Duration(ms) * time.Millisecond, nil
+}
+
+// buildWorker starts the Temporal worker through startWorker. A worker that is not configured (no worker setting beyond the address) or whose activities are not built (noema#812) is a gap, not
+// an error: there is no worker, /readyz names it, and the process starts (A469). A configured worker with a missing or invalid setting is an error that names it (LoadWorkerConfig, the start
+// deadline); one that was asked to start and cannot is an error and the process does not run without it (A442).
 func buildWorker(ctx context.Context, env Env, d composeDeps) (*RunningWorker, error) {
+	if !workerConfigured(env) {
+		return nil, nil
+	}
 	cfg, err := LoadWorkerConfig(env)
 	if err != nil || cfg == nil {
+		return nil, err
+	}
+	timeout, err := readStartTimeout(env)
+	if err != nil {
 		return nil, err
 	}
 	var acts *workflows.EscalateActivities
 	if d.WorkerActivities != nil {
 		acts = d.WorkerActivities()
 	}
-	ctx, cancel := context.WithTimeout(ctx, workerStartTimeout)
+	if acts == nil {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return startWorker(ctx, cfg, d.WorkerDial, acts)
 }
