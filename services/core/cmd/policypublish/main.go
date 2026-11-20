@@ -1,7 +1,8 @@
 // Command policypublish publishes the policy version of a pack for one tenant (TRU-02; REQ-TRU-005, REQ-OPS-003; INV-09). See README.md.
 //
-//	policypublish --tenant ID --pack-dir DIR --pack-file NAME --dsn-file FILE --key-dir DIR --key-max-active N --published-by ID
+//	policypublish --tenant ID --pack-dir DIR --pack-file NAME --dsn-file FILE --key-dir DIR --key-max-active N
 //
+// There is no --published-by: the publisher is the authenticated database role of the DSN's login, filled in by the database (A474, INV-12), and a flag of that name is refused as an unknown flag.
 // The policy ID and the version are the pack document's own. The login in the DSN file is the tenant's Trust login (the only login the database lets publish); the key directory holds
 // the signing keys of the identity core-trust, which sign the POLICY_PUBLISHED event policystore writes. Nothing secret is an argument: a DSN and a key are read from files.
 //
@@ -42,14 +43,14 @@ const (
 	maxDSNBytes = 8 << 10
 
 	signerIdentity = "core-trust"
-	usage          = "usage: policypublish --tenant ID --pack-dir DIR --pack-file NAME --dsn-file FILE --key-dir DIR --key-max-active N --published-by ID"
+	usage          = "usage: policypublish --tenant ID --pack-dir DIR --pack-file NAME --dsn-file FILE --key-dir DIR --key-max-active N"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, clock.System{})) }
 
 type settings struct {
-	tenant, packDir, packFile, dsnFile, keyDir, publishedBy string
-	keyMaxActive                                            int
+	tenant, packDir, packFile, dsnFile, keyDir string
+	keyMaxActive                               int
 }
 
 func parseArgs(args []string) (settings, bool) {
@@ -62,7 +63,6 @@ func parseArgs(args []string) (settings, bool) {
 	fs.StringVar(&s.dsnFile, "dsn-file", "", "a file holding the DSN of the tenant's Trust login")
 	fs.StringVar(&s.keyDir, "key-dir", "", "the directory of the core-trust signing keys")
 	fs.IntVar(&s.keyMaxActive, "key-max-active", 0, "how many signing keys may be mounted at once (the rotation overlap; no default)")
-	fs.StringVar(&s.publishedBy, "published-by", "", "the administrator's principal ID, for example adm_ops01")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return s, false
 	}
@@ -112,7 +112,7 @@ func failure(err error) (code int, reason, sentence string) {
 	case errors.Is(err, errDocumentUnknown):
 		return exitRefused, "document_unknown", "the published version has no document hash because it was published before hashes were kept; publish a new version"
 	case errors.Is(err, policystore.ErrRequest):
-		return exitRefused, "invalid_request", "the tenant, policy ID, version, publisher or document hash is outside its pattern"
+		return exitRefused, "invalid_request", "the tenant, policy ID, version or document hash is outside its pattern"
 	case errors.Is(err, errPackInvalid):
 		return exitRefused, "invalid_policy", "the pack's policy document is refused"
 	case errors.Is(err, errPackRead):
