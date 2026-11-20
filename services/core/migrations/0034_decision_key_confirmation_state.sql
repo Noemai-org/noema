@@ -18,3 +18,11 @@ ALTER TABLE decision_record ADD CONSTRAINT decision_record_confirmation_request_
 CREATE UNIQUE INDEX decision_record_input_state_key ON decision_record
   (tenant_id, (json ->> 'intent_id'), intent_hash, (json ->> 'evidence_snapshot_id'), (json ->> 'policy_version'), (COALESCE(confirmation_request_id, '')));
 DROP INDEX decision_record_input_key;
+-- A435 (the Architect: "the partial index is fine"): the key above lets two decisions of ONE outcome rest on two different confirmation requests, because the state is part of it. The Writer
+-- refuses that (trust/recorder otherState: a tuple has one decision of an outcome across confirmation states, so two accepted confirmations cannot give two grants on one input), under the
+-- tuple's advisory lock; this index is the database's own backstop of the same rule. It covers only decisions that rest on a confirmation (the NULL state is the key above alone), it is over
+-- the tuple and the outcome, so a CONFIRM, an ALLOW and a REJECT of one tuple are still separate decisions and the decision of another tuple, snapshot, policy version or tenant is another
+-- key. The index is created after decision_record_input_state_key on purpose: a violation of both (the same request twice) is reported against the state key. If rows already hold two
+-- decisions of one outcome that rest on two requests this migration fails and a person must look at the database; nothing is deleted. 0034 is unmerged, so it is edited in place.
+CREATE UNIQUE INDEX decision_record_input_confirmed_key ON decision_record
+  (tenant_id, (json ->> 'intent_id'), intent_hash, (json ->> 'evidence_snapshot_id'), (json ->> 'policy_version'), outcome) WHERE confirmation_request_id IS NOT NULL;
