@@ -209,3 +209,6 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 # Session 2026-11-19 · ENV-04 · browser checks after the stack is up (A388, IL)
 - `bench-g1-stack.yml` gains an opt-in boolean `playwright` (default off). When set, a step runs `npm ci` and `npx playwright test -c playwright.stack.config.mjs` in `ui/` against the stack's UI on 127.0.0.1:8082, before the stack stops; without `ui/playwright.stack.config.mjs` (FE owns it and the specs) it is NOT RUN (3), never a pass. A requested check that is not 0 fails the Result step; the checks are labelled not evidence for G1. Opt-in until the wiring merges.
 - Not verified: no live run; FE's stack config and specs do not exist yet.
+
+# Session 2026-11-20 · ENV-04 · the stamp for the G1 package (noema#717; IL)
+- The first line of `benchmark/out/leak-scan.txt` is `stamp: <dispatch sha> <run id>`, and `fault-plans.json` and `negative-probes.json` carry a top-level `"stamp": {"sha", "run_id"}` (`benchmark.runner.evidence --sha --run-id`: 40 lowercase hexadecimal and digits, both or neither, refused before anything is read). `reconstructions.json` is BO's writer: BO stamps it the same way.

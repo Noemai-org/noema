@@ -102,11 +102,19 @@ class G1StackWorkflow(unittest.TestCase):
         # BO's package row 8 (A355) is computed from the scan's own output, so the workflow saves it. The pipe must not hide the scan's exit code.
         step = re.search(r"(?ms)- id: scan\n(.*?)(?=^      - )", self.text)
         assert step
-        self.assertRegex(step.group(1), r'(?m)"\$@" \| tee benchmark/out/leak-scan\.txt$')
+        self.assertRegex(step.group(1), r'(?m)"\$@" \| tee -a benchmark/out/leak-scan\.txt$')
         self.assertIn('echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"', step.group(1))
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded
         self.assertIn("benchmark/out/leak-scan.txt", uploaded.group(1))
+
+    def test_the_evidence_carries_the_dispatch_sha_and_run_id_for_the_package_to_compare(self) -> None:
+        # noema#717 (BO's package, relayed by SR): the first line of leak-scan.txt is `stamp: <sha> <run id>`, and the evidence files carry the same two values in a top-level "stamp".
+        self.assertIn('echo "stamp: $GITHUB_SHA $GITHUB_RUN_ID" > benchmark/out/leak-scan.txt', self.script)
+        self.assertLess(self.script.index('> benchmark/out/leak-scan.txt'), self.script.index("| tee -a benchmark/out/leak-scan.txt"), "the stamp line is written first; the scan appends")
+        self.assertEqual(self.script.count('--sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"'), 2, "both evidence commands (fault plans and probes) are stamped")
+        for command in ("fault-plans", "probes"):
+            self.assertIn("python -m benchmark.runner.evidence " + command, self.script)
 
     def test_the_record_access_check_takes_the_runners_request_record(self) -> None:
         # A354: the expected RECORD_ACCESSED count is derived from the run's own request record (benchmark/out/run/requests.jsonl), not a constant.

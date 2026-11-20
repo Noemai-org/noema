@@ -165,11 +165,11 @@ jobs:
           export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
           compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
           mkdir -p benchmark/out/evidence
-          $compose exec -T bench-runner python -m benchmark.runner.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence
+          $compose exec -T bench-runner python -m benchmark.runner.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
           echo "fault_plans=$?" >> "$GITHUB_OUTPUT"
           $compose exec -T bench-runner python -m benchmark.runner.evidence probes --suite /bench-out/suite --run /bench-out/run \
             --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
-            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence
+            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
           echo "probes=$?" >> "$GITHUB_OUTPUT"
       - id: logs
         name: Capture the services' logs for the leak scan
@@ -238,9 +238,11 @@ jobs:
           mkdir -p benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs
           # Only what this mode produced is scanned: a stack-check run has no access check, so benchmark/out/record-accessed.txt does not exist and a scan that names it would refuse (exit 2)
           # and fail a healthy run (Codex P2 on noema#730). The list is fixed per mode, never "whatever is there": a path a full run should have and lacks is still refused.
+          # BO's package compares the evidence with the run it reads: the first line of the saved scan output names the dispatch commit and the run (noema#717).
+          echo "stamp: $GITHUB_SHA $GITHUB_RUN_ID" > benchmark/out/leak-scan.txt
           set -- benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
           [ "$MODE" = stack-check ] || set -- "$@" benchmark/out/record-accessed.txt
-          python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" "$@" | tee benchmark/out/leak-scan.txt
+          python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" "$@" | tee -a benchmark/out/leak-scan.txt
           echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Upload the artifacts (only if the leak scan is clean)

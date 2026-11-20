@@ -163,6 +163,25 @@ class Cli(unittest.TestCase):
             self.assertEqual(main(base + ["--tenant-id", "ten_a", "--other-tenant-id", "ten_a"]), 2)
             self.assertEqual(main(base + ["--tenant-id", "ten_a", "--other-tenant-id", "ten_b"]), 2)  # no manifest: refused, never a pass
 
+    # BO's package check (noema#717, relayed by SR): the evidence files carry the dispatch SHA and run id, so the package can compare them with the run it reads.
+    def test_the_stamp_is_the_dispatch_sha_and_run_id_and_changes_nothing_else(self) -> None:
+        doc = {"met": True, "cases": []}
+        stamped = evidence._stamped(doc, "a" * 40, "44318438906")
+        self.assertEqual(stamped["stamp"], {"sha": "a" * 40, "run_id": "44318438906"})
+        self.assertEqual({k: v for k, v in stamped.items() if k != "stamp"}, doc)
+        self.assertNotIn("stamp", doc, "the input is not changed")
+        self.assertIs(evidence._stamped(doc, None, None), doc)  # no stamp asked for: the document is exactly what it was
+
+    def test_a_malformed_sha_or_run_id_is_refused_before_anything_is_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for command in ("fault-plans", "probes"):
+                base = [command, "--suite", tmp, "--run", tmp, "--out", tmp]
+                if command == "probes":
+                    base += ["--api-url", "http://127.0.0.1:1", "--idp-binary", "x", "--idp-key", "y", "--idp-kid", "k", "--idp-audience", "a", "--tenant-id", "ten_a", "--other-tenant-id", "ten_b"]
+                for sha, run_id in (("A" * 40, "1"), ("a" * 39, "1"), ("a" * 40, "x1"), ("a" * 40, ""), ("a" * 40 + "\n", "1"), ("a" * 40, "1" * 21), ("a" * 40, None), (None, "1")):
+                    extra = (["--sha", sha] if sha is not None else []) + (["--run-id", run_id] if run_id is not None else [])
+                    self.assertEqual(main(base + extra), 2, (command, sha, run_id))
+
     def test_a_run_directory_without_results_is_not_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             self.assertRaises(evidence.NotRun, evidence._run_cases, Path(tmp))
