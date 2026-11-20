@@ -9,11 +9,13 @@ from pathlib import Path
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 # The one detector, used by the guard and by its self-test (Codex P2 on noema#791): a `--harness-config` whose value holds an expansion ANYWHERE (a shell variable, a command substitution or an
 # expression) can select a configuration that no workflow names. A fixed path has no `$` and no backtick in it.
-HARNESS_VALUE = re.compile(r"""--harness-config(?:\s+|=)("[^"]*"|'[^']*'|\S+)""")
+# The value may follow the flag after any run of white space, line breaks and backslash continuations (a folded YAML scalar, a `\` at the end of a line, a break after the flag), so the detector reads the
+# whole text of a file, never one line of it (the folded-YAML guard of the G1 batch).
+HARNESS_VALUE = re.compile(r"""--harness-config(?:(?:\s|\\(?=\n))+|=)("[^"]*"|'[^']*'|[^\s\\]\S*)""")
 
 
-def harness_config_is_not_a_fixed_path(line: str) -> bool:
-    return any(re.search(r"[$`]", m.group(1)) for m in HARNESS_VALUE.finditer(line))
+def harness_config_is_not_a_fixed_path(text: str) -> bool:
+    return any(re.search(r"[$`]", m.group(1)) for m in HARNESS_VALUE.finditer(text))
 BENCH = sorted(p for p in WORKFLOWS.glob("*.yml") if p.name.startswith("bench") or p.name == "benchmark.yml")
 
 
@@ -31,9 +33,7 @@ class NoTerraInBenchWorkflows(unittest.TestCase):
         for path in BENCH:
             text = path.read_text(encoding="utf-8")
             self.assertNotRegex(text, r"(?m)^\s+harness(_config)?:\s*$", f"{path.name}: a harness input")
-            for line in text.splitlines():
-                if "--harness-config" in line:
-                    self.assertFalse(harness_config_is_not_a_fixed_path(line), f"{path.name}: --harness-config is not a fixed path: {line.strip()}")
+            self.assertFalse(harness_config_is_not_a_fixed_path(text), f"{path.name}: a --harness-config value is not a fixed path")
 
     def test_the_checks_do_find_a_violation(self) -> None:
         # The patterns are not vacuous: they match the text a selectable Terra input would add.
@@ -44,6 +44,14 @@ class NoTerraInBenchWorkflows(unittest.TestCase):
                     "--harness-config 'a/$X.json'", "--harness-config benchmark/decisions/$(cat f).json", "--harness-config benchmark/decisions/`cat f`.json", '--harness-config "${{ inputs.x }}"', "--harness-config $X",
                     '/tmp/venv/bin/python -m x --harness-config "benchmark/decisions/harness-$HARNESS.json" --out y'):
             self.assertTrue(harness_config_is_not_a_fixed_path(bad), bad)
+        # The value may be on the next line: a backslash continuation, a folded YAML scalar (`run: >`) or a line break after the flag. The detector reads the whole text, never one line.
+        folded = "run: >\n  /tmp/venv/bin/python -m x --harness-config\n    \"benchmark/decisions/harness-$HARNESS.json\" --out y\n"
+        continued = "run: |\n  python -m x --harness-config \\\n    benchmark/decisions/harness-$HARNESS.json \\\n    --out y\n"
+        broken = "python -m x --harness-config\n$X --out y\n"
+        for bad in (folded, continued, broken):
+            self.assertTrue(harness_config_is_not_a_fixed_path(bad), bad)
+        for good in ("run: >\n  python -m x --harness-config\n    benchmark/decisions/harness-gpt-6-luna.json --out y\n", "python -m x --harness-config \\\n  benchmark/decisions/harness-gpt-6-luna.json \\\n  --out $OUT\n"):
+            self.assertFalse(harness_config_is_not_a_fixed_path(good), good)
         for good in ("--harness-config benchmark/decisions/harness-gpt-6-luna.json", '--harness-config "benchmark/decisions/harness-gpt-6-luna.json"', "python -m x --out y"):
             self.assertFalse(harness_config_is_not_a_fixed_path(good), good)
 
