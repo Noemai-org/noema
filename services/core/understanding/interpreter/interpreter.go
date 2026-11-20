@@ -95,6 +95,7 @@ type Input struct {
 	Actor         string // "<kind>:<id>" of the session's principal, as the Record writes it
 	CorrelationID string // the investigation's, minted by the core
 	Request       understanding.CompileRequest
+	RawRef        string // the object_ref of the recorded INPUT_RECEIVED (A184, A219); the core writes it over the model's source.raw_ref
 }
 
 // Result is an admitted and saved intent: the admitted intent and the reference of its INTENT_ADMITTED event.

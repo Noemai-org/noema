@@ -82,6 +82,7 @@ type Config struct {
 	Clock       clock.Clock
 	PackRef     string // `<vertical>@<x.y.z>`
 	Required    Required
+	Admissions  orchestrator.Admissions // confirms the turn's INPUT_RECEIVED and gives its object_ref (A219)
 }
 
 // Port implements orchestrator.Interpreter.

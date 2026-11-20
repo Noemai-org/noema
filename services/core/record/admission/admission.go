@@ -48,6 +48,7 @@ type Found struct {
 	PrincipalID   string // the actor after its kind ("customer:usr_01" gives "usr_01"); empty when the actor names no person
 	CorrelationID string
 	RequestID     string // the payload's request_id; empty when the event carries none
+	ObjectRef     string // the event's object_ref (for INPUT_RECEIVED, the req_ ID the core minted for the input, A184)
 }
 
 // Reader reads through one pool per tenant, each logged in as that tenant's record_read.
