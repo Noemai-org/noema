@@ -102,6 +102,9 @@ func TestARowFromBefore0036KeepsNullAndStillMovesWhileNewRowsNeedBoth(t *testing
 	if _, err := admin.Exec(ctx(t), `UPDATE investigation SET state = 'INTERPRETING', state_version = 1 WHERE investigation_id = 'inv_OLD1'`); err != nil {
 		t.Errorf("a legacy row cannot move: %v", err)
 	}
+	if _, err := admin.Exec(ctx(t), `UPDATE investigation SET principal_role = 'ops', state_version = state_version + 1 WHERE investigation_id = 'inv_OLD1'`); err == nil {
+		t.Error("a role without an authn reference was set on a legacy row")
+	}
 	if _, err := admin.Exec(ctx(t), `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref)
 		VALUES ($1, 'inv_NEW1', 'recev_NEW1', 'corr_AA11', 'RECEIVED', 0, 'usr_01')`, tenantA); err == nil {
 		t.Error("a new row without the two columns was accepted after 0036")
@@ -140,6 +143,7 @@ func newLegacyAdmin(t *testing.T) *pgxpool.Pool {
 func TestStartWritesTheRoleAndTheAuthnRefOfTheVerifiedSession(t *testing.T) {
 	w := newStoreWorld(t)
 	sess := orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_01", Role: "approver"}
+	const authnA = "ses_a1b2c3d4e5f60718293a4b5c6d7e8f90" // this test's own reference, so a fixed value in the store cannot pass
 	if _, created, err := w.storeA.Start(ctx(t), sess, authnA, start("inv_AA11", "recev_AA11")); err != nil || !created {
 		t.Fatalf("Start: created %v, %v", created, err)
 	}
