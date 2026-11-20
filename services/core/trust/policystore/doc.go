@@ -12,4 +12,7 @@
 //
 // The active version of a policy_id is the highest one published for it, returned as policy_id@version, the form a Decision Grant binds
 // (decision-grant.v1 policy_version). A policy with no publication has no active version and the result is "".
+//
+// Published lists every version of a policy a tenant has published, oldest first, with the database's publication time in whole Unix seconds. The Trust intake's Policies
+// adapter reads it to find the version in force at a time (an AT_ADMISSION rule is read from the version in force when the intent was admitted, INV-09).
 package policystore
