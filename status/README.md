@@ -15,6 +15,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 
 - `EXE-RETRY-714.md` (Core Engineer 1, 18 Nov 2026): the bounded retry of a spend on a serialization failure (noema#714), its setting `NOEMA_DB_SERIALIZATION_ATTEMPTS`, its session and open questions.
 - `STM-01-writes-adapter.md` (19 Nov 2026): the `Writes` adapter of the Trust intake (T3: the kill switch composed with a pack write rule, fail closed); the pack rule is not built because the pack has no field for it; what is needed.
+- `TRU-02-factsource.md` (19 Nov 2026): the fact, admission and at-risk sources behind the Policies and Clocks adapters of the Trust intake (`orchestrator/portadapters/trust/intakesources`); what each reads, what is blocked (case rows, epoch, planned references, anchors) and why.
 - `TRU-07-confirm-port.md` (19 Nov 2026): the `Confirmations` port of `trust/intake` carries the fresh binding, the declined status and the request fields; what EL's adapter must implement and the open questions.
 - `status/roles/` (31 Oct 2026): one file per role agent, each written only by its role, so that role status never conflicts. These task files above stay as history.
 - `CON-digit-tightenings.md` (Core Engineer 1, 18 Nov 2026): three tightenings of the public digit-run pattern (U+001C to U+001F, comma-joined ten digits, the exact ULID minted-ID branch), the migration note, the open reference-branch question and what noema#709's consumers must do.
