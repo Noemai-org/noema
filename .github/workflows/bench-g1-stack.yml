@@ -180,6 +180,17 @@ jobs:
             --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
             --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
           echo "probes=$?" >> "$GITHUB_OUTPUT"
+      # BO's package inputs (A444, noema#821): the run directory gets stamp.json and mock-case-writes.json (each case's writes, from the runner's own results; a case that cannot be counted has no entry,
+      # never a zero), and the probes file is stamped. It runs before the leak scan, so what it writes is scanned and uploaded. 0 all counted, 1 a case uncounted (the rest written), 2 unusable input.
+      - id: package
+        name: Stamp the run and count each case's writes (the G1 package)
+        if: always() && inputs.mode == 'full'
+        run: |
+          set +e
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          $compose exec -T bench-runner python -m benchmark.runner.package_artifacts --run /bench-out/run --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --probes /bench-out/evidence/negative-probes.json
+          echo "package=$?" >> "$GITHUB_OUTPUT"
+          exit 0
       - id: logs
         name: Capture the services' logs for the leak scan
         if: always()
@@ -295,6 +306,7 @@ jobs:
           PLAYWRIGHT: ${{ steps.playwright.outputs.playwright }}
           READYZ: ${{ steps.run.outputs.readyz }}
           NETCHECK: ${{ steps.run.outputs.netcheck }}
+          PACKAGE: ${{ steps.package.outputs.package }}
           # A445: reported now; the final composition PR flips this to "true", and then a stack-check whose core does not answer /readyz 200, or whose netcheck fails, fails.
           READINESS_REQUIRED: "false"
           WANT_PLAYWRIGHT: ${{ inputs.playwright }}
@@ -314,6 +326,7 @@ jobs:
             echo "STACK-CHECK only: not evidence for G1."
             exit "$fail"
           fi
+          [ "${PACKAGE:-missing}" = 0 ] || { echo "::error::The package inputs were not all produced (exit ${PACKAGE:-missing}; 1 is a case whose writes could not be counted, 2 is an unusable input)."; fail=1; }
           [ "${RECORD_ACCESSED:-missing}" = 0 ] || { echo "::error::SR condition 1 not met: the RECORD_ACCESSED count (exit ${RECORD_ACCESSED:-missing})."; fail=1; }
           [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: a service's log could not be collected, so the scan did not see it (collected=${COLLECTED:-missing})."; fail=1; }
           [ "${FAULT_PLANS:-missing}" = 0 ] || { echo "::error::Criterion 6 not met: the recorded FaultPlans (exit ${FAULT_PLANS:-missing})."; fail=1; }

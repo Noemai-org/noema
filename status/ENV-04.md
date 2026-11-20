@@ -222,3 +222,7 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 # Session 2026-11-20 · ENV-04 · A445 on noema#730: readiness reported by the stack-check (IL)
 - The stack-check now reports `/readyz` (asked from the runner, on the core's network) and the static netcheck (`deploy/compose/netcheck/profiles.py`) in the job log, the Summary and step outputs. `READINESS_REQUIRED` in the Result step is `"false"` now; the final composition PR flips it, after which a core that does not answer 200 or a failing netcheck fails the stack-check (A445, interim). The `print` rule is for `services/` (A445): Codex's P1 on this PR is answered on that ruling.
 - Not verified: no live run; the runner's `http.client` call and the netcheck on the Actions runner.
+
+# Session 2026-11-20 · ENV-04 · BO's package step (A444, noema#821; IL)
+- A `package` step after the evidence and before the leak scan (full mode): `python -m benchmark.runner.package_artifacts --run /bench-out/run --sha $GITHUB_SHA --run-id $GITHUB_RUN_ID --probes /bench-out/evidence/negative-probes.json` in the runner container. It writes `stamp.json` and `mock-case-writes.json` into the run directory (so they are scanned and uploaded) and stamps the probes file. The Result step fails the run unless it exits 0 (1: a case whose writes could not be counted; 2: unusable input). Depends on noema#821 merging first: until the module exists a full run fails at this step.
+- `reconstructions.json` and `requests.jsonl` stay BO's (runner writers).

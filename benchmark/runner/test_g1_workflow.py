@@ -112,7 +112,7 @@ class G1StackWorkflow(unittest.TestCase):
         # noema#717 (BO's package, relayed by SR): the first line of leak-scan.txt is `stamp: <sha> <run id>`, and the evidence files carry the same two values in a top-level "stamp".
         self.assertIn('echo "stamp: $GITHUB_SHA $GITHUB_RUN_ID" > benchmark/out/leak-scan.txt', self.script)
         self.assertLess(self.script.index('> benchmark/out/leak-scan.txt'), self.script.index("| tee -a benchmark/out/leak-scan.txt"), "the stamp line is written first; the scan appends")
-        self.assertEqual(self.script.count('--sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"'), 2, "both evidence commands (fault plans and probes) are stamped")
+        self.assertEqual(self.script.count('--sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"'), 3, "both evidence commands (fault plans and probes) and the package step are stamped")
         for command in ("fault-plans", "probes"):
             self.assertIn("python -m benchmark.runner.evidence " + command, self.script)
 
@@ -133,6 +133,25 @@ class G1StackWorkflow(unittest.TestCase):
         assert summary
         self.assertIn("/readyz", summary.group(0))
         self.assertIn("netcheck", summary.group(0))
+
+    # A444 (BO, noema#821): the package step stamps the run directory and the probes file and counts each case's writes from the runner's own results.
+    def test_the_package_step_runs_after_the_evidence_and_before_the_scan_and_a_failure_fails_the_result(self) -> None:
+        step = re.search(r"(?ms)- id: package\n(.*?)(?=^      - )", self.text)
+        assert step, "no package step"
+        body = step.group(1)
+        self.assertIn("if: always() && inputs.mode == 'full'", body)
+        self.assertIn("python -m benchmark.runner.package_artifacts", body)
+        self.assertIn('--sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"', body)
+        self.assertIn("--run /bench-out/run", body)
+        self.assertIn("--probes /bench-out/evidence/negative-probes.json", body)
+        self.assertIn('echo "package=$?" >> "$GITHUB_OUTPUT"', body)
+        self.assertLess(self.text.index("- id: evidence"), self.text.index("- id: package"))
+        self.assertLess(self.text.index("- id: package"), self.text.index("- id: scan"), "the new files are scanned and uploaded")
+        self.assertLess(self.text.index("- id: package"), self.text.index("name: Stop the stack"), "the stack is still up")
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        self.assertIn("PACKAGE: ${{ steps.package.outputs.package }}", result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{PACKAGE:-missing\}" = 0 \]')
 
     def test_the_record_access_check_takes_the_runners_request_record(self) -> None:
         # A354: the expected RECORD_ACCESSED count is derived from the run's own request record (benchmark/out/run/requests.jsonl), not a constant.
