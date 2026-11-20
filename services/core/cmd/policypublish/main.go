@@ -66,7 +66,7 @@ func parseArgs(args []string) (settings, bool) {
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return s, false
 	}
-	ok := chain.ValidTenantID(s.tenant) && s.packDir != "" && s.packFile != "" && s.dsnFile != "" && s.keyDir != "" && s.keyMaxActive >= 1 && s.publishedBy != ""
+	ok := chain.ValidTenantID(s.tenant) && s.packDir != "" && s.packFile != "" && s.dsnFile != "" && s.keyDir != "" && s.keyMaxActive >= 1
 	return s, ok
 }
 
@@ -178,7 +178,7 @@ func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 		return finish(exitCannot, errors.New("the signing keys cannot be loaded"))
 	}
 	store := &policystore.Store{Appender: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: map[string]chain.Signer{signerIdentity: ring}}}
-	res, err := publish(ctx, conn, store, policystore.Request{TenantID: s.tenant, CorrelationID: corr, PolicyID: doc.PolicyID(), Version: doc.Version(), PublishedBy: s.publishedBy, DocumentHash: docHash})
+	res, err := publish(ctx, conn, store, policystore.Request{TenantID: s.tenant, CorrelationID: corr, PolicyID: doc.PolicyID(), Version: doc.Version(), DocumentHash: docHash})
 	line.Result = res
 	return finish(exitDone, err)
 }

@@ -19,7 +19,7 @@ import (
 // publishIn publishes in the caller's transaction and leaves it open.
 func publishIn(t *testing.T, w *world, tx pgx.Tx, policyID, version, hash string) error {
 	t.Helper()
-	return w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenantA, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, PublishedBy: "adm_synth01", DocumentHash: hash})
+	return w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenantA, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, DocumentHash: hash})
 }
 
 // testpgRecordRead is the tenant's own record_read login, the one the reconstruction reads as.

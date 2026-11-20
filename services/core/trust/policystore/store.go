@@ -43,7 +43,6 @@ var (
 	correlationRe = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
 	policyIDRe    = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
 	versionRe     = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(\.[1-9][0-9]{0,8})?$`)
-	publisherRe   = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
 	// documentHashRe is the form of a document hash (policy.DocumentHash); the database checks the same form (policy_publication_document_hash_form, migration 0035).
 	documentHashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
@@ -59,7 +58,6 @@ type Request struct {
 	CorrelationID string // the correlation of the administrative action
 	PolicyID      string
 	Version       string // dotted numeric, two or three components: "3.1"
-	PublishedBy   string // the administrator's principal ID, for example adm_synth01
 	DocumentHash  string // sha256: and 64 lower-case hex digits, the hash of the policy document (policy.DocumentHash); required: the database refuses a publication without it
 }
 
@@ -80,11 +78,12 @@ func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 	}
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !policyIDRe.MatchString(r.PolicyID), !versionRe.MatchString(r.Version),
-		!publisherRe.MatchString(r.PublishedBy), !documentHashRe.MatchString(r.DocumentHash):
-		return fmt.Errorf("%w: a tenant, correlation, policy ID, version, publisher or document hash is outside its pattern", ErrRequest)
+		!documentHashRe.MatchString(r.DocumentHash):
+		return fmt.Errorf("%w: a tenant, correlation, policy ID, version or document hash is outside its pattern", ErrRequest)
 	}
+	const scaffoldRole = "scaffold" // SCAFFOLD stub: TRU-02 A474 replaces it with the authenticated database role, filled in SQL
 	_, err := tx.Exec(ctx, `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, document_hash)
-		VALUES ($1, $2, $3, policy_version_key($3), $4, $5)`, r.TenantID, r.PolicyID, r.Version, r.PublishedBy, r.DocumentHash)
+		VALUES ($1, $2, $3, policy_version_key($3), $4, $5)`, r.TenantID, r.PolicyID, r.Version, scaffoldRole, r.DocumentHash)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && (pe.Code == "23000" || pe.Code == "23505") {
 		return &storeError{kind: ErrNotNewer, text: ErrNotNewer.Error(), cause: err}
@@ -93,8 +92,8 @@ func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 		return &storeError{text: errPrefix + "the publication could not be recorded", cause: err}
 	}
 	ref := "pol_" + underscored(r.PolicyID) + "_" + underscored(r.Version)
-	_, err = s.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: "admin:" + r.PublishedBy,
-		EventType: "POLICY_PUBLISHED", ObjectRef: ref, Payload: map[string]any{"policy_id": r.PolicyID, "version": r.Version, "published_by": r.PublishedBy, "document_hash": r.DocumentHash}})
+	_, err = s.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: "admin:" + scaffoldRole,
+		EventType: "POLICY_PUBLISHED", ObjectRef: ref, Payload: map[string]any{"policy_id": r.PolicyID, "version": r.Version, "published_by": scaffoldRole, "document_hash": r.DocumentHash}})
 	if err != nil {
 		return &storeError{text: errPrefix + "the publication could not be appended to the Record", cause: err}
 	}

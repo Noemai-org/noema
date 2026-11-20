@@ -81,7 +81,7 @@ func (w *world) publishHashed(t *testing.T, p *pgxpool.Pool, tenant, policyID, v
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, PublishedBy: "adm_synth01", DocumentHash: hash})
+	err = w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, DocumentHash: hash})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		return err
