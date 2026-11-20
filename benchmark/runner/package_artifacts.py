@@ -6,7 +6,7 @@
   already wrote and no new source. It fails closed: a case whose result has no environment block, a malformed effect or a count that is not a whole number of at least zero, or that has two results, is
   **not counted** (no entry, never a zero), and the exit code is 1;
 - `stamp.json`: `{"sha", "run_id"}`, the stamp of the run directory (it holds `correlations.json` and the run's other files);
-wraps the runner's `reconstructions.json` as `{"stamp": {...}, "cases": {...}}` (it must exist: a full run always writes it), and, with `--probes`, adds the same stamp to `negative-probes.json` (a stamp already there for another dispatch or run is never overwritten).
+wraps the runner's `reconstructions.json` as `{"stamp": {...}, "cases": {...}}` (it must exist: a full run always writes it), and, with `--probes`, adds the same stamp to `negative-probes.json` and appends the probes' own reads of the reconstruction route to `requests.jsonl` (the control read as a `reconstruction` request, the three refusal checks as `probe` requests; running it twice adds nothing) (a stamp already there for another dispatch or run is never overwritten).
 Exit 0 every case counted, 1 a case uncounted (the rest is still written), 2 an input is unusable (nothing is written). It reads no oracle label and no expectation. SYNTHETIC."""
 import argparse
 import json
@@ -118,6 +118,53 @@ def stamp_reconstructions(run: Path, sha: str, run_id: str) -> None:
         _write(run / "reconstructions.json", wrapped)
 
 
+ROUTE = "/v1/reconstructions/{correlation_id}"
+UNKNOWN_PROBE_CORRELATION = "corr_unknown_probe"
+
+
+def _probe_status(value: Any) -> int | None:
+    status = value.get("status") if isinstance(value, dict) and "status" in value else ValueError
+    if status is ValueError or not (status is None or type(status) is int):
+        raise ValueError("a probe row has no readable status (an integer, or null when no answer came)")
+    return status
+
+
+def _probe_request_lines(run: Path, probes: Path) -> list[Json] | None:
+    """The probes' reads of the reconstruction route as request-record lines; None when the record already holds them (running it twice adds nothing). The control read (an allowed role, answered)
+    is a `reconstruction` request of the case's own correlation, as the core logs it; the three refusal checks are `probe` requests (the unknown correlation is the fixed placeholder
+    `corr_unknown_probe`: the real one is random and outside the run). A read that got no answer adds no line."""
+    path = run / "requests.jsonl"
+    if not path.is_file():
+        raise ValueError(f"{path.name} does not exist: the runner did not write its own request record")
+    try:
+        existing = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        doc = json.loads(probes.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"the request record or the probe results cannot be read: {exc.__class__.__name__}") from None
+    if any(isinstance(x, dict) and x.get("kind") == "probe" for x in existing):
+        return None
+    rows = doc.get("cases") if isinstance(doc, dict) else None
+    if not isinstance(rows, list):
+        raise ValueError(f"{probes.name} has no list of cases")
+    out: list[Json] = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("case_id"), str) or not row["case_id"] or not isinstance(row.get("correlation_id"), str) or not row["correlation_id"]:
+            raise ValueError("a probe row has no case id or correlation id")
+        for field, kind, correlation in (("control", "reconstruction", row["correlation_id"]), ("wrong_role", "probe", row["correlation_id"]),
+                                         ("foreign_tenant", "probe", row["correlation_id"]), ("unknown_correlation", "probe", UNKNOWN_PROBE_CORRELATION)):
+            status = _probe_status(row.get(field))
+            if status is not None:
+                out.append({"case_id": row["case_id"], "correlation_id": correlation, "method": "GET", "path": ROUTE, "status": status, "kind": kind})
+    return out
+
+
+def append_probe_requests(run: Path, probes: Path) -> None:
+    lines = _probe_request_lines(run, probes)
+    if lines:
+        path = run / "requests.jsonl"
+        path.write_bytes(path.read_bytes() + "".join(json.dumps(x, sort_keys=True) + "\n" for x in lines).encode("utf-8"))
+
+
 def _write(path: Path, doc: Json) -> None:
     path.write_bytes(json.dumps(doc, indent=2, sort_keys=True).encode("utf-8") + b"\n")
 
@@ -133,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         _check(args.sha, args.run_id)
         counts, uncounted = scan(args.run)
         wrapped = _stamped_reconstructions(args.run, args.sha, args.run_id)  # read and checked before anything is written
+        probe_lines = _probe_request_lines(args.run, args.probes) if args.probes is not None else None
         stamped = stamp_doc("writes", counts, args.sha, args.run_id)
         _write(args.run / "stamp.json", stamped["stamp"])
         if wrapped is not None:
@@ -140,6 +188,8 @@ def main(argv: list[str] | None = None) -> int:
         _write(args.run / "mock-case-writes.json", stamped)
         if args.probes is not None:
             stamp_probes(args.probes, args.sha, args.run_id)
+            if probe_lines:
+                append_probe_requests(args.run, args.probes)
     except (ValueError, OSError) as exc:
         sys.stderr.write(f"package artifacts: {exc}\n")
         return 2

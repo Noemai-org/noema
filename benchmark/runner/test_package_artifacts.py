@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from benchmark.runner.package_artifacts import StampError, main, stamp_doc, stamp_probes, stamp_reconstructions, write_counts
+from benchmark.runner.package_artifacts import StampError, append_probe_requests, main, stamp_doc, stamp_probes, stamp_reconstructions, write_counts
 
 Json = dict[str, Any]
 SHA = "a" * 40
@@ -153,6 +153,14 @@ class Reconstructions(unittest.TestCase):
             with self.assertRaises(StampError):
                 stamp_reconstructions(run, SHA, "g1-other")
 
+    def test_a_stamped_wrapper_with_an_extra_key_or_no_cases_is_refused_even_with_the_same_stamp(self) -> None:
+        stamp = {"sha": SHA, "run_id": RUN}
+        for doc in ({"stamp": stamp, "cases": {}, "extra": 1}, {"stamp": stamp}, {"stamp": stamp, "other": {}}):
+            with tempfile.TemporaryDirectory() as tmp:
+                run = new_run(Path(tmp), [], doc)
+                with self.assertRaises(StampError, msg=str(doc)):
+                    stamp_reconstructions(run, SHA, RUN)
+
     def test_a_missing_or_unreadable_or_non_object_file_is_an_error_never_an_empty_stamped_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = new_run(Path(tmp), [])
@@ -170,6 +178,92 @@ class Reconstructions(unittest.TestCase):
             run = new_run(Path(tmp), [], {"stamp": {"initial": {}}})  # a case id cannot be "stamp"; a wrapper must have both keys
             with self.assertRaises(StampError):
                 stamp_reconstructions(run, SHA, RUN)
+
+
+def probe_row(case_id: str, corr: str, control: int | None = 200, wrong: int | None = 404, foreign: int | None = 401, unknown: int | None = 404) -> Json:
+    return {"case_id": case_id, "principal_id": "p1", "correlation_id": corr, "control": {"status": control, "ok": True}, "wrong_role": {"status": wrong, "ok": True},
+            "foreign_tenant": {"status": foreign, "ok": True}, "unknown_correlation": {"status": unknown, "ok": True}, "ok": True}
+
+
+def jsonl(path: Path) -> list[Json]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+class ProbeRequests(unittest.TestCase):
+    """The evidence probes read the reconstruction route too, so the core's RECORD_ACCESSED log holds their lines. The run's own record must hold the same reads, or noema#730's count check fails a
+    correct run: the control read (an allowed role, answered 200) is a `reconstruction` request of the case's correlation; the three refusal checks are `probe` requests, which add nothing."""
+
+    def setup(self, tmp: str, rows: list[Json], existing: list[Json] | None = None) -> tuple[Path, Path]:
+        run = Path(tmp)
+        (run / "requests.jsonl").write_text("".join(json.dumps(x) + "\n" for x in (existing or [])), encoding="utf-8")
+        probes = run / "negative-probes.json"
+        probes.write_text(json.dumps({"met": True, "cases": rows}), encoding="utf-8")
+        return run, probes
+
+    def test_each_probed_case_adds_its_control_read_as_a_reconstruction_and_three_probes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run, probes = self.setup(tmp, [probe_row("BEN-A-0001", "corr_a")])
+            append_probe_requests(run, probes)
+            got = jsonl(run / "requests.jsonl")
+        self.assertEqual([("reconstruction", 200, "corr_a"), ("probe", 404, "corr_a"), ("probe", 401, "corr_a"), ("probe", 404, "corr_unknown_probe")], [(x["kind"], x["status"], x["correlation_id"]) for x in got])
+        for line in got:
+            self.assertEqual({"case_id", "correlation_id", "method", "path", "status", "kind"}, set(line))
+            self.assertEqual(("BEN-A-0001", "GET", "/v1/reconstructions/{correlation_id}"), (line["case_id"], line["method"], line["path"]))
+            self.assertIs(int, type(line["status"]))
+
+    def test_the_lines_are_appended_after_the_runs_own_and_never_replace_them(self) -> None:
+        own = {"case_id": "BEN-A-0001", "correlation_id": "corr_a", "method": "POST", "path": "/v1/conversations", "status": 202, "kind": "case"}
+        with tempfile.TemporaryDirectory() as tmp:
+            run, probes = self.setup(tmp, [probe_row("BEN-A-0001", "corr_a")], [own])
+            append_probe_requests(run, probes)
+            got = jsonl(run / "requests.jsonl")
+        self.assertEqual(own, got[0])
+        self.assertEqual(5, len(got))
+
+    def test_running_it_twice_does_not_double_the_probe_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run, probes = self.setup(tmp, [probe_row("BEN-A-0001", "corr_a")])
+            append_probe_requests(run, probes)
+            first = (run / "requests.jsonl").read_bytes()
+            append_probe_requests(run, probes)
+            self.assertEqual(first, (run / "requests.jsonl").read_bytes())
+
+    def test_a_probe_with_no_answer_adds_no_line_and_cases_stay_in_the_probe_files_order(self) -> None:
+        rows = [probe_row("BEN-B-0001", "corr_b", control=None, wrong=None), probe_row("BEN-A-0001", "corr_a", foreign=None)]
+        with tempfile.TemporaryDirectory() as tmp:
+            run, probes = self.setup(tmp, rows)
+            append_probe_requests(run, probes)
+            got = jsonl(run / "requests.jsonl")
+        self.assertEqual([("BEN-B-0001", "probe", 401), ("BEN-B-0001", "probe", 404), ("BEN-A-0001", "reconstruction", 200), ("BEN-A-0001", "probe", 404), ("BEN-A-0001", "probe", 404)],
+                         [(x["case_id"], x["kind"], x["status"]) for x in got])
+
+    def test_a_missing_request_file_or_an_unreadable_probe_file_is_an_error_and_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            probes = run / "negative-probes.json"
+            probes.write_text(json.dumps({"met": True, "cases": [probe_row("BEN-A-0001", "corr_a")]}), encoding="utf-8")
+            with self.assertRaises(ValueError):  # no requests.jsonl: the runner did not write its own record
+                append_probe_requests(run, probes)
+            self.assertFalse((run / "requests.jsonl").exists())
+            (run / "requests.jsonl").write_text("", encoding="utf-8")
+            for text in ("not json", "[]", "{}", '{"cases": "x"}', '{"cases": [null]}', '{"cases": [{"case_id": "BEN-A-0001"}]}',
+                         json.dumps({"cases": [{**probe_row("BEN-A-0001", "corr_a"), "correlation_id": ""}]}),
+                         json.dumps({"cases": [{**probe_row("BEN-A-0001", "corr_a"), "control": {"status": True}}]}),
+                         json.dumps({"cases": [{**probe_row("BEN-A-0001", "corr_a"), "wrong_role": {"status": "404"}}]})):
+                probes.write_text(text, encoding="utf-8")
+                with self.assertRaises(ValueError, msg=text[:50]):
+                    append_probe_requests(run, probes)
+                self.assertEqual("", (run / "requests.jsonl").read_text(encoding="utf-8"), text[:50])
+
+    def test_the_cli_appends_them_when_the_probes_file_is_given(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = new_run(Path(tmp), [result("BEN-A-0001")])
+            (run / "requests.jsonl").write_text("", encoding="utf-8")
+            probes = Path(tmp) / "negative-probes.json"
+            probes.write_text(json.dumps({"met": True, "cases": [probe_row("BEN-A-0001", "corr_a")]}), encoding="utf-8")
+            self.assertEqual(0, main(["--run", str(run), "--sha", SHA, "--run-id", RUN, "--probes", str(probes)]))
+            self.assertEqual(4, len(jsonl(run / "requests.jsonl")))
+            self.assertEqual({"sha": SHA, "run_id": RUN}, json.loads(probes.read_text(encoding="utf-8"))["stamp"])
 
 
 class Cli(unittest.TestCase):
@@ -212,6 +306,7 @@ class Cli(unittest.TestCase):
     def test_it_stamps_the_probes_file_when_asked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = new_run(Path(tmp), [result("BEN-CLEAN-0001")])
+            (run / "requests.jsonl").write_text("", encoding="utf-8")
             probes = Path(tmp) / "negative-probes.json"
             probes.write_text(json.dumps({"met": True, "cases": []}), encoding="utf-8")
             self.assertEqual(0, main(["--run", str(run), "--sha", SHA, "--run-id", RUN, "--probes", str(probes)]))
