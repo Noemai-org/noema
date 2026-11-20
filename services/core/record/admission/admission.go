@@ -91,7 +91,7 @@ func (r *Reader) Lookup(ctx context.Context, tenantID, eventID string) (Found, e
 		if row.EventID != eventID {
 			continue
 		}
-		return Found{EventType: row.EventType, TenantID: tenantID, PrincipalID: principalOf(row.Actor), CorrelationID: row.CorrelationID, RequestID: requestOf(row.Payload)}, nil
+		return Found{EventType: row.EventType, TenantID: tenantID, PrincipalID: principalOf(row.Actor), CorrelationID: row.CorrelationID, RequestID: requestOf(row.Payload), ObjectRef: row.ObjectRef}, nil
 	}
 	return Found{}, ErrNotFound
 }

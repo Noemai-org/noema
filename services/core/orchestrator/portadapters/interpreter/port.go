@@ -44,6 +44,8 @@ var (
 	ErrSession = errors.New(prefix + "the resolved session is not the verified session")
 	// ErrPack marks pack data the port cannot trust, or an admitted node the pack does not describe.
 	ErrPack = errors.New(prefix + "the pack does not describe the intent")
+	// ErrInput marks a turn whose INPUT_RECEIVED the Record does not confirm for this session and turn, or whose object_ref is not a minted input ID: nothing is compiled.
+	ErrInput = errors.New(prefix + "the turn's recorded input is not confirmed")
 )
 
 var (
@@ -92,7 +94,7 @@ var _ orchestrator.Interpreter = (*Port)(nil)
 
 // New refuses a configuration with a missing part or a malformed pack reference.
 func New(c Config) (*Port, error) {
-	if c.Sessions == nil || c.Interpreter == nil || c.Clock == nil || c.Required == nil || !packRefRe.MatchString(c.PackRef) {
+	if c.Sessions == nil || c.Interpreter == nil || c.Clock == nil || c.Required == nil || c.Admissions == nil || !packRefRe.MatchString(c.PackRef) {
 		return nil, ErrNotUsable
 	}
 	return &Port{c: c}, nil
@@ -126,12 +128,19 @@ func (p *Port) Interpret(ctx context.Context, s orchestrator.Session, t orchestr
 	if !r.Session.Valid() || r.Session.TenantID != s.TenantID || r.Session.PrincipalID != s.PrincipalID || !kindRe.MatchString(r.ActorKind) {
 		return orchestrator.Interpretation{}, ErrSession
 	}
+	a, err := p.c.Admissions.Lookup(ctx, s, t.InputReceivedRef)
+	if err != nil {
+		return orchestrator.Interpretation{}, fmt.Errorf("%w: lookup: %w", ErrInput, err)
+	}
+	if a.EventType != "INPUT_RECEIVED" || a.TenantID != s.TenantID || a.PrincipalID != s.PrincipalID || a.CorrelationID != t.CorrelationID || a.RequestID != t.RequestID {
+		return orchestrator.Interpretation{}, ErrInput
+	}
 	ci, err := json.Marshal(canonicalInput{SchemaVersion: "2.0", RequestID: t.RequestID, CorrelationID: t.CorrelationID, TenantID: r.Session.TenantID, SessionID: r.Session.AuthnRef,
 		PrincipalRef: r.Session.PrincipalID, Channel: "text", Mode: "MODE_1", Text: text, ReceivedAt: p.c.Clock.Now().UTC().Format("2006-01-02T15:04:05Z")})
 	if err != nil {
 		return orchestrator.Interpretation{}, ErrTurn
 	}
-	res, err := p.c.Interpreter.Interpret(ctx, interpreter.Input{Session: r.Session, Actor: r.ActorKind + ":" + r.Session.PrincipalID, CorrelationID: t.CorrelationID,
+	res, err := p.c.Interpreter.Interpret(ctx, interpreter.Input{Session: r.Session, Actor: r.ActorKind + ":" + r.Session.PrincipalID, CorrelationID: t.CorrelationID, RawRef: a.ObjectRef,
 		Request: understanding.CompileRequest{CanonicalInput: ci, PackRef: p.c.PackRef}})
 	if err != nil {
 		var rej *understanding.Rejection

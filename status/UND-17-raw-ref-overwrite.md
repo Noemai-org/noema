@@ -7,7 +7,7 @@ State: red pushed, green committed locally, not pushed.
 ## Session summary
 - What changed (PR links): the core overwrites `source.raw_ref` with the INPUT_RECEIVED object_ref (`req_<ULID>`, A184), read from the stored event, between Compile and Admit (noema#580; A219, interim, relayed, not yet committed). Draft PR: see the PR for this branch.
 - Why: the compiler leaves `raw_ref` as the unset marker; nothing wrote the core's value before the intent was stored.
-- Risks, and how they are contained: the port gains one Admissions lookup per turn (second read of the chain after the runner's); a refusal is fail-closed before the model is called. Mutants are listed in the PR.
+- Risks, and how they are contained: the port gains one Admissions lookup per turn (second read of the chain after the runner's); a refusal is fail-closed before the model is called. 17 hand mutants killed; the 18th (a redundant empty-principal clause) was removed.
 - Tests added (REQ, INV, US or EC IDs): REQ-INT-001, REQ-INT-002, INV-02, INV-12, AGENT-09.
 - Regression cases added: none (new behaviour).
 - Debt entries: the double Admissions lookup (runner and port); a later change could hand the runner's Admission to the Interpreter.
