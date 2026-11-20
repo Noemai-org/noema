@@ -88,31 +88,9 @@ func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, ada
 	if err := checkTrustAdapters(adapters); err != nil {
 		return TrustParts{}, noop, err
 	}
-	switch {
-	case records == nil:
-		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter counts dispatches from the Record and needs the Record reader (" + EnvRecordReadDSNDir + ")")
-	case loadKeys == nil:
-		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter needs the grant key loader: it is not configured")
-	case env.Getenv(EnvTrustDSNDir) == "":
-		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter needs " + EnvTrustDSNDir)
-	case env.Getenv(EnvGrantKeyDir) == "":
-		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter needs " + EnvGrantKeyDir)
-	}
-	ms, err := strconv.Atoi(env.Getenv(EnvTrustDBTimeout))
-	if err != nil || ms < 1 {
-		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s must be a positive whole number of milliseconds", EnvTrustDBTimeout)
-	}
-	timeout := time.Duration(ms) * time.Millisecond
-	maxActive, err := strconv.Atoi(env.Getenv(EnvGrantKeyMaxActive))
-	if err != nil || maxActive < 1 {
-		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s must be a positive integer", EnvGrantKeyMaxActive)
-	}
-	keys, err := loadKeys(env.Getenv(EnvGrantKeyDir), maxActive) // its errors never repeat a key's contents
+	timeout, keys, err := trustSettings(env, records, loadKeys)
 	if err != nil {
-		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s: the grant keys cannot be loaded: %w", EnvGrantKeyDir, err)
-	}
-	if keys == nil {
-		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s: the loader returned no keys", EnvGrantKeyDir)
+		return TrustParts{}, noop, err
 	}
 	loginPool, closer, err := loginPools(ctx, env, EnvTrustDSNDir)
 	if err != nil {
@@ -154,6 +132,38 @@ func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, ada
 	}
 	port := trustport.Port{Evaluator: svc, Intents: intents, Records: recs}
 	return TrustParts{Trust: port, Bindings: port, Dispatches: dispatches, Keys: keys, Service: svc}, closer, nil
+}
+
+// trustSettings checks every setting Trust needs and loads the grant keys: the Record reader, the key loader, the two directories and the two numbers, each required with no default
+// (AGENT-16). A missing or invalid one is an error that names it, and nothing is dialled. buildTrust uses it, and so does the composition while the adapters are not yet built, so
+// that a bad setting stops the process whether or not Trust can be plugged yet.
+func trustSettings(env Env, records reconstruct.TenantDBs, loadKeys KeyLoader) (time.Duration, *grants.Keys, error) {
+	switch {
+	case records == nil:
+		return 0, nil, errors.New("cmd/core: the Trust adapter counts dispatches from the Record and needs the Record reader (" + EnvRecordReadDSNDir + ")")
+	case loadKeys == nil:
+		return 0, nil, errors.New("cmd/core: the Trust adapter needs the grant key loader: it is not configured")
+	case env.Getenv(EnvTrustDSNDir) == "":
+		return 0, nil, errors.New("cmd/core: the Trust adapter needs " + EnvTrustDSNDir)
+	case env.Getenv(EnvGrantKeyDir) == "":
+		return 0, nil, errors.New("cmd/core: the Trust adapter needs " + EnvGrantKeyDir)
+	}
+	ms, err := strconv.Atoi(env.Getenv(EnvTrustDBTimeout))
+	if err != nil || ms < 1 {
+		return 0, nil, fmt.Errorf("cmd/core: %s must be a positive whole number of milliseconds", EnvTrustDBTimeout)
+	}
+	maxActive, err := strconv.Atoi(env.Getenv(EnvGrantKeyMaxActive))
+	if err != nil || maxActive < 1 {
+		return 0, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvGrantKeyMaxActive)
+	}
+	keys, err := loadKeys(env.Getenv(EnvGrantKeyDir), maxActive) // its errors never repeat a key's contents
+	if err != nil {
+		return 0, nil, fmt.Errorf("cmd/core: %s: the grant keys cannot be loaded: %w", EnvGrantKeyDir, err)
+	}
+	if keys == nil {
+		return 0, nil, fmt.Errorf("cmd/core: %s: the loader returned no keys", EnvGrantKeyDir)
+	}
+	return time.Duration(ms) * time.Millisecond, keys, nil
 }
 
 // recordDBs adapts the Record reader's pools to trustpg.RecordDBs: the same pools, so a count is read as the session's tenant.

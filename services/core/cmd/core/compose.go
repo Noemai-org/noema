@@ -50,6 +50,9 @@ type Components struct {
 	ServedTenants []string
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
+	// TrustUnbuilt names the Trust adapters that are not yet built when Trust is configured but cannot be plugged (the named, expected gaps of UnbuiltAdaptersError). It is not a
+	// component: /readyz names each after "trust" as "trust.<Name>" (fixed text, no value). Empty when Trust is built or not asked for.
+	TrustUnbuilt []string
 	// Confirmations is the confirmation route's ports (POST /v1/confirmations/{confirmation_request_id}, A341, noema#754); the route is mounted only with it.
 	Confirmations *confirmationRouteConfig
 }
@@ -141,8 +144,14 @@ func missing(c Components, api http.Handler) []string {
 	}
 	var names []string
 	for _, p := range parts {
-		if !p.built {
-			names = append(names, p.name)
+		if p.built {
+			continue
+		}
+		names = append(names, p.name)
+		if p.name == "trust" {
+			for _, n := range c.TrustUnbuilt {
+				names = append(names, "trust."+n)
+			}
 		}
 	}
 	return names
@@ -223,7 +232,8 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 
 // buildComponentsWith is buildComponents with its seams, and it also returns the Trust parts the write path needs later (the Bindings, the grant keys, the intake service). Trust is
 // built here, once, with buildTrust, and only when one of the Trust settings is given (trustRequested): with none there is nothing and no error, and /readyz names "trust"; with
-// any, buildTrust requires the rest and names the one that is missing (A330, AGENT-16). The grant keys are loaded by buildTrust from NOEMA_GRANT_KEY_DIR and nowhere else (INV-29).
+// any, buildTrust requires the rest and names the one that is missing (A330, AGENT-16). When the adapters are not yet built (UnbuiltAdaptersError) Trust is not plugged and is no error:
+// the settings are still checked, and /readyz names "trust" and each adapter (Components.TrustUnbuilt). The grant keys are loaded by buildTrust from NOEMA_GRANT_KEY_DIR and nowhere else (INV-29).
 func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger, d composeDeps) (Components, TrustParts, func(), error) {
 	var closers []func()
 	closeAll := func() {
@@ -262,18 +272,29 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 			return Components{}, TrustParts{}, closeAll, errors.New("cmd/core: the Trust adapters are not configured")
 		}
 		adapters, err := d.TrustAdapters(env, records, clk)
-		if err != nil {
+		var unbuilt *UnbuiltAdaptersError
+		switch {
+		case errors.As(err, &unbuilt) && len(unbuilt.Names) > 0:
+			// A named, expected gap (interim, relayed, not yet committed: EL's decision of 20 Nov, with A445): the process starts, Trust is not plugged (the orchestrator's Trust
+			// stays the one that refuses) and /readyz names it. The settings are still checked: an invalid one stops the process whether or not Trust can be plugged yet.
+			if _, _, err := trustSettings(env, records, d.LoadKeys); err != nil {
+				closeAll()
+				return Components{}, TrustParts{}, closeAll, err
+			}
+			c.TrustUnbuilt = unbuilt.Names
+		case err != nil && !errors.As(err, &unbuilt):
 			closeAll()
 			return Components{}, TrustParts{}, closeAll, err
+		default:
+			var closeTrust func()
+			parts, closeTrust, err = buildTrust(ctx, env, records, adapters, d.LoadKeys)
+			if err != nil {
+				closeAll()
+				return Components{}, TrustParts{}, closeAll, err
+			}
+			closers = append(closers, closeTrust)
+			c.Ports.Trust = parts.Trust
 		}
-		var closeTrust func()
-		parts, closeTrust, err = buildTrust(ctx, env, records, adapters, d.LoadKeys)
-		if err != nil {
-			closeAll()
-			return Components{}, TrustParts{}, closeAll, err
-		}
-		closers = append(closers, closeTrust)
-		c.Ports.Trust = parts.Trust
 	}
 	return c, parts, closeAll, nil
 }
@@ -297,8 +318,8 @@ type composeDeps struct {
 }
 
 // productionDeps is the real build: the grant keys through keyfiles.Load (INV-29) and the Temporal dial of worker_dial.go. The intake adapters other tasks build, and the worker's
-// activities, are added here as each merges and never from a fake; until then the Trust adapter source gives only the clock, so a process asked for Trust names the first adapter it
-// lacks, and a configured worker without activities is not started (A442). Nothing is dialled here.
+// activities, are added here as each merges and never from a fake; until then the Trust adapter source gives only the clock, so a process asked for Trust starts without it and /readyz names each adapter
+// it lacks (UnbuiltAdaptersError), and a configured worker without activities is not started (A442). Nothing is dialled here.
 func productionDeps() composeDeps {
 	return composeDeps{
 		LoadKeys:         loadGrantKeys,

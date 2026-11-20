@@ -64,3 +64,20 @@ Rulings used (all "interim, relayed, not yet committed"): the Founder's order of
 - Open questions (EL): where the pack comes from before #773; the Planner gaps; the grant and record lifetimes and `TxTimeout`.
 - Files to read first: `wire_trust_adapters.go`, `compose.go`.
 - Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`.
+
+# Session 2026-11-20 WAT · STM-01 (main composition, review fix: a Trust whose adapters are not yet built does not stop the process)
+
+## Session summary
+- What changed: `buildComponentsWith` no longer returns an error when the Trust adapter source answers with an `UnbuiltAdaptersError` (the named, expected gaps: the pack not on main, an adapter not built). The process starts, Trust is not plugged (`Ports.Trust` stays nil, the orchestrator keeps its not-built Trust), `Components.TrustUnbuilt` holds the names, and `/readyz` answers 503 naming `trust` and each `trust.<Adapter>` (fixed text, no value). `trustSettings` (split out of `buildTrust`) still checks every Trust setting and loads the grant keys in that case: an invalid or missing setting stays a startup error. A pack that fails to load or verify, and any other adapter-source failure, stay startup errors (`trustAdaptersSource` returns the pack's own error, not a named gap).
+- Why: the CI `compose` job failed at the previous head, the core container exited 1 at start-up. A445 (interim, relayed, recorded in docs#212, not yet merged): stack-check reports `/readyz` and netcheck, and the G1 bench stack needs the process up so `/readyz` can name what is missing. EL's decision (interim, relayed, not yet committed).
+- Safer readings taken: (1) a setting that is present but invalid, a pack that fails verification, an unknown adapter-source error and a route with no logger stay fatal; (2) the worker rules are unchanged: a configured worker with no activities (noema#812) still stops the process (A442), and a partial Temporal setting still names the setting; (3) /readyz names adapters by their Go field names, prefixed `trust.`, no values.
+- Verified by reading: `deploy/compose/docker-compose.yml` at this head sets `NOEMA_TEMPORAL_ADDRESS` only for the core (no namespace, task queue or activity timeout) and does not set `NOEMA_GRANT_KEY_DIR` (the grant keys are mounted at `/run/grant-keys`). So `LoadWorkerConfig` refuses the partial Temporal settings and the process still exits 1 under Compose until `deploy/` sets the whole worker group or the worker is also allowed to wait for its activities. `deploy/` is outside this PR's allowlist: EL to decide.
+- Tests (REQ-TRU-009, REQ-API-004, REQ-SEC-003; INV-03, INV-29, AGENT-13, AGENT-16): `main_compose_unbuilt_test.go`; `TestAPackThatCannotBeLoadedIsAStartupErrorThatIsNotQuiet` changed (the pack's own error, no longer a list); the two tests that expected the production Trust settings to stop the process were removed (`TestAProcessAskedForTrustWithoutAPackRefusesAndNamesEachAdapter`, and the production case of `TestTrustSettingsWithoutTheRecordReaderOrWithoutAdaptersAreStartupErrors`); each is replaced by a test in the new file. `TestReadyzOfTheProductionBuildFailsForAServedTenantWithNoRecordLogin` needs pgsodium and runs in CI only.
+- Hand mutation check: 11 mutants of compose.go, wire_trust.go and wire_trust_adapters.go, 11 killed.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: as in the earlier session (checklist above); when all adapters and the pack are built the `UnbuiltAdaptersError` path is no longer taken and `TrustUnbuilt` stays empty.
+- Open questions (EL): the compose worker settings (above).
+- Files to read first: `compose.go` (`buildComponentsWith`, `missing`), `wire_trust.go` (`trustSettings`).
+- Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.

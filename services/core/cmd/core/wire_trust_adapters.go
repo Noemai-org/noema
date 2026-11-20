@@ -62,10 +62,13 @@ func unsetAdapters(a TrustAdapters) []string {
 }
 
 // trustAdaptersSource is the production TrustAdapters source over a pack source. It returns the adapters it built together with an *UnbuiltAdaptersError naming the rest, so a caller
-// that wants to start Trust stops. With no pack it builds nothing and names "Pack" first. A setting error (the escalation graph) is its own error and builds nothing.
+// that wants to start Trust does not plug it (the composition starts without it and /readyz names the gap). With no pack it builds nothing and names "Pack" first. A setting error (the escalation graph) and a pack that fails to load or verify are their own errors and build nothing.
 func trustAdaptersSource(pack PackSource) func(Env, reconstruct.TenantDBs, clock.Clock) (TrustAdapters, error) {
 	return func(env Env, _ reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error) {
 		p, err := pack(env)
+		if err != nil && !errors.Is(err, errPackNotOnMain) {
+			return TrustAdapters{}, fmt.Errorf("cmd/core: the pack: %w", err) // a pack that cannot be loaded or verified is a startup error, never a named gap (INV-16)
+		}
 		if err != nil || p == nil {
 			if err == nil {
 				err = errPackNotOnMain
