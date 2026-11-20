@@ -85,8 +85,50 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		return decide.Continue()
 	case ConfirmationPending:
 		return e.t13Confirm(ctx, c)
+	case ConfirmationDeclined:
+		return e.t13Declined(ctx, c)
 	}
 	return decide.FailStep(errAnswer)
+}
+
+// t13Declined is the Declined answer (SoT 43.2a, A435: interim, relayed, not yet committed): the decision closes as REJECT DECLINED_BY_APPROVER, and the REJECT is a decision, so it
+// is recorded, and first (PERD 32.4, A456: the Recorder port serves every outcome; a non-ALLOW has no steps and no plan hash). No request is opened (the answer rests on the one that
+// was answered; it never carries a new one), nothing is planned, and no grant exists for a refusal (INV-03). If the Recorder fails, nothing else happens and the evaluation ends in
+// UNKNOWN, never in a REJECT the caller could take as recorded.
+func (e *evaluation) t13Declined(ctx context.Context, c Confirmation) decide.StepResult {
+	if c.NewRequest != nil || c.RequestID != "" && !requestIDRe.MatchString(c.RequestID) {
+		return decide.FailStep(errAnswer)
+	}
+	reason, err := decide.Core("DECLINED_BY_APPROVER")
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	r, err := e.resolved()
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	d, err := r.Reject(passed(), reason)
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	if d, err = e.withBasis(d); err != nil {
+		return decide.FailStep(err)
+	}
+	digest, err := e.bb.Digest()
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	a := e.intent
+	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	if !decisionIDRe.MatchString(res.DecisionID) || len(res.GrantIDs) != 0 || res.ConfirmationRequestID != "" {
+		return decide.FailStep(errAnswer)
+	}
+	e.late.recorded = RecordResult{DecisionID: res.DecisionID}
+	return decide.Stop(d)
 }
 
 // t13Confirm is the Pending answer: a request is open (RequestID) or Trust must create one (NewRequest), never both and never neither. The CONFIRM is built on the evaluated set,

@@ -235,22 +235,3 @@ func TestConfirmationDeclinedIsItsOwnStatus(t *testing.T) {
 		t.Errorf("the values are %d %d %d %d, want 1 2 3 4", ConfirmationNotRequired, ConfirmationPending, ConfirmationGiven, d)
 	}
 }
-
-// REQ-TRU-009 (interim, stop condition of TRU-07 PR 2): the order is that Declined becomes REJECT DECLINED_BY_APPROVER (SoT 43.2a step 4), but PERD 23.3 gives T13 the terminal
-// result CONFIRM only, and trust/decide enforces that set (stepOutcomes), so a REJECT from T13 would be refused as an invalid result. Until the Architect rules which source
-// gives way, Declined stays what it was: UNKNOWN like any status T13 does not handle, nothing planned and nothing recorded (the safer reading, AGENT-20). This test then
-// changes with the ruling; status/TRU-07-confirm-t13.md has the CONFLICT block.
-func TestT13DeclinedIsUnknownForNowAndNothingIsPlannedOrRecorded(t *testing.T) {
-	for name, c := range map[string]Confirmation{
-		"a bare decline":                {Status: ConfirmationDeclined, RequestID: "cfr_synth0001"},
-		"a decline that names an event": {Status: ConfirmationDeclined, RequestID: "cfr_synth0001", EventID: "cfe_synth0001", PlanHash: tPlanHash},
-	} {
-		f := newFake13()
-		f.conf = c
-		res := run13(t, newEval13(t, f))
-		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
-		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
-			t.Errorf("%s: the planner or the recorder was called after a decline: %v", name, f.calls)
-		}
-	}
-}
