@@ -63,7 +63,9 @@ jobs:
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="$BENCH_MAX_BODY_BYTES" STANDIN_TENANT_ID=ten_alpha
           compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
-          mkdir -p benchmark/out
+          mkdir -p benchmark/out benchmark/out/joblog
+          # Nothing the runner, the generator or the scorer prints reaches the job log: their output goes to files under benchmark/out/joblog, which the leak scan reads and the upload
+          # carries, and is shown in a later step only if the scan is clean (Security Reviewer's first-dispatch condition 2 on noema#436: the job log is as public as an artifact).
           # The runner reads this file during the run (it marks its size before each case and counts refusals after), so it is a live stream, not a copy taken at the end.
           : > benchmark/out/mock-case.log
           # The collector's own errors go to its own file, not to /dev/null, and it is checked below: a collector that never started or died leaves a readable file, and the
@@ -73,7 +75,7 @@ jobs:
           sleep 2
           collector_dead=0
           kill -0 "$logpid" 2>/dev/null || collector_dead=1
-          $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite
+          $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite >> benchmark/out/joblog/generator.log 2>&1
           gen=$?
           code=2
           if [ "$gen" -eq 0 ] && [ "$collector_dead" -eq 0 ]; then
@@ -85,7 +87,7 @@ jobs:
               --proxy-url http://hostility-proxy:8081 --proxy-credential-file /creds/proxy/bench_token \
               --mock-case-log /bench-out/mock-case.log --cost-dir /bench-out/cost --model-writer model-service \
               --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
-              --tenant-id ten_alpha
+              --tenant-id ten_alpha >> benchmark/out/joblog/runner.log 2>&1
             code=$?
           fi
           # A collector that exited during the run invalidates it: the counters would read an empty or stale file as zero accesses. NOT RUN, never scored.
@@ -97,7 +99,7 @@ jobs:
           if [ "$code" -le 1 ]; then
             $compose exec -T bench-runner python -m benchmark.scoring \
               --cases /bench-out/suite/cases --oracles /bench-out/suite/oracle --results /bench-out/run/results \
-              --pack packs/fintech_v1.json --manifest /bench-out/suite/manifest.json --run-id "$run_id" --out /bench-out/score
+              --pack packs/fintech_v1.json --manifest /bench-out/suite/manifest.json --run-id "$run_id" --out /bench-out/score >> benchmark/out/joblog/scorer.log 2>&1
             score_code=$?
             code="$score_code"
           fi
@@ -113,12 +115,12 @@ jobs:
           set +e
           export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
           compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
-          mkdir -p benchmark/out/evidence
-          $compose exec -T bench-runner python -m benchmark.runner.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence
+          mkdir -p benchmark/out/evidence benchmark/out/joblog
+          $compose exec -T bench-runner python -m benchmark.runner.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence >> benchmark/out/joblog/evidence.log 2>&1
           echo "fault_plans=$?" >> "$GITHUB_OUTPUT"
           $compose exec -T bench-runner python -m benchmark.runner.evidence probes --suite /bench-out/suite --run /bench-out/run \
             --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
-            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence
+            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence >> benchmark/out/joblog/evidence.log 2>&1
           echo "probes=$?" >> "$GITHUB_OUTPUT"
       - id: logs
         name: Capture the services' logs for the leak scan
@@ -136,6 +138,21 @@ jobs:
           done
           echo "collected=$collected" >> "$GITHUB_OUTPUT"
           exit 0
+      # The second half of criterion 9 (Security Reviewer's first-dispatch condition 1 on noema#436): the core's own access log must show that the reconstruction handler ran for the control
+      # and the unknown-correlation probe and for no refusal. A refusal with the right status that had already reached the handler passes the probes and fails here. It needs the core's log,
+      # so it runs after the logs are captured, in the runner container (benchmark/out is mounted there), before the stack stops.
+      - id: access
+        name: The access log shows the handler ran for the control and for no refusal (criterion 9, second half)
+        if: always()
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/joblog
+          $compose exec -T bench-runner python -m benchmark.runner.evidence record-access --probes /bench-out/evidence/negative-probes.json --log /bench-out/service-logs/core.log \
+            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence >> benchmark/out/joblog/evidence.log 2>&1
+          echo "record_access=$?" >> "$GITHUB_OUTPUT"
+          exit 0
       - name: Summary
         if: always()
         env:
@@ -143,6 +160,7 @@ jobs:
           RUN_ID: ${{ steps.run.outputs.run_id }}
           FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
           PROBES: ${{ steps.evidence.outputs.probes }}
+          RECORD_ACCESS: ${{ steps.access.outputs.record_access }}
         run: |
           {
             echo "## bench-g1-stack: run id $RUN_ID, exit code $CODE"
@@ -152,7 +170,7 @@ jobs:
               1) echo "Ran and was scored, but the run is incomplete or a Tier 0 gate is not at zero. This fails the job." ;;
               *) echo "Failed with exit code $CODE (2: bad input or a missing part of the checkout)." ;;
             esac
-            echo "Criterion 6, the recorded FaultPlans (id, seed, producer per case): exit ${FAULT_PLANS:-missing} (0 is met). Criterion 9, one negative probe of each kind per case: exit ${PROBES:-missing} (0 is met)."
+            echo "Criterion 6, the recorded FaultPlans (id, seed, producer per case): exit ${FAULT_PLANS:-missing} (0 is met). Criterion 9, one negative probe of each kind per case: exit ${PROBES:-missing} (0 is met). The access log shows the handler ran for no refusal: exit ${RECORD_ACCESS:-missing} (0 is met)."
             [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
             [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
           } > benchmark/out/summary.md
@@ -169,9 +187,9 @@ jobs:
         if: always()
         run: |
           set +e
-          mkdir -p benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs
+          mkdir -p benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/joblog
           python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" \
-            benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
+            benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/joblog benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
           echo "scan=$?" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Upload the artifacts (only if the leak scan is clean)
@@ -184,10 +202,22 @@ jobs:
             benchmark/out/score/
             benchmark/out/evidence/
             benchmark/out/service-logs/
+            benchmark/out/joblog/
             benchmark/out/mock-case.log
             benchmark/out/mock-case-collector.err
           if-no-files-found: warn
           retention-days: 30
+      # The run's own output is shown in the job log only now, and only if the scan that covered it was clean: until then the log holds exit codes and ::error:: lines of fixed text.
+      - name: Show the run output (only if the leak scan is clean)
+        if: always()
+        env:
+          SCAN: ${{ steps.scan.outputs.scan }}
+        run: |
+          if [ "${SCAN:-missing}" = 0 ]; then
+            for f in benchmark/out/joblog/*.log; do [ -f "$f" ] && { echo "::group::$(basename "$f")"; cat "$f"; echo "::endgroup::"; }; done
+          else
+            echo "The run output is not shown: the leak scan did not pass (exit ${SCAN:-missing}); the files are in the artifact only if it did."
+          fi
       - name: Publish the step summary (only if the leak scan is clean)
         if: always()
         env:
@@ -203,6 +233,7 @@ jobs:
           CODE: ${{ steps.run.outputs.code }}
           FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
           PROBES: ${{ steps.evidence.outputs.probes }}
+          RECORD_ACCESS: ${{ steps.access.outputs.record_access }}
           SCAN: ${{ steps.scan.outputs.scan }}
           COLLECTED: ${{ steps.logs.outputs.collected }}
         run: |
@@ -210,6 +241,7 @@ jobs:
           [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: a service's log could not be collected, so the scan did not see it (collected=${COLLECTED:-missing})."; fail=1; }
           [ "${FAULT_PLANS:-missing}" = 0 ] || { echo "::error::Criterion 6 not met: the recorded FaultPlans (exit ${FAULT_PLANS:-missing})."; fail=1; }
           [ "${PROBES:-missing}" = 0 ] || { echo "::error::Criterion 9 not met: the negative probes (exit ${PROBES:-missing})."; fail=1; }
+          [ "${RECORD_ACCESS:-missing}" = 0 ] || { echo "::error::Criterion 9 not met: the access log does not show the handler ran for the control and for no refusal (exit ${RECORD_ACCESS:-missing})."; fail=1; }
           [ "${SCAN:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: the leak scan (exit ${SCAN:-missing}); nothing was uploaded."; fail=1; }
           case "$CODE" in
             0) ;;
