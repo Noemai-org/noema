@@ -62,6 +62,25 @@ type confirmationRouteConfig struct {
 	Logger   *slog.Logger // optional: nil logs nothing
 }
 
+// Refusal outcomes and their fixed log text: one line per refused answer, carrying the outcome, tenant, request ID (from the path) and the session's principal ID only. Never the body, the answer or a role.
+const (
+	outcomeNotEligible      = "not_eligible"
+	outcomeWrongRequest     = "wrong_request"
+	outcomeExpired          = "expired"
+	outcomeAlreadyAnswered  = "already_answered"
+	msgRefusedNotEligible   = "confirmation answer refused: not eligible"
+	msgRefusedWrongRequest  = "confirmation answer refused: wrong request"
+	msgRefusedExpired       = "confirmation answer refused: expired"
+	msgRefusedAlreadyAnswer = "confirmation answer refused: already answered"
+)
+
+func (c confirmationRouteConfig) logRefusal(ctx context.Context, msg, outcome, tenant, requestID, principal string) {
+	if c.Logger == nil {
+		return
+	}
+	c.Logger.LogAttrs(ctx, slog.LevelWarn, msg, slog.String("outcome", outcome), slog.String("tenant", tenant), slog.String("request_id", requestID), slog.String("principal_id", principal))
+}
+
 var confirmationRequestPath = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
 
 var errConfirmationAnswer = errors.New("cmd/core: the confirmation answer is not valid")
@@ -131,6 +150,7 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 			return
 		}
 		if ans.RequestID != pathID {
+			c.logRefusal(r.Context(), msgRefusedWrongRequest, outcomeWrongRequest, p.Tenant, pathID, p.ID)
 			publicError(w, http.StatusForbidden, contracts.ErrorsV3ErrorCodeAPPROVERNOTELIGIBLE, "This reply cannot be accepted.", corr)
 			return
 		}
@@ -156,10 +176,16 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 		case err != nil:
 			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
 			return
-		case res == confirm.NotEligible || res == confirm.WrongRequest:
+		case res == confirm.NotEligible:
+			c.logRefusal(ctx, msgRefusedNotEligible, outcomeNotEligible, p.Tenant, pathID, p.ID)
+			publicError(w, http.StatusForbidden, contracts.ErrorsV3ErrorCodeAPPROVERNOTELIGIBLE, "This reply cannot be accepted.", corr)
+			return
+		case res == confirm.WrongRequest:
+			c.logRefusal(ctx, msgRefusedWrongRequest, outcomeWrongRequest, p.Tenant, pathID, p.ID)
 			publicError(w, http.StatusForbidden, contracts.ErrorsV3ErrorCodeAPPROVERNOTELIGIBLE, "This reply cannot be accepted.", corr)
 			return
 		case res == confirm.Expired:
+			c.logRefusal(ctx, msgRefusedExpired, outcomeExpired, p.Tenant, pathID, p.ID)
 			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeCONFIRMATIONEXPIRED, "This confirmation has expired.", corr)
 			return
 		case res != confirm.Proceed && res != confirm.Declined:
@@ -170,6 +196,7 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 		_, err = c.Answers.Answer(ctx, ConfirmationAnswerInput{TenantID: p.Tenant, RequestID: pathID, ApproverID: p.ID, Roles: []string{string(p.Role)}, Response: ans.Response, At: at})
 		switch {
 		case errors.Is(err, ErrConfirmationAnswered):
+			c.logRefusal(ctx, msgRefusedAlreadyAnswer, outcomeAlreadyAnswered, p.Tenant, pathID, p.ID)
 			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeIDEMPOTENCYCONFLICT, "This request has already been answered.", corr)
 			return
 		case err != nil:
