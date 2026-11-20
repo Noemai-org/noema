@@ -42,10 +42,15 @@ test("REQ-UI-004 INV-22: an injected case list is refused without rendering it",
 });
 
 test("A446: an inexact JSON integer cannot be displayed as an exact family count", async () => {
-  const scorecard = await fixture("two_cases_clean");
-  scorecard.by_family.B1.n = JSON.parse("9007199254740993");
-  const html = render(scorecard);
-  assert.match(html, /unavailable/i);
-  assert.ok(!html.includes("9007199254740992"));
-  assert.deepEqual(scanScorecardText(html), []);
+  for (const field of ["n", "gate_trips"]) {
+    const scorecard = await fixture("two_cases_clean");
+    scorecard.by_family.B1[field] = JSON.parse("9007199254740993");
+    const html = render(scorecard);
+    assert.match(html, /unavailable/i);
+    assert.ok(!html.includes("9007199254740992"));
+    assert.deepEqual(scanScorecardText(html), []);
+  }
+  const safe = await fixture("two_cases_clean");
+  safe.by_family.B1.n = Number.MAX_SAFE_INTEGER;
+  assert.ok(render(safe).includes("9007199254740991"));
 });

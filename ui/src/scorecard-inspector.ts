@@ -10,6 +10,14 @@ export function ScorecardInspector({ scorecard: input }: { scorecard: unknown })
     if (!(error instanceof ContractError)) throw error;
     return h("p", { role: "status" }, "This scorecard is unavailable.");
   }
+  // Reject unsafe displayed counts: JSON.parse may already have rounded them.
+  // This cannot recover source numeric text; the bench input remains unmounted
+  // until the complete lossless boundary in #808 is agreed and tested.
+  if (scorecard.tier0.gates.some((gate) => !Number.isSafeInteger(gate.count)) ||
+      Object.values(scorecard.by_family).some((result) =>
+        !Number.isSafeInteger(result.n) || !Number.isSafeInteger(result.gate_trips))) {
+    return h("p", { role: "status" }, "This scorecard is unavailable.");
+  }
   return h("section", { "aria-label": "Benchmark scorecard" },
     h("h2", null, "Tier 0"),
     h("ul", null, ...scorecard.tier0.gates.map((gate) => h("li", { key: gate.gate },
