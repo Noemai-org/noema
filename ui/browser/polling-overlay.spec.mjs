@@ -3,17 +3,20 @@ import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
+import { assertAccessible } from './flow-a11y.mjs';
 
 // Local contract server, not the core. All inputs are synthetic.
 const test = base.extend({ page: async ({ page }, use) => {
   try { await use(page); } finally {
-    const scanner = await readFile('build/js/privacy.js', 'utf8');
-    const findings = await page.evaluate(async (source) => {
-      const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-      try { return (await import(url)).scanDom(document.body); }
-      finally { URL.revokeObjectURL(url); }
-    }, scanner);
-    expect(findings).toEqual([]);
+    try {
+      const scanner = await readFile('build/js/privacy.js', 'utf8');
+      const findings = await page.evaluate(async (source) => {
+        const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+        try { return (await import(url)).scanDom(document.body); }
+        finally { URL.revokeObjectURL(url); }
+      }, scanner);
+      expect(findings).toEqual([]);
+    } finally { await assertAccessible(page); }
   }
 } });
 
