@@ -99,6 +99,10 @@ var (
 	cursorRe        = regexp.MustCompile(`\A(0|[1-9][0-9]{0,17})\z`)
 )
 
+// MaxFrameBytes is the UI transport limit (A446, interim, relayed, not yet committed): no single frame or JSON response of this route is larger. It is the contract with the UI,
+// not a safety setting, so it is a constant and not an option.
+const MaxFrameBytes = 65536
+
 const keepalive = ": keepalive\n\n"
 
 // acquire takes one stream place for the principal, or reports that there is none: the caps are the limits of REQ-API-001's long-lived connections.
