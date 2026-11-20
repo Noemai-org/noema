@@ -7,6 +7,13 @@ import unittest
 from pathlib import Path
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+# The one detector, used by the guard and by its self-test (Codex P2 on noema#791): a `--harness-config` whose value holds an expansion ANYWHERE (a shell variable, a command substitution or an
+# expression) can select a configuration that no workflow names. A fixed path has no `$` and no backtick in it.
+HARNESS_VALUE = re.compile(r"""--harness-config(?:\s+|=)("[^"]*"|'[^']*'|\S+)""")
+
+
+def harness_config_is_not_a_fixed_path(line: str) -> bool:
+    return any(re.search(r"[$`]", m.group(1)) for m in HARNESS_VALUE.finditer(line))
 BENCH = sorted(p for p in WORKFLOWS.glob("*.yml") if p.name.startswith("bench") or p.name == "benchmark.yml")
 
 
@@ -26,14 +33,19 @@ class NoTerraInBenchWorkflows(unittest.TestCase):
             self.assertNotRegex(text, r"(?m)^\s+harness(_config)?:\s*$", f"{path.name}: a harness input")
             for line in text.splitlines():
                 if "--harness-config" in line:
-                    self.assertNotIn("${{", line, f"{path.name}: --harness-config is built from an expression: {line.strip()}")
-                    self.assertNotRegex(line, r"--harness-config\s+\"?\$", f"{path.name}: --harness-config is built from a variable: {line.strip()}")
+                    self.assertFalse(harness_config_is_not_a_fixed_path(line), f"{path.name}: --harness-config is not a fixed path: {line.strip()}")
 
     def test_the_checks_do_find_a_violation(self) -> None:
         # The patterns are not vacuous: they match the text a selectable Terra input would add.
         self.assertRegex("      harness:\n", r"(?m)^\s+harness(_config)?:\s*$")
         self.assertRegex("--harness-config benchmark/decisions/harness-gpt-6.1-terra.json", r"(?i)harness-gpt-6\.1-terra")
-        self.assertRegex('--harness-config "benchmark/decisions/harness-$HARNESS.json"', r"--harness-config\s+\"?[^\s]*\$")  # a variable inside the value
+        # The detector is the guard's own, not a broader copy: each of these selects a configuration without naming it.
+        for bad in ('--harness-config "benchmark/decisions/harness-$HARNESS.json"', "--harness-config benchmark/decisions/harness-$HARNESS.json", '--harness-config="benchmark/decisions/${H}.json"',
+                    "--harness-config 'a/$X.json'", "--harness-config benchmark/decisions/$(cat f).json", "--harness-config benchmark/decisions/`cat f`.json", '--harness-config "${{ inputs.x }}"', "--harness-config $X",
+                    '/tmp/venv/bin/python -m x --harness-config "benchmark/decisions/harness-$HARNESS.json" --out y'):
+            self.assertTrue(harness_config_is_not_a_fixed_path(bad), bad)
+        for good in ("--harness-config benchmark/decisions/harness-gpt-6-luna.json", '--harness-config "benchmark/decisions/harness-gpt-6-luna.json"', "python -m x --out y"):
+            self.assertFalse(harness_config_is_not_a_fixed_path(good), good)
 
 
 if __name__ == "__main__":
