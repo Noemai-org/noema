@@ -3,18 +3,19 @@
 
 from __future__ import annotations
 
-from pydantic import ConfigDict
+from typing import Annotated, Literal
+from pydantic import ConfigDict, StringConstraints
 from ._base import ContractModel
 
 class ConversationResponseV1(ContractModel):
-    """STUB for the red commit of CON-07: the five members as bare strings, no pattern and no constant. The implementation replaces it. Source: conversation-response.v1.json"""
+    """PERD 39.2 (REQ-API-001, REQ-UI-001, REQ-SEC-003; ruling A234, interim, relayed, not yet committed): the success answer of POST /v1/conversations, the PERD shape {investigation_id, conversation_ref, state, stream_url} ... Source: conversation-response.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
-    investigation_id: str
-    conversation_ref: str
-    state: str
-    stream_url: str
-    correlation_id: str
+    investigation_id: Annotated[str, StringConstraints(pattern='\\Ainv_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}\\Z')]
+    conversation_ref: Annotated[str, StringConstraints(pattern='\\Ainv_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}\\Z')]
+    state: Literal['understanding']
+    stream_url: Annotated[str, StringConstraints(pattern='\\A/v1/conversations/inv_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}/events\\Z')]
+    correlation_id: Annotated[str, StringConstraints(pattern='\\Acorr_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}\\Z')]
 
 
 ConversationResponseV1.model_rebuild()

@@ -100,6 +100,8 @@
  "conversation-response/schema_version_member.json": "additionalProperties",
  "conversation-response/state_missing.json": "required",
  "conversation-response/state_null.json": "type",
+ "conversation-response/state_upper_case.json": "const",
+ "conversation-response/state_working.json": "const",
  "conversation-response/stream_url_missing.json": "required",
  "conversation-response/stream_url_null.json": "type",
  "conversation-response/tenant_id_in_body.json": "additionalProperties",

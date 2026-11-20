@@ -2,15 +2,41 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/conversation-response.v1.json",
   "title": "Conversation response",
-  "description": "STUB for the red commit of CON-07: the five members as bare strings, no pattern and no constant. The implementation replaces it.",
+  "description": "PERD 39.2 (REQ-API-001, REQ-UI-001, REQ-SEC-003; ruling A234, interim, relayed, not yet committed): the success answer of POST /v1/conversations, the PERD shape {investigation_id, conversation_ref, state, stream_url} plus correlation_id, with HTTP 202 for a new input and 200 for a retry of the same input (A168: a retry gets the same values). The core derives the first two from the correlation ID it minted for the input: investigation_id is 'inv_' and that ID's ULID, and conversation_ref is the same value (PERD 32.3 has no other prefix for it; canonical-input.v2 types it as common.v1's InvestigationId). state is the one public stage a new investigation has, 'understanding' (A234; a value of the PublicStage of investigation-response.v1); later stages come from GET /v1/investigations/{investigation_id} and the stream. stream_url is the route of the events of this conversation, GET /v1/conversations/{conversation_ref}/events (sse-event.v1), relative and with no query. correlation_id is the core-minted 'corr_' and ULID of the input. Each ID is a prefix and a ULID (first character 0 to 7, then Crockford base 32) with a letter in it, the ID rule of the Record guard (tools/contracts/digit_run.py): no member can be a run of digits (AGENT-13), and a ULID that happens to hold five digits in a row is still an ID, which is why a free-text digit-run pattern is not used here. That investigation_id and conversation_ref are one value, that stream_url names it and that correlation_id has the same ULID are relations a schema cannot state; the Go test services/core/cmd/core/conversations_contract_test.go holds them against the real handler. Size: every member is a string of fixed length, so the largest answer is under 512 bytes; the UI limit is 65,536 bytes for any single response or frame (A446). The answer carries no identity (INV-12), no event ID or sequence, no hash and no schema_version (A234 lists none, and the handler writes exactly these five members; PERD 39.1 [REC] says bodies carry one, which a later major can add). Errors are the errors.v3 body, not this one. New file; no earlier contract changes (AGENT-15).",
   "type": "object",
   "properties": {
-    "investigation_id": {"type": "string"},
-    "conversation_ref": {"type": "string"},
-    "state": {"type": "string"},
-    "stream_url": {"type": "string"},
-    "correlation_id": {"type": "string"}
+    "investigation_id": {
+      "description": "'inv_' and the ULID of the input's core-minted correlation ID (A234, A168).",
+      "type": "string",
+      "pattern": "^inv_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    },
+    "conversation_ref": {
+      "description": "The same value as investigation_id: the reference the customer page puts in the paths of the conversation (A234).",
+      "type": "string",
+      "pattern": "^inv_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    },
+    "state": {
+      "description": "The public stage of a new investigation (A234).",
+      "type": "string",
+      "const": "understanding"
+    },
+    "stream_url": {
+      "description": "The events route of this conversation: GET /v1/conversations/{conversation_ref}/events, relative, no query.",
+      "type": "string",
+      "pattern": "^/v1/conversations/inv_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}/events$"
+    },
+    "correlation_id": {
+      "description": "The core-minted correlation ID of the recorded input, 'corr_' and its ULID.",
+      "type": "string",
+      "pattern": "^corr_(?=[0-9]*[A-Za-z])[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    }
   },
-  "required": ["investigation_id", "conversation_ref", "state", "stream_url", "correlation_id"],
+  "required": [
+    "investigation_id",
+    "conversation_ref",
+    "state",
+    "stream_url",
+    "correlation_id"
+  ],
   "additionalProperties": false
 }

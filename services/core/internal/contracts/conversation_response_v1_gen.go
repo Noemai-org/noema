@@ -8,7 +8,7 @@ import (
 )
 
 // ConversationResponseV1 is generated from conversation-response.v1.json.
-// STUB for the red commit of CON-07: the five members as bare strings, no pattern and no constant. The implementation replaces it.
+// PERD 39.2 (REQ-API-001, REQ-UI-001, REQ-SEC-003; ruling A234, interim, relayed, not yet committed): the success answer of POST /v1/conversations, the PERD shape {investigation_id, conversation_ref, state, stream_url}...
 type ConversationResponseV1 struct {
 	InvestigationId string `json:"investigation_id"`
 	ConversationRef string `json:"conversation_ref"`
@@ -28,6 +28,9 @@ func (t *ConversationResponseV1) UnmarshalJSON(b []byte) error {
 	var a alias
 	if err := json.Unmarshal(b, &a); err != nil {
 		return fmt.Errorf("contracts: ConversationResponseV1: %w", err)
+	}
+	if a.State != "understanding" {
+		return fmt.Errorf("contracts: ConversationResponseV1.state: must be %s", "\"understanding\"")
 	}
 	_ = raw
 	*t = ConversationResponseV1(a)
