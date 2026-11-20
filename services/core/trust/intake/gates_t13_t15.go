@@ -120,7 +120,7 @@ func (e *evaluation) t13Declined(ctx context.Context, c Confirmation) decide.Ste
 	}
 	a := e.intent
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
-		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, DeclinedRequestID: c.RequestID})
 	if err != nil {
 		return decide.FailStep(err)
 	}
