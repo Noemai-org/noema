@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/plangraphs"
@@ -52,8 +53,8 @@ func req() intake.PlanRequest {
 func intent() plangraphs.IntentSlots {
 	return plangraphs.IntentSlots{TenantID: "t1", IntentID: "int_1", Version: 1, IntentNode: node, IntentHash: hash, TargetRef: target,
 		Slots: map[string]plangraphs.SlotValue{
-			"reason": {Resolved: true, Value: "double debit"},
-			"amount": {Resolved: false, Value: "999"},
+			"reason": {Resolved: true, Value: "double debit", Kind: plangraphs.SlotKindReference},
+			"amount": {Resolved: false, Value: "999", Kind: plangraphs.SlotKindQuantity},
 		}}
 }
 
@@ -66,8 +67,10 @@ func packGraph(params ...plangraphs.ParamSpec) plangraphs.PackGraph {
 
 func build(g plangraphs.PackGraph, in plangraphs.IntentSlots) (*fakePack, plangraphs.Adapter) {
 	p := &fakePack{g: map[string]plangraphs.PackGraph{node: g}}
-	return p, plangraphs.Adapter{Pack: p, Intents: &fakeIntents{in: in}, Contexts: fakeContexts{pc: allRunnable}}
+	return p, plangraphs.Adapter{Pack: p, Intents: &fakeIntents{in: in}, Contexts: fakeContexts{pc: allRunnable}, MaxTextBytes: maxText}
 }
+
+const maxText = 64
 
 const (
 	capCreate = "fin.cap.create_escalation_case"
@@ -91,11 +94,11 @@ func graph(a plangraphs.Adapter, r intake.PlanRequest) (trustport.PlanGraph, err
 }
 
 func slotP(name, s string) plangraphs.ParamSpec {
-	return plangraphs.ParamSpec{Name: name, Kind: plangraphs.KindSlot, Slot: s}
+	return plangraphs.ParamSpec{Name: name, Kind: plangraphs.KindSlot, Slot: s, SlotKind: plangraphs.SlotKindQuantity}
 }
 
 func TestParamsFromSlots(t *testing.T) {
-	_, a := build(packGraph(plangraphs.ParamSpec{Name: "reason", Kind: plangraphs.KindSlot, Slot: "reason"}), intent())
+	_, a := build(packGraph(plangraphs.ParamSpec{Name: "reason", Kind: plangraphs.KindSlot, Slot: "reason", SlotKind: plangraphs.SlotKindReference}), intent())
 	g, err := graph(a, req())
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +120,7 @@ func TestParamsFromSlots(t *testing.T) {
 func TestParamsFromPackData(t *testing.T) {
 	_, a := build(packGraph(
 		plangraphs.ParamSpec{Name: "queue", Kind: plangraphs.KindConst, Value: "disputes"},
-		plangraphs.ParamSpec{Name: "reason", Kind: plangraphs.KindSlot, Slot: "reason"},
+		plangraphs.ParamSpec{Name: "reason", Kind: plangraphs.KindSlot, Slot: "reason", SlotKind: plangraphs.SlotKindReference},
 	), intent())
 	g, err := graph(a, req())
 	if err != nil {
@@ -150,18 +153,18 @@ func TestParamFromTextIsRefused(t *testing.T) {
 
 func mapIntent(v any, resolved bool) plangraphs.IntentSlots {
 	in := intent()
-	in.Slots["question_type"] = plangraphs.SlotValue{Resolved: resolved, Value: v}
+	in.Slots["question_type"] = plangraphs.SlotValue{Resolved: resolved, Value: v, Kind: plangraphs.SlotKindEnum}
 	return in
 }
 
 var reasonMap = map[string]string{"ESCALATION_REQUEST": "ESCALATION_REQUESTED", "DISPUTE": "DISPUTE_OPENED"}
 
 func mapParam() plangraphs.ParamSpec {
-	return plangraphs.ParamSpec{Name: "reason_code", Kind: plangraphs.KindMap, Slot: "question_type", Map: reasonMap}
+	return plangraphs.ParamSpec{Name: "reason_code", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: reasonMap}
 }
 
 func TestMapLooksTheResolvedSlotUp(t *testing.T) {
-	_, a := build(packGraph(mapParam(), plangraphs.ParamSpec{Name: "transaction_ref", Kind: plangraphs.KindSlot, Slot: "reason"}), mapIntent("ESCALATION_REQUEST", true))
+	_, a := build(packGraph(mapParam(), plangraphs.ParamSpec{Name: "transaction_ref", Kind: plangraphs.KindSlot, Slot: "reason", SlotKind: plangraphs.SlotKindReference}), mapIntent("ESCALATION_REQUEST", true))
 	g, err := graph(a, req())
 	if err != nil {
 		t.Fatal(err)
@@ -195,9 +198,9 @@ func TestMapNeedsAResolvedSlotAndADeclaration(t *testing.T) {
 	}
 	bad := map[string]plangraphs.ParamSpec{
 		"no from":    {Name: "x", Kind: plangraphs.KindMap, Slot: "", Map: reasonMap},
-		"empty map":  {Name: "x", Kind: plangraphs.KindMap, Slot: "question_type", Map: map[string]string{}},
-		"nil map":    {Name: "x", Kind: plangraphs.KindMap, Slot: "question_type"},
-		"empty code": {Name: "x", Kind: plangraphs.KindMap, Slot: "question_type", Map: map[string]string{"ESCALATION_REQUEST": ""}},
+		"empty map":  {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: map[string]string{}},
+		"nil map":    {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type"},
+		"empty code": {Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: map[string]string{"ESCALATION_REQUEST": ""}},
 	}
 	for n, p := range bad {
 		_, a = build(packGraph(p), mapIntent("ESCALATION_REQUEST", true))
@@ -364,14 +367,14 @@ func TestFloatsAreRefused(t *testing.T) {
 			t.Fatalf("const %s: err = %v, want ErrParamSource", n, err)
 		}
 		in := intent()
-		in.Slots["amt"] = plangraphs.SlotValue{Resolved: true, Value: v}
+		in.Slots["amt"] = plangraphs.SlotValue{Resolved: true, Value: v, Kind: plangraphs.SlotKindQuantity}
 		_, a = build(packGraph(slotP("a", "amt")), in)
 		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrParamSource) {
 			t.Fatalf("slot %s: err = %v, want ErrParamSource", n, err)
 		}
 	}
 	in := intent()
-	in.Slots["amt"] = plangraphs.SlotValue{Resolved: true, Value: json.Number("1500")}
+	in.Slots["amt"] = plangraphs.SlotValue{Resolved: true, Value: json.Number("1500"), Kind: plangraphs.SlotKindQuantity}
 	_, a := build(packGraph(slotP("a", "amt")), in)
 	if out, err := graph(a, req()); err != nil || out.Steps[0].Params["a"] != json.Number("1500") {
 		t.Fatalf("an integer is allowed: %v %+v", err, out)
@@ -396,7 +399,7 @@ func TestBadParamDeclarationsAreRefused(t *testing.T) {
 
 func TestUnresolvedAndAbsentSlotsAreRefused(t *testing.T) {
 	for _, slot := range []string{"amount", "missing"} {
-		_, a := build(packGraph(plangraphs.ParamSpec{Name: "x", Kind: plangraphs.KindSlot, Slot: slot}), intent())
+		_, a := build(packGraph(plangraphs.ParamSpec{Name: "x", Kind: plangraphs.KindSlot, Slot: slot, SlotKind: plangraphs.SlotKindQuantity}), intent())
 		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrUnresolvedSlot) || !errors.Is(err, trustport.ErrPlanGraphInvalid) {
 			t.Fatalf("slot %q: err = %v, want ErrUnresolvedSlot", slot, err)
 		}
@@ -404,7 +407,7 @@ func TestUnresolvedAndAbsentSlotsAreRefused(t *testing.T) {
 }
 
 func TestTargetIsTheIntentsNeverAParam(t *testing.T) {
-	_, a := build(packGraph(plangraphs.ParamSpec{Name: "target", Kind: plangraphs.KindSlot, Slot: "reason"}), intent())
+	_, a := build(packGraph(plangraphs.ParamSpec{Name: "target", Kind: plangraphs.KindSlot, Slot: "reason", SlotKind: plangraphs.SlotKindReference}), intent())
 	g, err := graph(a, req())
 	if err != nil {
 		t.Fatal(err)
@@ -441,7 +444,7 @@ func TestWriteWithoutIntentTargetIsRefused(t *testing.T) {
 }
 
 func TestDeterministic(t *testing.T) {
-	_, a := build(packGraph(plangraphs.ParamSpec{Name: "reason", Kind: plangraphs.KindSlot, Slot: "reason"}, plangraphs.ParamSpec{Name: "queue", Kind: plangraphs.KindConst, Value: "q"}), intent())
+	_, a := build(packGraph(plangraphs.ParamSpec{Name: "reason", Kind: plangraphs.KindSlot, Slot: "reason", SlotKind: plangraphs.SlotKindReference}, plangraphs.ParamSpec{Name: "queue", Kind: plangraphs.KindConst, Value: "q"}), intent())
 	first, err := graph(a, req())
 	if err != nil {
 		t.Fatal(err)
@@ -458,8 +461,8 @@ func TestReturnedParamsAreCopies(t *testing.T) {
 	nested := map[string]any{"k": []any{"a", map[string]any{"z": "1"}}}
 	pg := packGraph(plangraphs.ParamSpec{Name: "c", Kind: plangraphs.KindConst, Value: nested})
 	in := intent()
-	in.Slots["obj"] = plangraphs.SlotValue{Resolved: true, Value: map[string]any{"n": "1"}}
-	pg.Steps[0].Params = append(pg.Steps[0].Params, plangraphs.ParamSpec{Name: "o", Kind: plangraphs.KindSlot, Slot: "obj"})
+	in.Slots["obj"] = plangraphs.SlotValue{Resolved: true, Value: map[string]any{"n": "1"}, Kind: plangraphs.SlotKindReference}
+	pg.Steps[0].Params = append(pg.Steps[0].Params, plangraphs.ParamSpec{Name: "o", Kind: plangraphs.KindSlot, Slot: "obj", SlotKind: plangraphs.SlotKindReference})
 	pack, a := build(pg, in)
 	g, err := graph(a, req())
 	if err != nil {
@@ -491,7 +494,7 @@ func TestOtherIntentNodesGraphIsNotReturned(t *testing.T) {
 	other := packGraph()
 	other.IntentNode = "fin.intent.other"
 	p := &fakePack{g: map[string]plangraphs.PackGraph{node: other, "fin.intent.unknown": other}}
-	a := plangraphs.Adapter{Pack: p, Intents: &fakeIntents{in: intent()}, Contexts: fakeContexts{pc: allRunnable}}
+	a := plangraphs.Adapter{Pack: p, Intents: &fakeIntents{in: intent()}, Contexts: fakeContexts{pc: allRunnable}, MaxTextBytes: maxText}
 	if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrWrongIntent) {
 		t.Fatalf("err = %v, want ErrWrongIntent", err)
 	}
@@ -499,7 +502,7 @@ func TestOtherIntentNodesGraphIsNotReturned(t *testing.T) {
 	r.IntentNode = "fin.intent.nothing"
 	in := intent()
 	in.IntentNode = r.IntentNode
-	a = plangraphs.Adapter{Pack: p, Intents: &fakeIntents{in: in}}
+	a = plangraphs.Adapter{Pack: p, Intents: &fakeIntents{in: in}, MaxTextBytes: maxText}
 	if _, err := graph(a, r); !errors.Is(err, trustport.ErrPlanGraphInvalid) {
 		t.Fatalf("a node with no graph: err = %v, want ErrPlanGraphInvalid", err)
 	}
@@ -527,11 +530,11 @@ func TestStoredIntentMustMatchTheRequest(t *testing.T) {
 
 func TestDependencyErrorsAreNotPlanInvalid(t *testing.T) {
 	boom := errors.New("store down")
-	a := plangraphs.Adapter{Pack: &fakePack{g: map[string]plangraphs.PackGraph{node: packGraph()}}, Intents: &fakeIntents{err: boom}}
+	a := plangraphs.Adapter{Pack: &fakePack{g: map[string]plangraphs.PackGraph{node: packGraph()}}, Intents: &fakeIntents{err: boom}, MaxTextBytes: maxText}
 	if _, err := graph(a, req()); !errors.Is(err, boom) || errors.Is(err, trustport.ErrPlanGraphInvalid) {
 		t.Fatalf("intent store error: %v", err)
 	}
-	a = plangraphs.Adapter{Pack: &fakePack{err: boom}, Intents: &fakeIntents{in: intent()}}
+	a = plangraphs.Adapter{Pack: &fakePack{err: boom}, Intents: &fakeIntents{in: intent()}, MaxTextBytes: maxText}
 	if _, err := graph(a, req()); !errors.Is(err, boom) || errors.Is(err, trustport.ErrPlanGraphInvalid) {
 		t.Fatalf("pack error: %v", err)
 	}
@@ -567,11 +570,124 @@ func TestSlotParamsNeedASlotName(t *testing.T) {
 
 // A non-string slot value is never coerced to a key, even when the map has an empty key.
 func TestMapNeverCoercesANonStringValue(t *testing.T) {
-	p := plangraphs.ParamSpec{Name: "x", Kind: plangraphs.KindMap, Slot: "question_type", Map: map[string]string{"": "EMPTY_KEY", "7": "SEVEN"}}
+	p := plangraphs.ParamSpec{Name: "x", Kind: plangraphs.KindMap, SlotKind: plangraphs.SlotKindEnum, Slot: "question_type", Map: map[string]string{"": "EMPTY_KEY", "7": "SEVEN"}}
 	for _, v := range []any{7, true, nil} {
 		_, a := build(packGraph(p), mapIntent(v, true))
 		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrMapValue) {
 			t.Fatalf("value %#v: err = %v, want ErrMapValue", v, err)
+		}
+	}
+}
+
+// A440 (interim, relayed, not yet committed): a slot param declares {slot, kind}; the planner refuses a resolved value of another kind, early and by name.
+var allSlotKinds = []plangraphs.SlotKind{plangraphs.SlotKindResource, plangraphs.SlotKindQuantity, plangraphs.SlotKindParty, plangraphs.SlotKindTimeRef, plangraphs.SlotKindReference, plangraphs.SlotKindEnum}
+
+func kindIntent(k plangraphs.SlotKind, rk string, v any) plangraphs.IntentSlots {
+	in := intent()
+	in.Slots["s"] = plangraphs.SlotValue{Resolved: true, Value: v, Kind: k, ResourceKind: rk}
+	return in
+}
+
+func kindParam(pk plangraphs.ParamKind, k plangraphs.SlotKind, rk string) plangraphs.ParamSpec {
+	return plangraphs.ParamSpec{Name: "amount_ref", Kind: pk, Slot: "s", SlotKind: k, ResourceKind: rk, Map: map[string]string{"x": "X"}}
+}
+
+func TestSlotParamKindMatchPlans(t *testing.T) {
+	for _, k := range allSlotKinds {
+		rk := ""
+		if k == plangraphs.SlotKindResource {
+			rk = "account"
+		}
+		_, a := build(packGraph(kindParam(plangraphs.KindSlot, k, rk)), kindIntent(k, rk, "x"))
+		if g, err := graph(a, req()); err != nil || g.Steps[0].Params["amount_ref"] != "x" {
+			t.Fatalf("kind %s: %v %+v", k, err, g)
+		}
+	}
+	_, a := build(packGraph(kindParam(plangraphs.KindMap, plangraphs.SlotKindEnum, "")), kindIntent(plangraphs.SlotKindEnum, "", "x"))
+	if g, err := graph(a, req()); err != nil || g.Steps[0].Params["amount_ref"] != "X" {
+		t.Fatalf("map: %v %+v", err, g)
+	}
+}
+
+func TestSlotValueOfAnotherKindIsRefused(t *testing.T) {
+	for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
+		for _, want := range allSlotKinds {
+			for _, have := range append([]plangraphs.SlotKind{""}, allSlotKinds...) {
+				if want == have {
+					continue
+				}
+				_, a := build(packGraph(kindParam(pk, want, "account")), kindIntent(have, "account", "x"))
+				g, err := graph(a, req())
+				if !errors.Is(err, plangraphs.ErrSlotKind) || !errors.Is(err, trustport.ErrPlanGraphInvalid) || !strings.Contains(err.Error(), "amount_ref") {
+					t.Fatalf("%s want %q have %q: err = %v, want ErrSlotKind naming the param", pk, want, have, err)
+				}
+				if len(g.Steps) != 0 {
+					t.Fatalf("a refusal returns no step: %+v", g)
+				}
+			}
+		}
+	}
+}
+
+func TestSlotParamWithNoOrUnknownKindIsRefused(t *testing.T) {
+	for _, k := range []plangraphs.SlotKind{"", "resource", "Free", "Text", "ENUM"} {
+		for _, pk := range []plangraphs.ParamKind{plangraphs.KindSlot, plangraphs.KindMap} {
+			_, a := build(packGraph(kindParam(pk, k, "")), kindIntent(plangraphs.SlotKindEnum, "", "x"))
+			if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrSlotKind) {
+				t.Fatalf("%s kind %q: err = %v, want ErrSlotKind", pk, k, err)
+			}
+		}
+	}
+}
+
+func TestResourceKindMustMatch(t *testing.T) {
+	R := plangraphs.SlotKindResource
+	for n, c := range map[string][2]string{"other": {"account", "card"}, "value has none": {"account", ""}, "declaration has none": {"", "account"}, "both none": {"", ""}} {
+		_, a := build(packGraph(kindParam(plangraphs.KindSlot, R, c[0])), kindIntent(R, c[1], "x"))
+		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrSlotKind) {
+			t.Fatalf("%s: err = %v, want ErrSlotKind", n, err)
+		}
+	}
+}
+
+// AGENT-13 and the Security Reviewer's condition on noema#762: text from a slot has no digit run over four and a bound.
+func TestSlotTextIsBoundedAndHasNoLongDigitRun(t *testing.T) {
+	bad := map[string]any{
+		"five digits":     "ref 12345",
+		"card number":     "4111111111111111",
+		"digits in text":  "pay to 0123456789 now",
+		"nested in map":   map[string]any{"k": []any{"ok", "99999"}},
+		"over the bound":  strings.Repeat("a", maxText+1),
+		"multibyte bound": strings.Repeat("\u00e9", maxText/2+1),
+	}
+	for n, v := range bad {
+		_, a := build(packGraph(kindParam(plangraphs.KindSlot, plangraphs.SlotKindReference, "")), kindIntent(plangraphs.SlotKindReference, "", v))
+		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrFreeText) || !errors.Is(err, trustport.ErrPlanGraphInvalid) {
+			t.Fatalf("%s: err = %v, want ErrFreeText", n, err)
+		}
+	}
+	for n, v := range map[string]any{"four digits": "ref 1234 and 5678", "at the bound": strings.Repeat("a", maxText), "date": "2026-11-20"} {
+		_, a := build(packGraph(kindParam(plangraphs.KindSlot, plangraphs.SlotKindReference, "")), kindIntent(plangraphs.SlotKindReference, "", v))
+		if _, err := graph(a, req()); err != nil {
+			t.Fatalf("%s: %v", n, err)
+		}
+	}
+}
+
+// Pack constants and run-time facts are the pack's and the platform's own values, not slot text: the text rule does not apply to them.
+func TestTextRuleAppliesToSlotsOnly(t *testing.T) {
+	_, a := build(packGraph(plangraphs.ParamSpec{Name: "c", Kind: plangraphs.KindConst, Value: "case 123456789"}), intent())
+	if _, err := graph(a, req()); err != nil {
+		t.Fatalf("const: %v", err)
+	}
+}
+
+func TestTextBoundHasNoDefault(t *testing.T) {
+	for _, n := range []int{0, -1} {
+		_, a := build(packGraph(), intent())
+		a.MaxTextBytes = n
+		if _, err := graph(a, req()); !errors.Is(err, trustport.ErrConfig) {
+			t.Fatalf("bound %d: err = %v, want ErrConfig", n, err)
 		}
 	}
 }

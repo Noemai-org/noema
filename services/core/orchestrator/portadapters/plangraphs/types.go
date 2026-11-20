@@ -30,6 +30,19 @@ const (
 	KindEvidencePacket ParamKind = "evidence_packet"
 )
 
+// SlotKind is the type of a slot (A440, interim, relayed, not yet committed): a slot param declares the kind it expects, and the planner refuses a resolved value of another kind.
+type SlotKind string
+
+// The six slot kinds. For SlotKindResource the declaration and the value also carry a resource kind.
+const (
+	SlotKindResource  SlotKind = "Resource"
+	SlotKindQuantity  SlotKind = "Quantity"
+	SlotKindParty     SlotKind = "Party"
+	SlotKindTimeRef   SlotKind = "TimeRef"
+	SlotKindReference SlotKind = "Reference"
+	SlotKindEnum      SlotKind = "Enum"
+)
+
 // ParamSpec is the pack's declaration of one step param. Which fields apply depends on Kind: slot uses Slot; const uses Value; map uses Slot and Map; fact and policy_param
 // use Ref; evidence_packet uses none.
 type ParamSpec struct {
@@ -39,6 +52,10 @@ type ParamSpec struct {
 	Value any
 	Map   map[string]string
 	Ref   string
+	// SlotKind is the kind the slot param (kind slot or map) expects of the slot's value (A440). It is required there, and is named SlotKind because Kind is the param's source.
+	SlotKind SlotKind
+	// ResourceKind is the expected resource kind; required when SlotKind is SlotKindResource.
+	ResourceKind string
 }
 
 // PlanContext is what the plan needs besides the admitted intent: the capabilities to plan now, and the run-time values the params draw on. The intake's PlanRequest carries the
@@ -85,6 +102,9 @@ type Pack interface {
 type SlotValue struct {
 	Resolved bool
 	Value    any
+	// Kind is the value's own kind (A440); a value with no kind is refused by a slot param. ResourceKind is set for SlotKindResource.
+	Kind         SlotKind
+	ResourceKind string
 }
 
 // IntentSlots is what the plan needs of a stored, admitted intent: its identity, its target and its slots. The adapter reading the intent store resolves TargetRef from the
@@ -113,7 +133,11 @@ var (
 	ErrMapValue       = fmt.Errorf("%w: a mapped slot's value is not in the pack's map", trustport.ErrPlanGraphInvalid)
 	// ErrNotPlannable is a step whose run-time fact, policy param or evidence packet is absent now. It is a typed refusal, never a guess.
 	ErrNotPlannable = fmt.Errorf("%w: a run-time fact, policy param or evidence packet the step needs is absent", trustport.ErrPlanGraphInvalid)
-	ErrNoRunnable   = fmt.Errorf("%w: no runnable step, or a runnable capability the graph does not have", trustport.ErrPlanGraphInvalid)
+	// ErrSlotKind is a slot param with no valid kind, or a resolved value whose own kind (or resource kind) is not the declared one (A440). It is refused at planning, by name.
+	ErrSlotKind = fmt.Errorf("%w: a slot param's declared kind is missing or is not the resolved value's kind", trustport.ErrPlanGraphInvalid)
+	// ErrFreeText is a string from a slot that carries a digit run over four (AGENT-13) or exceeds the length bound.
+	ErrFreeText   = fmt.Errorf("%w: a slot text has a digit run over four or is longer than the bound", trustport.ErrPlanGraphInvalid)
+	ErrNoRunnable = fmt.Errorf("%w: no runnable step, or a runnable capability the graph does not have", trustport.ErrPlanGraphInvalid)
 )
 
 // Adapter implements trustport.PlanGraphs.
@@ -121,6 +145,8 @@ type Adapter struct {
 	Pack     Pack
 	Intents  Intents
 	Contexts PlanContexts
+	// MaxTextBytes bounds every string that comes from a slot (the Security Reviewer's condition on noema#762). It has NO default: zero or negative is trustport.ErrConfig.
+	MaxTextBytes int
 }
 
 var _ trustport.PlanGraphs = Adapter{}
