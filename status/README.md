@@ -13,6 +13,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 - `REC-03.md` (Core Engineer 1, 1 Nov 2026): the reconstruction endpoint, its session and its messages.
 - One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
+- `STM-01-writes-adapter.md` (19 Nov 2026): the `Writes` adapter of the Trust intake (T3: the kill switch composed with a pack write rule, fail closed); the pack rule is not built because the pack has no field for it; what is needed.
 - `TRU-07-confirm-port.md` (19 Nov 2026): the `Confirmations` port of `trust/intake` carries the fresh binding, the declined status and the request fields; what EL's adapter must implement and the open questions.
 - `status/roles/` (31 Oct 2026): one file per role agent, each written only by its role, so that role status never conflicts. These task files above stay as history.
 - `CON-digit-tightenings.md` (Core Engineer 1, 18 Nov 2026): three tightenings of the public digit-run pattern (U+001C to U+001F, comma-joined ten digits, the exact ULID minted-ID branch), the migration note, the open reference-branch question and what noema#709's consumers must do.
