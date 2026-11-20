@@ -45,6 +45,7 @@ type world struct {
 	execA          *pgxpool.Pool
 	outcomeA       *pgxpool.Pool
 	store          *policystore.Store
+	dsn            string // the administrator's DSN of this test database, for logins a test makes itself
 }
 
 func newWorld(t *testing.T) *world {
@@ -60,7 +61,7 @@ func newWorld(t *testing.T) *world {
 	}
 	clk := clock.NewManual(epoch)
 	idg := ids.New(clk, rand.New(rand.NewSource(1)))
-	return &world{admin: admin,
+	return &world{admin: admin, dsn: dsn,
 		trustA: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantA), trustB: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantB),
 		execA: testpg.TenantLogin(t, admin, dsn, "execution_rw", tenantA), outcomeA: testpg.TenantLogin(t, admin, dsn, "outcome_rw", tenantA),
 		store: &policystore.Store{Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "policystore", nil, "core-trust")}}}
@@ -71,10 +72,10 @@ const testDocHash = "sha256:0000000000000000000000000000000000000000000000000000
 
 func (w *world) publish(t *testing.T, p *pgxpool.Pool, tenant, policyID, version string) error {
 	t.Helper()
-	return w.publishWith(t, p, tenant, policyID, version, testDocHash)
+	return w.publishHashed(t, p, tenant, policyID, version, testDocHash)
 }
 
-func (w *world) publishWith(t *testing.T, p *pgxpool.Pool, tenant, policyID, version, hash string) error {
+func (w *world) publishHashed(t *testing.T, p *pgxpool.Pool, tenant, policyID, version, hash string) error {
 	t.Helper()
 	tx, err := p.Begin(ctx(t))
 	if err != nil {

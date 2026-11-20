@@ -53,7 +53,7 @@ func publicationCount(t *testing.T, w *world) int {
 // REQ-TRU-005: a publication stores the document's hash, byte for byte.
 func TestAPublicationStoresTheDocumentHash(t *testing.T) {
 	w := newWorld(t)
-	if err := w.publishWith(t, w.trustA, tenantA, "fin.pol", "3.1", otherDocHash); err != nil {
+	if err := w.publishHashed(t, w.trustA, tenantA, "fin.pol", "3.1", otherDocHash); err != nil {
 		t.Fatal(err)
 	}
 	if got := storedHash(t, w, tenantA, "fin.pol", "3.1"); got == nil || *got != otherDocHash {
@@ -69,7 +69,7 @@ func TestARequestWithAMissingOrMalformedHashIsRefusedAndWritesNothing(t *testing
 		"long": "sha256:" + strings.Repeat("a", 65), "another algorithm": "sha512:" + strings.Repeat("a", 64), "not hex": "sha256:" + strings.Repeat("g", 64),
 		"trailing newline": "sha256:" + strings.Repeat("a", 64) + "\n", "leading space": " sha256:" + strings.Repeat("a", 64),
 	} {
-		err := w.publishWith(t, w.trustA, tenantA, "fin.pol", "3.1", h)
+		err := w.publishHashed(t, w.trustA, tenantA, "fin.pol", "3.1", h)
 		if !errors.Is(err, policystore.ErrRequest) {
 			t.Errorf("%s: err %v, want ErrRequest", name, err)
 			continue
@@ -129,10 +129,10 @@ func TestTheDatabaseRefusesAPublicationWithNoHashOrAMalformedOne(t *testing.T) {
 // REQ-SEC-004: a tenant's login reads its own publication hashes and no other tenant's (the row-level security of 0015 covers the new column).
 func TestADocumentHashIsReadableOnlyByItsOwnTenant(t *testing.T) {
 	w := newWorld(t)
-	if err := w.publishWith(t, w.trustA, tenantA, "fin.pol", "3.1", otherDocHash); err != nil {
+	if err := w.publishHashed(t, w.trustA, tenantA, "fin.pol", "3.1", otherDocHash); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.publishWith(t, w.trustB, tenantB, "fin.pol", "3.1", testDocHash); err != nil {
+	if err := w.publishHashed(t, w.trustB, tenantB, "fin.pol", "3.1", testDocHash); err != nil {
 		t.Fatal(err)
 	}
 	read := func(p *pgxpool.Pool) []string {
@@ -218,7 +218,7 @@ func TestAPublicationMadeBeforeTheHashKeepsANullHashAndStaysReadable(t *testing.
 	if _, err := admin.Exec(ctx(t), `UPDATE policy_publication SET document_hash = $1`, otherDocHash); err == nil {
 		t.Fatal("a publication was edited into having a hash")
 	}
-	if err := w.publishWith(t, trustA, tenantA, "fin.pol", "3.2", otherDocHash); err != nil {
+	if err := w.publishHashed(t, trustA, tenantA, "fin.pol", "3.2", otherDocHash); err != nil {
 		t.Fatalf("a newer version over a legacy one: %v", err)
 	}
 	if got := storedHash(t, w, tenantA, "fin.pol", "3.2"); got == nil || *got != otherDocHash {
