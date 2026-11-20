@@ -329,6 +329,10 @@ func productionDeps() composeDeps {
 	}
 }
 
+// EnvInvestigationStartTimeout is how long the dial and the start of the worker may take, in whole milliseconds (A472, interim, relayed, not yet committed). Required once a worker is configured;
+// no default in code (A330, AGENT-16).
+const EnvInvestigationStartTimeout = "NOEMA_INVESTIGATION_START_TIMEOUT_MS"
+
 // workerStartTimeout bounds the dial and the start of the worker. It is structural (a process must not wait for Temporal for ever), not a safety number.
 const workerStartTimeout = 30 * time.Second
 

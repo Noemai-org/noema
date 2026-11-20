@@ -56,7 +56,7 @@ func mcWorkerDeps(log *[]string, startErr error, withActivities bool) composeDep
 }
 
 func mcWorkerEnv() envMap {
-	return envMap{EnvTemporalAddress: "temporal.synthetic:7233", EnvTemporalNamespace: "noema", EnvTemporalTaskQueue: "noema-core", EnvTemporalActivityTimeout: "30000", EnvTemporalTLSCA: "/synthetic/ca.pem"}
+	return envMap{EnvTemporalAddress: "temporal.synthetic:7233", EnvTemporalNamespace: "noema", EnvTemporalTaskQueue: "noema-core", EnvTemporalActivityTimeout: "30000", EnvTemporalTLSCA: "/synthetic/ca.pem", EnvInvestigationStartTimeout: "30000"}
 }
 
 func mcEnvOf(e envMap) Env { return Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir} }
@@ -82,13 +82,10 @@ func TestWithNoTemporalSettingThereIsNoWorkerAndNoDial(t *testing.T) {
 	}
 }
 
-// A442, AGENT-16: a configured worker that cannot run is never a quiet degraded mode. A part that is missing (the production build has no activities until noema#812) or a setting that
-// is wrong stops the start before any dial, and the error names the setting or says the worker was not started.
+// A442, A469: a configured worker that was asked to start and cannot is never a quiet degraded mode: a setting that is wrong stops the start before any dial and the error names the setting;
+// a start that fails is ErrWorkerNotStarted. (A worker whose activities are not built is a named gap, not an error: main_compose_worker_gap_test.go.)
 func TestAConfiguredWorkerThatCannotStartIsAnErrorAndDialsNothing(t *testing.T) {
 	var log []string
-	if rw, err := buildWorker(t.Context(), mcEnvOf(mcWorkerEnv()), mcWorkerDeps(&log, nil, false)); rw != nil || !errors.Is(err, ErrWorkerNotStarted) || len(log) != 0 {
-		t.Errorf("no activities: worker %v, error %v, events %v; want ErrWorkerNotStarted and no dial", rw, err, log)
-	}
 	bad := mcWorkerEnv()
 	bad[EnvTemporalActivityTimeout] = "0"
 	if rw, err := buildWorker(t.Context(), mcEnvOf(bad), mcWorkerDeps(&log, nil, true)); rw != nil || err == nil || !strings.Contains(err.Error(), EnvTemporalActivityTimeout) || len(log) != 0 {
@@ -146,7 +143,7 @@ func TestTheProcessReadinessNamesAMissingWorkerAndTheProcessStopsARunningOne(t *
 func TestAProcessWithAWorkerThatDoesNotStartIsNotComposed(t *testing.T) {
 	var sink strings.Builder
 	var log []string
-	p, err := mcProcess(t, mcWorkerEnv(), mcWorkerDeps(&log, nil, false), &sink)
+	p, err := mcProcess(t, mcWorkerEnv(), mcWorkerDeps(&log, errors.New("synthetic start failure"), true), &sink)
 	if !errors.Is(err, ErrWorkerNotStarted) || p == nil || p.Close == nil {
 		t.Fatalf("error %v; want ErrWorkerNotStarted and a Process whose Close can be called", err)
 	}
