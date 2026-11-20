@@ -10,6 +10,14 @@ export function BenchmarkLatency({ scorecard: input }: { scorecard: unknown }) {
     if (!(error instanceof ContractError)) throw error;
     return h("p", { role: "status" }, "This scorecard is unavailable.");
   }
+  // JSON numbers outside the safe-integer range may already have lost digits.
+  // Refuse them rather than display a value that could differ from the source.
+  for (const latency of Object.values(scorecard.tier3.latency_by_path)) {
+    if ([latency.n, latency.p50_ms, latency.p95_ms, latency.p99_ms]
+      .some((n) => n !== null && !Number.isSafeInteger(n))) {
+      return h("p", { role: "status" }, "This scorecard is unavailable.");
+    }
+  }
   const value = (n: number | null) => n === null ? "Not available" : String(n);
   return h("section", { "aria-label": "Latency by path" },
     h("h2", null, "Latency by path"),

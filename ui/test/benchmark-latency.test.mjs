@@ -21,3 +21,10 @@ test("REQ-UI-004 INV-22: a case list cannot be rendered as latency", () => {
   assert.match(html, /unavailable/i);
   assert.doesNotMatch(html, /BEN-AMB-0001/);
 });
+test("A298: latency cannot display an integer JavaScript cannot represent exactly", () => {
+  const unsafe = structuredClone(fixture);
+  unsafe.tier3.latency_by_path.CLARIFICATION.p95_ms = Number.MAX_SAFE_INTEGER + 1;
+  const html = render(unsafe);
+  assert.match(html, /unavailable/i);
+  assert.doesNotMatch(html, /9007199254740992/);
+});
