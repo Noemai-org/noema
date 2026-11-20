@@ -226,3 +226,18 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 # Session 2026-11-20 · ENV-04 · BO's package step (A444, noema#821; IL)
 - A `package` step after the evidence and before the leak scan (full mode): `python -m benchmark.runner.package_artifacts --run /bench-out/run --sha $GITHUB_SHA --run-id $GITHUB_RUN_ID --probes /bench-out/evidence/negative-probes.json` in the runner container. It writes `stamp.json` and `mock-case-writes.json` into the run directory (so they are scanned and uploaded) and stamps the probes file. The Result step fails the run unless it exits 0 (1: a case whose writes could not be counted; 2: unusable input). Depends on noema#821 merging first: until the module exists a full run fails at this step.
 - `reconstructions.json` and `requests.jsonl` stay BO's (runner writers).
+
+# Session 2026-11-19 · ENV-04 G1 evidence: SR's two first-dispatch conditions (noema#436, A323)
+## Session summary
+- What changed: `benchmark/runner/evidence.py` (each probe has its own principal, letters only; the unknown correlation is recorded; new `record-access` command), `benchmark/runner/test_evidence.py`, `.github/workflows/bench-g1-stack.yml` (job-log capture, `access` step, show step after a clean scan, Result fails on the access check), `benchmark/runner/test_g1_workflow.py`.
+- Why: SR's conditions of 15 Nov: (1) the core's access log must show the reconstruction handler ran for the control and the unknown-correlation probe and for no refusal; (2) the job log is as public as an artifact, so runner, generator, scorer and evidence output goes to files that the leak scan covers and is shown only after a clean scan.
+- Risks, and how they are contained: the workflow is IL's file (A323); this edit is the conditions only, no smoke mode. `make bench-up` output (image builds, paths) still goes to the job log: it carries no case data. A probe principal has no digit, so it adds no digit run to the core log or the scan.
+- Tests added (REQ-SEC-004, INV-12, INV-22; criterion 9 of noema#436): `test_evidence.py` (ProbePrincipals, RecordAccess: 9 tests), `test_g1_workflow.py` (3 tests). Mutants: 12 of the evidence logic and 7 of the workflow, each killed.
+## Pre-work for the next agent
+- Exact next step: IL merges main into the smoke-mode change over these step names; the first dispatch counts only after Codex, SR and a Founder.
+- Do not touch: the leak scan's planted kinds.
+
+# Session 2026-11-20 · ENV-04 · noema#730 merged with main (IL)
+- Merged `origin/main` once (A468: a merge-main commit voids nothing). Main now has noema#727's design: the runner, generator, scorer and evidence write to `benchmark/out/joblog/*.log` (nothing they print reaches the job log), and a `record-access` evidence step (criterion 9, second half; step id `access`). This PR keeps both: that step now runs in full mode only, and the request-record count of A354 is a separate step `count` (`tools/ci/g1_record_access.py --requests`). Every `$compose exec` of this PR (the `/readyz` probe, the generator, the evidence stamps and BO's `package_artifacts`) ends in a joblog redirect, as main's test requires.
+- The stack-check's `/readyz` answer is read from `benchmark/out/joblog/readyz.log`; the allow file has 15 patterns (main's 14 plus the stamp's `run_id` line); `evidence.py` takes `--sha`/`--run-id` on fault-plans and probes and still takes none on `record-access`.
+- Offline: `test_g1_workflow` and `test_evidence` (66), `test_g1_record_access` 14, `test_g1_leakscan` 16, lint OK. Not run: the workflow.

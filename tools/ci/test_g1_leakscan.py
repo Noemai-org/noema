@@ -100,6 +100,16 @@ class G1Leakscan(unittest.TestCase):
         self.assertEqual(code, 1, text)
         self.assertIn("account_number", text)  # a run of exactly 10 digits is reported as an account number
 
+    def test_the_case_generators_own_summary_line_is_allowed_and_a_look_alike_is_not(self) -> None:  # Codex P1 on noema#727: the seed it prints is a digit run in the job log
+        allow = HERE / "g1_leakscan.allow"
+        line = "noema-casegen 1.3.3 seed 20261020: 118 cases written to /tmp/bench-out/cases (manifest sha256:" + "ab12" * 16 + ")"
+        (self.art / "generate.log").write_text(line + "\n", encoding="utf-8")
+        self.assertEqual(run(["--allow", str(allow), "--workdir", str(self.work), str(self.art)])[0], 0)
+        self.assertEqual(run(["--workdir", str(self.root / "w2"), str(self.art)])[0], 1, "without the allow file the line is a finding")
+        for bad in (line + " account 1234567890", "x " + line, line.replace("seed 20261020", "seed 20261020123456"), line.replace("noema-casegen", "other-tool")):
+            (self.art / "generate.log").write_text(bad + "\n", encoding="utf-8")
+            self.assertEqual(run(["--allow", str(allow), "--workdir", str(self.root / "w3"), str(self.art)])[0], 1, bad)
+
     def test_the_canary_in_an_artifact_fails_and_is_never_printed(self) -> None:
         # The canary is made inside the run, so the artifact cannot carry it by accident; plant it the way a leak would: by reading it from the work directory after the probe.
         real_scan = g1_leakscan.scan
