@@ -161,7 +161,7 @@ func TestRecoverBatchIsBounded(t *testing.T) {
 	for _, id := range []string{"inv_BB01", "inv_BB02", "inv_BB03"} {
 		w.rows[id] = &row{tenant: tenantA, principal: principal, corr: "corr_" + id[4:], recev: "recev_" + id[4:], inv: orchestrator.Investigation{ID: id, State: "RECOVERING", Version: 5}}
 	}
-	a, err := recovery.New(recovery.Config{IdleMS: 1000, Batch: 2}, w, w, w, w.runner(t, recovery.NoDispatch{}))
+	a, err := recovery.New(recovery.Config{IdleMS: 1000, Batch: 2, RunTimeoutMS: 500}, w, w, w, w.runner(t, recovery.NoDispatch{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,16 +228,16 @@ func TestLoadConfigHasNoDefault(t *testing.T) {
 	get := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	for name, m := range map[string]map[string]string{
 		"nothing set":      {},
-		"no idle":          {recovery.EnvBatchSize: "50"},
-		"no batch":         {recovery.EnvIdleMS: "60000"},
-		"zero idle":        {recovery.EnvIdleMS: "0", recovery.EnvBatchSize: "50"},
-		"leading zero":     {recovery.EnvIdleMS: "060000", recovery.EnvBatchSize: "50"},
-		"signed":           {recovery.EnvIdleMS: "+5", recovery.EnvBatchSize: "50"},
-		"space":            {recovery.EnvIdleMS: "5 ", recovery.EnvBatchSize: "50"},
-		"batch not number": {recovery.EnvIdleMS: "60000", recovery.EnvBatchSize: "lots-SECRET"},
-		"overflow":         {recovery.EnvIdleMS: "99999999999999999999999", recovery.EnvBatchSize: "50"},
+		"no idle":          {recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"},
+		"no batch":         {recovery.EnvIdleMS: "60000", recovery.EnvRunTimeoutMS: "1000"},
+		"zero idle":        {recovery.EnvIdleMS: "0", recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"},
+		"leading zero":     {recovery.EnvIdleMS: "060000", recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"},
+		"signed":           {recovery.EnvIdleMS: "+5", recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"},
+		"space":            {recovery.EnvIdleMS: "5 ", recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"},
+		"batch not number": {recovery.EnvIdleMS: "60000", recovery.EnvBatchSize: "lots-SECRET", recovery.EnvRunTimeoutMS: "1000"},
+		"overflow":         {recovery.EnvIdleMS: "99999999999999999999999", recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"},
 		"batch too large":  {recovery.EnvIdleMS: "60000", recovery.EnvBatchSize: "4294967296"},
-		"idle too large":   {recovery.EnvIdleMS: "9223372036854775807", recovery.EnvBatchSize: "50"},
+		"idle too large":   {recovery.EnvIdleMS: "9223372036854775807", recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := recovery.LoadConfig(get(m))
@@ -249,19 +249,63 @@ func TestLoadConfigHasNoDefault(t *testing.T) {
 			}
 		})
 	}
-	c, err := recovery.LoadConfig(get(map[string]string{recovery.EnvIdleMS: "60000", recovery.EnvBatchSize: "50"}))
-	if err != nil || c.IdleMS != 60000 || c.Batch != 50 {
+	c, err := recovery.LoadConfig(get(map[string]string{recovery.EnvIdleMS: "60000", recovery.EnvBatchSize: "50", recovery.EnvRunTimeoutMS: "1000"}))
+	if err != nil || c.IdleMS != 60000 || c.Batch != 50 || c.RunTimeoutMS != 1000 {
 		t.Fatalf("got %+v, %v", c, err)
 	}
-	if recovery.EnvIdleMS != "NOEMA_STM_RECOVERY_IDLE_MS" || recovery.EnvBatchSize != "NOEMA_STM_RECOVERY_BATCH_SIZE" {
+	if recovery.EnvIdleMS != "NOEMA_STM_RECOVERY_IDLE_MS" || recovery.EnvBatchSize != "NOEMA_STM_RECOVERY_BATCH_SIZE" || recovery.EnvRunTimeoutMS != "NOEMA_INVESTIGATION_RUN_TIMEOUT_MS" {
 		t.Fatal("the setting names are part of the contract with deployment")
+	}
+}
+
+// A477 (interim, relayed, not yet committed), AGENT-16: an idle age that does not exceed the run timeout would take up a live run a second time. The loader and the
+// constructor refuse it, and a missing run timeout; the errors name the settings and never echo a value.
+func TestIdleAgeMustExceedRunTimeout(t *testing.T) {
+	get := func(idle, run string) func(string) string {
+		return func(k string) string {
+			switch k {
+			case recovery.EnvIdleMS:
+				return idle
+			case recovery.EnvBatchSize:
+				return "50"
+			case recovery.EnvRunTimeoutMS:
+				return run
+			}
+			return ""
+		}
+	}
+	for name, c := range map[string][2]string{"equal": {"240000", "240000"}, "below": {"1000", "240000"}, "no run timeout": {"240000", ""}, "bad run timeout": {"240000", "0777-SECRET"}} {
+		_, err := recovery.LoadConfig(get(c[0], c[1]))
+		if err == nil {
+			t.Fatalf("%s: expected a refusal", name)
+		}
+		if strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "240000") {
+			t.Fatalf("%s: the error echoes a value: %v", name, err)
+		}
+		if name != "no run timeout" && name != "bad run timeout" && (!strings.Contains(err.Error(), recovery.EnvIdleMS) || !strings.Contains(err.Error(), recovery.EnvRunTimeoutMS)) {
+			t.Fatalf("%s: the error must name both settings: %v", name, err)
+		}
+	}
+	if c, err := recovery.LoadConfig(get("240001", "240000")); err != nil || c.RunTimeoutMS != 240000 {
+		t.Fatalf("got %+v, %v", c, err)
+	}
+	w := newWorld()
+	r := w.runner(t, recovery.NoDispatch{})
+	for name, cfg := range map[string]recovery.Config{
+		"equal":  {IdleMS: 5, Batch: 1, RunTimeoutMS: 5},
+		"below":  {IdleMS: 4, Batch: 1, RunTimeoutMS: 5},
+		"no run": {IdleMS: 5, Batch: 1},
+	} {
+		if _, err := recovery.New(cfg, w, w, w, r); err == nil {
+			t.Errorf("%s: New must refuse", name)
+		}
 	}
 }
 
 func TestNewRefusesAMissingPart(t *testing.T) {
 	w := newWorld()
 	r := w.runner(t, recovery.NoDispatch{})
-	ok := recovery.Config{IdleMS: 1, Batch: 1}
+	ok := recovery.Config{IdleMS: 2, Batch: 1, RunTimeoutMS: 1}
 	for name, f := range map[string]func() (*recovery.Activity, error){
 		"no reader":   func() (*recovery.Activity, error) { return recovery.New(ok, nil, w, w, r) },
 		"no journal":  func() (*recovery.Activity, error) { return recovery.New(ok, w, nil, w, r) },
@@ -346,7 +390,7 @@ func (w *world) activity2(t *rapid.T) *recovery.Activity {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := recovery.New(recovery.Config{IdleMS: 1, Batch: 1}, w, w, w, r)
+	a, err := recovery.New(recovery.Config{IdleMS: 2, Batch: 1, RunTimeoutMS: 1}, w, w, w, r)
 	if err != nil {
 		t.Fatal(err)
 	}

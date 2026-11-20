@@ -12,12 +12,15 @@ const (
 	EnvIdleMS = "NOEMA_STM_RECOVERY_IDLE_MS"
 	// EnvBatchSize is the most investigations one pass of one tenant takes.
 	EnvBatchSize = "NOEMA_STM_RECOVERY_BATCH_SIZE"
+	// EnvRunTimeoutMS is the longest a live investigation run may take, in whole milliseconds (A477, interim, relayed, not yet committed). A pass reads it only to refuse an idle age that does not exceed it.
+	EnvRunTimeoutMS = "NOEMA_INVESTIGATION_RUN_TIMEOUT_MS"
 )
 
 // Config is the pass's settings.
 type Config struct {
-	IdleMS int64
-	Batch  int
+	IdleMS       int64
+	Batch        int
+	RunTimeoutMS int64
 }
 
 var wholeRe = regexp.MustCompile(`\A[1-9][0-9]*\z`)

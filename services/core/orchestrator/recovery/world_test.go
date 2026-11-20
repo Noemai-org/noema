@@ -246,7 +246,7 @@ func (w *world) counts() (decide, execute, verify int) {
 // activity builds the recovery activity over a recovery runner whose executor is x.
 func (w *world) activity(t *testing.T, x orchestrator.Executor) *recovery.Activity {
 	t.Helper()
-	a, err := recovery.New(recovery.Config{IdleMS: 60000, Batch: 10}, w, w, w, w.runner(t, x))
+	a, err := recovery.New(recovery.Config{IdleMS: 60000, Batch: 10, RunTimeoutMS: 30000}, w, w, w, w.runner(t, x))
 	if err != nil {
 		t.Fatal(err)
 	}
