@@ -1,0 +1,235 @@
+{
+  "calls": 25,
+  "date": "2026-11-19",
+  "fixture": {
+    "head_sha": "ee9156936ca1561d67040cd1764c9865471da014",
+    "label": "Understanding: recorded replay of live output",
+    "reduced": true,
+    "run_id": "compile-gh44521380842",
+    "synthetic": true
+  },
+  "label": "Understanding: compile acceptance on synthetic golden examples, recorded live output (SYNTHETIC)",
+  "model_id": "gpt-6-luna",
+  "pin": {
+    "harness_config_sha256": "1b8c026b12c990047d96eb654174df10744865b67a262b6fa2f48f414c4fda6f",
+    "lexicon_sha256": "82af06fe7a4a560c23baccf66e98203606f577542d46c2c95ecb8d5c3241b183",
+    "masking_limits_sha256": "37071a85fe119256914c7dad0a51d6b2e748f2eb16135cf640df335765dffd0b",
+    "max_output_tokens": 4000,
+    "pack_ref": "fin@1.0.0",
+    "pack_sha256": "48db0ad50c0e03df42b4048745733da1837b288a2020f6d05d059cbd6a752072",
+    "pinned_model_id": "gpt-6-luna",
+    "rate_card": {
+      "as_of": "2026-10-27",
+      "input_micro_per_mtok": 100000,
+      "output_micro_per_mtok": 500000
+    },
+    "reasoning_effort": "medium"
+  },
+  "provider": "openai",
+  "recordings": [
+    {
+      "case_id": "G-A",
+      "cost_micros": 125,
+      "failure": null,
+      "recording_id": "rec-0001",
+      "request_sha256": "sha256:61432b2ab3c2c8038c1d89ab7140677014d256217b6ba54f1e30e59731cd9bf1",
+      "status": 200
+    },
+    {
+      "case_id": "G-A",
+      "cost_micros": 2230,
+      "failure": "UNAVAILABLE",
+      "recording_id": "rec-0002",
+      "request_sha256": "sha256:3d68d50d2cac6df052143e382146be0908be05b707953451837778bff5587b71",
+      "status": null
+    },
+    {
+      "case_id": "G-A",
+      "cost_micros": 2239,
+      "failure": null,
+      "recording_id": "rec-0003",
+      "request_sha256": "sha256:0869a5121d5a88e9b688caadcc44c784146c97f9febcca1431cc5bee25854659",
+      "status": 400
+    },
+    {
+      "case_id": "G-A",
+      "cost_micros": 128,
+      "failure": null,
+      "recording_id": "rec-0004",
+      "request_sha256": "sha256:db0671691108aa686b251a48e71032d73d15338315672483b35ab0eaf1f42e48",
+      "status": 200
+    },
+    {
+      "case_id": "G-A",
+      "cost_micros": 192,
+      "failure": null,
+      "recording_id": "rec-0005",
+      "request_sha256": "sha256:2cf3f262ac5c3f4dc0621d5e02e63dbcadc1ff3e7f5d528eff913f5b0fbb58e7",
+      "status": 200
+    },
+    {
+      "case_id": "G-A",
+      "cost_micros": 341,
+      "failure": null,
+      "recording_id": "rec-0006",
+      "request_sha256": "sha256:0058d3b80b79ad6d9d39be63f14718385245e9487d0a2e7cf0048672af9b96e9",
+      "status": 200
+    },
+    {
+      "case_id": "G-B",
+      "cost_micros": 118,
+      "failure": null,
+      "recording_id": "rec-0007",
+      "request_sha256": "sha256:2c16727039ce09e978b265676b1cb6c9833687b30d903e5130325da639bb0648",
+      "status": 200
+    },
+    {
+      "case_id": "G-B",
+      "cost_micros": 2228,
+      "failure": "UNAVAILABLE",
+      "recording_id": "rec-0008",
+      "request_sha256": "sha256:26764e28923a8eb69081958bbbc772ccc02140cbfed543dbd7705e7d22a8b691",
+      "status": null
+    },
+    {
+      "case_id": "G-B",
+      "cost_micros": 2237,
+      "failure": null,
+      "recording_id": "rec-0009",
+      "request_sha256": "sha256:2dbda7cbf777f7b167257f7b8bb707bf422613ecd80459e55db6274da70928d1",
+      "status": 400
+    },
+    {
+      "case_id": "G-B",
+      "cost_micros": 104,
+      "failure": null,
+      "recording_id": "rec-0010",
+      "request_sha256": "sha256:cb69815a979660cb024ec67ed6a2ed0669185d020afe892b876bda8611e5e175",
+      "status": 200
+    },
+    {
+      "case_id": "G-B",
+      "cost_micros": 143,
+      "failure": null,
+      "recording_id": "rec-0011",
+      "request_sha256": "sha256:c12ccca9bdfc0d9bf9540b8a9315b696925100f41f63dc1f8f4ef9bf97647714",
+      "status": 200
+    },
+    {
+      "case_id": "G-B",
+      "cost_micros": 310,
+      "failure": null,
+      "recording_id": "rec-0012",
+      "request_sha256": "sha256:765cf47374df7d2ea3c1a64cb7df9e962034a2096e807b7165c2fd2b586f041f",
+      "status": 200
+    },
+    {
+      "case_id": "G-C",
+      "cost_micros": 105,
+      "failure": null,
+      "recording_id": "rec-0013",
+      "request_sha256": "sha256:4c2d5db34847d87b8dafd44b823544018fc08c91cac0262fe55a2dfb2a70bdf6",
+      "status": 200
+    },
+    {
+      "case_id": "G-C",
+      "cost_micros": 2230,
+      "failure": "UNAVAILABLE",
+      "recording_id": "rec-0014",
+      "request_sha256": "sha256:d045161cbd3d47ec69e222daae8c742752dae76d4e0619bdd1913f2a14ccf386",
+      "status": null
+    },
+    {
+      "case_id": "G-C",
+      "cost_micros": 2239,
+      "failure": null,
+      "recording_id": "rec-0015",
+      "request_sha256": "sha256:ea74e438042ca478b07455580e3bcd34acd621df1fb7ef0e29b5c704f2b28e7e",
+      "status": 400
+    },
+    {
+      "case_id": "G-C",
+      "cost_micros": 126,
+      "failure": null,
+      "recording_id": "rec-0016",
+      "request_sha256": "sha256:f5c5ee73f65d2482cff02f38785d2d6f4769809eaad00c6bd9a6cac5cc34dd59",
+      "status": 200
+    },
+    {
+      "case_id": "G-C",
+      "cost_micros": 179,
+      "failure": null,
+      "recording_id": "rec-0017",
+      "request_sha256": "sha256:88b86dcb065d17c45badc123a51c5b40ff30729076fd520c801d3cd22f5d1123",
+      "status": 200
+    },
+    {
+      "case_id": "G-C",
+      "cost_micros": 331,
+      "failure": null,
+      "recording_id": "rec-0018",
+      "request_sha256": "sha256:d1af8bf38c9751b1b7a041f40f01fa5a69394f91d62fa2327e237aa031bb5844",
+      "status": 200
+    },
+    {
+      "case_id": "G-D",
+      "cost_micros": 112,
+      "failure": null,
+      "recording_id": "rec-0019",
+      "request_sha256": "sha256:a5a8c90aef17350a8973b726f128ca4fcf05f3b81d4fbff503f01a71a17b29c3",
+      "status": 200
+    },
+    {
+      "case_id": "G-D",
+      "cost_micros": 2229,
+      "failure": "UNAVAILABLE",
+      "recording_id": "rec-0020",
+      "request_sha256": "sha256:be891ecf19082ae63a21f95a9888f85b83365961885295a46f6d0bf43b2cb323",
+      "status": null
+    },
+    {
+      "case_id": "G-D",
+      "cost_micros": 2238,
+      "failure": null,
+      "recording_id": "rec-0021",
+      "request_sha256": "sha256:59e3b88b430490e5f2fd985aff92f4b0fca362d0f2f7582a1ec86a8396dfe8df",
+      "status": 400
+    },
+    {
+      "case_id": "G-D",
+      "cost_micros": 115,
+      "failure": null,
+      "recording_id": "rec-0022",
+      "request_sha256": "sha256:46b9f9a51d1dba61628ce79971848c72d17a4e59dae3d461bba025458b994dcf",
+      "status": 200
+    },
+    {
+      "case_id": "G-D",
+      "cost_micros": 148,
+      "failure": null,
+      "recording_id": "rec-0023",
+      "request_sha256": "sha256:511acc5bd761c45156685a5466b7451370a75319b45dbb046f55ecfdbec07c1b",
+      "status": 200
+    },
+    {
+      "case_id": "G-D",
+      "cost_micros": 369,
+      "failure": null,
+      "recording_id": "rec-0024",
+      "request_sha256": "sha256:f9160b51489cddc97023a4a17f14ae0b727c3ea52ce0b070b4f98902fe0d307a",
+      "status": 200
+    },
+    {
+      "case_id": "G-E",
+      "cost_micros": 232,
+      "failure": null,
+      "recording_id": "rec-0025",
+      "request_sha256": "sha256:9248a146c6ef91ddc23d13f69695c4b1ff9bd5f987dfe2ef75d27445d7cc3c15",
+      "status": 200
+    }
+  ],
+  "reported_model_ids": [
+    "gpt-6-luna"
+  ],
+  "run_id": "compile-gh44521380842"
+}
