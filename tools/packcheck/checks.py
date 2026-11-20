@@ -216,6 +216,79 @@ def check_predicates(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     return out
 
 
+def slot_type(slot: dict) -> predicate.Type:
+    """The predicate type of an intent node's slot: a Reference with a closed vocabulary is an Enum of it, any other slot is opaque (compared only with null or, for a Reference, a string)."""
+    if slot["type"] == "Reference":
+        return ("Enum", frozenset(slot["vocabulary"])) if slot.get("vocabulary") else predicate.REF
+    return (slot["type"],)
+
+
+def check_write_when(pack: dict) -> list[Problem]:
+    """A364 (interim, relayed): an intent node's `write_when` is a predicate over the node's own slots (an absent slot is null): it parses, is Boolean and names only those slots."""
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        if "write_when" not in n:
+            continue
+        where = f"{n['node_id']}.write_when"
+        try:
+            t = predicate.check(n["write_when"], predicate.Scope({}, {s["name"]: slot_type(s) for s in n["slots"]}))
+        except predicate.PredicateError as exc:
+            out.append(("predicate", f"{where}: {exc}"))
+            continue
+        if t != predicate.BOOL:
+            out.append(("predicate", f"{where}: must be Boolean, found {t[0]}"))
+    return out
+
+
+def check_graph_params(pack: dict, graphs: dict[str, dict], pack_dir: Path) -> list[Problem]:
+    """A369 (interim, relayed): a node that declares `params` declares exactly the inputs of its capability (every required input covered, no extra), once each; its slots and map keys
+    are the intent nodes' own, its map values are `case_reasons`, its facts are declared predicate variables and its policy params are carried by a PERMIT rule of the capability (and
+    an owner_queue is in the routing allowlist). A node without `params` declares none (absent means no params)."""
+    out: list[Problem] = []
+    out += [("reasons", f"case_reasons: duplicate code {c!r}") for c in sorted({r["code"] for r in pack.get("case_reasons", [])}) if [x["code"] for x in pack["case_reasons"]].count(c) > 1]
+    codes = {r["code"] for r in pack.get("case_reasons", [])}
+    slots = {s["name"]: s for n in pack["intent_nodes"] for s in n["slots"]}
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    allow = set(pack.get("routing_allowlist", []))
+    for g in graphs.values():
+        for n in g["nodes"]:
+            if "params" not in n:
+                continue
+            where = f"{g['graph_id']}.{n['node_id']}"
+            names = [p["name"] for p in n["params"]]
+            out += [("graph", f"{where}: declares param {d!r} more than once") for d in sorted({x for x in names if names.count(x) > 1})]
+            cap = caps.get(n["capability_id"])
+            if cap is None:
+                continue
+            path = pack_dir / cap["input_schema"]
+            if not path.is_file():
+                out.append(("graph", f"{where}: the input schema {cap['input_schema']} of {cap['capability_id']} does not exist"))
+                continue
+            schema = validate.load_strict(path)
+            out += [("graph", f"{where}: required input {r!r} of {cap['capability_id']} has no param") for r in schema.get("required", []) if r not in names]
+            out += [("graph", f"{where}: param {x!r} is not an input of {cap['capability_id']}") for x in sorted(set(names)) if x not in schema.get("properties", {})]
+            for p in n["params"]:
+                if "slot" in p and p["slot"] not in slots:
+                    out.append(("graph", f"{where}: param {p['name']!r}: {p['slot']!r} is not a slot of any intent node"))
+                if "map" in p:
+                    m = p["map"]
+                    if m["from"] not in slots:
+                        out.append(("graph", f"{where}: param {p['name']!r}: {m['from']!r} is not a slot of any intent node"))
+                    else:
+                        vocab = set(slots[m["from"]].get("vocabulary", []))
+                        out += [("graph", f"{where}: param {p['name']!r}: map key {k!r} is not in the vocabulary of slot {m['from']!r}") for k in m["values"] if k not in vocab]
+                    out += [("graph", f"{where}: param {p['name']!r}: map value {v!r} is not in case_reasons") for v in m["values"].values() if v not in codes]
+                if "fact" in p and p["fact"] not in pack.get("predicate_variables", {}):
+                    out.append(("graph", f"{where}: param {p['name']!r}: fact {p['fact']!r} is not a declared predicate variable"))
+                if "policy_param" in p:
+                    carriers = [r for r in pack["policy"]["rules"] if r["effect"] == "PERMIT" and cap["capability_id"] in r["applies_to"] and p["policy_param"] in r.get("params", {})]
+                    if not carriers:
+                        out.append(("graph", f"{where}: param {p['name']!r}: no PERMIT rule of {cap['capability_id']} carries policy param {p['policy_param']!r}"))
+                    if p["policy_param"] == "owner_queue":
+                        out += [("graph", f"{where}: policy owner_queue {r['params']['owner_queue']!r} of {r['rule_id']} is not in routing_allowlist") for r in carriers if r["params"]["owner_queue"] not in allow]
+    return out
+
+
 def check_graphs(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     out: list[Problem] = []
     caps = {c["capability_id"]: c for c in pack["capabilities"]}
@@ -593,8 +666,8 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs)
-    problems += check_graphs(pack, graphs) + check_graph_permits(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack)
+    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     if templates == "enforce":
