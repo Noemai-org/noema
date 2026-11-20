@@ -45,7 +45,7 @@ def _luhn_complete(body: str) -> str:
     return body + str((10 - total % 10) % 10)
 
 
-DIGIT_KINDS = ("account_number", "card_number")  # found by the digit-run rule, so not planted when that rule is off
+DIGIT_KINDS = ("account_number",)  # found by the digit rules that --no-digit-rule turns off; the Luhn card-number rule stays on, so its kind is still planted and still required
 
 
 def planted_values(canary: str, digits: bool = True) -> dict[str, str]:
@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--scanner", type=Path, default=Path(__file__).resolve().parent / "leakscan.py")
     p.add_argument("--workdir", type=Path)
     p.add_argument("--allow", type=Path, help="leakscan's allow file: regular expressions of lines skipped for the digit-run rule only (never for secrets or canaries)")
-    p.add_argument("--no-digit-rule", action="store_true", help="the runner's own job log: the digit-run rule is off (it holds image versions, run ids, byte counts); every other rule is probed and applied")
+    p.add_argument("--no-digit-rule", action="store_true", help="the runner's own job log: the generic digit-run and account rules are off (it holds image versions, run ids, byte counts); every other rule, the Luhn card number included, is probed and applied")
     p.add_argument("paths", nargs="+", type=Path)
     a = p.parse_args(argv)
     paths = [x.resolve() for x in a.paths]

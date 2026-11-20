@@ -47,14 +47,17 @@ class G1Leakscan(unittest.TestCase):
         self.assertEqual(code, 1, text)  # the default scan refuses the runner's digits
         code, text = run(["--no-digit-rule", "--workdir", str(self.root / "w2"), str(self.art)])
         self.assertEqual(code, 0, text)
-        self.assertIn("every planted kind was found (canary, named_secret_value, jwt, bearer_token)", text)
+        self.assertIn("every planted kind was found (canary, card_number, named_secret_value, jwt, bearer_token)", text)
         self.assertNotIn("account_number", text)
+        (self.art / "card.log").write_text("paid with " + "4111" + "1111" + "1111" + "1111" + "\n", encoding="utf-8")  # a Luhn-valid card in the public job log is still a finding
+        self.assertEqual(run(["--no-digit-rule", "--workdir", str(self.root / "w4"), str(self.art)])[0], 1)
+        (self.art / "card.log").unlink()
         (self.art / "leak.log").write_text("api_key=" + "ab12cd34ef56ab12cd34" + "\n", encoding="utf-8")
         self.assertEqual(run(["--no-digit-rule", "--workdir", str(self.root / "w3"), str(self.art)])[0], 1)
 
     def test_a_scanner_with_a_broken_rule_is_not_run_in_the_job_log_mode_too(self) -> None:
         real = HERE / "leakscan.py"
-        for kind in ("canary", "named_secret_value", "jwt", "bearer_token"):
+        for kind in ("canary", "card_number", "named_secret_value", "jwt", "bearer_token"):
             with self.subTest(kind):
                 wrapper = self.root / f"nodigit_broken_{kind}.py"
                 wrapper.write_text(

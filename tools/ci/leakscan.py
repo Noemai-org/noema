@@ -123,16 +123,17 @@ def _secret_findings(line: str, number: int, path: str):
 
 
 def scan_text(text: str, path: str, canaries=(), allow=(), digits=True) -> list[Finding]:
-    """Scan one text. `allow` is a sequence of compiled regular expressions (digit-run rule only). `digits=False` turns the digit-run rule off and nothing else: it is for output the
-    scanner cannot own (the runner's own job log: image versions, run ids, byte counts), where the secret, named-secret and canary rules still apply."""
+    """Scan one text. `allow` is a sequence of compiled regular expressions (digit-run rule only). `digits=False` turns off the generic digit-run rule and the ten-digit account rule and nothing
+    else: it is for output the scanner cannot own (the runner's own job log: image versions, run ids, byte counts). The secret, named-secret, canary and Luhn-valid card-number rules still apply
+    (a run id has 11 digits and cannot be a card number of 13 to 19)."""
     found: list[Finding] = []
     for number, line in enumerate(text.splitlines(), 1):
         for canary in canaries:
             if canary and canary in line:
                 found.append(Finding(path, number, "canary", len(canary), _fp(canary)))
         found.extend(_secret_findings(line, number, path))
-        if digits and not any(a.search(line) for a in allow):
-            found.extend(_digit_findings(line, number, path))
+        if not any(a.search(line) for a in allow):
+            found.extend(f for f in _digit_findings(line, number, path) if digits or f.kind == "card_number")
     return found
 
 
@@ -212,7 +213,7 @@ def main(argv=None) -> int:
     ap.add_argument("paths", nargs="+")
     ap.add_argument("--canary", help="file with one seeded canary value per line")
     ap.add_argument("--allow", help="file with one regular expression per line (digit-run rule only)")
-    ap.add_argument("--no-digit-rule", action="store_true", help="turn off the digit-run rule only (for the runner's own job log); every other rule stays")
+    ap.add_argument("--no-digit-rule", action="store_true", help="turn off the generic digit-run and the ten-digit account rules only (for the runner's own job log); every other rule stays, the Luhn card-number rule included")
     args = ap.parse_args(argv)
     for p in args.paths:
         if not Path(p).exists() and not Path(p).is_symlink():

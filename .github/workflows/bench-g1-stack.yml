@@ -226,7 +226,7 @@ jobs:
           $compose exec -T bench-runner python -m benchmark.runner.evidence record-access --probes /bench-out/evidence/negative-probes.json --log /bench-out/service-logs/core.log \
             --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence >> benchmark/out/joblog/evidence.log 2>&1
           echo "record_access=$?" >> "$GITHUB_OUTPUT"
-      # A354: every Record read wrote one RECORD_ACCESSED line (REQ-AUD-003), counted against the runner's own request record, not a constant. Each case's control read has exactly one SERVED line and no line carries Record content.
+      # A354: every Record read wrote one RECORD_ACCESSED line (REQ-AUD-003), counted against the runner's own request record, not a constant: for each correlation the SERVED lines equal the answered reconstruction requests of the record, and no line carries Record content. That a case HAS a control read is the `access` step's check (evidence record-access), not this one.
       # 0 met, 1 not met, 3 not run (an empty log is never a pass). Smoke reads no Record, so it is skipped there.
       - id: count
         name: Count the RECORD_ACCESSED lines in the core log against the request record (A354)
@@ -283,9 +283,13 @@ jobs:
           # and fail a healthy run (Codex P2 on noema#730). The list is fixed per mode, never "whatever is there": a path a full run should have and lacks is still refused.
           # BO's package compares the evidence with the run it reads: the first line of the saved scan output names the dispatch commit and the run (noema#717).
           echo "stamp: $GITHUB_SHA $GITHUB_RUN_ID" > benchmark/out/leak-scan.txt
+          # The allow file of this run: the standing one plus ONE line that names this run's own id on a "run_id" line (the stamp), so no other digit string passes under that key (C1 on noema#730).
+          allow="$RUNNER_TEMP/g1-allow"
+          cp tools/ci/g1_leakscan.allow "$allow"
+          printf '%s\n' '^\s*"run_id":\s*"'"$GITHUB_RUN_ID"'",?\s*$' >> "$allow"
           set -- benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/joblog benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
           [ "$MODE" = stack-check ] || set -- "$@" benchmark/out/record-accessed.txt
-          python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" "$@" | tee -a benchmark/out/leak-scan.txt
+          python3 -I tools/ci/g1_leakscan.py --allow "$allow" --workdir "$RUNNER_TEMP/g1-leakscan" "$@" | tee -a benchmark/out/leak-scan.txt
           echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Upload the artifacts (only if the leak scan is clean)
@@ -340,6 +344,7 @@ jobs:
           READYZ: ${{ steps.run.outputs.readyz }}
           NETCHECK: ${{ steps.run.outputs.netcheck }}
           PACKAGE: ${{ steps.package.outputs.package }}
+          # Owner: IL (G1 stack workflow, noema#436). A445 allows this interim report; the final composition PR (EL) flips it to "true" and is the only thing that should (A445: reported now, required after it merges).
           # A445: reported now; the final composition PR flips this to "true", and then a stack-check whose core does not answer /readyz 200, or whose netcheck fails, fails.
           READINESS_REQUIRED: "false"
           WANT_PLAYWRIGHT: ${{ inputs.playwright }}

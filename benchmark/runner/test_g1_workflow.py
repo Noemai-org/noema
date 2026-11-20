@@ -96,7 +96,7 @@ class G1StackWorkflow(unittest.TestCase):
             if path == "benchmark/out/leak-scan.txt":
                 continue  # the scan's own output (file, line, kind, length and fingerprint only: never a value); it cannot be scanned before it exists. BO's package row 8 reads it.
             self.assertIn(path.rstrip("/"), scanned, f"{path} is uploaded but not leak-scanned")
-        self.assertIn("--allow tools/ci/g1_leakscan.allow", scan.group(1))
+        self.assertIn('--allow "$allow"', scan.group(1))
 
     def test_the_scan_output_is_kept_for_the_package_and_the_scan_exit_code_survives_the_pipe(self) -> None:
         # BO's package row 8 (A355) is computed from the scan's own output, so the workflow saves it. The pipe must not hide the scan's exit code.
@@ -247,12 +247,39 @@ class G1StackWorkflow(unittest.TestCase):
 
     def test_the_leak_scan_allow_file_names_only_numeric_fields_and_the_scorers_metadata_lines(self) -> None:
         allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
-        self.assertEqual(len([l for l in allow if l.strip()]), 15)
+        self.assertEqual(len([l for l in allow if l.strip()]), 14)
+        self.assertNotIn('"run_id"', "\n".join(allow), "the run id is allowed per run by the workflow, never by a standing pattern (C1 on noema#730)")
         for line in allow:
             if line.strip():
                 self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
 
-    def test_the_stamp_of_the_evidence_files_passes_the_scan_and_nothing_wider_does(self) -> None:
+    def test_the_scan_allows_the_stamp_of_this_run_only_by_an_exact_per_run_pattern(self) -> None:
+        # C1 on noema#730 (P3): a standing `[0-9]{1,20}` pattern lets any 20-digit string through under a "run_id" key. The workflow builds the allow file for the run: the standing file plus one line
+        # that names this run's own id, so only that id passes.
+        step = re.search(r"(?ms)- id: scan\n(.*?)(?=^      - )", self.text)
+        assert step
+        self.assertIn('cp tools/ci/g1_leakscan.allow "$allow"', step.group(1))
+        self.assertIn('"$GITHUB_RUN_ID"', step.group(1))
+        self.assertRegex(step.group(1), r"""printf '%s\\n' '\^\\s\*"run_id":\\s\*"'"\$GITHUB_RUN_ID"'",\?\\s\*\$' >> "\$allow\"""")
+        standing = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
+        run_id = "44318438906"
+        per_run = '^\\s*"run_id":\\s*"' + run_id + '",?\\s*$'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            allow = root / "allow"
+            allow.write_text("\n".join(standing + [per_run]) + "\n", encoding="utf-8")
+            (root / "out").mkdir()
+            stamp = '{\n  "stamp": {\n    "run_id": "%s",\n    "sha": "0123456789abcdef0123456789abcdef01234567"\n  }\n}\n'
+            (root / "out" / "p.json").write_text(stamp % run_id, encoding="utf-8")
+            code = subprocess.run([sys.executable, "-I", str(WORKFLOW.parents[2] / "tools" / "ci" / "leakscan.py"), "--allow", str(allow), str(root / "out")], capture_output=True, text=True, check=False).returncode
+            self.assertEqual(code, 0, "this run's own id passes")
+            for other in ("44318438907", "01234567890123456789", "4431843890644318438906"):
+                (root / "out" / "p.json").write_text(stamp % other, encoding="utf-8")
+                code = subprocess.run([sys.executable, "-I", str(WORKFLOW.parents[2] / "tools" / "ci" / "leakscan.py"), "--allow", str(allow), str(root / "out")], capture_output=True, text=True, check=False).returncode
+                self.assertEqual(code, 1, f"another digit string under run_id ({other}) must be found")
+
+    def test_the_standing_allow_file_no_longer_passes_a_run_id_and_the_other_leak_shapes_are_still_found(self) -> None:
+        # C1 on noema#730 (P3): the standing allow file holds no run id (the workflow adds this run's own line, tested above), so the stamp is a finding under it.
         # Codex P2 on noema#730: the stamp carries the run id (digits) and the commit SHA (40 hexadecimal, which can hold a run of five digits). The allow file lets exactly those two lines through the
         # digit-run rule; a number under any other key, or a 12-digit value under the stamp's key that is not a run id, is still found.
         stamp = '{\n  "met": true,\n  "stamp": {\n    "run_id": "44318438906",\n    "sha": "0123456789abcdef0123456789abcdef01234567"\n  }\n}\n'
@@ -260,7 +287,7 @@ class G1StackWorkflow(unittest.TestCase):
             root = Path(tmp)
             (root / "out").mkdir()
             (root / "out" / "negative-probes.json").write_text(stamp, encoding="utf-8")
-            self.assertEqual(self.scan(root / "out"), 0)
+            self.assertEqual(self.scan(root / "out"), 1, "the standing allow file does not pass a run id")
             self.assertEqual(self.scan(root / "out", use_allow=False), 1, "without the allow file the stamp is a finding")
             for leak in ('  "account": "0123456789"\n', '    "run_id": "x 0123456789"\n', '    "sha": "0123456789abcdef0123456789abcdef01234567 0123456789"\n'):  # the SHA is one hexadecimal token, which the digit rule does not read as a run
                 (root / "out" / "negative-probes.json").write_text(stamp + leak, encoding="utf-8")
