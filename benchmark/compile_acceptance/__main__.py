@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from benchmark.bakeoff.budget import BudgetGuard
 from benchmark.compile_acceptance.golden import GOLDEN, Golden
 from benchmark.compile_acceptance.recording import LABEL, Recorder
+from benchmark.compile_acceptance.record_only import DEFAULT_PATH
 from benchmark.compile_acceptance.runner import CompileFailed, run_cases, write_run_record
 
 KEY_VARIABLE = "OPENAI_API_KEY"
@@ -57,6 +58,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--prior-spent-micros", required=True, type=_prior, help="spending already made against the same cap by earlier runs")
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--run-id", required=True, type=_pattern(_RUN_ID))
+    p.add_argument("--record-only-inputs", type=Path, default=DEFAULT_PATH, help="BO's g1_inputs.json: five inputs recorded after the goldens, with no expectation (A361, A372)")
+    p.add_argument("--skip-record-only", action="store_true", help="run the goldens only (tests and the dry run of the goldens)")
     p.add_argument("--harness-config", default="benchmark/decisions/harness-gpt-6-luna.json", help="the frozen harness configuration whose single provider is asked (the model, its rate card and its token ceiling are the file's)")
     return p
 

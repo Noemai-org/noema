@@ -9,6 +9,7 @@ from typing import Any
 
 from benchmark.bakeoff.budget import BudgetExceeded, BudgetGuard
 from benchmark.compile_acceptance.golden import Golden, check
+from benchmark.compile_acceptance.record_only import RecordOnlyInput
 from benchmark.compile_acceptance.recording import LABEL, Recorder, dump
 
 
@@ -23,9 +24,17 @@ class CaseResult:
     problems: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class RecordOnlyResult:
+    case_id: str
+    status: str  # RECORDED, ERROR or NOT_RUN
+    detail: str = ""
+
+
 @dataclass
 class RunResult:
     cases: list[CaseResult] = field(default_factory=list)
+    record_only: list[RecordOnlyResult] = field(default_factory=list)
     spent_micros: int = 0
     stopped: bool = False
     calls: int = 0
@@ -39,7 +48,8 @@ class RunResult:
         return 0
 
 
-async def run_cases(goldens: Sequence[Golden], compile_one: Callable[[Golden], Awaitable[Mapping[str, Any]]], guard: BudgetGuard, recorder: Recorder, *, calls: Callable[[], int]) -> RunResult:
+async def run_cases(goldens: Sequence[Golden], compile_one: Callable[[Golden], Awaitable[Mapping[str, Any]]], guard: BudgetGuard, recorder: Recorder, *, calls: Callable[[], int],
+                    record_only: Sequence[RecordOnlyInput] = (), record_one: Callable[[RecordOnlyInput], Awaitable[Mapping[str, Any]]] | None = None) -> RunResult:
     result = RunResult()
     for g in goldens:
         if result.stopped or guard.stopped:

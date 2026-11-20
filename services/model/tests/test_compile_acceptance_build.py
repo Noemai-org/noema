@@ -19,6 +19,7 @@ from noema_model.providers.llm.base import HttpResponse, ProviderError, Provider
 from benchmark.bakeoff.budget import BudgetGuard  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
 from benchmark.compile_acceptance.build import DryTransport, RecordingTransport, build_backend  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
 from benchmark.compile_acceptance.golden import GOLDEN  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from benchmark.compile_acceptance.record_only import RecordOnlyInput  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
 from benchmark.compile_acceptance.recording import Recorder  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
 from benchmark.compile_acceptance.runner import CompileFailed  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
 from tests.support import run  # noqa: E402
@@ -171,3 +172,42 @@ def test_the_pin_is_the_configuration_the_run_used_and_holds_no_key(tmp_path: Pa
     assert pin["pinned_model_id"] == "gpt-6-luna" and pin["rate_card"]["input_micro_per_mtok"] == 100_000 and pin["max_output_tokens"] == 4_000
     assert pin["harness_config_sha256"] and pin["pack_ref"] == "fin@1.0.0"
     assert KEY not in json.dumps(pin)
+
+
+RECORD_ONLY = RecordOnlyInput("BEN-CLEAN-0014", "text", ("en-NG",), "Where is the 20k I sent to Ibrahim this morning?")
+
+
+def test_the_dry_backend_prices_the_first_request_of_a_record_only_input_with_no_socket(tmp_path: Path) -> None:
+    async def go() -> None:
+        restore = deny_sockets()
+        try:
+            guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+            backend = build_backend(True, {}, guard, rec, args())
+            with pytest.raises(CompileFailed):
+                await backend.record_one(RECORD_ONLY)
+            costs = backend.dry_costs()
+            assert [c for c, _ in costs] == [RECORD_ONLY.case_id] and costs[0][1] > 0
+            assert backend.calls() == 0 and guard.spent_micros == 0 and not (tmp_path / "out" / "recordings").exists()
+        finally:
+            restore()
+
+    run(go())
+
+def test_a_record_only_input_goes_through_the_real_pipeline_with_no_candidates_and_is_recorded_under_its_own_case_id(tmp_path: Path) -> None:
+    async def go() -> None:
+        from noema_model.platform.redaction.digit_runs import longest_digit_run
+        guard, rec, wire = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), Wire(status=500, reply=b"{}")
+        backend = build_backend(False, ENV, guard, rec, args(), inner=wire)
+        with pytest.raises(CompileFailed):
+            await backend.compile_one(GOLDEN[1])  # a golden with candidates first: the record-only input must not inherit them
+        with pytest.raises(CompileFailed):
+            await backend.record_one(RECORD_ONLY)
+        assert backend._candidates.rows == ()
+        docs = [json.loads(p.read_text()) for p in sorted((tmp_path / "out" / "recordings").glob("rec-*.json"))]
+        mine = [d for d in docs if d["case_id"] == RECORD_ONLY.case_id]
+        assert mine and all(d["status"] == 500 for d in mine) and docs[0]["case_id"] == "G-B"
+        sent = [body.decode() for _, _, body in wire.sent][len(docs) - len(mine):]
+        assert sent and all(longest_digit_run(b) <= 4 and KEY not in b for b in sent)
+        assert any("Where is the" in b for b in sent)  # the utterance is what the pipeline sends
+
+    run(go())
