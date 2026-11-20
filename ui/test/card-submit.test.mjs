@@ -5,6 +5,7 @@ import { networkInterfaces } from "node:os";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 import { isSecureTarget, submitClarification, submitConfirmation } from "../build/js/card-submit.js";
+import { parseMessageRequestV1 } from "../build/js/contract_types/customer.js";
 
 // Local contract server, not the core. All identifiers, tokens and clock values are SYNTHETIC.
 const bearer = "synthetic-session";
@@ -63,6 +64,7 @@ test("REQ-UI-002 US-02: a clarification submits the bound card and selected serv
   assert.equal(seen.body.clarification_id, card.clarification_id);
   assert.equal(seen.body.option_id, card.options[0].option_id);
   assert.match(seen.body.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.doesNotThrow(() => parseMessageRequestV1(seen.body));
 });
 
 test("REQ-UI-002 US-18: a confirmation submits the bound server ID and an allowed response", async () => {
