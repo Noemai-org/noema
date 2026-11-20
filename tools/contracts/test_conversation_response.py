@@ -83,6 +83,27 @@ class Members(unittest.TestCase):
         self.assertTrue(ok(good()))
 
 
+class CrossMemberRelations(unittest.TestCase):
+    """The schema checks each member alone. The relations between members are the CONSUMER's to check (FE integration read, noema#815): the schema accepts an answer whose
+    members are individually valid but name different investigations, so no reader may take shape validation as proof of consistency. The three checks the consumer makes before
+    it polls or shows any state: investigation_id equals conversation_ref; stream_url is `/v1/conversations/<investigation_id>/events`; correlation_id is `corr_` and the ULID of
+    investigation_id. This test pins that the schema does NOT state them (so nobody relies on it) and that the consistent answer does satisfy all three."""
+
+    OTHER = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+
+    def test_the_schema_accepts_an_answer_whose_members_name_different_investigations(self):
+        doc = good(investigation_id=f"inv_{ULID}", conversation_ref=f"inv_{self.OTHER}", stream_url=f"/v1/conversations/inv_{self.OTHER}/events", correlation_id=f"corr_{self.OTHER}")
+        self.assertTrue(ok(doc), "the schema now states a cross-member relation: update the README and the consumer checks")
+        self.assertNotEqual(doc["investigation_id"], doc["conversation_ref"])
+
+    def test_the_consistent_answer_satisfies_the_three_consumer_checks(self):
+        doc = good()
+        ulid = doc["investigation_id"].removeprefix("inv_")
+        self.assertEqual(doc["investigation_id"], doc["conversation_ref"])
+        self.assertEqual(doc["stream_url"], f"/v1/conversations/{doc['investigation_id']}/events")
+        self.assertEqual(doc["correlation_id"], f"corr_{ulid}")
+
+
 class State(unittest.TestCase):
     def test_it_is_the_one_public_stage_a234_names(self):
         self.assertEqual(schema()["properties"]["state"].get("const"), "understanding")
