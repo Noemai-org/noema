@@ -131,6 +131,8 @@ def record_event_fixtures() -> tuple[dict[str, dict], dict[str, dict], dict[str,
     valid["principal_id_64_characters"] = one(actor="operator:" + "a" * 64)
     valid["payload_with_integers"] = one(payload={"n": [0, 1, -7, 9007199254740991, -9007199254740991]})
     valid["security_event"] = one("core-execution", event_type="SECURITY_EVENT", kind="IDEMPOTENCY_COLLISION", object_ref="grt_0001")
+    valid["security_event_confirmation_refused"] = one("core-edge", event_type="SECURITY_EVENT", kind="CONFIRMATION_REFUSED", object_ref="cnf_0001",
+                                                       actor="customer:usr_synth_014")
     for reason in VOID_REASONS:
         valid[f"grant_voided_{reason.lower()}"] = one("core-execution", event_type="GRANT_VOIDED", reason=reason, object_ref="grt_0001",
                                                       payload={"grant_id": "grt_0001", "reason": reason})
