@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -35,9 +36,14 @@ func allowWith(t *testing.T, snapshot, event string) recorder.Request {
 	r.ConfirmationEventID = event
 	if event != "" {
 		r.ConfirmationPlanHash = h(4) // the plan hash of step(t): the confirmation was given for the plan T14 built
+		r.ConfirmationBindingEvidenceHash = bindingEvidence()
 	}
 	return r
 }
+
+// bindingEvidence is the evidence component of the binding of a confirmation (A435): a content digest, deliberately NOT the grant's evidence set hash of step(t) (h(3), the snapshot's
+// set hash), so a Writer that took the binding's evidence from the step cannot pass the tests that follow a confirmation.
+func bindingEvidence() contracts.CommonV1Hash { return h(5) }
 
 // newTenantTrust is a Trust login mapped to another tenant of the same database.
 func newTenantTrust(t *testing.T, w *world, tenantID string) *pgxpool.Pool {
@@ -49,13 +55,18 @@ func newTenantTrust(t *testing.T, w *world, tenantID string) *pgxpool.Pool {
 // through platform/clock, the one place that reads the system clock (lint [clock]).
 func realNow() time.Time { return clock.System{}.Now() }
 
-// policyVersion is the policy the writer binds for evaluatedWith(t, _, "3.1") and request(): the bound policy of the grant.
-const policyVersion = "fin.pol@3.1"
+// policyVersion is the policy version a confirmation binds for evaluatedWith(t, _, "3.1") (A341, interim): the composite of every policy version of the basis, "sha256:" and the SHA-256
+// hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings, here ["fin.pol@3.1"]. The literal was computed by an independent Python implementation, not by
+// the function under test. (The decision record and the grant still bind the single policy fin.pol@3.1.)
+const policyVersion = "sha256:c1c966ac3b0b555cd16913245fcdf40ebe103d30ea356053aca7a1be0b76967e"
+
+// policyVersionTwo is the composite for a basis of two policies, fin.pol@3.1 and fin.other@2.0: ["fin.other@2.0","fin.pol@3.1"] (independent Python).
+const policyVersionTwo = "sha256:ec91c19602ebb2caf6db5ffb9113f0c26e54328be6d9c03c1c064485ac94a2cb"
 
 // validBinding is the binding of the one step of allowWith, as the confirmation store computes it when it creates the request (SoT 43.2a, trust/confirm).
 func validBinding() confirm.BindingInput {
 	return confirm.BindingInput{PrincipalID: "usr_88213", IntentHash: string(h(1)), CapabilityID: capability, TargetRef: target, ParamsHash: string(h(2)),
-		EvidenceSetHash: string(h(3)), PlanHash: string(h(4)), PolicyVersion: policyVersion}
+		EvidenceSetHash: string(bindingEvidence()), PlanHash: string(h(4)), PolicyVersion: policyVersion}
 }
 
 func bindingHashOf(t *testing.T, in confirm.BindingInput) string {
@@ -590,5 +601,128 @@ func TestAnAllowWhoseConfirmationWasGivenForAnotherPlanIsRefused(t *testing.T) {
 	}
 	if plan != string(h(4)) {
 		t.Errorf("the spend names plan %q, want %q", plan, h(4))
+	}
+}
+
+// allowTwoPolicies is allowWith over a basis of two policies, fin.pol@3.1 and fin.other@2.0.
+func allowTwoPolicies(t *testing.T, snapshot, event string) recorder.Request {
+	t.Helper()
+	b := twoPolicies(t, snapshot)
+	r := request(t, decision(t, decide.Allow, b), b, step(t))
+	r.ConfirmationEventID, r.ConfirmationPlanHash, r.ConfirmationBindingEvidenceHash = event, h(4), bindingEvidence()
+	return r
+}
+
+// A435, INV-25, INV-17: the binding of an ALLOW's confirmation takes its evidence component from the request's ConfirmationBindingEvidenceHash (the content digest), never from the grant
+// step's EvidenceSetHash (the snapshot's set hash). A confirmation given for the step's set hash is NOT valid for the ALLOW; one given for the content digest is, and the grant it issues
+// still carries the step's own set hash (the grant and the Decision Record keep the snapshot's set hash, unchanged).
+func TestTheBindingOfAnAllowRestsOnTheContentDigestAndTheGrantKeepsTheSetHash(t *testing.T) {
+	w := newWorld(t)
+	stepSet := validBinding()
+	stepSet.EvidenceSetHash = string(step(t).EvidenceSetHash) // what the old Writer recomputed: the grant's own value
+	if stepSet.EvidenceSetHash == string(bindingEvidence()) {
+		t.Fatal("the test is void: the grant's evidence set hash and the binding's evidence hash are one value")
+	}
+	if err := recordConfirmation(t, w.trust, tenant, given, stepSet, realNow().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); !errors.Is(err, recorder.ErrConfirmationNotValid) {
+		t.Fatalf("a confirmation given for the grant's set hash: err %v, want ErrConfirmationNotValid", err)
+	}
+	w.nothingRemains(t, "a confirmation bound to the set hash")
+	w.confirmed(t, "cfe_01DIGEST") // given for validBinding(): the content digest
+	res, err := w.write(t, allowWith(t, "evs_01ABC", "cfe_01DIGEST"), true)
+	if err != nil {
+		t.Fatalf("the confirmation given for the content digest: %v", err)
+	}
+	if len(res.Grants) != 1 || res.Grants[0].EvidenceSetHash != step(t).EvidenceSetHash {
+		t.Errorf("the grant carries evidence_set_hash %v, want the step's own %s: the content digest is not the grant's", res.Grants, step(t).EvidenceSetHash)
+	}
+	var bound string
+	if err := w.admin.QueryRow(ctx(t), `SELECT binding_hash FROM confirmation_spend WHERE tenant_id = $1`, tenant).Scan(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if want := bindingHashOf(t, validBinding()); bound != want {
+		t.Errorf("the spend records binding %q, want %q (over the content digest)", bound, want)
+	}
+}
+
+// A435: an ALLOW that follows a confirmation must name the evidence component of its binding, in the contract's Hash form: none, a malformed or an upper-case value is ErrRequest and
+// nothing is written or spent. A value named with no confirmation is refused too (the same rule as the plan hash: nothing is named for a confirmation that is not there).
+func TestAnAllowAfterAConfirmationNeedsAWellFormedBindingEvidenceHashAndNoConfirmationNamesNone(t *testing.T) {
+	w := newWorld(t)
+	w.confirmed(t, given)
+	for name, mutate := range map[string]func(*recorder.Request){
+		"none":      func(r *recorder.Request) { r.ConfirmationBindingEvidenceHash = "" },
+		"too short": func(r *recorder.Request) { r.ConfirmationBindingEvidenceHash = "sha256:abc" },
+		"upper case": func(r *recorder.Request) {
+			r.ConfirmationBindingEvidenceHash = contracts.CommonV1Hash(strings.ToUpper(string(bindingEvidence())))
+		},
+		"another algorithm": func(r *recorder.Request) { r.ConfirmationBindingEvidenceHash = "sha512:" + bindingEvidence()[7:] },
+	} {
+		r := allowWith(t, "evs_01ABC", given)
+		mutate(&r)
+		if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrRequest) {
+			t.Errorf("%s: err %v, want ErrRequest", name, err)
+		}
+		w.nothingRemains(t, name)
+		if n := w.spends(t); n != 0 {
+			t.Errorf("%s: %d spends", name, n)
+		}
+	}
+	r := allowWith(t, "evs_02XYZ", "")
+	r.ConfirmationBindingEvidenceHash = bindingEvidence()
+	if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrRequest) {
+		t.Errorf("a binding evidence hash with no confirmation: err %v, want ErrRequest", err)
+	}
+	w.nothingRemains(t, "a binding evidence hash with no confirmation")
+}
+
+// A341 (interim), INV-25, INV-17: the ALLOW that follows a confirmation is bound to the composite of every policy version of its basis. A confirmation given for the composite of two
+// policies is spent by an ALLOW over those two, and the spend records that binding.
+func TestAConfirmationGivenForTheCompositeOfTwoPoliciesIsSpentByAnAllowOverThoseTwo(t *testing.T) {
+	w := newWorld(t)
+	b := validBinding()
+	b.PolicyVersion = policyVersionTwo
+	if err := recordConfirmation(t, w.trust, tenant, given, b, realNow().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.write(t, allowTwoPolicies(t, "evs_01ABC", given), true); err != nil {
+		t.Fatalf("the ALLOW over two policies: %v", err)
+	}
+	var bound string
+	if err := w.admin.QueryRow(ctx(t), `SELECT binding_hash FROM confirmation_spend WHERE tenant_id = $1`, tenant).Scan(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if want := bindingHashOf(t, b); bound != want {
+		t.Errorf("the spend records binding %q, want %q", bound, want)
+	}
+}
+
+// A341 (interim): a confirmation given for any other policy version than the composite of the ALLOW's own basis is not valid for it: the old single-policy form, the composite of one of
+// two policies, and the composite of two for a basis of one. Nothing remains.
+func TestAConfirmationGivenForAnotherPolicyVersionThanTheCompositeIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		policy string
+		allow  func(t *testing.T, snapshot, event string) recorder.Request
+	}{
+		"the single-policy form, one policy in the basis": {"fin.pol@3.1", func(t *testing.T, s, e string) recorder.Request { return allowWith(t, s, e) }},
+		"the composite of one policy, two in the basis":   {policyVersion, allowTwoPolicies},
+		"the composite of two policies, one in the basis": {policyVersionTwo, func(t *testing.T, s, e string) recorder.Request { return allowWith(t, s, e) }},
+		"the single-policy form, two in the basis":        {"fin.pol@3.1", allowTwoPolicies},
+	} {
+		w := newWorld(t)
+		b := validBinding()
+		b.PolicyVersion = tc.policy
+		if err := recordConfirmation(t, w.trust, tenant, given, b, realNow().Add(time.Hour)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, err := w.write(t, tc.allow(t, "evs_01ABC", given), true); !errors.Is(err, recorder.ErrConfirmationNotValid) {
+			t.Errorf("%s: err %v, want ErrConfirmationNotValid", name, err)
+		}
+		w.nothingRemains(t, name)
+		if n := w.spends(t); n != 0 {
+			t.Errorf("%s: %d spends", name, n)
+		}
 	}
 }

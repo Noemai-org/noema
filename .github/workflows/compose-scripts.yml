@@ -55,3 +55,10 @@ jobs:
       - name: grant-keys init test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: python3 -I deploy/compose/grant-keys/test_init.py
+      # The private raw-audio store (A451; REQ-VOI-004): real directories and modes as the runner's own user, and the guard that nothing names it in a workflow or a Compose file.
+      - name: audio-store test (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: sh deploy/compose/audio-store/test_store.sh
+      - name: audio-store never leaves the host (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/audio-store/test_never_leaves_the_host.py
