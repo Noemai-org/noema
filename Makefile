@@ -172,11 +172,13 @@ BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/co
 # BENCH_MAX_BODY_BYTES has no default: the body limit is not an approved number, so a person gives it. bench-up refuses without it and makes the synthetic IdP first (bench-tokens), because
 # the core mounts its public key. Compose interpolates the variable for every command, so bench-down gets a placeholder when none is given (it uses no value).
 BENCH_TENANT ?= ten_alpha
-BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) NOEMA_BENCH_MAX_BODY_BYTES=$(or $(BENCH_MAX_BODY_BYTES),1) STANDIN_TENANT_ID=$(BENCH_TENANT)
+# One tenant list for the secret step and for Compose: NOEMA_TENANTS if given, else the stand-in tenant. postgres makes a login per tenant of it and secrets_local.sh a secret per tenant of it.
+BENCH_TENANTS = $(or $(NOEMA_TENANTS),$(BENCH_TENANT))
+BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) NOEMA_BENCH_MAX_BODY_BYTES=$(or $(BENCH_MAX_BODY_BYTES),1) STANDIN_TENANT_ID=$(BENCH_TENANT) NOEMA_TENANTS="$(BENCH_TENANTS)"
 .PHONY: bench-up bench-down
 bench-up:
 	@test -n "$(BENCH_MAX_BODY_BYTES)" || { echo "bench-up: BENCH_MAX_BODY_BYTES is required (no default: the body limit is not an approved number)" >&2; exit 2; }
-	deploy/compose/secrets_local.sh
+	NOEMA_TENANTS="$(BENCH_TENANTS)" deploy/compose/secrets_local.sh
 	mkdir -p $(BENCH_OUT)/cost
 	BENCH_TENANT="$(BENCH_TENANT)" BENCH_MAX_BODY_BYTES="$(BENCH_MAX_BODY_BYTES)" $(MAKE) bench-tokens
 	$(BENCH_ENV) $(BENCH_COMPOSE) up -d --build --wait

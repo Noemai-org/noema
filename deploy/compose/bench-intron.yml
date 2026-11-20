@@ -3,7 +3,7 @@
 # provider is simply not registered and voice degrades to text (A179). Never a placeholder file: a dummy would be read, refused at call time and look like a broken provider.
 #
 # The key comes ONLY from a file mount (A249), never from an environment variable, into the model service and nothing else; the bench Environment writes the file at run time and nothing in the
-# repository holds a value. The file must be a regular file (not a link), mode 0600 or 0400, owned by uid 10001 (the model image's user, services/model/Dockerfile), one printable token of at most
+# repository holds a value. The file must be a regular file (not a link), mode 0600 or 0400, owned by the user the bench model runs as (bench-model.yml runs the model as the invoking user, ${NOEMA_BENCH_UID}:${NOEMA_BENCH_GID}, so that user; uid 10001 is the image's own user and applies only where bench-model.yml is not used), one printable token of at most
 # 512 bytes: the reader refuses anything else at call time and its errors carry neither the key nor the path. The mount is read-only. Egress is the one row of deploy/compose/README.md (the model on
 # provider_egress to Intron's inference host). Raw audio never goes through this file or this repository: it lives only in the bench Environment's private store (REQ-VOI-004).
 services:

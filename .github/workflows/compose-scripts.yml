@@ -56,6 +56,9 @@ jobs:
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: python3 -I deploy/compose/grant-keys/test_init.py
       # The per-tenant Trust login DSN step (A356, INV-29): real files and modes, run as the runner's own user.
+      - name: One tenant list for the bench stack (Codex on noema#790)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/test_bench_tenants.py
       - name: trust-dsn init test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: python3 -I deploy/compose/trust-dsn/test_init.py
