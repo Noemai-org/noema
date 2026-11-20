@@ -60,8 +60,8 @@ func rnaRequest(t *testing.T, outcome string, withRequest bool) intake.RecordReq
 		if err != nil {
 			t.Fatal(err)
 		}
-		r.ConfirmationRequest = &intake.NewConfirmationRequest{PrincipalID: "usr_88213", IntentHash: recHash(1), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(2),
-			ConfirmationBindingEvidenceHash: recHash(5), PlanHash: recHash(4), PolicyVersion: composite, Requirement: "SELF", RequesterID: "usr_88213", ExpiresAt: recEpoch.Unix() + 600}
+		r.ConfirmationRequest = &intake.NewConfirmationRequest{PrincipalID: "usr_88213", IntentHash: recHash(10), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(13),
+			ConfirmationBindingEvidenceHash: recHash(11), PlanHash: recHash(12), PolicyVersion: composite, Requirement: "SELF", RequesterID: "usr_88213", ExpiresAt: recEpoch.Unix() + 600}
 	}
 	return r
 }
