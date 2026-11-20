@@ -31,3 +31,7 @@ Run against `test_pool.py` (bench) and `test_compile_acceptance_pool.py` with `t
 - Open questions (Architect): whether the recording should label a locally refused call; whether a refused call should be charged.
 - Files to read first: `benchmark/compile_acceptance/test_pool.py`, `services/model/noema_model/platform/blocking/__init__.py`.
 - Do not touch: the pipeline's fan-out and `BoundedBlockingPool` (model service).
+
+# Session 2026-11-20 · UND-16 · the fan-out reader and noema#792 (Integration Lead)
+- `main`'s `benchmark` job went red after noema#792: `run_pipeline` gained a second `asyncio.gather` (the candidates' screening, one awaitable), and `test_pool.py` required exactly one. The reader now takes the widest gather (still 5), refuses a starred gather and a pipeline with none, and counts created tasks as before. Four unit cases on synthetic source were written first and failed.
+- Not changed: the pool size (6) and the rest of C2's test.
