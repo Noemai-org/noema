@@ -17,7 +17,7 @@ const test = base.extend({ page: async ({ page }, use) => {
 } });
 test.skip(!enabled, "Requires an explicitly configured synthetic real-core test tenant");
 
-test("REQ-AUD-003: reconstruction is restricted to ops and audit sessions", async ({ page }) => {
+test("REQ-AUD-003: reconstruction is restricted to audit sessions", async ({ page }) => {
   const origin = process.env.NOEMA_RECONSTRUCTION_BASE_URL;
   const correlation = process.env.NOEMA_RECONSTRUCTION_CORRELATION_ID;
   const ops = process.env.NOEMA_RECONSTRUCTION_OPS_TOKEN;
@@ -32,7 +32,7 @@ test("REQ-AUD-003: reconstruction is restricted to ops and audit sessions", asyn
   expect(correlation).toMatch(/^corr_[0-9A-Za-z]{2,32}$/u);
   const url = new URL(`/v1/reconstructions/${encodeURIComponent(correlation)}`, baseAddress).toString();
   const get = (token) => page.request.get(url, { headers: token ? { authorization: `Bearer ${token}` } : {}, maxRedirects: 0 });
-  for (const token of [ops, audit]) expect((await get(token)).status()).toBe(200);
-  for (const token of [customer, approver]) expect((await get(token)).status()).toBe(404);
+  expect((await get(audit)).status()).toBe(200);
+  for (const token of [ops, customer, approver]) expect((await get(token)).status()).toBe(404);
   expect((await get(undefined)).status()).toBe(401);
 });
