@@ -1,13 +1,13 @@
 package snapshot_test
 
-// TRU-07 (A365, refined; REQ-TRU-009, REQ-CTX-004, INV-25, INV-17, INV-21; SoT 43.2a): the content hash of a snapshot is what a confirmation binds as its evidence, instead of the hash
+// TRU-07 (A365, A435; REQ-TRU-009, REQ-CTX-004, INV-25, INV-17, INV-21; SoT 43.2a): the content hash of a snapshot is what a confirmation binds as its evidence, instead of the hash
 // over the evidence IDs. The evidence layer mints a new evidence ID for every read, so two snapshots of identical data never share a set hash; the content hash covers the sorted
-// (source, source record ID, facts digest) triples only, where the facts digest is the digest of the item's MAPPED, NORMALIZED facts (FactsDigest; the raw payload hash is not used:
-// two reads of unchanged evidence can differ in a volatile or unmapped field). A re-read of unchanged evidence gives the same value and a changed mapped fact gives another.
-// All data is SYNTHETIC (AGENT-25).
+// (source, source record ID, facts digest, status) entries only, where the facts digest is the digest of the item's MAPPED, NORMALIZED facts (FactsDigest; the raw payload hash is not
+// used: two reads of unchanged evidence can differ in a volatile or unmapped field) and the status is the item's fact status as the Reconciler gives it. A re-read of unchanged
+// evidence gives the same value and a changed mapped fact or status gives another. All data is SYNTHETIC (AGENT-25).
 //
-// The two pinned values were computed by an independent Python implementation (SHA-256 over LP("noema.evidence_content_set.v2") and then, for each distinct triple in sorted order,
-// LP(source) LP(source_record_id) LP(facts_digest), LP being a 4-byte big-endian length and the bytes), not by the function under test.
+// The pinned values were computed by an independent Python implementation (SHA-256 over LP("noema.evidence_content_set.v3") and then, for each distinct entry in sorted order,
+// LP(source) LP(source_record_id) LP(facts_digest) LP(status), LP being a 4-byte big-endian length and the bytes), not by the function under test.
 
 import (
 	"errors"
@@ -23,7 +23,7 @@ import (
 func ph(n int) string { return fmt.Sprintf("sha256:%064x", n) }
 
 func triple(source, record string, n int) snapshot.ContentItem {
-	return snapshot.ContentItem{Source: source, SourceRecordID: record, FactsDigest: ph(n)}
+	return snapshot.ContentItem{Source: source, SourceRecordID: record, FactsDigest: ph(n), Status: "KNOWN"}
 }
 
 // The three digests are those of the facts F1, F2 and F4 of facts_digest_test.go (independently computed there).
@@ -34,13 +34,15 @@ const (
 )
 
 func three() []snapshot.ContentItem {
-	return []snapshot.ContentItem{{Source: "ledger.synth", SourceRecordID: "rec-1", FactsDigest: digestLedger}, {Source: "switch.synth", SourceRecordID: "rec-2", FactsDigest: digestSwitch},
-		{Source: "settle.synth", SourceRecordID: "rec-3", FactsDigest: digestSettle}}
+	return []snapshot.ContentItem{{Source: "ledger.synth", SourceRecordID: "rec-1", FactsDigest: digestLedger, Status: "KNOWN"},
+		{Source: "switch.synth", SourceRecordID: "rec-2", FactsDigest: digestSwitch, Status: "KNOWN"}, {Source: "settle.synth", SourceRecordID: "rec-3", FactsDigest: digestSettle, Status: "KNOWN"}}
 }
 
 const (
-	vecOneItem    = "sha256:178c92d1ca1879c60f113e7fdab80d91194ad39e6aa31b72a40ca8974f6521b5"
-	vecThreeItems = "sha256:5f35fba45a406a5ab0410152bb441ba3a288aff1a39fb56509ef3d849408b07f"
+	vecOneItem    = "sha256:26c3f1f7c48cb1fa355d8af99006fdeb7bba303aaf34611faeacbec8e9bb4383"
+	vecThreeItems = "sha256:19c085913c1e060b940dd8a3b9814d7edcebd82251dbd1f93240c82c87a0b77f"
+	// the same three items with the statuses STALE, KNOWN and UNKNOWN
+	vecMixedStatuses = "sha256:d5adb07baccb43dfc41f083968af88db5476251aad7663eccc553406e761b693"
 )
 
 func mustHash(t *testing.T, items []snapshot.ContentItem) string {
@@ -59,6 +61,11 @@ func TestContentHashMatchesTheIndependentVectors(t *testing.T) {
 	}
 	if got := mustHash(t, three()); got != vecThreeItems {
 		t.Errorf("three items: %s, want %s", got, vecThreeItems)
+	}
+	mixed := three()
+	mixed[0].Status, mixed[2].Status = "STALE", "UNKNOWN"
+	if got := mustHash(t, mixed); got != vecMixedStatuses {
+		t.Errorf("three items with other statuses: %s, want %s", got, vecMixedStatuses)
 	}
 	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(vecThreeItems) {
 		t.Error("the pinned vector is not in the contract's Hash form")
@@ -83,6 +90,7 @@ func TestContentHashChangesWithAnyFieldOfAnyItem(t *testing.T) {
 			"source":       func(c *snapshot.ContentItem) { c.Source += "x" },
 			"record ID":    func(c *snapshot.ContentItem) { c.SourceRecordID += "x" },
 			"facts digest": func(c *snapshot.ContentItem) { c.FactsDigest = ph(900 + i) },
+			"status":       func(c *snapshot.ContentItem) { c.Status = "STALE" },
 			"all swapped":  func(c *snapshot.ContentItem) { c.Source, c.SourceRecordID = c.SourceRecordID, c.Source },
 		} {
 			items := three()
@@ -137,6 +145,22 @@ func TestContentHashSortsByEveryFieldInTurn(t *testing.T) {
 	}
 }
 
+// A435: the status is part of the entry: two entries that differ only in the status are two entries (both count, in either order).
+func TestContentHashCountsTheStatusOfAnEntry(t *testing.T) {
+	known, stale := triple("s", "r1", 1), triple("s", "r1", 1)
+	stale.Status = "STALE"
+	both := mustHash(t, []snapshot.ContentItem{known, stale})
+	if both != mustHash(t, []snapshot.ContentItem{stale, known}) {
+		t.Error("the order of two entries that differ only in status changed the hash")
+	}
+	if both == mustHash(t, []snapshot.ContentItem{known}) || both == mustHash(t, []snapshot.ContentItem{stale}) {
+		t.Error("an entry that differs only in status was counted as the same entry")
+	}
+	if mustHash(t, []snapshot.ContentItem{known}) == mustHash(t, []snapshot.ContentItem{stale}) {
+		t.Error("the status did not change the hash")
+	}
+}
+
 // A365: a fact is a whole triple. Moving characters between fields (no separator can be forged) is another value, and so is a different pairing of records and payloads.
 func TestContentHashKeepsTheFieldsApart(t *testing.T) {
 	x := mustHash(t, []snapshot.ContentItem{triple("ab", "c", 1)})
@@ -170,8 +194,8 @@ func TestContentHashIsDomainSeparated(t *testing.T) {
 	}
 }
 
-// A365 (defined, not refused): a repeated triple is one fact. The same record read twice with the same payload is the same content, so a snapshot that holds it twice binds the
-// same as one that holds it once; the repeat changes nothing and fails nothing.
+// A365, A435 (defined, not refused): a repeated entry is one fact. The same record read twice with the same facts and the same status is the same content, so a snapshot that holds it
+// twice binds the same as one that holds it once; the repeat changes nothing and fails nothing.
 func TestContentHashDefinesARepeatedTripleAsOneFact(t *testing.T) {
 	once := mustHash(t, three())
 	twice := mustHash(t, append(three(), three()[0]))
@@ -186,10 +210,11 @@ func TestContentHashRefusesWhatCannotBeBound(t *testing.T) {
 		"no items":           nil,
 		"an empty source":    {triple("", "r", 1)},
 		"an empty record ID": {triple("s", "", 1)},
-		"no facts digest":    {{Source: "s", SourceRecordID: "r"}},
-		"an upper-case hash": {{Source: "s", SourceRecordID: "r", FactsDigest: strings.ToUpper(ph(10))}},
-		"a short hash":       {{Source: "s", SourceRecordID: "r", FactsDigest: "sha256:abc"}},
-		"one bad among good": append(three(), snapshot.ContentItem{Source: "s", SourceRecordID: "", FactsDigest: ph(4)}),
+		"no facts digest":    {{Source: "s", SourceRecordID: "r", Status: "KNOWN"}},
+		"no status":          {{Source: "s", SourceRecordID: "r", FactsDigest: ph(1)}},
+		"an upper-case hash": {{Source: "s", SourceRecordID: "r", FactsDigest: strings.ToUpper(ph(10)), Status: "KNOWN"}},
+		"a short hash":       {{Source: "s", SourceRecordID: "r", FactsDigest: "sha256:abc", Status: "KNOWN"}},
+		"one bad among good": append(three(), snapshot.ContentItem{Source: "s", SourceRecordID: "", FactsDigest: ph(4), Status: "KNOWN"}),
 	} {
 		got, err := snapshot.ContentHash(items)
 		if !errors.Is(err, snapshot.ErrContentHashInput) || got != "" {
