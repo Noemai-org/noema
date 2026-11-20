@@ -50,6 +50,10 @@ services:
       NOEMA_GRANT_KEY_DIR: /run/grant-keys
       NOEMA_PACK_DIR: /run/packs
       NOEMA_TRUST_DSN_DIR: /run/trust-dsn
+      # The pack's manifest (relative to the pack directory) and the bounds of the pack loader (A445, interim, relayed): the Architect's bench values, no default in code (AGENT-16).
+      NOEMA_PACK_MANIFEST: fintech/manifest.v1.json
+      NOEMA_PACK_MAX_BYTES: "1048576"
+      NOEMA_PACK_MAX_DEPTH: "32"
     volumes:
       - ../../packs:/run/packs:ro
       - trust_dsns:/run/trust-dsn:ro

@@ -187,6 +187,8 @@ BENCH_CORE_SETTINGS = {
     "NOEMA_STORE_TIMEOUT_MS": "1000", "NOEMA_SEAL_TIMEOUT_MS": "1000", "NOEMA_COMPILE_TIMEOUT_MS": "3000", "NOEMA_READ_TIMEOUT_MS": "2000", "NOEMA_TRUST_DB_TIMEOUT_MS": "1000",
     "NOEMA_TRUST_RECONCILE_TIMEOUT_MS": "1000", "NOEMA_GRANT_KEY_MAX_ACTIVE": "2", "NOEMA_DB_SERIALIZATION_ATTEMPTS": "3", "NOEMA_OUTBOX_INTERVAL_MS": "1000",
     "NOEMA_GRANT_KEY_DIR": "/run/grant-keys", "NOEMA_PACK_DIR": "/run/packs", "NOEMA_TRUST_DSN_DIR": "/run/trust-dsn",
+    # A445 (interim): the pack bounds are the Architect's bench values (the largest pack file is 64,069 bytes); the manifest path is a setting, not a constant, because a fixed path would name a vertical in core.
+    "NOEMA_PACK_MANIFEST": "fintech/manifest.v1.json", "NOEMA_PACK_MAX_BYTES": "1048576", "NOEMA_PACK_MAX_DEPTH": "32",
 }
 TRUST_DSN_INIT, TRUST_DSN_VOLUME, TENANT_LOGIN_SECRET = "trust-dsn-init", "trust_dsns", "noema_tenant_login_password"
 # The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
