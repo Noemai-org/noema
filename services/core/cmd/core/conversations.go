@@ -14,7 +14,7 @@ import (
 
 // conversations.go: the answer of POST /v1/conversations (ruling A234, interim, docs#187, relayed, not yet committed; noema#601). The Input Gateway answers with the recorded input's
 // reference; PERD 39.2 promises the investigation. This file turns the one into the other without changing the gateway: on success it answers the PERD shape plus the correlation ID,
-// derived from the correlation ID alone so a retry (which gets the original correlation ID, A168) gets the same values. Every other response is the gateway's, byte for byte, unless it is longer than maxResponseBytes (A457): then it is the fixed error of failStart.
+// derived from the correlation ID alone so a retry (which gets the original correlation ID, A168) gets the same values. Every other response is the gateway's, byte for byte, unless it is longer than maxResponseBytes (A457): then it is the fixed 502 of failUpstream (A471, interim, relayed, recorded in docs#216, not yet merged).
 
 // publicStageUnderstanding is the state of a new investigation: Noema is reading the request (the public stage of rulings A187, A207, A211).
 const publicStageUnderstanding = "understanding"
@@ -81,7 +81,7 @@ func startConversation(inner http.Handler) http.Handler {
 		c := &capture{header: w.Header().Clone(), status: http.StatusOK}
 		inner.ServeHTTP(c, r)
 		if c.tooLong() {
-			failStart(w, r)
+			failUpstream(w, r)
 			return
 		}
 		if c.status != http.StatusOK && c.status != http.StatusAccepted {
@@ -129,5 +129,19 @@ func failStart(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusInternalServerError)
+	_, _ = w.Write(body)
+}
+
+// failUpstream is the answer when the gateway's answer is longer than maxResponseBytes (A471): 500 is for our own faults, so an over-long upstream answer is 502 with the public code the
+// gateway already uses for an upstream failure (inputgateway/handler.go:45), fixed text, no upstream text, and the request's bounded correlation ID. The code is retryable by its definition (errors.v3).
+func failUpstream(w http.ResponseWriter, r *http.Request) {
+	corr := boundedCorrelation(session.CorrelationFromContext(r.Context()))
+	body, err := crypto.CanonicalJSON(map[string]any{"error": map[string]any{"code": string(contracts.ErrorsV2ErrorCodeDEPENDENCYUNAVAILABLE), "message": "The request cannot be taken now.", "retryable": true, "correlation_id": corr}})
+	if err != nil {
+		http.Error(w, "", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadGateway)
 	_, _ = w.Write(body)
 }
