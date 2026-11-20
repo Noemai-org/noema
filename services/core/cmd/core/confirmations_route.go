@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"time"
@@ -58,6 +59,7 @@ type confirmationRouteConfig struct {
 	Clock    clock.Clock
 	Timeout  time.Duration
 	Decode   ConfirmationAnswerDecoder
+	Logger   *slog.Logger // optional: nil logs nothing
 }
 
 var confirmationRequestPath = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)

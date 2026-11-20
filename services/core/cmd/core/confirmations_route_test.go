@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -443,5 +444,77 @@ func TestTheDefaultDecoderIsTheContractsType(t *testing.T) {
 		if _, err := decodeConfirmationAnswer([]byte(body)); err == nil {
 			t.Errorf("%s accepted", name)
 		}
+	}
+}
+
+// A refused answer leaves one log line of fixed text per outcome, with the outcome, tenant, request ID and the session's principal only (REQ-TRU-009, INV-12; SR item). Never the body,
+// the answer or a role. A body-named request ID, which the path does not carry, is never logged.
+func TestARefusedAnswerLeavesOneFixedLogLine(t *testing.T) {
+	const other = "cfr_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	type row struct {
+		name, requirement string
+		role              session.Role
+		sub, body         string
+		advance           time.Duration
+		preAnswer         bool
+		code              int
+		msg, outcome      string
+	}
+	for _, c := range []row{
+		{name: "self-approval", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: confRequester, body: confAnswer(confRequestID, "ACCEPT"), code: 403, msg: "confirmation answer refused: not eligible", outcome: "not_eligible"},
+		{name: "customer on ROLE:approver", requirement: "ROLE:approver", role: session.RoleCustomer, sub: "prn_other", body: confAnswer(confRequestID, "ACCEPT"), code: 403, msg: "confirmation answer refused: not eligible", outcome: "not_eligible"},
+		{name: "not yours", requirement: "SELF", role: session.RoleCustomer, sub: "prn_other", body: confAnswer(confRequestID, "ACCEPT"), code: 403, msg: "confirmation answer refused: not eligible", outcome: "not_eligible"},
+		{name: "wrong request", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: "prn_apr", body: confAnswer(other, "ACCEPT"), code: 403, msg: "confirmation answer refused: wrong request", outcome: "wrong_request"},
+		{name: "expired", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: "prn_apr", body: confAnswer(confRequestID, "ACCEPT"), advance: 121 * time.Second, code: 409, msg: "confirmation answer refused: expired", outcome: "expired"},
+		{name: "second answer", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: "prn_apr2", body: confAnswer(confRequestID, "DECLINE"), preAnswer: true, code: 409, msg: "confirmation answer refused: already answered", outcome: "already_answered"},
+	} {
+		var buf bytes.Buffer
+		iss := edgetest.NewIssuer(t)
+		clk := clock.NewManual(apiEpoch)
+		rq, rc := confRequest(c.requirement), &confAnswers{}
+		e := sessionEnv(t, iss)
+		e[edge.EnvTenants] = confTenant
+		cfg := confirmationRouteConfig{Requests: rq, Answers: rc, Clock: clk, Timeout: time.Second, Logger: slog.New(slog.NewJSONHandler(&buf, nil))}
+		h, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{confirmationRoute(cfg)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.preAnswer {
+			if rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT")); rec.Code != http.StatusAccepted {
+				t.Fatalf("%s: first %d", c.name, rec.Code)
+			}
+			if buf.Len() != 0 {
+				t.Errorf("%s: an accepted answer logged: %s", c.name, buf.String())
+			}
+		}
+		clk.Advance(c.advance)
+		if rec := confPost(h, confToken(iss, c.role, c.sub), confPath, c.body); rec.Code != c.code {
+			t.Fatalf("%s: %d %s", c.name, rec.Code, rec.Body.String())
+		}
+		lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+		if len(lines) != 1 || lines[0] == "" {
+			t.Errorf("%s: want one log line, got %q", c.name, buf.String())
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(lines[0]), &m); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if m["msg"] != c.msg || m["outcome"] != c.outcome || m["tenant"] != confTenant || m["request_id"] != confRequestID || m["principal_id"] != c.sub {
+			t.Errorf("%s: %s", c.name, lines[0])
+		}
+		for _, banned := range []string{"ACCEPT", "DECLINE", "response", "roles", "role", "FAW", "customer", "approver"} {
+			if strings.Contains(strings.ReplaceAll(lines[0], "ROLE:approver", ""), banned) {
+				t.Errorf("%s: the log line carries %q: %s", c.name, banned, lines[0])
+			}
+		}
+	}
+}
+
+// A request the session may not see or that is not found logs nothing here, and a nil logger is fine.
+func TestAnAcceptedAnswerAndANilLoggerLogNothing(t *testing.T) {
+	h, iss, _, _, rc := confSetup(t, "MAKER_CHECKER")
+	if rec := confPost(h, confToken(iss, session.RoleApprover, confRequester), confPath, confAnswer(confRequestID, "ACCEPT")); rec.Code != http.StatusForbidden || len(rc.got) != 0 {
+		t.Errorf("nil logger: %d", rec.Code)
 	}
 }
