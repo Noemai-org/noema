@@ -40,7 +40,7 @@ const (
 	ledger   = "fin.src.core_ledger"
 	sw       = "fin.src.switch"
 	dest     = "fin.src.destination"
-	expected = "fin.map.v1@1"
+	expected = "fin.map.v1@2"
 	leak     = "payload-body-must-not-leak"
 	dsnLeak  = "postgres://trust_rw:hunter2@db.internal:5432/noema"
 )
@@ -72,7 +72,7 @@ func ruleSet(t *testing.T) *reconcile.RuleSet {
 
 func theMapping(t *testing.T, rs *reconcile.RuleSet) *mapping.Mapping {
 	t.Helper()
-	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest, "fin.src.case_system"}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(packDir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Fatal(err)
 	}

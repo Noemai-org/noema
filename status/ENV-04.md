@@ -180,6 +180,29 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **EL note 2 (done):** README says the freshness bound is the layer's. **EL note 3 (answered, not coded):** in the real mapping each source feeds exactly one row, so "one row's field missing while another row of the same source is present" cannot occur end to end; the per-row path is in `internal_test.go`. A test with a second row for a source needs a mapping row the Architect has not approved (A245).
 - Debt: DEBT-44 (the tamper signal). Conflicts raised: none.
 
+# Session 2026-11-19 · ENV-04 · the A356 bench settings and the per-tenant Trust login files (IL)
+- `bench-stack.yml`: the A356 table as bench core values (`NOEMA_TRUST_AT_RISK_BPS` removed as corrected: trustlimits reads it from the pack), the three paths, and a one-shot `trust-dsn-init` (no network, root, secret `noema_tenant_login_password`) that writes one `trust_rw__<tenant>` DSN file per tenant into the `trust_dsns` volume at mode 0400, owner 65532; the core mounts it read-only and waits for the step.
+- netcheck: `trust-dsn-init` is a sidecar exempt by exact name (`ONE_SHOT_NAMES`); only postgres and that step hold the password; only that step (writable) and the core (read-only) mount the volume; the core's A356 values are checked by number; 10 new self-test mutations (124, all caught).
+- Not done here (waits): `policy-publish` and `tenant-init` one-shots (C1's script and #771 are not on main; the core-trust key provisioning script is not found), `NOEMA_PACK_MANIFEST` (needs the core's loader), `NOEMA_GRANT_KEY_DIR` is set but unread until EL wires it.
+- Not run locally: `trust-dsn/test_init.py` (needs Linux; no Docker daemon here): CI is its proof.
+
+# Session 2026-11-19 · ENV-04 · the optional Intron key mount (A377 to A379, IL)
+- `deploy/compose/bench-intron.yml` (optional overlay, added by `make bench-up` only when `NOEMA_BENCH_INTRON_KEY_FILE` is set): `INTRON_API_KEY_FILE=/run/intron/key` and one read-only bind of the host file into the model service. No dummy file, no environment variable for the key. Facts from Voice (noema#689's reader): unset means the provider is not registered and the service starts; a set variable with a bad file fails at call time; the file needs mode 0600 or 0400 and owner uid 10001.
+- netcheck resolves the bench stack with the overlay too and checks it (variable and mount together, bench only, one read-only bind of one file at that path, never a folder or volume; the core cannot mount it); 8 new mutations (132 total, all caught).
+- Not done: the workflows' own compose commands do not add the overlay (no Environment file path yet); the bench Environment writing the file, owned by the user the bench model runs as (the invoking user, NOEMA_BENCH_UID, not 10001; Codex on noema#790), is the runner's step when the key exists.
+
+# Session 2026-11-20 · ENV-04 · SR's two hardening items on noema#790 (IL)
+- `trust-dsn-init` now has `cap_drop: [ALL]` and `cap_add: [CHOWN, FOWNER, SETUID, SETGID]` (give the file to the core's user, set its mode after it is no longer the step's own, read it back as that user), and the read-back child drops supplementary groups (`os.setgroups([])`) before `setgid`/`setuid`. netcheck requires exactly that set (3 mutations; 135 in all, caught) and the overlay text rule now fails on no input (checked by the self-test).
+- Not verified at run time: no Docker daemon here. If a capability is missing the step fails closed and the core does not start; the first stack-check shows it. `grant-keys-init` (merged) has neither hardening; a follow-up is SR's call.
+
+# Session 2026-11-20 · ENV-04 · Codex and SR on noema#790 (IL)
+- Codex P1 (fresh checkout, `NOEMA_TENANTS` unset): postgres and `trust-dsn-init` fell back to the stand-in tenant but `secrets_local.sh` read only `NOEMA_TENANTS`, so the emitter-login secret was never made and `init.sh` refused. `make bench-up` now uses one effective list (`BENCH_TENANTS`, NOEMA_TENANTS else BENCH_TENANT) for the secret step and for Compose; `deploy/compose/test_bench_tenants.py` (run in `compose-scripts`) reads the real Makefile and overlay. Not done and not mine to guess: mapping the tenant logins in the database (`provision-tenants.sh` after the migrations) is C2's compose sequencing.
+- Codex P2 (the key file owner): `bench-model.yml` runs the model as the invoking user, so the key must be owned by that user, not by 10001. The overlay comment, the README and this file say so. Voice's "10001" was the image's own user.
+
+# Session 2026-11-20 · ENV-04 · A445 on noema#790 (IL)
+- `NOEMA_PACK_MANIFEST=fintech/manifest.v1.json`, `NOEMA_PACK_MAX_BYTES=1048576`, `NOEMA_PACK_MAX_DEPTH=32` in the bench core settings (the Architect's bench values; the largest pack file is 64,069 bytes), checked by number in netcheck (137 mutations). `secrets_local.sh` makes the core-trust signing seed (`secrets/core_trust_ed25519_seed_1`, 64 lower-case hexadecimal, mode 600, kept on a second run, never printed): the form `signing.LoadRing` reads from `core-trust.ed25519.<version>.key`. A one-shot that sets its mode and owner, the `policy-publish` step and the netcheck rule "no other service lists or mounts the core-trust slot" come with #771 and C1's tenant-init: there is no consumer to mount it yet, and no Compose secret names it, so nothing holds it.
+- Not run here: `test_secrets_local.sh` (the whole script exceeds my local time limit on Windows); the new lines were checked in isolation.
+
 # Session 2026-11-19 · ENV-04 G1 evidence: SR's two first-dispatch conditions (noema#436, A323)
 ## Session summary
 - What changed: `benchmark/runner/evidence.py` (each probe has its own principal, letters only; the unknown correlation is recorded; new `record-access` command), `benchmark/runner/test_evidence.py`, `.github/workflows/bench-g1-stack.yml` (job-log capture, `access` step, show step after a clean scan, Result fails on the access check), `benchmark/runner/test_g1_workflow.py`.
@@ -189,3 +212,11 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 ## Pre-work for the next agent
 - Exact next step: IL merges main into the smoke-mode change over these step names; the first dispatch counts only after Codex, SR and a Founder.
 - Do not touch: the leak scan's planted kinds.
+
+# Session 2026-11-20 · ENV-04 · Codex's `.env` finding on noema#790 (IL)
+- Codex P2 (twice): the stand-in fallback overrode a tenant list set only in Compose's `.env`. `deploy/compose/bench_tenants.sh` now gives the one effective list (the shell, then `.env`, then the stand-in tenant; an empty result is no list) and `make bench-up` passes it to `secrets_local.sh` and to Compose (`BENCH_TENANTS`). `test_bench_tenants.py` runs the script on ten cases (shell wins, `.env` only, quoted, comment, look-alike, empty shell value, the fallback as an argument) and reads the real Makefile. Merged main once (conflict only in `compose-scripts.yml`, both sides kept).
+
+# Session 2026-11-20 · ENV-04 · the independent reads of noema#790 at `8e4865e7` (IL)
+- SR P2 and C1 P2: the tenant list is pasted into the recipe as text, so a `.env` value with a quote or a `$(...)` would run as shell. `bench_tenants.sh` now checks every word (and the stand-in tenant) against the tenant shape and prints nothing and exits non-zero otherwise; `bench-up` stops on an empty list before anything runs. A test with fifteen hostile values, in the shell and in `.env`, was written first and failed.
+- C1 P3 (1): `trust-dsn-init` removes the DSN file of a tenant that left the list and stops on any entry that is not a tenant file (tests written first; Linux-only, so CI is their proof). P3 (2): noted in the README (a 600 secret needs another mount). P3 (3): the stand-in tenant must be in the list (refused otherwise). P3 (4) and (5): the body and the README are updated; `test_secrets_local.sh` is run by CI (my host cannot run it in full).
+- EL: the body is brought to the current head and says SR should read the delta since `fc50470d`.

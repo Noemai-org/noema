@@ -8,7 +8,9 @@ The adapters between the orchestrator and Trust (package `trustport`). Each adap
 
 `Evidence` implements `intake.Evidence`. REQ-TRU-001, REQ-TRU-002 (T9), REQ-TRU-003, REQ-CTX-003, REQ-CTX-004, REQ-NFR-002; INV-11, INV-16, INV-17, INV-19, INV-23; AGENT-13, AGENT-16.
 
-`SnapshotFreshness(ctx, tenantID, snapshotID)` reads the sealed snapshot the orchestrator named, as the tenant's own `trust_rw` login, and returns per item the freshness the Decision Record keeps (evidence id, effective_at, source, age, effective limit, who set it) and the stored fact status. It reads what was sealed and verified; it recomputes nothing from a payload and never reads one.
+`SnapshotFreshness(ctx, tenantID, snapshotID)` reads the sealed snapshot the orchestrator named, as the tenant's own `trust_rw` login, and returns per item the freshness the Decision Record keeps (evidence id, effective_at, source, age, effective limit, who set it) and the stored fact status. It reads what was sealed and verified. The freshness and the status are the stored columns and need no payload; the binding value (below) needs the payloads, read by the facts source.
+
+**The two evidence values of the answer (A365, refined; A435).** The answer's `EvidenceSetHash` is the snapshot's OWN set hash (over the evidence IDs and payload hashes), as stored and as `intact` verifies it: the Decision Record and the grant keep it. The answer's `ConfirmationBindingEvidenceHash` is the CONTENT digest of the items (`snapshot.ContentHash`: sorted source, source record ID, FACTS DIGEST and the item's status, no evidence ID), which only the confirmation binding uses (the contract field is still named `evidence_set_hash`). An item's facts digest (`snapshot.FactsDigest`) is the digest of its MAPPED, NORMALIZED facts: `ItemFacts.Facts` (the Reconciler, `evidence/reconciler`) reads the item's stored payload as the tenant, verifies it against the item's payload hash, and applies the evidence mapping the Reconciler classifies with; there is no second mapping. The raw payload hash is not bound: two reads of unchanged evidence can differ in a volatile or unmapped field. A re-read of unchanged facts under new evidence IDs gives the same value; a changed mapped fact (the status the Reconciler gives the row, the entity or a field) or a changed item status gives another. Only what the pack's mapping maps is bound (the evidence the decision rests on); a payload field the mapping does not look at is not. Fail closed: an item with no source record ID, whose payload cannot be read or is not the sealed one (also a tampered one), that the mapping cannot use, or whose facts cannot be digested makes the snapshot unusable as evidence (`ErrSnapshotNotIntact`, the cause behind the fixed text); no payload is read for a snapshot that did not verify. `NewEvidence` takes the facts source (a missing one is `ErrConfig`).
 
 | Step | Rule | Refusal |
 |---|---|---|
@@ -27,13 +29,27 @@ The adapters between the orchestrator and Trust (package `trustport`). Each adap
 
 **Errors** carry no tenant, evidence identifier or row text (AGENT-13). On any error the answer is empty and T9 ends UNKNOWN.
 
-**For the composition (EL, `wire_trust.go`).** Give `SealedSnapshots` a `SnapshotLogins` that returns each tenant's own `trust_rw` pool (`*pgxpool.Pool` is a `SnapshotTx`) and refuses an unknown tenant, with `NOEMA_TRUST_DB_TIMEOUT_MS`; give `NewEvidence` a `SourceProfiles` that reads the pack's trust profile by intent node (data, never code) and the system clock. There is no new setting.
+**For the composition (EL, `wire_trust.go`).** Give `SealedSnapshots` a `SnapshotLogins` that returns each tenant's own `trust_rw` pool (`*pgxpool.Pool` is a `SnapshotTx`) and refuses an unknown tenant, with `NOEMA_TRUST_DB_TIMEOUT_MS`; give `NewEvidence` the Reconciler as its `ItemFacts` (the same `reconciler.Reconciler` that `Reconciler` T10 uses, built over the Trust login's payload reader of `cmd/core`) and a `SourceProfiles` that reads the pack's trust profile by intent node (data, never code) and the system clock. There is no new setting.
 
 **Open.**
 - The sealed snapshot (`context_snapshot`, `CONTEXT_SNAPSHOT_SEALED`) records its correlation and not its intent. The intent rule above is the strictest one that needs no schema change; its residual is a version admitted between the intent read and the first evidence read, and it compares the database clock (`admitted_intent.created_at`) with the application clock (`read_at`). The fix is to record `intent_id@version` in the snapshot (a migration and a contract change, AGENT-15): proposed as a debt entry in `status/TRU-07-evidence.md`.
-- The payload body is not re-hashed against `payload_hash` here; the nightly `evidence_verify` recompute covers items against snapshots.
+- The payload body is re-hashed against `payload_hash` by the facts source (`payloadread`) for the binding value; the nightly `evidence_verify` recompute covers items against snapshots.
 
 **Tests.** `go test ./orchestrator/portadapters/trust/` from `services/core/`. `evidence_test.go` needs no database (a fake reader, a recording transaction). `evidence_db_test.go` needs PostgreSQL (`NOEMA_TEST_DATABASE_URL`, or a local server). Every helper of the Evidence tests starts with `evd` so that the other adapters' tests cannot collide with it.
+
+## Intents: the capability an intent asks for (A370, TRU-02)
+
+`StoredIntents.Get` sets `intake.AdmittedIntent.RequestedCapability`: the value of the node's capability slot, read from the stored document with the pack. The slot is the one the pack declares as a Reference with `references: capability` (the core names no slot, INV-14). None present, or one that says ABSENT, is empty; a slot that is present and cannot be read as one capability (not a Reference, an empty or non-string value, a status that is not RESOLVED or ABSENT) is `ErrStoredIntent`, never "none"; the same value in two slots is that value, two different values are `ErrStoredIntent`. Whether the capability is registered or prohibited is T4's question (`trustpack.Capabilities.Requested`). `Verify` compares the field with the stored one. Tests: `intents_capability_test.go` (real PostgreSQL).
+
+## Recorder (the intake's T15 write; TRU-12)
+
+`RecorderAdapter` implements `intake.Recorder`: it writes the Decision Record, the grants and their events with `recorder.Writer` in one transaction it opens and commits. REQ-TRU-009, REQ-AUD-001; INV-03, INV-16, INV-17; EC-E16.
+
+`SealedFacts` is the production `RecordFactSource`. It reads the evidence set hash from the SEALED SNAPSHOT of the evaluation (the snapshot named in the evaluation's own basis, read as the request's tenant through `SnapshotReader`), re-checks it is intact and of the evaluation's own correlation (equal, else `ErrSnapshotNotIntact`), takes the policy from the manifest-verified pack passed in (it must be a policy the evaluation used) and asks a `StepFactSource` for each step's target versions and freeze permission. A `RecordRequest` has no field that can set the evidence hash or a target version, and a test fails if one is added.
+
+The confirmation spend is the writer's and the database's, not a second path in this adapter: the adapter only passes the confirmation event and plan hash on, and `recorder.Writer` and the database's single-use constraint spend it (INV-17).
+
+**Open.** The production `StepFactSource` (target versions and the `reconcile.FreezeGate` permission per step) is not in this package: the sealed snapshot holds no version token, so it needs a source that is another lane's (T9 to T11).
 
 ## Writes (the intake's T3; STM-01 follow-up, ruling A342 relayed, not committed)
 

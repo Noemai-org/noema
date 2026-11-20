@@ -1,0 +1,42 @@
+# SEC-07 (REQ-SEC-003, REQ-SEC-007; PERD 44.1): the scanners run every night, with leaks planted on EVERY surface first. This job is the part that needs no target: it proves the scanners can
+# see (a canary, a 10-digit account number, a Luhn-valid card number, an api_key value, a JWT-shaped value, a bearer token and another scope's token, on logs, traces, API output, explanations and the Record).
+# A planted leak that is not found fails the job (a scanner that finds nothing is never read as clean). The scan of the real surfaces of a persistent target (the G1 stack and its Record, exported by an
+# auditor login) is the next slice; its input is the same tool (`tools/ci/sec07_nightly.py --surfaces <file> --metric <file>`) and its counters are `noema_cross_scope_disclosure_total` and
+# `noema_leak_scan_findings_total`, every surface present, zero included. No secret is read, nothing is written to the repository or to issues.
+name: sec07-nightly
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  planted-leaks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Plant a leak of every kind on every surface and require the scanners to find each
+        run: |
+          set -eu
+          python3 -I tools/ci/sec07_nightly.py --registry tools/ci/sec07/registry.synthetic.json --surfaces tools/ci/sec07/surfaces.selftest.json --workdir "$RUNNER_TEMP/sec07" --selftest | tee "$RUNNER_TEMP/sec07.txt"
+          grep -Eq '^probe: every planted leak .* was found on each of 5 surfaces: the scanners can see$' "$RUNNER_TEMP/sec07.txt"
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "SEC-07: every planted leak was found on every surface (SYNTHETIC)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**SEC-07 FAILED: a planted leak was not found, or the scan did not run. A scanner that cannot see is not a clean scan.**" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Alert on a failure
+        if: failure()
+        run: echo "::error title=SEC-07 scanners cannot see a planted leak::the nightly planted-leak probe failed (REQ-SEC-003); see the step log"
