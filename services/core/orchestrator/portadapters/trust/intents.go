@@ -62,6 +62,9 @@ func (p poolMap) For(tenantID string) (Querier, error) {
 	return nil, ErrNoPool
 }
 
+// capabilityVocabulary is the value of a slot's `references` member (contracts intent-node.v1) that says its values are capability IDs.
+const capabilityVocabulary = "capability"
+
 var (
 	intentIDRe    = regexp.MustCompile(`^int_[0-9A-Za-z_]{2,64}$`)
 	resourceRefRe = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$`)
@@ -74,6 +77,8 @@ var (
 type nodeInfo struct {
 	required []string
 	owned    []string
+	// capabilitySlots are the node's slots whose values are capability IDs: the Reference slots the pack declares with `references: capability` (A370). Which slot that is, is the pack's.
+	capabilitySlots []string
 }
 
 type packData struct {
@@ -83,8 +88,9 @@ type packData struct {
 		NodeID       string  `json:"node_id"`
 		TrustProfile *string `json:"trust_profile"`
 		Slots        []struct {
-			Name     string `json:"name"`
-			Required bool   `json:"required"`
+			Name       string `json:"name"`
+			Required   bool   `json:"required"`
+			References string `json:"references"`
 		} `json:"slots"`
 	} `json:"intent_nodes"`
 	TrustProfiles []struct {
@@ -137,6 +143,9 @@ func readPack(raw []byte) (id, version string, nodes map[string]nodeInfo, err er
 			if s.Required {
 				info.required = append(info.required, s.Name)
 			}
+			if s.References == capabilityVocabulary {
+				info.capabilitySlots = append(info.capabilitySlots, s.Name)
+			}
 		}
 		if n.TrustProfile != nil {
 			owned, ok := profiles[*n.TrustProfile]
@@ -154,6 +163,7 @@ func readPack(raw []byte) (id, version string, nodes map[string]nodeInfo, err er
 		}
 		sort.Strings(info.required)
 		sort.Strings(info.owned)
+		sort.Strings(info.capabilitySlots)
 		nodes[n.NodeID] = info
 	}
 	return f.PackID, f.PackVersion, nodes, nil
@@ -335,7 +345,7 @@ func (s *StoredIntents) Verify(ctx context.Context, a intake.AdmittedIntent) err
 
 func sameIntent(a, b intake.AdmittedIntent) bool {
 	return a.TenantID == b.TenantID && a.IntentID == b.IntentID && a.Version == b.Version && a.IntentNode == b.IntentNode && a.IntentHash == b.IntentHash &&
-		a.CorrelationID == b.CorrelationID && a.PrincipalID == b.PrincipalID && a.TargetRef == b.TargetRef && a.View.Version == b.View.Version &&
+		a.CorrelationID == b.CorrelationID && a.PrincipalID == b.PrincipalID && a.TargetRef == b.TargetRef && a.RequestedCapability == b.RequestedCapability && a.View.Version == b.View.Version &&
 		slices.Equal(a.View.MaterialFlags, b.View.MaterialFlags) && maps.Equal(a.View.RequiredSlots, b.View.RequiredSlots)
 }
 
@@ -389,8 +399,12 @@ func (s *StoredIntents) build(a intentstore.Admitted, obj contracts.IntentObject
 		flags = slices.Clone(obj.AmbiguityFlags)
 		sort.Strings(flags)
 	}
+	requested, err := requestedCapability(node, obj)
+	if err != nil {
+		return intake.AdmittedIntent{}, err
+	}
 	return intake.AdmittedIntent{TenantID: a.TenantID, IntentID: a.IntentID, Version: a.Version, IntentNode: a.IntentNode, IntentHash: a.IntentHash, CorrelationID: a.CorrelationID,
-		PrincipalID: principal, TargetRef: target, View: decide.IntentView{Version: a.Version, MaterialFlags: flags, RequiredSlots: required}}, nil
+		PrincipalID: principal, TargetRef: target, RequestedCapability: requested, View: decide.IntentView{Version: a.Version, MaterialFlags: flags, RequiredSlots: required}}, nil
 }
 
 // statusOf reads a slot's status as the Interpreter port does (EL's read of noema#661): a `status` that is the string RESOLVED is resolved, another of the three words is that, and
@@ -444,4 +458,37 @@ func (s *StoredIntents) target(node nodeInfo, obj contracts.IntentObjectV3) (str
 		return refs[0], nil
 	}
 	return "", fmt.Errorf("%w: the owned slots name more than one target", ErrStoredIntent)
+}
+
+// requestedCapability is the one capability the stored intent asks for (A370): the value of the node's capability slots, which the pack names. No such slot present, or one that says
+// ABSENT, is none. A slot that is present and cannot be read as one capability (not a Reference, no or empty or non-string value, a status that is not RESOLVED or ABSENT) is
+// ErrStoredIntent, never "none": reading it as none would shrink the authorized set silently, and the intake ends UNKNOWN instead. The same value in two slots is that value; two
+// different values are not usable, because an intent has one capability. Whether the value names a registered or a prohibited capability is T4's question, not this adapter's.
+func requestedCapability(node nodeInfo, obj contracts.IntentObjectV3) (string, error) {
+	var got string
+	for _, name := range node.capabilitySlots {
+		raw, present := obj.Slots[name]
+		if !present {
+			continue
+		}
+		switch statusOf(json.RawMessage(raw)) {
+		case decide.SlotAbsent:
+			continue
+		case decide.SlotResolved:
+		default:
+			return "", fmt.Errorf("%w: a capability slot is not resolved", ErrStoredIntent)
+		}
+		var head struct {
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		}
+		if json.Unmarshal(raw, &head) != nil || head.Type != string(contracts.IntentSlotV2SlotTypeReference) || head.Value == "" {
+			return "", fmt.Errorf("%w: a capability slot names no capability", ErrStoredIntent)
+		}
+		if got != "" && got != head.Value {
+			return "", fmt.Errorf("%w: the capability slots name more than one capability", ErrStoredIntent)
+		}
+		got = head.Value
+	}
+	return got, nil
 }

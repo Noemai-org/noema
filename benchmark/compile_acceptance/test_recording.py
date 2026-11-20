@@ -250,6 +250,24 @@ class Diagnostics(unittest.TestCase):
                 self.assertEqual((doc["failure"], doc["failure_class"], doc["error"], doc["reply"]), (label, label, None, None))
                 self.assertEqual((row["failure_class"], row["error"]), (label, None))
 
+    def test_a_call_refused_by_the_full_pool_has_its_own_class_apart_from_a_provider_outage(self) -> None:
+        """A372: nothing was sent, so the call says nothing of the provider's health (UND-16, REQ-INT-001, INV-22)."""
+        doc, row, _ = one({"status": None, "reply": None, "failure": "POOL_REFUSED"})
+        self.assertEqual((doc["failure"], doc["failure_class"], doc["error"], doc["reply"], doc["status"]), ("POOL_REFUSED", "POOL_REFUSED", None, None, None))
+        self.assertEqual((row["failure"], row["failure_class"], row["error"]), ("POOL_REFUSED", "POOL_REFUSED", None))
+        outage, _, _ = one({"status": None, "reply": None, "failure": "UNAVAILABLE"})
+        self.assertNotEqual(doc["failure_class"], outage["failure_class"])
+
+    def test_the_manifest_counts_a_pool_refused_call_apart_from_an_outage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            r = recorder(Path(tmp))
+            r.case_id = "G-A"
+            for failure in ("POOL_REFUSED", "UNAVAILABLE", "POOL_REFUSED"):
+                r.record_call(url="https://api.example.invalid/v1/responses", request=REQUEST, status=None, reply=None, failure=failure, projected_micros=500, cost_micros=500)
+            m = json.loads(r.write_manifest({"pin": "x"}).read_text())
+            self.assertEqual(m["failure_classes"], {"POOL_REFUSED": 2, "UNAVAILABLE": 1})
+            self.assertEqual([x["failure_class"] for x in m["recordings"]], ["POOL_REFUSED", "UNAVAILABLE", "POOL_REFUSED"])
+
     def test_a_call_with_no_status_and_no_known_label_is_class_no_status(self) -> None:
         for label in (None, "WEIRD", "", "timeout", "OK"):
             with self.subTest(label=label):
@@ -297,10 +315,10 @@ class Diagnostics(unittest.TestCase):
             self.assertEqual(sum(m["failure_classes"].values()), m["calls"])
 
     def test_the_vocabulary_is_closed_and_reuses_the_providers_failure_names(self) -> None:
-        self.assertEqual(FAILURE_CLASSES, ("OK", "REJECTED", "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "MALFORMED", "NO_STATUS"))
+        self.assertEqual(FAILURE_CLASSES, ("OK", "REJECTED", "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "MALFORMED", "NO_STATUS", "POOL_REFUSED"))
         if importlib.util.find_spec("noema_model") is not None:
             base = importlib.import_module("noema_model.providers.llm.base")
-            self.assertEqual({f.value for f in base.ProviderFailure} | {"OK", "NO_STATUS"}, set(FAILURE_CLASSES))
+            self.assertEqual({f.value for f in base.ProviderFailure} | {"OK", "NO_STATUS", "POOL_REFUSED"}, set(FAILURE_CLASSES))
             for status in (200, 301, 400, 408, 429, 500, 599):
                 if status >= 300:
                     self.assertEqual(one({"status": status, "reply": None, "failure": None})[0]["failure_class"], base.failure_for_status(status).value)

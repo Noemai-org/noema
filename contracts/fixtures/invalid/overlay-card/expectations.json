@@ -7,6 +7,8 @@
   "five_options.json": "maxItems",
   "label_with_arabic_indic_account_number.json": "pattern",
   "label_with_full_account_number.json": "pattern",
+  "label_with_record_separator_joined_digits.json": "pattern",
+  "label_with_ten_comma_joined_digits.json": "pattern",
   "no_none_choice.json": "const",
   "option_id_of_digits.json": "pattern",
   "policy_version_split_across_dots.json": "pattern",

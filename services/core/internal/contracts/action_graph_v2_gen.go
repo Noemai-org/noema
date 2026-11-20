@@ -66,9 +66,10 @@ type ActionGraphV2NodesItem struct {
 	OnFailure      ActionGraphV2RecoveryAction          `json:"on_failure"`
 	RecoveryRef    *string                              `json:"recovery_ref"`
 	EscalationRef  *ActionGraphV2NodesItemEscalationRef `json:"escalation_ref"`
+	Params         *[]ActionGraphV2NodesItemParamsItem  `json:"params,omitempty"`
 }
 
-var ActionGraphV2NodesItemShape = objectShape{name: "ActionGraphV2NodesItem", props: map[string]bool{"node_id": true, "kind": true, "capability_id": true, "preconditions": true, "postconditions": true, "on_unknown": true, "on_failure": true, "recovery_ref": true, "escalation_ref": true}, required: []string{"node_id", "kind", "capability_id", "preconditions", "postconditions", "on_unknown", "on_failure", "recovery_ref", "escalation_ref"}, nonNull: map[string]bool{"node_id": true, "kind": true, "capability_id": true, "preconditions": true, "postconditions": true, "on_unknown": true, "on_failure": true}, closed: true}
+var ActionGraphV2NodesItemShape = objectShape{name: "ActionGraphV2NodesItem", props: map[string]bool{"node_id": true, "kind": true, "capability_id": true, "preconditions": true, "postconditions": true, "on_unknown": true, "on_failure": true, "recovery_ref": true, "escalation_ref": true, "params": true}, required: []string{"node_id", "kind", "capability_id", "preconditions", "postconditions", "on_unknown", "on_failure", "recovery_ref", "escalation_ref"}, nonNull: map[string]bool{"node_id": true, "kind": true, "capability_id": true, "preconditions": true, "postconditions": true, "on_unknown": true, "on_failure": true, "params": true}, closed: true}
 
 func (t *ActionGraphV2NodesItem) UnmarshalJSON(b []byte) error {
 	raw, err := ActionGraphV2NodesItemShape.check(b)
@@ -139,6 +140,101 @@ func (e *ActionGraphV2NodesItemKind) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	return fmt.Errorf("contracts: ActionGraphV2NodesItemKind: %q is not one of its values", s)
+}
+
+// ActionGraphV2NodesItemParamsItem is generated from action-graph.v2.json#/properties/nodes/items/properties/params/items.
+type ActionGraphV2NodesItemParamsItem struct {
+	Name           CommonV1SlotName                      `json:"name"`
+	Slot           *CommonV1SlotName                     `json:"slot,omitempty"`
+	Const          ActionGraphV2NodesItemParamsItemConst `json:"const,omitempty"`
+	Map            *ActionGraphV2NodesItemParamsItemMap  `json:"map,omitempty"`
+	Fact           *CommonV1SlotName                     `json:"fact,omitempty"`
+	PolicyParam    *CommonV1SlotName                     `json:"policy_param,omitempty"`
+	EvidencePacket *bool                                 `json:"evidence_packet,omitempty"`
+}
+
+var ActionGraphV2NodesItemParamsItemShape = objectShape{name: "ActionGraphV2NodesItemParamsItem", props: map[string]bool{"name": true, "slot": true, "const": true, "map": true, "fact": true, "policy_param": true, "evidence_packet": true}, required: []string{"name"}, nonNull: map[string]bool{"name": true, "slot": true, "map": true, "fact": true, "policy_param": true, "evidence_packet": true}, closed: true}
+
+func (t *ActionGraphV2NodesItemParamsItem) UnmarshalJSON(b []byte) error {
+	raw, err := ActionGraphV2NodesItemParamsItemShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias ActionGraphV2NodesItemParamsItem
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItem: %w", err)
+	}
+	if a.EvidencePacket != nil && *a.EvidencePacket != true {
+		return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItem.evidence_packet: must be %s", "true")
+	}
+	_ = raw
+	*t = ActionGraphV2NodesItemParamsItem(a)
+	return nil
+}
+
+// ActionGraphV2NodesItemParamsItemConst is generated from action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/const.
+type ActionGraphV2NodesItemParamsItemConst json.RawMessage
+
+func (u ActionGraphV2NodesItemParamsItemConst) MarshalJSON() ([]byte, error) {
+	if len(u) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(u), nil
+}
+
+func (u *ActionGraphV2NodesItemParamsItemConst) UnmarshalJSON(b []byte) error {
+	if isNull(b) {
+		return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItemConst: null is not allowed")
+	}
+	var v0 string
+	if json.Unmarshal(b, &v0) == nil {
+		*u = append((*u)[:0], b...)
+		return nil
+	}
+	var v1 int64
+	if json.Unmarshal(b, &v1) == nil {
+		*u = append((*u)[:0], b...)
+		return nil
+	}
+	var v2 bool
+	if json.Unmarshal(b, &v2) == nil {
+		*u = append((*u)[:0], b...)
+		return nil
+	}
+	return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItemConst: matches none of its alternatives")
+}
+
+// ActionGraphV2NodesItemParamsItemMap is generated from action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/map.
+type ActionGraphV2NodesItemParamsItemMap struct {
+	From   CommonV1SlotName  `json:"from"`
+	Values map[string]string `json:"values"`
+}
+
+var ActionGraphV2NodesItemParamsItemMapShape = objectShape{name: "ActionGraphV2NodesItemParamsItemMap", props: map[string]bool{"from": true, "values": true}, required: []string{"from", "values"}, nonNull: map[string]bool{"from": true, "values": true}, closed: true}
+
+func (t *ActionGraphV2NodesItemParamsItemMap) UnmarshalJSON(b []byte) error {
+	raw, err := ActionGraphV2NodesItemParamsItemMapShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias ActionGraphV2NodesItemParamsItemMap
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: ActionGraphV2NodesItemParamsItemMap: %w", err)
+	}
+	_ = raw
+	*t = ActionGraphV2NodesItemParamsItemMap(a)
+	return nil
+}
+
+func (t ActionGraphV2NodesItemParamsItemMap) MarshalJSON() ([]byte, error) {
+	type alias ActionGraphV2NodesItemParamsItemMap
+	a := alias(t)
+	if a.Values == nil {
+		a.Values = map[string]string{}
+	}
+	return json.Marshal(a)
 }
 
 // ActionGraphV2 is generated from action-graph.v2.json.

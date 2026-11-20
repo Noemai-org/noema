@@ -65,13 +65,13 @@ func TestResolveTable(t *testing.T) {
 	}{
 		{"self accepts", request("SELF"), event("prn_req", nil, confirm.Accept, 10), base, confirm.Proceed},
 		{"self cannot be someone else", request("SELF"), event("prn_other", nil, confirm.Accept, 10), base, confirm.NotEligible},
-		{"maker-checker, a different approver", request("MAKER_CHECKER"), event("prn_boss", nil, confirm.Accept, 10), base, confirm.Proceed},
+		{"maker-checker, a different approver who holds the approver role", request("MAKER_CHECKER"), event("prn_boss", []string{confirm.ApproverRole}, confirm.Accept, 10), base, confirm.Proceed},
 		{"maker-checker, self-approval", request("MAKER_CHECKER"), event("prn_req", nil, confirm.Accept, 10), base, confirm.NotEligible},
 		{"maker-checker, nobody", request("MAKER_CHECKER"), event("", nil, confirm.Accept, 10), base, confirm.NotEligible},
 		{"role present", request("ROLE:supervisor"), event("prn_boss", []string{"supervisor"}, confirm.Accept, 10), base, confirm.Proceed},
 		{"role absent", request("ROLE:supervisor"), event("prn_boss", []string{"agent"}, confirm.Accept, 10), base, confirm.NotEligible},
 		{"unknown requirement", request("ANYONE"), event("prn_boss", nil, confirm.Accept, 10), base, confirm.NotEligible},
-		{"decline by an eligible approver", request("MAKER_CHECKER"), event("prn_boss", nil, confirm.Decline, 10), base, confirm.Declined},
+		{"decline by an eligible approver", request("MAKER_CHECKER"), event("prn_boss", []string{confirm.ApproverRole}, confirm.Decline, 10), base, confirm.Declined},
 		{"decline by an ineligible approver does not count", request("MAKER_CHECKER"), event("prn_req", nil, confirm.Decline, 10), base, confirm.NotEligible},
 		{"late acceptance", request("SELF"), event("prn_req", nil, confirm.Accept, 1001), base, confirm.Expired},
 		{"acceptance at the expiry instant", request("SELF"), event("prn_req", nil, confirm.Accept, 1000), base, confirm.Proceed},
@@ -101,7 +101,7 @@ func TestOnlyAFullMatchProceeds(t *testing.T) {
 	proceeded := 0
 	for i := 0; i < 20000; i++ {
 		req := request(reqs[r.Intn(len(reqs))])
-		ev := event(ids[r.Intn(len(ids))], [][]string{nil, {"supervisor"}, {"agent", "supervisor"}}[r.Intn(3)], []confirm.Response{confirm.Accept, confirm.Decline}[r.Intn(2)], int64(r.Intn(1500)))
+		ev := event(ids[r.Intn(len(ids))], [][]string{nil, {"supervisor"}, {"agent", "supervisor"}, {confirm.ApproverRole}}[r.Intn(4)], []confirm.Response{confirm.Accept, confirm.Decline}[r.Intn(2)], int64(r.Intn(1500)))
 		fresh := base
 		if r.Intn(3) == 0 {
 			reflect.ValueOf(&fresh).Elem().Field(r.Intn(8)).SetString("changed")
@@ -116,7 +116,7 @@ func TestOnlyAFullMatchProceeds(t *testing.T) {
 		proceeded++
 		sameBinding := fresh == base
 		eligible := (req.Requirement == "SELF" && ev.ApproverID == req.RequesterID) ||
-			(req.Requirement == "MAKER_CHECKER" && ev.ApproverID != req.RequesterID) ||
+			(req.Requirement == "MAKER_CHECKER" && ev.ApproverID != req.RequesterID && contains(ev.ApproverRoles, confirm.ApproverRole)) ||
 			(req.Requirement == "ROLE:supervisor" && contains(ev.ApproverRoles, "supervisor")) ||
 			(req.Requirement == "ROLE:agent" && contains(ev.ApproverRoles, "agent"))
 		if !sameBinding || !eligible || ev.Response != confirm.Accept || ev.At > req.ExpiresAt {

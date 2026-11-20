@@ -1,0 +1,11 @@
+# Runs the purge of the private raw-audio store once a day (A451; REQ-VOI-004). Persistent: a run missed while the host was off is made up at the next start.
+[Unit]
+Description=Daily purge of raw audio older than the retention (noema bench host)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=noema-audio-purge.service
+
+[Install]
+WantedBy=timers.target

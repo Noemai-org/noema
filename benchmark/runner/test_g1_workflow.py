@@ -171,7 +171,7 @@ class G1StackWorkflow(unittest.TestCase):
 
     def test_the_leak_scan_allow_file_names_only_numeric_fields_and_the_scorers_metadata_lines(self) -> None:
         allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
-        self.assertEqual(len([l for l in allow if l.strip()]), 13)
+        self.assertEqual(len([l for l in allow if l.strip()]), 14)
         for line in allow:
             if line.strip():
                 self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
@@ -259,6 +259,46 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn("benchmark/out/score/", self.text)
         self.assertNotRegex(self.text, r"secrets\.")
         self.assertNotIn("heldout", self.text.lower().replace("never mounted or read", ""))
+
+    # SR's two first-dispatch conditions on noema#436 (A323): the job log is scanned, and the access log shows the handler ran for no refusal.
+    def commands(self) -> list[str]:
+        """The workflow's shell commands, each backslash continuation joined to its line."""
+        return [c for c in re.sub(r"\\\n\s*", " ", self.script).splitlines() if c.strip()]
+
+    def test_nothing_the_runner_the_generator_the_scorer_or_the_evidence_prints_reaches_the_job_log(self) -> None:
+        execs = [c for c in self.commands() if "$compose exec" in c]
+        self.assertGreaterEqual(len(execs), 6, "the generator, the runner, the scorer and the three evidence commands")
+        for command in execs:
+            self.assertRegex(command, r">> benchmark/out/joblog/[a-z]+\.log 2>&1\s*$", command[:120])
+
+    def test_the_job_log_files_are_scanned_uploaded_and_shown_only_after_a_clean_scan(self) -> None:
+        scan = re.search(r"(?ms)- id: scan\n.*?(?=^      - )", self.script)
+        upload = re.search(r"(?ms)- name: Upload the artifacts.*?(?=^      - )", self.text)
+        assert scan and upload
+        self.assertIn("benchmark/out/joblog", scan.group(0))
+        self.assertIn("benchmark/out/joblog/", upload.group(0))
+        show = re.search(r"(?ms)- name: Show the run output \(only if the leak scan is clean\)\n(.*?)(?=^      - )", self.text)
+        assert show
+        self.assertRegex(show.group(1), r'if \[ "\$\{SCAN:-missing\}" = 0 \]')
+        self.assertLess(self.text.index("- id: scan"), self.text.index("Show the run output"), "the output is shown after the scan, never before")
+        # the steps that run the stack print no run output before the scan: no `cat` of a joblog file outside the show step
+        outside = self.text.replace(show.group(0), "")
+        self.assertNotRegex(outside, r"cat [^\n]*joblog")
+
+    def test_the_access_log_step_runs_after_the_logs_are_collected_and_before_the_stack_stops_and_fails_the_job(self) -> None:
+        order = [self.text.index(x) for x in ("- id: evidence", "- id: logs", "- id: access", "name: Stop the stack")]
+        self.assertEqual(order, sorted(order), "the probes, then the log capture, then the access check, then the stop")
+        step = re.search(r"(?ms)- id: access\n(.*?)(?=^      - )", self.text)
+        assert step
+        self.assertRegex(step.group(1), r"benchmark\.runner\.evidence record-access --probes ")
+        self.assertIn("/bench-out/evidence/negative-probes.json", step.group(1))
+        self.assertIn("/bench-out/service-logs/core.log", step.group(1))
+        self.assertIn("--other-tenant-id ten_other", step.group(1))
+        self.assertIn("if: always()", step.group(1))
+        result = re.search(r"(?ms)- name: Result .*", self.text)
+        assert result
+        self.assertIn("RECORD_ACCESS: ${{ steps.access.outputs.record_access }}", result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{RECORD_ACCESS:-missing\}" = 0 \] \|\| \{[^\n]*fail=1')
 
 
 if __name__ == "__main__":
