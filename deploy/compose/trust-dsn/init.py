@@ -78,6 +78,13 @@ def main() -> None:
         fail("noema_tenant_login_password cannot be read")
     if not PASSWORD.match(password):
         fail("noema_tenant_login_password is not at least 16 letters, digits or . _ ~ - (a DSN would need quoting)")
+    # The volume is persistent and the core builds a pool for every file in it: a tenant dropped from the list must not keep its DSN file, and anything that is not a tenant file stops the step (C1's P3).
+    for name in os.listdir(OUT):
+        path = os.path.join(OUT, name)
+        if not TENANT.match(name) or os.path.islink(path) or not os.path.isfile(path):
+            fail("the DSN volume holds an entry that is not a tenant file")
+        if name not in tenants:
+            os.unlink(path)
     written: list[str] = []
     for tenant in tenants:
         dsn = f"postgres://trust_rw__{tenant}:{password}@{HOST}:{PORT}/{DATABASE}"

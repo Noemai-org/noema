@@ -18,4 +18,24 @@ dotenv() {
 }
 list="${NOEMA_TENANTS-$(dotenv NOEMA_TENANTS)}"
 [ -n "$list" ] || list="$fallback"
+# Make pastes the printed list into a recipe's command line as TEXT, so every word is checked against the tenant shape before anything is printed (SR and C1 on noema#790): a quote, a `$(...)`
+# or a `;` in a .env value must stop here, never reach a shell. The stand-in tenant must be one of the tenants: sessions name it, and a tenant with no login cannot be served (C1's P3).
+tenant_ok() {
+  case "$1" in
+    ten_[0-9A-Za-z][0-9A-Za-z]*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[!0-9A-Za-z_]*) return 1 ;;
+  esac
+  [ "${#1}" -ge 6 ] && [ "${#1}" -le 36 ]
+}
+bad() { echo "bench-tenants: $1" >&2; exit 1; }
+tenant_ok "$fallback" || bad "the stand-in tenant is not a tenant id (ten_ and 2 to 32 letters or digits)"
+found=0
+for word in $list; do
+  tenant_ok "$word" || bad "a tenant in the list is not a tenant id (ten_ and 2 to 32 letters or digits)"
+  [ "$word" != "$fallback" ] || found=1
+done
+[ "$found" -eq 1 ] || bad "the stand-in tenant is not one of the tenants: sessions would name a tenant with no login"
 printf '%s\n' "$list"

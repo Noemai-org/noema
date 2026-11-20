@@ -40,6 +40,19 @@ class BenchTenants(unittest.TestCase):
     # secrets_local.sh and provision-tenants.sh: the shell wins, even over .env), and only then falls back, so one list reaches the secret step and Compose.
     SCRIPT = ROOT / "deploy" / "compose" / "bench_tenants.sh"
 
+    def refused(self, env_text: str | None, shell: str | None, fallback: str = "ten_alpha") -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            envfile = Path(tmp) / ".env"
+            if env_text is not None:
+                envfile.write_text(env_text, encoding="utf-8")
+            env = {k: v for k, v in os.environ.items() if k != "NOEMA_TENANTS"}
+            env["NOEMA_ENV_FILE"] = str(envfile)
+            if shell is not None:
+                env["NOEMA_TENANTS"] = shell
+            sh = shutil.which("sh")
+            assert sh
+            return subprocess.run([sh, str(self.SCRIPT), fallback], env=env, capture_output=True, text=True, check=False)
+
     def effective(self, env_text: str | None, shell: str | None, fallback: str = "ten_alpha") -> str:
         with tempfile.TemporaryDirectory() as tmp:
             envfile = Path(tmp) / ".env"
@@ -59,14 +72,44 @@ class BenchTenants(unittest.TestCase):
         self.assertTrue(self.SCRIPT.is_file(), "deploy/compose/bench_tenants.sh does not exist")
         self.assertEqual(self.effective(None, None), "ten_alpha", "nothing set: the stand-in tenant")
         self.assertEqual(self.effective("", None), "ten_alpha", "an empty .env: the stand-in tenant")
-        self.assertEqual(self.effective("NOEMA_TENANTS=ten_aa ten_bb\n", None), "ten_aa ten_bb", "only .env: .env wins over the fallback (Codex P2)")
-        self.assertEqual(self.effective('NOEMA_TENANTS="ten_aa"\n', None), "ten_aa", "a quoted .env value")
-        self.assertEqual(self.effective("# comment\nNOEMA_TENANTS=ten_aa # trailing\n", None), "ten_aa", "a trailing comment is not part of the value")
+        self.assertEqual(self.effective("NOEMA_TENANTS=ten_aa ten_bb\n", None, "ten_aa"), "ten_aa ten_bb", "only .env: .env wins over the fallback (Codex P2)")
+        self.assertEqual(self.effective('NOEMA_TENANTS="ten_aa"\n', None, "ten_aa"), "ten_aa", "a quoted .env value")
+        self.assertEqual(self.effective("# comment\nNOEMA_TENANTS=ten_aa # trailing\n", None, "ten_aa"), "ten_aa", "a trailing comment is not part of the value")
         self.assertEqual(self.effective("XNOEMA_TENANTS=ten_zz\n#NOEMA_TENANTS=ten_yy\n", None), "ten_alpha", "a look-alike line is not read")
-        self.assertEqual(self.effective("NOEMA_TENANTS=ten_aa\n", "ten_cc"), "ten_cc", "the shell wins over .env")
-        self.assertEqual(self.effective(None, "ten_cc ten_dd"), "ten_cc ten_dd", "only the shell")
+        self.assertEqual(self.effective("NOEMA_TENANTS=ten_aa\n", "ten_cc", "ten_cc"), "ten_cc", "the shell wins over .env")
+        self.assertEqual(self.effective(None, "ten_cc ten_dd", "ten_dd"), "ten_cc ten_dd", "only the shell")
         self.assertEqual(self.effective("NOEMA_TENANTS=ten_aa\n", "", "ten_bench"), "ten_bench", "an empty shell value is no list: the fallback, never a list nobody asked for")
         self.assertEqual(self.effective(None, None, "ten_bench"), "ten_bench", "the fallback is the argument, not a constant")
+
+    # SR and C1 on noema#790 (P2): Make pastes the list into the recipe's command line as text, so a value with a quote or a `$(...)` would run as shell. Every word is checked against the tenant
+    # shape here, before anything is printed, and the stand-in tenant must be one of them (C1's P3).
+    def test_a_word_that_is_not_a_tenant_id_is_refused_and_nothing_is_printed(self) -> None:
+        hostile = ['ten_aa"; echo INJECTED >&2; "', "ten_aa $(id)", "ten_aa`id`", "ten_aa;ls", "ten_aa&&ls", "ten_aa|ls", "ten_aa'x", "ten_a", "ten_" + "a" * 33, "Ten_aa", "ten_aa ten_b", "x", "ten_a$HOME", "ten_aa\\n", "../ten_aa"]
+        for value in hostile:
+            for where in ("shell", "dotenv"):
+                done = self.refused(None, value) if where == "shell" else self.refused("NOEMA_TENANTS=" + value + "\n", None)
+                self.assertNotEqual(done.returncode, 0, (where, value))
+                self.assertEqual(done.stdout, "", (where, value, "something was printed for the shell to take"))
+                self.assertNotIn("INJECTED", done.stdout)
+
+    def test_the_fallback_argument_is_checked_too_and_a_good_list_passes(self) -> None:
+        self.assertNotEqual(self.refused(None, None, 'ten_aa"; id; "').returncode, 0)
+        self.assertNotEqual(self.refused(None, None, "").returncode, 0, "no list and no stand-in tenant is an error, not an empty list")
+        self.assertEqual(self.effective(None, "ten_alpha ten_AB9"), "ten_alpha ten_AB9")
+        self.assertEqual(self.effective(None, "ten_" + "a" * 32 + " ten_aa", "ten_aa"), "ten_" + "a" * 32 + " ten_aa", "the longest tenant id is accepted")
+
+    def test_the_stand_in_tenant_must_be_one_of_the_tenants(self) -> None:
+        done = self.refused(None, "ten_bb ten_cc", "ten_alpha")
+        self.assertNotEqual(done.returncode, 0, "the stand-in tenant is not in the list: sessions would name a tenant with no login")
+        self.assertEqual(done.stdout, "")
+        self.assertEqual(self.effective(None, "ten_bb ten_alpha", "ten_alpha"), "ten_bb ten_alpha")
+
+    def test_bench_up_stops_before_anything_runs_when_the_list_is_empty(self) -> None:
+        # `$(shell ...)` drops a failing script's exit code, so an empty result must stop the recipe on its own line.
+        up = recipe("bench-up")
+        guard = re.search(r'(?m)^\t@test -n "\$\(BENCH_TENANTS\)" \|\| \{ echo "bench-up: [^"]*"[^}]*exit 2; \}$', up)
+        assert guard, "bench-up has no guard on an empty tenant list"
+        self.assertLess(up.index(guard.group(0)), up.index("secrets_local.sh"), "the guard comes before the secret step")
 
     def test_postgres_and_the_dsn_step_take_the_same_expression_in_the_overlay(self) -> None:
         expr = '"${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"'

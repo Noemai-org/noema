@@ -88,6 +88,27 @@ class InitTrustDsn(unittest.TestCase):
                 self.assertEqual(list(self.out.iterdir()), [], f"{name}: a file was left behind")
                 self.assertNotIn(PASSWORD, r.stdout + r.stderr)
 
+    def test_a_tenant_dropped_from_the_list_leaves_no_file_behind(self) -> None:
+        # C1 on noema#790 (P3): the volume is persistent and the core builds a pool for every file in it, so a tenant removed from the list must not keep its DSN file.
+        self.assertEqual(run(self.src, self.out).returncode, 0)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ten_aa", "ten_bb"])
+        r = run(self.src, self.out, TRUST_DSN_TENANTS="ten_aa")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ten_aa"], "ten_bb's DSN file was kept")
+        self.assertNotIn("ten_bb", r.stdout + r.stderr)
+
+    def test_an_entry_that_is_not_a_tenant_file_stops_the_step(self) -> None:
+        for make in (lambda: (self.out / "stray.txt").write_text("x", encoding="utf-8"), lambda: (self.out / "ten_a").write_text("x", encoding="utf-8"), lambda: (self.out / "sub").mkdir()):
+            with self.subTest():
+                self.clear()
+                make()
+                r = run(self.src, self.out)
+                self.assertNotEqual(r.returncode, 0, "the volume holds an entry that is not a tenant file")
+                self.assertNotIn(PASSWORD, r.stdout + r.stderr)
+                for p in list(self.out.iterdir()):
+                    if p.is_dir():
+                        p.rmdir()
+
     def test_a_password_that_could_change_the_dsn_is_refused(self) -> None:
         # A DSN is a URL: a password with a separator would change what it means. The generated secrets are hexadecimal; anything outside letters, digits, dot, tilde, dash and underscore is refused.
         for bad in ("", "short", "has space0000000000", "a/b" + "0" * 20, "p@ss" + "0" * 20, "a:b" + "0" * 20, "a?b" + "0" * 20, "a%b" + "0" * 20, "a#b" + "0" * 20):

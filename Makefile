@@ -177,6 +177,7 @@ BENCH_TENANTS = $(shell sh deploy/compose/bench_tenants.sh "$(BENCH_TENANT)")
 BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) NOEMA_BENCH_MAX_BODY_BYTES=$(or $(BENCH_MAX_BODY_BYTES),1) STANDIN_TENANT_ID=$(BENCH_TENANT) NOEMA_TENANTS="$(BENCH_TENANTS)"
 .PHONY: bench-up bench-down
 bench-up:
+	@test -n "$(BENCH_TENANTS)" || { echo "bench-up: the tenant list is empty or was refused (see bench_tenants.sh above)" >&2; exit 2; }
 	@test -n "$(BENCH_MAX_BODY_BYTES)" || { echo "bench-up: BENCH_MAX_BODY_BYTES is required (no default: the body limit is not an approved number)" >&2; exit 2; }
 	NOEMA_TENANTS="$(BENCH_TENANTS)" deploy/compose/secrets_local.sh
 	mkdir -p $(BENCH_OUT)/cost
