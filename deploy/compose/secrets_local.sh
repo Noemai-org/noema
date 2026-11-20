@@ -29,6 +29,14 @@ dotenv() {
 NOEMA_TENANTS="${NOEMA_TENANTS-$(dotenv NOEMA_TENANTS)}"
 NOEMA_EMITTERS="${NOEMA_EMITTERS-$(dotenv NOEMA_EMITTERS)}"
 
+# The two Decision Grant HMAC key files (SEC-09): random, distinct, kept if present, never printed. A grant key is 32 random bytes in hex; a rotation adds the new key beside the old one.
+for name in grant_hmac_key_a grant_hmac_key_b; do
+  if [ ! -s "$dir/$name" ]; then
+    python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/$name"
+  fi
+  chmod 600 "$dir/$name"
+done
+
 # One secret file per emitter login (ruling A4): NOEMA_TENANTS x NOEMA_EMITTERS (default core-edge). Missing files are made with a random value;
 # existing files are kept. The folder is mounted read-only into postgres only; init.sh refuses a missing, empty or duplicated secret.
 mkdir -p "$dir/emitter_logins"

@@ -4,3 +4,5 @@
 # d7bc5574 and fdbaa9fe (noema#640, VOI-01, A301): the synthetic test placeholder for an API key in the Intron adapter tests (the string 'synthetic-key-' followed by digits). It is not a credential. The tip replaces it with a placeholder that has no entropy; the two earlier commits stay in the range.
 d7bc55744cb64c199515b7983d28d513893b777e:services/model/tests/test_intron_stt.py:generic-api-key:34
 fdbaa9fe971de6a46a06de2e0f3caad065d0a2b9:services/model/tests/test_intron_tts.py:generic-api-key:26
+# 5ba5245 (noema#772, BEN-03): a false positive on keyword arguments of a Python call in a test (the call that names the two list fields of a reader: not a credential). The parameters are renamed from the next commit on; the earlier commit stays in the range, so its finding is ignored by fingerprint, as for 35be13a.
+5ba5245c27876b7d3b5218138b6940c9b416753e:benchmark/oracle_client/test_tushe_readonly.py:generic-api-key:106

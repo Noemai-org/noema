@@ -6,6 +6,8 @@
 // check patterns, bounds or conditional rules; the JSON Schema validator does, at every boundary. Types is the registry used
 // by contract tests to decode a fixture by name.
 //
+// The one hand-written function is ParseIntentRef (intentref.go), the parser of common.v1#IntentRef, which sits beside the generated type (ruling A319).
+//
 // May import: the standard library.
 //
 // Must never: contain a hand-edited type, or a benchmark, oracle or fault-plan type (tools/codegen/excluded.json).

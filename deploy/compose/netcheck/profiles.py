@@ -27,6 +27,88 @@ import sys
 from pathlib import Path
 
 COMPOSE_FILE = Path(__file__).resolve().parent.parent / "docker-compose.yml"
+MODEL_DOCKERFILE = COMPOSE_FILE.parent.parent.parent / "services" / "model" / "Dockerfile"
+
+
+SHELLS = {"sh", "bash", "dash", "ash", "zsh", "ksh", "busybox"}
+
+
+def _tokens(argv) -> list[str]:
+    """Every word of a launch command, whether it is a list or one string, and whether one list element holds a whole command line (`["sh", "-c", "uvicorn ... --ssl-cert-reqs 0"]`).
+    Elements are split on whitespace, `=` and quotes, so `--ssl-cert-reqs=0`, `'--ssl-cert-reqs' 0` and a word inside a shell string are all seen."""
+    parts = argv.split() if isinstance(argv, str) else [str(a) for a in (argv or [])]
+    return [t for part in parts for t in re.findall(r"[^\s='\"]+", part)]
+
+
+def listener_flags(argv) -> list[str]:
+    """The `--ssl-*` options in a launch command (a list, or one string; one list element may hold a whole command). uvicorn gives a command-line option precedence over its UVICORN_SSL_*
+    variable, so one of these can switch off the client-certificate requirement while the variable still says 2: and the service's own startup check (`require_mtls_listener`, noema#635)
+    reads only the variable. Codex and the Security Reviewer on noema#670: the shell-wrapped list form was not seen."""
+    return [t for t in _tokens(argv) if t.startswith("--ssl-")]
+
+
+def shell_wrapper(argv) -> str | None:
+    """The shell the launch command runs through, if any. A shell can build an option string at run time (`sh -c "uvicorn $(...)"`), which no scan of the text can see; the model starts
+    uvicorn directly, so a shell wrapper is refused outright (noema#670)."""
+    toks = _tokens(argv)
+    for t in toks[:1]:
+        if t.rsplit("/", 1)[-1] in SHELLS:
+            return t
+    return None
+
+
+def logical_instructions(text: str) -> list[str]:
+    """The Dockerfile's instructions with line continuations joined (a backslash at the end of a line continues the instruction onto the next, and comment lines inside a continued
+    instruction are dropped, as Docker does). A scan of physical lines would miss an `--ssl-*` option put on a continuation line (Codex P2 on noema#670)."""
+    out: list[str] = []
+    current = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if current and line.startswith("#"):
+            continue  # a comment line inside a continued instruction
+        if not current and (not line or line.startswith("#")):
+            continue
+        if line.endswith("\\"):
+            current += line[:-1] + " "
+            continue
+        out.append((current + line).strip())
+        current = ""
+    if current:
+        out.append(current.strip())
+    return out
+
+
+def env_assignments(instruction: str) -> list[tuple[str, str]]:
+    """The (key, value) pairs one ENV instruction sets. Docker takes two forms (Codex P2 on noema#670): `ENV key=value [key=value ...]`, and the legacy `ENV key value`, whose value is
+    everything after the first space. Surrounding quotes are removed from a value."""
+    body = instruction.split(None, 1)[1] if len(instruction.split(None, 1)) == 2 else ""
+    first = body.split(None, 1)[0] if body.split() else ""
+    quotes = chr(34) + chr(39)
+    if "=" not in first:
+        parts = body.split(None, 1)
+        return [(parts[0], parts[1].strip().strip(quotes))] if len(parts) == 2 else []
+    return [(t.split("=", 1)[0], t.split("=", 1)[1].strip(quotes)) for t in body.split() if "=" in t]
+
+
+def dockerfile_problems(text: str) -> list[str]:
+    """The model image requires a client certificate and starts uvicorn with no --ssl-* option of its own (noema#555, noema#635): UVICORN_SSL_CERT_REQS is set, its LAST assignment is 2,
+    and no ENTRYPOINT or CMD (continued over lines or not) carries an --ssl-* option. A parser directive that changes the escape character fails closed: the continuation rule above
+    would no longer be the Dockerfile's."""
+    bad = []
+    if re.search(r"(?im)^\s*#\s*escape\s*=", text):
+        bad.append("the model Dockerfile changes its escape character (# escape=): the checks of its instructions cannot be trusted; remove the directive")
+    instructions = logical_instructions(text)
+    assigned = [value for ln in instructions if ln.upper().startswith("ENV ") for key, value in env_assignments(ln) if key == "UVICORN_SSL_CERT_REQS"]
+    if not assigned:
+        bad.append("the model image does not set UVICORN_SSL_CERT_REQS=2")
+    elif assigned[-1] != "2":
+        bad.append(f"the model image's last assignment of UVICORN_SSL_CERT_REQS is {assigned[-1]!r}, not 2")
+    for ln in instructions:
+        if ln.upper().startswith(("ENTRYPOINT", "CMD")) and "--ssl-" in ln:
+            bad.append(f"the model image starts uvicorn with an --ssl-* option, which overrides UVICORN_SSL_CERT_REQS: {ln[:80]}")
+    return bad
+
+
 PROFILES = ("dev", "ci", "bench", "demo")
 
 # PERD section 65.1, independent of the Compose file. network_mode "none" services (credential sidecars) have no networks.
@@ -48,9 +130,10 @@ NETWORKS = {
     "mock-case-credentials": set(),
     "hostility-proxy-credentials": set(),
     "standin-credentials": set(),
+    "grant-keys-init": set(),
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
+SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
@@ -70,12 +153,12 @@ EXTERNAL = {"provider_egress", "ui_publish_net", "tushe_egress"}
 # The services each profile must build, written out here (PERD section 65.1). A missing service fails, as does an extra one: a profile
 # that silently loses the core or the model, or gains a service, is a change somebody must make on purpose in this table too.
 EXPECTED_SERVICES = {
-    "dev": {"core", "model", "postgres", "temporal", "ui"},
-    "ci": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
+    "dev": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init"},
+    "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
-    "bench": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
+    "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
               "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner"},
-    "demo": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials"},
+    "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
            "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
@@ -84,12 +167,25 @@ ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "host
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
 # The mTLS material between the core and the model service (noema#555), from deploy/compose/tls_local.sh: each side mounts its own key and the CA certificate, never the other's key.
-TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"},
+              "temporal": {"ca.crt", "temporal.crt", "temporal.key"}}
 TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
 # The settings of the core's client of the model service (noema#555, noema#563): the core reads exactly these five and refuses to build its client unless all five are set (no default,
 # AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
 MODEL_CLIENT_SETTINGS = ("NOEMA_MODEL_URL", "NOEMA_MODEL_TLS_CA_FILE", "NOEMA_MODEL_TLS_CERT_FILE", "NOEMA_MODEL_TLS_KEY_FILE", "NOEMA_MODEL_MAX_RESPONSE_BYTES")
 MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" / "cmd" / "core" / "modelclient.go"
+# The Decision Grant HMAC keys (SEC-09; INV-29: the model holds no grant key). Two key files so a rotation has two active keys. Compose cannot set a file secret's mode or owner and the
+# grant-key loader refuses a file that is not 0400 and process-owned, so the two secrets are held by the one-shot `grant-keys-init` step ONLY, under the names the loader reads; it writes
+# them into the `grant_keys` volume, which the CORE mounts read-only and nothing else mounts (Codex and SR on noema#700). Names only.
+GRANT_KEY_SECRETS = {"grant_hmac_key_a": "grant.hmac.1.key", "grant_hmac_key_b": "grant.hmac.2.key"}
+GRANT_INIT, GRANT_VOLUME = "grant-keys-init", "grant_keys"
+# The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
+# server certificate, TEMPORAL_TLS_SERVER_CA_CERT the CA the in-process worker trusts, TEMPORAL_TLS_FRONTEND_SERVER_NAME the name it verifies) and the settings the image's CLI reads
+# to reach it (TEMPORAL_TLS, TEMPORAL_TLS_CA, TEMPORAL_TLS_SERVER_NAME). In that template TEMPORAL_TLS_SERVER_CA_CERT is ALSO the root of the internode CLIENT, so setting it makes the
+# services dial each other over TLS: the internode SERVER must then present a certificate (TEMPORAL_TLS_SERVER_CERT and _KEY) and the client must know the name to verify
+# (TEMPORAL_TLS_INTERNODE_SERVER_NAME), or the services cannot reach each other (Codex P1 on noema#698). This is server-side TLS with NO client authentication (DEBT-46).
+TEMPORAL_TLS_SETTINGS = ("TEMPORAL_TLS_FRONTEND_CERT", "TEMPORAL_TLS_FRONTEND_KEY", "TEMPORAL_TLS_SERVER_CA_CERT", "TEMPORAL_TLS_FRONTEND_SERVER_NAME", "TEMPORAL_TLS", "TEMPORAL_TLS_CA", "TEMPORAL_TLS_SERVER_NAME",
+                         "TEMPORAL_TLS_SERVER_CERT", "TEMPORAL_TLS_SERVER_KEY", "TEMPORAL_TLS_INTERNODE_SERVER_NAME")
 BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
 BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
@@ -176,6 +272,52 @@ def check(cfg, profile):
             for setting in MODEL_CLIENT_SETTINGS:
                 if not str(env.get(setting, "")).strip():
                     bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
+        grant_refs = [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])] + list((svc.get("environment") or {}).keys()) \
+            + [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or [])]
+        names_grant = any("grant_hmac" in r.lower() or "grant_key" in r.lower() or "grant.hmac" in r.lower() for r in grant_refs)
+        if name not in (GRANT_INIT, "core") and names_grant:
+            bad.append(f"{profile}: {name} names or mounts a Decision Grant key; only the core (the grant_keys volume) and {GRANT_INIT} may (SEC-09, INV-29)")
+        vols = [v for v in (svc.get("volumes") or []) if isinstance(v, dict)]
+        for v in vols:  # the secrets folder holds the keys: no service may mount the folder itself, only single named files under it
+            src = str(v.get("source", "")).rstrip("/")
+            if v.get("type") == "bind" and src.rsplit("/", 1)[-1] == "secrets":
+                bad.append(f"{profile}: {name} bind-mounts the secrets folder {src!r}, which holds the grant keys; mount single files only (SEC-09, INV-29)")
+        held = {str(x if isinstance(x, str) else x.get("source", "")): (x.get("target") if isinstance(x, dict) else None) for x in (svc.get("secrets") or [])}
+        if name == "core":
+            for key in GRANT_KEY_SECRETS:
+                if key in held:
+                    bad.append(f"{profile}: the core holds the grant key secret {key}; Compose cannot give it the mode the loader needs, so only {GRANT_INIT} holds it (SEC-09)")
+            gv = [v for v in vols if v.get("source") == GRANT_VOLUME]
+            if len(gv) != 1 or not gv[0].get("read_only"):
+                bad.append(f"{profile}: the core must mount the {GRANT_VOLUME} volume exactly once, read-only (SEC-09)")
+            if (svc.get("depends_on") or {}).get(GRANT_INIT, {}).get("condition") != "service_completed_successfully":
+                bad.append(f"{profile}: the core must wait for {GRANT_INIT} to complete successfully, or it starts without keys it can load (SEC-09)")
+        if name == GRANT_INIT:
+            for key, target in GRANT_KEY_SECRETS.items():
+                if held.get(key) != target:
+                    bad.append(f"{profile}: {GRANT_INIT} must hold {key} under the name {target} (the loader reads grant.hmac.<version>.key; SEC-09)")
+            if set(held) - set(GRANT_KEY_SECRETS):
+                bad.append(f"{profile}: {GRANT_INIT} holds a secret other than the two grant keys (SEC-09)")
+            writable = [v for v in vols if v.get("source") == GRANT_VOLUME and not v.get("read_only")]
+            if len(writable) != 1:
+                bad.append(f"{profile}: {GRANT_INIT} must mount {GRANT_VOLUME} writable exactly once (SEC-09)")
+            if str(svc.get("user", "")) not in ("0:0", "0", "root"):
+                bad.append(f"{profile}: {GRANT_INIT} must run as root to set the key file owner (SEC-09)")
+        if name == "temporal":
+            # Temporal TLS (A296): in the bench profile the frontend presents a certificate and the CLI the healthcheck and the namespace set-up use trusts the stack's CA, so a plain
+            # client is refused (EL's "refuse plain" test follows). The server keeps only its own key and the CA certificate.
+            if profile == "bench":
+                env = svc.get("environment") or {}
+                for setting in TEMPORAL_TLS_SETTINGS:
+                    if not str(env.get(setting, "")).strip():
+                        bad.append(f"{profile}: temporal does not set {setting}: the bench Temporal must serve TLS (A296)")
+                mounted_tls = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
+                for need in sorted(TLS_MOUNTS["temporal"] - mounted_tls):
+                    bad.append(f"{profile}: temporal does not mount {need} from the mTLS folder (A296)")
+                if "--tls" not in " ".join(map(str, (svc.get("healthcheck") or {}).get("test", []))):
+                    bad.append(f"{profile}: temporal's healthcheck does not use TLS (A296)")
+            elif any(str(k).startswith("TEMPORAL_TLS") for k in (svc.get("environment") or {})):
+                bad.append(f"{profile}: temporal sets TLS outside the bench profile; A296 puts it in bench only until the core's client follows")
         # Intron's key (A249): a file mount read by the model service only. No service may carry it as an environment variable, and no service but the model may name a setting or a mount for it.
         env_names = set((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else set()
         mounts = [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or [])] + [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])]
@@ -185,11 +327,20 @@ def check(cfg, profile):
             bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
+        if name == "model":
+            for field in ("entrypoint", "command"):
+                if shell_wrapper(svc.get(field)):
+                    bad.append(f"{profile}: the model's {field} runs through a shell ({shell_wrapper(svc.get(field))}); a shell can build a --ssl-* option at run time that no check can see, so uvicorn must be started directly")
+            for flag in listener_flags(svc.get("entrypoint")) + listener_flags(svc.get("command")):
+                bad.append(f"{profile}: the model starts uvicorn with {flag}, which overrides its UVICORN_SSL_* settings (the client-certificate requirement can be switched off without the service's own check seeing it)")
+            reqs = (svc.get("environment") or {}).get("UVICORN_SSL_CERT_REQS")
+            if reqs is not None and str(reqs) != "2":
+                bad.append(f"{profile}: the model sets UVICORN_SSL_CERT_REQS to {reqs!r}; it must be 2 (a client certificate is required)")
         if name == "core" and profile == "bench" and not str((svc.get("environment") or {}).get("NOEMA_PAYLOAD_MAX_BYTES", "")).strip():
             bad.append(f"{profile}: the core does not set NOEMA_PAYLOAD_MAX_BYTES: the evidence payload reader refuses to be built without its bound (noema#606, A236)")
         if name in TLS_MOUNTS:
             mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
-            for need in sorted(TLS_REQUIRED[name] - mounted):
+            for need in sorted(TLS_REQUIRED.get(name, set()) - mounted):
                 bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
@@ -286,6 +437,38 @@ def self_test(configs):
         "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
         "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
+        "the ui lists a grant key as a secret": ("dev", lambda c: c["services"]["ui"].update({"secrets": [{"source": "grant_hmac_key_a"}]})),
+        "the model carries a grant key file setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "/x"})),
+        "postgres mounts a grant key file": ("demo", lambda c: c["services"]["postgres"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/grant_hmac_key_b", "target": "/x"})),
+        "the core is given a grant key secret": ("dev", lambda c: c["services"]["core"].update({"secrets": ["noema_core_password", "grant_hmac_key_a"]})),
+        "the core drops the grant_keys volume": ("dev", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not (isinstance(v, dict) and v.get("source") == "grant_keys")]})),
+        "the core mounts grant_keys writable": ("ci", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if isinstance(v, dict) and v.get("source") == "grant_keys"]),
+        "the core does not wait for the key step": ("dev", lambda c: c["services"]["core"]["depends_on"].pop("grant-keys-init")),
+        "the key step holds one key under the wrong name": ("dev", lambda c: c["services"]["grant-keys-init"].update({"secrets": [{"source": "grant_hmac_key_a", "target": "key.a"}, {"source": "grant_hmac_key_b", "target": "grant.hmac.2.key"}]})),
+        "the key step also holds the core password": ("dev", lambda c: c["services"]["grant-keys-init"]["secrets"].append({"source": "noema_core_password", "target": "noema_core_password"})),
+        "the key step runs as the core's user": ("demo", lambda c: c["services"]["grant-keys-init"].update({"user": "65532:65532"})),
+        "the key step is dropped": ("ci", lambda c: c["services"].pop("grant-keys-init")),
+        "the model mounts the grant_keys volume": ("dev", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "grant_keys", "target": "/k"})),
+        "a service bind-mounts the secrets folder": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/deploy/compose/secrets", "target": "/s"})),
+        "the core bind-mounts the secrets folder": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/h/deploy/compose/secrets/", "target": "/s", "read_only": True})),
+        "the bench model starts uvicorn with --ssl-cert-reqs 0": ("bench", lambda c: c["services"]["model"].update({"entrypoint": list(c["services"]["model"]["entrypoint"]) + ["--ssl-cert-reqs", "0"]})),
+        "the dev model's command carries an --ssl-keyfile": ("dev", lambda c: c["services"]["model"].update({"command": ["--ssl-keyfile", "/x"]})),
+        "the ci model's command is one string with --ssl-cert-reqs=0": ("ci", lambda c: c["services"]["model"].update({"command": "--port 8081 --ssl-cert-reqs=0"})),
+        "the dev model's command is a shell wrapper carrying --ssl-cert-reqs 0 (list form)": ("dev", lambda c: c["services"]["model"].update({"command": ["sh", "-c", "uvicorn noema_model.main:app --ssl-cert-reqs 0"]})),
+        "the ci model's entrypoint is a shell wrapper with no visible --ssl option": ("ci", lambda c: c["services"]["model"].update({"entrypoint": ["sh", "-c", "exec python -m uvicorn noema_model.main:app --port 8081"]})),
+        "the dev model's entrypoint is bash -lc": ("dev", lambda c: c["services"]["model"].update({"entrypoint": ["/bin/bash", "-lc", "uvicorn noema_model.main:app"]})),
+        "the dev model's command is a shell wrapper in string form": ("dev", lambda c: c["services"]["model"].update({"command": "sh -c 'uvicorn noema_model.main:app --ssl-cert-reqs=0'"})),
+        "the dev model's list element holds a quoted --ssl-keyfile": ("dev", lambda c: c["services"]["model"].update({"command": ["uvicorn noema_model.main:app '--ssl-keyfile' /x"]})),
+        "the model's UVICORN_SSL_CERT_REQS is 0": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"UVICORN_SSL_CERT_REQS": "0"})),
+        "the bench temporal drops its frontend certificate": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_FRONTEND_CERT")),
+        "the bench temporal drops its internode server certificate": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_CERT")),
+        "the bench temporal drops its internode server key": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_KEY")),
+        "the bench temporal drops the internode server name": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_INTERNODE_SERVER_NAME")),
+        "the bench temporal drops its CA setting": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_CA_CERT")),
+        "the bench temporal healthcheck goes back to plain": ("bench", lambda c: c["services"]["temporal"]["healthcheck"].update({"test": ["CMD-SHELL", "temporal operator cluster health --address x:7233"]})),
+        "the bench temporal stops mounting its key": ("bench", lambda c: c["services"]["temporal"].update({"volumes": [v for v in c["services"]["temporal"]["volumes"] if not str(v.get("source", "")).endswith("temporal.key")]})),
+        "temporal serves TLS in dev (outside the bench profile)": ("dev", lambda c: c["services"]["temporal"].setdefault("environment", {}).update({"TEMPORAL_TLS_FRONTEND_CERT": "/x"})),
+        "the model mounts the temporal key": ("dev", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/tls/temporal.key", "target": "/x"})),
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
         "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
@@ -339,6 +522,30 @@ def main():
             print(f"ok   the core's model client reads exactly the {len(names)} settings Compose gives it")
     else:
         print("note the core's model client (services/core/cmd/core/modelclient.go) is not in this tree: only the Compose side of its five settings is checked")
+    if MODEL_DOCKERFILE.is_file():
+        text = MODEL_DOCKERFILE.read_text(encoding="utf-8")
+        found = dockerfile_problems(text)
+        failures += found
+        if not found:
+            print("ok   the model image requires a client certificate and starts uvicorn with no --ssl-* option of its own")
+        if "--self-test" in sys.argv:
+            mutants = {
+                "the image sets UVICORN_SSL_CERT_REQS=0": text.replace("UVICORN_SSL_CERT_REQS=2", "UVICORN_SSL_CERT_REQS=0"),
+                "the image drops UVICORN_SSL_CERT_REQS": text.replace("UVICORN_SSL_CERT_REQS=2", ""),
+                "the entrypoint carries --ssl-cert-reqs": text.replace('"--port", "8081"]', '"--port", "8081", "--ssl-cert-reqs", "0"]'),
+                "the --ssl option is on a continuation line of the ENTRYPOINT": text.replace('"--port", "8081"]', '"--port", "8081", ' + chr(92) + chr(10) + '    "--ssl-cert-reqs", "0"]'),
+                "the --ssl option is on a continuation line of a CMD": text + chr(10) + "CMD [" + chr(34) + "--port" + chr(34) + ", " + chr(92) + chr(10) + "# a comment inside the instruction" + chr(10) + "  " + chr(34) + "--ssl-keyfile=/x" + chr(34) + "]" + chr(10),
+                "a later ENV sets UVICORN_SSL_CERT_REQS back to 0": text + chr(10) + "ENV UVICORN_SSL_CERT_REQS=0" + chr(10),
+                "the image changes its escape character": "# escape=`" + chr(10) + text,
+                "a later legacy ENV (key, space, value) sets UVICORN_SSL_CERT_REQS back to 0": text + chr(10) + "ENV UVICORN_SSL_CERT_REQS 0" + chr(10),
+                "a later ENV with several pairs sets it back to 0": text + chr(10) + "ENV A=1 UVICORN_SSL_CERT_REQS=0 B=2" + chr(10),
+            }
+            for label, mutant in mutants.items():
+                if mutant == text or not dockerfile_problems(mutant):
+                    failures.append(f"self-test: the Dockerfile rule did not fire for: {label}")
+            print(f"self-test: {len(mutants)} Dockerfile mutations;", "every one is caught" if not any(f.startswith("self-test: the Dockerfile") for f in failures) else "NOT CAUGHT")
+    else:
+        failures.append(f"{MODEL_DOCKERFILE} is missing: the model image's listener settings cannot be checked")
     if "--self-test" in sys.argv:
         missed, n = self_test(configs)
         print(f"self-test: {n} mutations;", "every one is caught" if not missed else "NOT CAUGHT: " + "; ".join(missed))
