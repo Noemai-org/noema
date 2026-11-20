@@ -28,3 +28,13 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 - Exact next step: when docs#211 merges, drop the word "interim" from the A377 to A379 bullet.
 - Do not touch: section 5's check that only audio the run itself generated can be sent.
 
+# Session 2026-11-20 · BEN-23 · Codex's P1 on noema#795: A180 governs until docs#211 merges
+
+## Session summary
+- P1 (Codex, at b75bf347): the plan said A377 to A379 replace A180's written-terms precondition, but docs#211 is open, so the rulings are relayed and not committed (AGENTS section 2, item 3). Fixed: the A180 bullet is restored word for word as the governing rule; A377 to A379 are stated as **proposed, not in force**, with what they would change; the "no spend on a custom voice" in precondition 5 of section 6 is conditional on A379 being committed. The sentence in section 5 about a future TEAM_RECORDING label stays (it only applies if a later run adds recordings).
+- The run itself is unchanged and synthetic-only, so it is consistent with A180 and with A377 to A379 alike.
+- Tests: none (a plan). Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: when docs#211 merges, replace the A180 bullet with the A377 to A379 one (a follow-up edit).
+
