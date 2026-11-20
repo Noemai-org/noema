@@ -212,13 +212,18 @@ func TestContinuationIsRefusedByThePolicyOfThatStepAlone(t *testing.T) {
 	}
 }
 
-// T13 is unchanged: a CONFIRM the profile asks for stops the continuation with CONFIRM and records nothing.
+// T13 as noema#759 built it (A435): a CONFIRM the profile asks for stops the continuation with CONFIRM, and the CONFIRM is a decision, so it is recorded once, first, naming the open
+// request; the continuation plans nothing at T13 when the request is open (it asks the Planner only to create a new one) and no grant comes from a CONFIRM.
 func TestContinuationNeedingAConfirmationStopsAtT13(t *testing.T) {
 	f, p, r := stepFake()
-	f.conf = Confirmation{Status: ConfirmationPending}
+	f.conf = Confirmation{Status: ConfirmationPending, RequestID: "cfr_synth0001"}
+	f.rec = RecordResult{DecisionID: "dec_synth0003"}
 	res := run13step(t, f, p, r, capRoute)
-	if res.Decision.Outcome() != decide.Confirm || lastTrace(res).Step != decide.T13Confirmation || f.called("Recorder.Record") != 0 || f.called("Planner.Plan") != 0 {
-		t.Errorf("%s %v, calls %v; want CONFIRM at T13 and nothing planned or recorded", res.Decision.Outcome(), codes13(res.Decision), f.calls)
+	if res.Decision.Outcome() != decide.Confirm || lastTrace(res).Step != decide.T13Confirmation || f.called("Recorder.Record") != 1 || f.called("Planner.Plan") != 0 {
+		t.Errorf("%s %v, calls %v; want CONFIRM at T13, recorded once and nothing planned", res.Decision.Outcome(), codes13(res.Decision), f.calls)
+	}
+	if res.DecisionID != "dec_synth0003" || res.ConfirmationRequestID != "cfr_synth0001" || len(res.GrantIDs) != 0 {
+		t.Errorf("decision %q, request %q, grants %v; want the recorded CONFIRM naming the open request and no grant", res.DecisionID, res.ConfirmationRequestID, res.GrantIDs)
 	}
 }
 

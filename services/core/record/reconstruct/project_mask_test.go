@@ -47,7 +47,8 @@ func TestDigitsJoinedBySeparatorsAreMaskedToTheLastFour(t *testing.T) {
 	}
 }
 
-// A list fact is masked item by item; the references of `disclosed_refs` are not a list fact of this kind and stay as written.
+// A list fact is masked item by item; the references of `disclosed_refs` are checked by the reference pattern first and then masked like any string (A331, relayed, interim; they stayed as
+// written before it, see project_ref_test.go): a reference with at most four digits in a row is unchanged, one with a run of five or more keeps its last four.
 func TestAListFactIsMaskedItemByItem(t *testing.T) {
 	got, err := fact("reason_codes", []any{"STATE_KNOWN", "ACCOUNT_0123456789", "1234 5678 9012"}, nil)
 	if err != nil {
@@ -58,9 +59,9 @@ func TestAListFactIsMaskedItemByItem(t *testing.T) {
 	if !ok || strings.Join(list, "|") != strings.Join(want, "|") {
 		t.Fatalf("reason_codes served as %v, want %v", got, want)
 	}
-	refs, err := fact("disclosed_refs", []any{"fin.transaction:TX88213"}, nil)
-	if err != nil || strings.Join(refs.([]string), "|") != "fin.transaction:TX88213" {
-		t.Fatalf("disclosed_refs %v, %v: a resource reference is served as written", refs, err)
+	refs, err := fact("disclosed_refs", []any{"fin.transaction:TX8821", "fin.transaction:TX88213"}, nil)
+	if err != nil || strings.Join(refs.([]string), "|") != "fin.transaction:TX8821|fin.transaction:TX*8213" {
+		t.Fatalf("disclosed_refs %v, %v: a resource reference is masked like any string", refs, err)
 	}
 }
 

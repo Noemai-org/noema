@@ -21,10 +21,12 @@ type Service struct {
 type Result struct {
 	Decision decide.Decision
 	Trace    []decide.TraceEntry
-	// DecisionID and GrantIDs are set only for an ALLOW: the Decision Record that was written before the ALLOW was returned, and the grants issued with it (one per write
-	// plan step; none for a read).
+	// DecisionID and GrantIDs are set only for an ALLOW or a CONFIRM that T13 recorded: the Decision Record that was written before the decision was returned, and the
+	// grants issued with it (one per write plan step for an ALLOW; none for a read, and none for a CONFIRM).
 	DecisionID string
 	GrantIDs   []string
+	// ConfirmationRequestID is set only for a CONFIRM that T13 recorded: the confirmation request the approver answers, created by this evaluation or already open.
+	ConfirmationRequestID string
 }
 
 // ErrNotBuilt is what a step that does not exist yet returns: the evaluation ends in UNKNOWN INTERNAL_ERROR at that step (fail closed, INV-16).
@@ -74,12 +76,13 @@ func (s *Service) evaluate(ctx context.Context, r Request, step *stepScope) (Res
 	return ev.run(ctx, ev.steps()), nil
 }
 
-// run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned.
+// run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned; a
+// CONFIRM that T13 recorded carries its decision ID and the confirmation request it names.
 func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.bb)
 	res := Result{Decision: d, Trace: trace}
-	if d.Outcome() == decide.Allow {
-		res.DecisionID, res.GrantIDs = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...)
+	if o := d.Outcome(); o == decide.Allow || o == decide.Confirm {
+		res.DecisionID, res.GrantIDs, res.ConfirmationRequestID = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...), e.late.requestID
 	}
 	return res
 }
