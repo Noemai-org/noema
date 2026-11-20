@@ -21,7 +21,7 @@ The Evidence Layer's call site for the read ports of `adapters` (ENV-04 wiring s
 | Rule | How |
 |---|---|
 | Marker | A list is KNOWN only when its own marker is complete. An incomplete list is UNKNOWN, never an empty none. An empty list marked complete is "no case". |
-| Complaints | Read per case, in case-id order, only from a usable complete case list with at least one case, merged into one list, complete only if every read was. With no case to read them for, no complaint item is recorded. |
+| Complaints | Read per case, in case-id order, only from a usable complete case list with at least one case, merged into one list, complete only if every read was. When the case list is unusable or unavailable (the read failed, the list is incomplete or cannot be used), the complaint list is recorded as an explicit UNKNOWN item with no payload and no bytes, and no complaint is read (A473, interim, relayed, recorded in docs#216, not yet merged). An empty list marked complete from a source that answered is "no cases": no complaint item. |
 | Fail closed | A page that contradicts its own marker, a record of another tenant, principal or transaction, a missing id or status, a time that does not parse or has no zone, a duplicate id, a provenance without a hash, or a payload over `MaxPayloadBytes` is an UNKNOWN item with no payload. |
 | Limit | `MaxPayloadBytes` comes from configuration; zero refuses `ReadCases` (no default). |
 | Scope | Tenant and principal are the session's, passed to both ports unchanged (INV-12). Only the first page of each list is read. |

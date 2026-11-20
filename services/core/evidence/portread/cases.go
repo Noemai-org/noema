@@ -47,9 +47,10 @@ func (r *Reader) casesConfigured() error {
 }
 
 // ReadCases reads the case list of one transaction and, from a usable complete case list, the complaint list of those cases, and records one evidence item for each. The scope is the
-// authenticated session's tenant and principal, passed to the ports unchanged. A port that cannot answer is an item whose status says so, not an error. No complaint item is recorded
-// when there is no case to read complaints for (the case read failed, or its list is incomplete, unusable or empty): the port has no global complaint search, and an absent item is not a
-// fact. An error is returned only for a request or configuration the reader refuses before reading, and for a failure to record (nothing further is read after it, EC-E16); the items
+// authenticated session's tenant and principal, passed to the ports unchanged. A port that cannot answer is an item whose status says so, not an error. The port has no global complaint
+// search, so complaints are read only for the cases of a usable complete list. When the case list is unusable or unavailable (the read failed, or its list is incomplete or cannot be used),
+// the complaint list is recorded as an explicit UNKNOWN item with no payload and no bytes, never left out and never an empty "none" (A473, interim, relayed, recorded in docs#216, not yet
+// merged; INV-19). An empty list marked complete from a source that answered is "no cases": no complaint is read and no complaint item is recorded. An error is returned only for a request or configuration the reader refuses before reading, and for a failure to record (nothing further is read after it, EC-E16); the items
 // recorded before that failure are returned with the error.
 func (r *Reader) ReadCases(ctx context.Context, scope adapters.Scope, correlationID, transactionRef string) ([]layer.Item, error) {
 	if _, ok := ctx.Deadline(); !ok {
@@ -76,14 +77,21 @@ func (r *Reader) ReadCases(ctx context.Context, scope adapters.Scope, correlatio
 			Src: layer.Source{Authority: s.Authority, SourceLimit: s.Limit}, DataSource: r.DataSource, Synthetic: r.Synthetic}
 	}
 	var items []layer.Item
-	obs, caseIDs := r.caseList(ctx, scope, transactionRef, base(r.CaseSources.Case))
+	obs, caseIDs, noCases := r.caseList(ctx, scope, transactionRef, base(r.CaseSources.Case))
 	item, err := r.Rec.Record(ctx, obs)
 	if err != nil {
 		return items, fmt.Errorf("%srecord: %w", prefix, err)
 	}
 	items = append(items, item)
 	if len(caseIDs) == 0 {
-		return items, nil
+		if noCases {
+			return items, nil
+		}
+		item, err = r.Rec.Record(ctx, r.malformed(base(r.CaseSources.Complaint), adapters.Provenance{})) // no provenance: no bytes were received for this list
+		if err != nil {
+			return items, fmt.Errorf("%srecord: %w", prefix, err)
+		}
+		return append(items, item), nil
 	}
 	item, err = r.Rec.Record(ctx, r.complaintList(ctx, scope, caseIDs, base(r.CaseSources.Complaint)))
 	if err != nil {
@@ -110,29 +118,30 @@ func (r *Reader) sized(payload map[string]any) bool {
 	return err == nil && len(raw) <= r.MaxPayloadBytes
 }
 
-// caseList reads and records-ready the case list. It returns the ids of the cases only when the list is usable and marked complete and has at least one case.
-func (r *Reader) caseList(ctx context.Context, scope adapters.Scope, ref string, o layer.Observation) (layer.Observation, []string) {
+// caseList reads and records-ready the case list. It returns the ids of the cases only when the list is usable and marked complete and has at least one case; noCases is true only
+// for a usable list marked complete with no case in it (the source answered: there are no cases).
+func (r *Reader) caseList(ctx context.Context, scope adapters.Scope, ref string, o layer.Observation) (obs layer.Observation, ids []string, noCases bool) {
 	cctx, cancel := r.call(ctx)
 	defer cancel()
 	page, err := r.Cases.FindCases(cctx, adapters.CaseQuery{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, TransactionRef: ref})
 	if err != nil {
-		return r.failed(o, err), nil
+		return r.failed(o, err), nil, false
 	}
 	prov := r.pageProvenance(page.RawHash)
 	if !markerAgrees(page.Complete, page.NextCursor) {
-		return r.malformed(o, prov), nil
+		return r.malformed(o, prov), nil, false
 	}
 	recs := append([]adapters.CaseRecord(nil), page.Items...)
 	sort.Slice(recs, func(i, j int) bool { return recs[i].CaseID < recs[j].CaseID })
 	rows := make([]any, 0, len(recs))
-	ids := make([]string, 0, len(recs))
+	ids = make([]string, 0, len(recs))
 	var latest time.Time
 	for i, c := range recs {
 		at, ok := parseInstant(c.CreatedAt)
 		switch {
 		case !ok, !recordRefRe.MatchString(c.CaseID), c.Status == "", c.TenantID != scope.TenantID, c.PrincipalID != scope.PrincipalID, c.TransactionRef != ref,
 			i > 0 && recs[i-1].CaseID == c.CaseID:
-			return r.malformed(o, prov), nil
+			return r.malformed(o, prov), nil, false
 		}
 		if at.After(latest) {
 			latest = at
@@ -143,16 +152,16 @@ func (r *Reader) caseList(ctx context.Context, scope adapters.Scope, ref string,
 	}
 	payload := map[string]any{"items": rows, "complete": page.Complete}
 	if !r.sized(payload) {
-		return r.malformed(o, prov), nil
+		return r.malformed(o, prov), nil, false
 	}
 	if latest.IsZero() {
 		latest = r.Clock.Now()
 	}
 	o = r.answered(o, prov, latest, page.Complete, payload) // an empty list marked complete is "no case"; any other unfinished list is UNKNOWN
 	if o.Read.Class != layer.ReadOK || !page.Complete {
-		return o, nil
+		return o, nil, false
 	}
-	return o, ids
+	return o, ids, len(ids) == 0
 }
 
 // complaintList reads the complaints of each case (one read per case, in case-id order) and merges them into one list that is complete only if every read was.
