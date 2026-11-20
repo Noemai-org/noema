@@ -24,6 +24,20 @@ var (
 	ErrNotNewer = errors.New(errPrefix + "the version is not higher than the active one")
 )
 
+// storeError is a failure of the store as callers see it (A347, AGENT-13): a fixed public text, with the cause kept for errors.Is and errors.As and never printed. The tenant's ID, the
+// policy ID and the version, and the driver's message (SQLSTATE text, server and login details) are not in the text. kind, when set, is the sentinel errors.Is finds; cause may be nil.
+type storeError struct {
+	kind  error
+	text  string
+	cause error
+}
+
+func (e *storeError) Error() string { return e.text }
+
+func (e *storeError) Unwrap() error { return e.cause }
+
+func (e *storeError) Is(target error) bool { return e.kind != nil && errors.Is(e.kind, target) }
+
 var (
 	tenantRe      = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
 	correlationRe = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
@@ -61,7 +75,7 @@ func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 		return errors.New(errPrefix + "the context needs a deadline")
 	}
 	if s == nil || s.Appender == nil {
-		return fmt.Errorf("%s: the store is not configured", ErrRequest)
+		return &storeError{kind: ErrRequest, text: ErrRequest.Error() + ": the store is not configured"}
 	}
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !policyIDRe.MatchString(r.PolicyID), !versionRe.MatchString(r.Version),
@@ -72,16 +86,16 @@ func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 		VALUES ($1, $2, $3, policy_version_key($3), $4, $5)`, r.TenantID, r.PolicyID, r.Version, r.PublishedBy, r.DocumentHash)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && (pe.Code == "23000" || pe.Code == "23505") {
-		return fmt.Errorf("%w: %s@%s", ErrNotNewer, r.PolicyID, r.Version)
+		return &storeError{kind: ErrNotNewer, text: ErrNotNewer.Error(), cause: err}
 	}
 	if err != nil {
-		return fmt.Errorf("%sinsert publication: %w", errPrefix, err)
+		return &storeError{text: errPrefix + "the publication could not be recorded", cause: err}
 	}
 	ref := "pol_" + underscored(r.PolicyID) + "_" + underscored(r.Version)
 	_, err = s.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: "admin:" + r.PublishedBy,
 		EventType: "POLICY_PUBLISHED", ObjectRef: ref, Payload: map[string]any{"policy_id": r.PolicyID, "version": r.Version, "published_by": r.PublishedBy}})
 	if err != nil {
-		return fmt.Errorf("%sappend POLICY_PUBLISHED: %w", errPrefix, err)
+		return &storeError{text: errPrefix + "the publication could not be appended to the Record", cause: err}
 	}
 	return nil
 }
@@ -101,7 +115,7 @@ func Active(ctx context.Context, q Queryer, tenantID, policyID string) (string, 
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("%sread active version: %w", errPrefix, err)
+		return "", &storeError{text: errPrefix + "the active version could not be read", cause: err}
 	}
 	return policyID + "@" + v, nil
 }
