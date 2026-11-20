@@ -12,3 +12,7 @@ Done: checks and review green; real voice integration and Android device accepta
 
 ## Session 2026-11-19 · failing-first
 Node 22 tests specify PCM16 conversion and the disabled-without-sink button; they fail because the module does not exist. Microphone access remains disabled in the current shipped overlay. Live transmission is not part of this change.
+
+## Session 2026-11-20 · capture slice
+UI CI at `e0bb435b` observed the missing-module failure. The capture slice requests a 16 kHz AudioContext and fails closed if unsupported; it encodes mono samples as signed little-endian PCM16 and stops tracks on release, unmount, failure or an ended-track notification. The button is disabled without a host-supplied sink. No voice endpoint or transmission is provided.
+Node 22: the full Node suite and six Chromium Playwright checks pass locally, including synthetic-device capture with the actual context rate asserted, microphone permission denial and a simulated ended notification. The browser tests do not prove physical Android microphone behavior. A physical webview and an approved live voice path remain outstanding.
