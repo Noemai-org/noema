@@ -260,7 +260,7 @@ func TestStatusEligibilityBySelfMakerCheckerAndRole(t *testing.T) {
 		given       bool
 	}{
 		{"SELF", "prn_1", nil, true}, {"SELF", "prn_2", nil, false},
-		{"MAKER_CHECKER", "prn_2", nil, true}, {"MAKER_CHECKER", "prn_1", nil, false},
+		{"MAKER_CHECKER", "prn_2", []string{"approver"}, true}, {"MAKER_CHECKER", "prn_2", nil, false}, {"MAKER_CHECKER", "prn_2", []string{"customer"}, false}, {"MAKER_CHECKER", "prn_1", []string{"approver"}, false},
 		{"ROLE:checker", "prn_2", []string{"checker"}, true}, {"ROLE:checker", "prn_2", []string{"other"}, false}, {"ROLE:checker", "prn_1", []string{"checker"}, true},
 	}
 	for _, c := range cases {

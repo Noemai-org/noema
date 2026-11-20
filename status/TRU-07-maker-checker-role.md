@@ -24,3 +24,9 @@ Updated 2026-11-19. Owner: C1 (helper session). Branch `feat/TRU-07-maker-checke
 - Open questions (owner): doubts 1 and 2 (EL).
 - Files to read first: `services/core/trust/confirm/confirm.go`, `maker_checker_role_test.go`.
 - Do not touch: the exported names of `trust/confirm`.
+
+## Session 2026-11-20 · TRU-07 (C1, merge of main into noema#793)
+
+- Main now holds the confirmation adapter (#750), the Recorder adapter (#752) and the route (#754). The route already puts the authenticated session's role into `ApproverRoles` (`cmd/core/confirmations_route.go`), which was this PR's flag 2.
+- One existing test of EL's adapter pinned the earlier rule: `TestStatusEligibilityBySelfMakerCheckerAndRole` gave a MAKER_CHECKER answer with no roles as Given. Under this PR's rule that is not eligible, so the table now gives the approver role for the eligible row and adds three refused rows (no role, a customer role, the requester with the approver role). Nothing was deleted, skipped or weakened; the file is outside this PR's first allowlist and the change follows from the behaviour this PR changes (A468: merge of main voids nothing).
+- Verification: `go test ./trust/confirm/ ./orchestrator/portadapters/trust/ ./cmd/core/` ok; `python3 tools/lint/run.py`: lint OK.
