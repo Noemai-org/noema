@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { encodePcm16Mono, PushToTalk } from "../build/js/push-to-talk.js";
+import * as capture from "../build/js/pcm-capture.js";
+
+test("A191: PCM frames keep whole samples and never exceed 32000 bytes", () => {
+  assert.equal(capture.MAX_PCM_FRAME_BYTES, 32000);
+  const samples = new Float32Array(16384);
+  samples[0] = -1;
+  samples[16000] = 1;
+  const frames = capture.encodePcm16Frames(samples);
+  assert.deepEqual(frames.map((frame) => frame.length), [32000, 768]);
+  assert.deepEqual(Array.from(frames[0].slice(0, 2)), [0, 128]);
+  assert.deepEqual(Array.from(frames[1].slice(0, 2)), [255, 127]);
+  assert.throws(() => capture.encodePcm16Frames(Float32Array.from([0, NaN])), /audio/i);
+});
 
 test("REQ-VOI-001 A19: PCM samples are clipped and encoded as signed little-endian 16-bit mono", () => {
   const data = encodePcm16Mono(Float32Array.from([-2, -1, -0.5, 0, 0.5, 1, 2]));

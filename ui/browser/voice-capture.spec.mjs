@@ -44,6 +44,9 @@ test("REQ-VOI-001: a real browser captures mono PCM and stops its microphone on 
     const NativeAudioContext = window.AudioContext;
     window.AudioContext = class extends NativeAudioContext {
       constructor(options) { super(options); globalThis.captureSampleRate = this.sampleRate; }
+      createScriptProcessor(_size, inputChannels, outputChannels) {
+        return super.createScriptProcessor(16384, inputChannels, outputChannels);
+      }
     };
     const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = async (constraints) => {
@@ -67,6 +70,9 @@ test("REQ-VOI-001: a real browser captures mono PCM and stops its microphone on 
   });
   expect(result.rate).toBe(16000);
   expect(result.chunks.every((size) => size > 0 && size % 2 === 0)).toBe(true);
+  expect(result.chunks).toContain(32000);
+  expect(result.chunks).toContain(768);
+  expect(result.chunks.every((size) => size <= 32000)).toBe(true);
   expect(result.tracks.length).toBeGreaterThan(0);
   expect(result.tracks.every((state) => state === "ended")).toBe(true);
 });
