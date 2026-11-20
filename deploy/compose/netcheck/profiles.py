@@ -203,6 +203,15 @@ BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000
 INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
 
 
+def intron_overlay_text_problems(text):
+    """The overlay's own text must set bind.create_host_path: false (Voice): Compose creates a missing host path as an EMPTY DIRECTORY, and the key reader would then refuse it at every call with
+    no sign at start-up. It is read from the file, not from `docker compose config`, because older Compose versions do not print that key back."""
+    uncommented = chr(10).join(line.split(" #", 1)[0] for line in text.splitlines() if not line.lstrip().startswith("#"))
+    if not re.search(r"(?m)^\s+bind:[ \t]*" + chr(10) + r"\s+create_host_path:\s*false[ \t]*$", uncommented):
+        return [f"{INTRON_OVERLAY}: the key bind must set bind.create_host_path: false, or a wrong host path becomes an empty directory at the key path (A379)"]
+    return []
+
+
 def resolved(profile, with_intron=False):
     files = [str(COMPOSE_FILE)] + ([str(COMPOSE_FILE.parent / f) for f in BENCH_OVERLAYS] if profile == "bench" else [])
     if with_intron:
@@ -373,8 +382,6 @@ def check(cfg, profile):
             if key_env and key_env != INTRON_TARGET:
                 bad.append(f"{profile}: INTRON_API_KEY_FILE is {key_env!r}, not {INTRON_TARGET} (A379)")
             for v in key_mounts:
-                if (v.get("bind") or {}).get("create_host_path") is not False:
-                    bad.append(f"{profile}: the Intron key bind must set create_host_path: false, or a wrong host path becomes an empty directory at the key path (A379)")
                 if v.get("type") != "bind" or not v.get("read_only") or str(v.get("source", "")).rstrip("/").endswith(("secrets", "/")) or len(key_mounts) != 1:
                     bad.append(f"{profile}: the Intron key must be one read-only bind of one file, never a folder (A379)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
@@ -491,7 +498,6 @@ def self_test(configs):
         "the bench model gets the key file variable but no mount": ("bench", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"})),
         "the bench model with the key mount loses the variable": ("bench+intron", lambda c: c["services"]["model"]["environment"].pop("INTRON_API_KEY_FILE")),
         "the bench key mount is writable": ("bench+intron", lambda c: [v.update({"read_only": False}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
-        "the bench key mount may create its host path": ("bench+intron", lambda c: [v.pop("bind", None) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
         "the bench key mount is a folder named secrets": ("bench+intron", lambda c: [v.update({"source": "/h/secrets"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
         "the bench key mount is a named volume": ("bench+intron", lambda c: [v.update({"type": "volume"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
         "the key file variable points elsewhere": ("bench+intron", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/other"})),
@@ -547,6 +553,11 @@ def self_test(configs):
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
     missed = []
+    overlay_text = (COMPOSE_FILE.parent / INTRON_OVERLAY).read_text(encoding="utf-8")
+    for label, mutant in {"the overlay drops create_host_path": overlay_text.replace("create_host_path: false", "create_host_path: true"),
+                          "the overlay has create_host_path only in a comment": overlay_text.replace("bind:" + chr(10) + "          create_host_path: false", "# bind:" + chr(10) + "          # create_host_path: false")}.items():
+        if mutant == overlay_text or not intron_overlay_text_problems(mutant):
+            missed.append(f"the overlay text rule did not fire for: {label}")
     for label, (profile, mutate) in cases.items():
         mutated = copy.deepcopy(configs[profile])
         mutate(mutated)
@@ -584,7 +595,7 @@ def main():
         failures += found
     # The bench stack with the optional Intron key overlay (A377 to A379): the same rules, and the key mount is the model's alone.
     configs["bench+intron"] = resolved("bench", with_intron=True)
-    found = check(configs["bench+intron"], "bench")
+    found = check(configs["bench+intron"], "bench") + intron_overlay_text_problems((COMPOSE_FILE.parent / INTRON_OVERLAY).read_text(encoding="utf-8"))
     print(f"{'FAIL' if found else 'ok  '} profile bench with the optional Intron key overlay")
     failures += found
     # The names the core reads are the Env... constants of its model client (noema#563). When that file is in this tree the two lists must be the same set, so the Compose file and the
