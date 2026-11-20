@@ -19,8 +19,8 @@ import (
 // publishAt inserts a publication with a time of its own, as the tenant's Trust login (the guard still decides who may write and which version is higher).
 func (w *world) publishAt(t *testing.T, p *pgxpool.Pool, tenant, policyID, version, at string) {
 	t.Helper()
-	_, err := p.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at)
-		VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', $4::timestamptz)`, tenant, policyID, version, at)
+	_, err := p.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at, document_hash)
+		VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', $4::timestamptz, $5)`, tenant, policyID, version, at, testDocHash)
 	if err != nil {
 		t.Fatalf("publish %s@%s at %s: %v", policyID, version, at, err)
 	}
