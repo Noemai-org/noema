@@ -225,6 +225,28 @@ class WidenedAndBounded(unittest.TestCase):
         ok = ["recev_1005", "obj_01HX12345ABCDEFGHJKMNPQRST", "fin.transaction:TX88213", "held for review", "the amount ending 1234", "dec_01HXZ", "1,2,3,4,5", "usr_8821"]
         no = ["usr_88213", "4111 1111 1111 1111", "fin.account:0123456789012345", "41111111-1111-4111-8111-11111111111a", "card 4111 1111 1111 1111 expired", "4111_1111_1111_1111",
               "1\u03012\u03013\u03014\u03015", "rec_12345", "fin.transaction:12345", "ab_" + "1" * 30]
+        # the second rule of the digit run (commas) holds for the free-text branch too
+        no += ["4111,1111,1111,1111", "card 4111, 1111, 1111, 1111 expired", "1,234,567,890"]
+        ok += ["20,000,000", "the amount 20,000,000 was held"]
+        for v in ok:
+            self.assertFalse(refused(FACT_VALUE, v), f"{v!r} was refused")
+        for v in no:
+            self.assertTrue(refused(FACT_VALUE, v), f"{v!r} was accepted")
+
+    def test_the_minted_id_branch_is_the_exact_ulid_body_and_every_other_id_meets_the_five_digit_rule(self):
+        ulid = "01HX12345ABCDEFGHJKMNPQRST"
+        self.assertEqual(len(ulid), 26)
+        ok = ["obj_" + ulid, "dec_01J9X3A4B5C6D7E8F9G0H1J2K3", "recev_1005", "usr_8821", "dec_01HXZ", "ten_AB1234", "int_01J9X3"]
+        no = [
+            "ab_" + "1" * 30 + "a",  # the Security Reviewer's first case on noema#664: 31 characters, a letter at the end
+            "ten_4111111111111111a",  # a typed ID is no exemption for a number with a letter at its end
+            "obj_81HX12345ABCDEFGHJKMNPQRST",  # first character 8: no ULID
+            "obj_01HX12345ABCDEFGHJKMNPQRSI",  # I is not in the alphabet
+            "obj_01hx12345abcdefghjkmnpqrst",  # lower case
+            "obj_" + ulid[:-1], "obj_" + ulid + "V",  # 25 and 27 characters
+            "obj_" + "0" * 26,  # no letter in the body
+            "usr_88213", "rec_12345", "obj_12345A",
+        ]
         for v in ok:
             self.assertFalse(refused(FACT_VALUE, v), f"{v!r} was refused")
         for v in no:
@@ -252,6 +274,84 @@ class WidenedAndBounded(unittest.TestCase):
                 self.assertEqual(alt["items"]["pattern"], FACT_VALUE)
         reason = SCHEMAS["record-event.v3.json"]["$defs"]["RecordEvent"]["properties"]["reason"]
         self.assertEqual((reason["pattern"], reason["maxLength"]), ("^[A-Z_]{1,64}$", 64))
+
+
+# Tightenings of the digit-run pattern (rulings A308 and A317 to A328, interim, relayed; AGENT-15, a minor change in place). Each is a narrowing: nothing that was refused is accepted now.
+# An independent oracle, written here from the definitions and not from the pattern, gives the verdict the pattern must give on every string.
+JOIN_CATEGORIES = {"Zs", "Zl", "Zp", "Cf", "Mn", "Mc", "Me", "Pd", "Ps", "Pe"}
+JOIN_CODE_POINTS = {0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x1F, 0x85, 0x2E, 0x2D, 0x2F, 0x5F, 0x3A, 0x2212, 0xB7, 0x30FB, 0xFF0E, 0xFF0F, 0xFF1A, 0xFF3F}
+FIVE, TEN = 5, 10
+
+
+def longest_joined_run(text: str, commas: bool) -> int:
+    """The most digits (any script, Nd) in one run: digits joined by any number of separators of the core's set and, when commas is true, by ASCII commas too."""
+    best = count = 0
+    for ch in text:
+        if unicodedata.category(ch) == "Nd":
+            count += 1
+            best = max(best, count)
+        elif ord(ch) in JOIN_CODE_POINTS or unicodedata.category(ch) in JOIN_CATEGORIES or (commas and ch == ","):
+            continue
+        else:
+            count = 0
+    return best
+
+
+def oracle_refuses(text: str) -> bool:
+    return longest_joined_run(text, commas=False) >= FIVE or longest_joined_run(text, commas=True) >= TEN
+
+
+class DigitRunTightenings(unittest.TestCase):
+    def test_u001c_to_u001f_join_digits(self):
+        for cp in (0x1C, 0x1D, 0x1E, 0x1F):
+            sep = chr(cp)
+            self.assertTrue(refused(DIGIT_RUN, sep.join("12345")), f"digits joined by U+{cp:04X} were accepted")
+            self.assertTrue(refused(DIGIT_RUN, f"1234{sep}5"), f"1234 U+{cp:04X} 5 was accepted")
+            self.assertTrue(refused(DIGIT_RUN, f"card 4111{sep}1111{sep}1111{sep}1111 used"), f"a card joined by U+{cp:04X} was accepted")
+            self.assertFalse(refused(DIGIT_RUN, f"1234{sep}abcd{sep}5678"), f"U+{cp:04X} between letters and short runs is refused")
+        self.assertFalse(refused(DIGIT_RUN, "12\x1c34"), "four digits in all, however joined")
+        self.assertFalse(refused(DIGIT_RUN, "\x1c\x1d\x1e\x1f1234\x1f"), "separators with no digit beyond four")
+
+    def test_ten_digits_joined_by_commas_and_separators_are_refused_and_short_numbers_are_not(self):
+        refuse = [
+            "1,234,567,890", "NGN 1,234,567,890", "NGN 1,234,567,890.00", "12,345,678,901", "1234,5678,90", "1234,5678,9012,3456", "4111,1111,1111,1111", "4111, 1111, 1111, 1111",
+            "5,000, 3,000, 2,000", "1,2,3,4,5,6,7,8,9,0", "1,2,3,4,5,6,7,8,9,10", "1234-5678,90", "1234, 5678,​90", "١٢٣٤,٥٦٧٨,٩٠",
+            "card 4111,1111,1111,1111 used", "x 12,345,678 ,,, 90 y", "1234\x1c5678,90", "NGN 1,000,000,000",
+        ]
+        accept = [
+            "12,345", "NGN 12,345", "NGN 123,456,789", "20,000,000 naira", "1,234", "1234, 5678", "1,2,3,4,5", "1,2,3,4,5,6,7,8,9", "5,000, 3,000 and 2,000", "123,456,789 and 123,456,789",
+            "1234 words 5678, 9012 words", "no digits, at all", "1234,5678 then 9012", "12,345,67 and 89", "1,000,000 and 2,000,000", "12,abc,345,def,678,ghi,90",
+        ]
+        for text in refuse:
+            self.assertTrue(refused(DIGIT_RUN, text), f"{text!r} passes the digit-run pattern")
+        for text in accept:
+            self.assertFalse(refused(DIGIT_RUN, text), f"{text!r} is refused by the digit-run pattern")
+
+    def test_the_pattern_gives_the_verdict_of_the_oracle_on_random_strings(self):
+        import random
+        rng = random.Random(20261118)
+        alphabet = ["1", "2", "3", "7", "٣", "４", ",", ",", " ", ".", "-", "\x1c", "\x1d", "\x1e", "\x1f", "́", "(", ")", "_", "a", "x", "\n", "​", "·", ";", "'", ":", "/", "，", "،"]
+        weights = [8, 8, 8, 8, 2, 2, 5, 5, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        both = [0, 0]
+        for _ in range(6000):
+            text = "".join(rng.choices(alphabet, weights, k=rng.randint(0, 36)))
+            expected = oracle_refuses(text)
+            both[expected] += 1
+            self.assertEqual(refused(DIGIT_RUN, text), expected, f"{text!r}")
+        self.assertGreater(min(both), 500, "the sample must hold both verdicts in number")
+
+    def test_the_money_clause_of_the_comma_rule_changes_nothing_in_the_schema(self):
+        # A money string of at most nine integer digits that holds ten digits or more also holds five joined by the point (333.00), which the first rule refuses already; with no decimals it holds nine or fewer.
+        five_only = rf"^(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}*{DIGIT}){{4}})[\s\S]*$"
+        for groups in range(0, 3):
+            for decimals in ("", ".00"):
+                text = "NGN 123" + ",456" * groups + decimals
+                digits = longest_joined_run(text, commas=True)
+                if digits >= TEN:
+                    self.assertTrue(refused(five_only, text), f"{text!r}: ten digits and not refused by the first rule")
+                self.assertEqual(refused(DIGIT_RUN, text), refused(five_only, text), text)
+        self.assertTrue(refused(DIGIT_RUN, "NGN 1,234,567,890"), "ten integer digits are over the money limit")
+        self.assertFalse(refused(DIGIT_RUN, "NGN 123,456,789"), "nine integer digits")
 
 
 if __name__ == "__main__":

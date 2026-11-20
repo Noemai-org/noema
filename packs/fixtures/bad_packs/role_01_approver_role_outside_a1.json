@@ -1,0 +1,13 @@
+{
+  "requirement": "A377 (interim, relayed, not yet committed): ROLE:<role> names one of the A1 roles; REQ-EXE-003",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "roles",
+  "expect_message_contains": "ROLE:supervisor",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/policy/rules/3/params/approver_requirement",
+      "value": "ROLE:supervisor"
+    }
+  ]
+}

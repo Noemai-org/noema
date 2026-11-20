@@ -25,5 +25,13 @@
   "typed_id_with_digits_only_in_its_body.json": "oneOf",
   "reference_fact_with_sixteen_digits_after_the_colon.json": "oneOf",
   "unlisted_key_with_a_card_number_in_a_sentence.json": "oneOf",
-  "array_fact_item_with_a_card_number.json": "oneOf"
+  "array_fact_item_with_a_card_number.json": "oneOf",
+  "text_fact_with_unit_separator_joined_digits.json": "oneOf",
+  "text_fact_with_ten_comma_joined_digits.json": "oneOf",
+  "minted_id_of_31_characters_ending_in_a_letter.json": "oneOf",
+  "typed_id_with_sixteen_digits_and_a_letter_at_the_end.json": "oneOf",
+  "minted_id_whose_first_ulid_character_is_8.json": "oneOf",
+  "minted_id_with_a_letter_outside_the_ulid_alphabet.json": "oneOf",
+  "minted_id_in_lower_case.json": "oneOf",
+  "minted_id_of_26_digits.json": "oneOf"
 }

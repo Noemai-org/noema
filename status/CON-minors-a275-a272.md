@@ -60,3 +60,10 @@ Updated 2026-11-18. Owner: C1 (Core Engineer 1). Local branch `prep/contract-min
 - Open questions (owner): `ErrNoneCombined` for an option plus the `None` flag, and whether `Clarification.Open` stays (Architect, C1).
 - Files to read first: `services/core/trust/decide/{clarify,bind,decision}.go`, `none_option_test.go`.
 - Do not touch: generated files by hand.
+
+## Session 2026-11-20 · CON-06 (C1, merge of main into noema#736)
+
+- Conflicts: `status/README.md` (both index lines kept) and the generated `clarification_v1.ts` (taken from main, regenerated with `generate.py --write`; `--check` passes).
+- Two invalid fixtures that main added (`overlay-card/label_with_record_separator_joined_digits.json`, `label_with_ten_comma_joined_digits.json`) lacked the now-required `none_option_id`; it was added to each so they still fail for their own reason (the pattern), as `test_none_option.py` requires. The two fixtures that are invalid because the id is missing were left as they are.
+- `ui/test/contracts.test.mjs` (main's rule: the parser refuses every invalid fixture): the fixture `none_option_id_equals_an_option_id.json` is a rule across two members that JSON Schema cannot say (held by `validate.py` and by the core), so it is listed with the other fixtures a parser cannot hold, with its reason. Flag for review: the UI would then accept a none id equal to an option id; the core never emits one.
+- Verification: `python3 -m unittest discover -s tools/contracts` 260 ok; `ui` build and `node --test` 283 ok; `go test ./trust/decide/ ./record/reconstruct/` ok; lint OK. The A458 defect (none combined with a rejected option) is the next commit pair of this PR, red first.
