@@ -19,7 +19,7 @@ Status: DRAFT. Task VOI-16; REQ-VOI-001, REQ-VOI-004, REQ-NFR-003; rulings A241,
 | 4 | The connect factory (the one place that opens a WebSocket) is on `main` | Voice, after #640 (A324 merge order) | not started; waits for #640 |
 | 5 | The harness skeleton is on `main` | noema#694 | in review |
 | 6 | The live runner exists (reads the key file, builds the adapters, reads the manifest, writes the report) | Voice, after 3 to 5 | not started |
-| 7 | The baseline settings of section 5 are passed as arguments | A380 (decided) | decided |
+| 7 | The baseline settings of section 5 are passed as arguments; they are the values recorded as A380 in `DEC-2026-11-20-architect-rulings-a358-a453` (section 1, merged to the `docs` repository), and are bench values for the baseline only | A380 (recorded) | recorded; any change needs a new recorded ruling |
 | 8 | The Founder's single "start" comment is on noema#767 | Founder; it stands until the key arrives | to be written |
 | 9 | The egress allowlist row and the netcheck rule for the key file exist | Integration Lead (noema#632) | merged |
 
