@@ -68,7 +68,7 @@ func TestThePublishedEventCarriesTheHashTheRowStores(t *testing.T) {
 	if err := w.admin.QueryRow(ctx(t), `SELECT payload::text FROM record_event WHERE tenant_id = $1 AND event_type = 'POLICY_PUBLISHED'`, tenantA).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"published_by": "adm_synth01"`, `"document_hash": "` + otherDocHash + `"`} {
+	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"document_hash": "` + otherDocHash + `"`} {
 		if !strings.Contains(payload, want) {
 			t.Errorf("payload %s lacks %s", payload, want)
 		}

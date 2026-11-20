@@ -229,7 +229,7 @@ func TestOnlyTrustPublishesAndExecutionReads(t *testing.T) {
 	}
 }
 
-// A publication is on the Record: POLICY_PUBLISHED, emitted by Trust, naming who published and the version (REQ-AUD-001, INV-09).
+// A publication is on the Record: POLICY_PUBLISHED, emitted by Trust, naming the authenticated database role that published and the version (REQ-AUD-001, INV-09, INV-12; A474).
 func TestAPublicationIsOnTheRecordWithItsPublisher(t *testing.T) {
 	w := newWorld(t)
 	if err := w.publish(t, w.trustA, tenantA, "fin.pol", "3.1"); err != nil {
@@ -240,10 +240,11 @@ func TestAPublicationIsOnTheRecordWithItsPublisher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if typ != "POLICY_PUBLISHED" || by != "core-trust" || actor != "admin:adm_synth01" || ref != "pol_fin_pol_3_1" {
-		t.Fatalf("event %s by %s actor %s ref %s", typ, by, actor, ref)
+	role := sessionUser(t, w.trustA)
+	if typ != "POLICY_PUBLISHED" || by != "core-trust" || actor != "admin:"+role || ref != "pol_fin_pol_3_1" {
+		t.Fatalf("event %s by %s actor %s ref %s, want actor admin:%s", typ, by, actor, ref, role)
 	}
-	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"published_by": "adm_synth01"`} {
+	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`} {
 		if !strings.Contains(payload, want) {
 			t.Errorf("payload %s lacks %s", payload, want)
 		}
