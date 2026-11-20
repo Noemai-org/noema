@@ -80,7 +80,8 @@ func (m *Mapping) RuleSet() string { return m.ruleset }
 
 // Parse loads a mapping. rs is the rule set it must have been written for; sources are the ids of the pack's evidence sources. Anything missing, repeated, unknown or out of
 // the rule set's vocabulary is an error: the pack is refused, never half-loaded.
-func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string, limits Limits) (*Mapping, error) {
+func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string, limits Limits, opts ...Option) (*Mapping, error) {
+	_ = opts
 	if limits.MaxBytes < 1 || limits.MaxDepth < 1 {
 		return nil, fmt.Errorf("%w: the limits must be positive", errMapping)
 	}
