@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/conversation-response.v1.json",
+  "title": "Conversation response",
+  "description": "STUB for the red commit of CON-07: the five members as bare strings, no pattern and no constant. The implementation replaces it.",
+  "type": "object",
+  "properties": {
+    "investigation_id": {"type": "string"},
+    "conversation_ref": {"type": "string"},
+    "state": {"type": "string"},
+    "stream_url": {"type": "string"},
+    "correlation_id": {"type": "string"}
+  },
+  "required": ["investigation_id", "conversation_ref", "state", "stream_url", "correlation_id"],
+  "additionalProperties": false
+}
