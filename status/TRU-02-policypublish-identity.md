@@ -33,3 +33,17 @@ Not built. No `--commit-sha` flag exists. Reason: the Record's payload guard (A1
 - Open questions (owner): where the commit SHA of a bench seed comes from (Architect); whether the event should also carry the role in the payload (Architect, needs a payload-guard exemption).
 - Files to read first: `services/core/trust/policystore/store.go`, `services/core/record/payloadguard/guard.go` (the exempt shapes), `services/core/record/chain/chain.go` (`validActor`).
 - Do not touch: `services/core/migrations/` (0035 and its README), the payload guard without a ruling.
+
+# Session 2026-11-21 · TRU-02 (A488: the commit-SHA line of A474 is settled)
+
+## Session summary
+- What changed (PR links): noema#850 ships **option (a): no commit SHA**. No code change; the PR body, the README and this file say so.
+- Why: A488 (relayed by the Founder in session, interim, not yet committed: AGENTS §2.3) replaces the commit-SHA line of A474. Its first step: check whether the payload guard and the schema already accept a `build_revision` of shape `^[0-9a-f]{40}$` or the literal "unavailable"; if not, do not change a contract in #850, ship (a), and open an OPEN entry for the field.
+- Check made (this session, on origin/main, `payloadguard.Check` on `{"policy_id":..,"version":..,"build_revision":<v>}`): the 40-hex value `3f9a1c22b7d4e5f60812a3b4c5d6e7f801234567` is REFUSED (`a run of 9 digits` at `/build_revision`); another 40-hex value with no run of five digits passes, as does the literal `unavailable`. So the guard accepts only the SHAs that happen not to hold a long digit run (about 18 in 100), which is no guarantee: option (b) is not available without a guard change, and the POLICY_PUBLISHED payload has no schema under `contracts/` to extend. The probe test was run once and not committed.
+- Risks, and how they are contained: none added; the publisher stays the authenticated database role (`session_user`), the event carries the document hash.
+- Tests added / regression cases / debt: none this session.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the contract follow-up for a typed `build_revision` (a guard shape for a 40-hex git revision at one path, the optional member in the POLICY_PUBLISHED payload, `debug.ReadBuildInfo` behind an injected function, "unavailable" when the info is absent or `vcs.modified` is true, no flag, environment variable or file); it is an OPEN entry in `docs/open-decisions.md`, not part of #850.
+- Do not touch: `record/payloadguard` or `contracts/` from #850.
