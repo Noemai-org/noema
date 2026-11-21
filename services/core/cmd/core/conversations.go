@@ -47,6 +47,48 @@ func (c *capture) Write(b []byte) (int, error) { return c.body.Write(b) }
 // startConversation wraps the gateway's handler. The capture starts from a copy of the response's headers: the gateway reads the request's correlation ID from them, and the error body, the header and the logs must agree. On 200 and 202 it replaces the body with the A234 answer; any other status, header and body pass through unchanged. If the
 // gateway's answer cannot be read, or its correlation ID is not one the core minted, the answer is an error and never a guess.
 func startConversation(inner http.Handler) http.Handler {
+	return startConversationWith(inner, conversationAnswer)
+}
+
+// answerFunc derives the answer of a conversation start from the correlation ID the gateway minted.
+type answerFunc func(correlationID string) (map[string]any, error)
+
+// conversationAnswer is the answer of A234: the five members, all derived from the one correlation ID.
+func conversationAnswer(correlationID string) (map[string]any, error) {
+	id, err := investigationIDOf(correlationID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"investigation_id": id, "conversation_ref": id, "state": publicStageUnderstanding,
+		"stream_url": "/v1/conversations/" + id + "/events", "correlation_id": correlationID,
+	}, nil
+}
+
+// errAnswerInconsistent is the refusal of checkAnswer. Its text names no member and no value (AGENT-13, A347).
+var errAnswerInconsistent = errors.New("cmd/core: the answer's members do not name one investigation")
+
+// checkAnswer is the writer's own check of the relations the schema cannot state (A479; the validator's check is tools/contracts/validate.py, on the same fixtures): conversation_ref is the
+// value of investigation_id, stream_url is the events route of it, and correlation_id is corr_ and its ULID. An answer that is not made of these five strings is refused.
+func checkAnswer(a map[string]any) error {
+	text := func(member string) (string, bool) { v, ok := a[member].(string); return v, ok }
+	id, ok := text("investigation_id")
+	if !ok || !strings.HasPrefix(id, "inv_") {
+		return errAnswerInconsistent
+	}
+	for member, want := range map[string]string{
+		"conversation_ref": id,
+		"stream_url":       "/v1/conversations/" + id + "/events",
+		"correlation_id":   "corr_" + strings.TrimPrefix(id, "inv_"),
+	} {
+		if got, ok := text(member); !ok || got != want {
+			return errAnswerInconsistent
+		}
+	}
+	return nil
+}
+
+func startConversationWith(inner http.Handler, derive answerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c := &capture{header: w.Header().Clone(), status: http.StatusOK}
 		inner.ServeHTTP(c, r)
@@ -61,19 +103,19 @@ func startConversation(inner http.Handler) http.Handler {
 		var got struct {
 			CorrelationID string `json:"correlation_id"`
 		}
-		var id string
+		var answer map[string]any
 		err := json.Unmarshal(c.body.Bytes(), &got)
 		if err == nil {
-			id, err = investigationIDOf(got.CorrelationID)
+			answer, err = derive(got.CorrelationID)
+		}
+		if err == nil {
+			err = checkAnswer(answer)
 		}
 		if err != nil {
 			failStart(w, r)
 			return
 		}
-		body, err := crypto.CanonicalJSON(map[string]any{
-			"investigation_id": id, "conversation_ref": id, "state": publicStageUnderstanding,
-			"stream_url": "/v1/conversations/" + id + "/events", "correlation_id": got.CorrelationID,
-		})
+		body, err := crypto.CanonicalJSON(answer)
 		if err != nil {
 			failStart(w, r)
 			return
