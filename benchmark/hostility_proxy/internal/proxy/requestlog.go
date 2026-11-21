@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -42,9 +43,15 @@ type RequestEntry struct {
 //
 // Without randomness the process cannot make that claim, so it refuses (A480, noema#786): New returns errNoRandomness and a reset is refused with nothing changed. The text is fixed and holds nothing
 // of the source's error.
-func newGeneration() (string, error) {
+//
+// The source is the caller's, never a package variable (A492, noema#855 follow-up): the server owns it (Options.Entropy), nil means the system's (crypto/rand), and a test passes a failing one to the
+// function or the server it is testing, so nothing it does is visible to another server or another test.
+func newGeneration(source io.Reader) (string, error) {
+	if source == nil {
+		source = rand.Reader
+	}
 	var b [16]byte
-	if _, err := randRead(b[:]); err != nil {
+	if _, err := io.ReadFull(source, b[:]); err != nil {
 		return "", errNoRandomness
 	}
 	return hex.EncodeToString(b[:]), nil
@@ -53,8 +60,6 @@ func newGeneration() (string, error) {
 // errNoRandomness is returned when the operating system's source of randomness fails.
 var errNoRandomness = errors.New("hostility proxy: no randomness for the request log generation")
 
-// randRead is crypto/rand.Read; a test replaces it with a failing source, the only way the generation can fail.
-var randRead = rand.Read
 
 type requestLog struct {
 	mu         sync.Mutex
@@ -65,11 +70,11 @@ type requestLog struct {
 	counts     map[string]int
 }
 
-func newRequestLog(limit int) (*requestLog, error) {
+func newRequestLog(limit int, source io.Reader) (*requestLog, error) {
 	if limit <= 0 {
 		limit = defaultRequestLogLimit
 	}
-	generation, err := newGeneration()
+	generation, err := newGeneration(source)
 	if err != nil {
 		return nil, err
 	}
