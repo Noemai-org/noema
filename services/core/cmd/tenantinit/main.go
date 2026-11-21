@@ -1,14 +1,14 @@
-// Command tenantinit creates the tenant rows and registers the core-trust public keys, once, before the stack serves (TRU-02; ruling A484; INV-11, INV-12; REQ-SEC-004, REQ-SEC-005).
+// Command tenantinit registers the core-trust public keys, once, before the stack serves (TRU-02; rulings A484 and A489; INV-12; REQ-SEC-004, REQ-SEC-005). It creates no tenant row: tenant rows
+// have one creator, create-tenants.sh (A353, A489).
 // See README.md.
 //
-//	tenantinit --dsn-file FILE --key-dir DIR --key-max-active N --tenant ten_ID=NAME [--tenant ten_ID=NAME ...]
+//	tenantinit --dsn-file FILE --key-dir DIR --key-max-active N
 //
-// The login in the DSN file is the operator's superuser: the tenant table forces row-level security with no INSERT policy (migration 0030), so only a superuser creates a tenant row, and
-// key_register (migration 0013) is executable by its owner and the superuser only. The key directory holds the core-trust signing keys, read with execution/signing.LoadRing; only the public
+// The login in the DSN file is one that may call key_register, which is executable by its owner and the superuser only (migration 0013); the database refuses any other login. The key directory holds the core-trust signing keys, read with execution/signing.LoadRing; only the public
 // half of each is derived and registered, and no private byte is returned, printed or logged. Nothing secret is an argument: the DSN and the keys come from files.
 //
-// Output: on success one JSON line on stdout with four counts and nothing else (never a name, a key or a path). When the exit code is not 0, nothing on stdout and one fixed sentence on stderr.
-// Exit codes: 0 done, or already done; 1 refused (a tenant ID under another name, a version registered with another public key or no longer active, a key the database refuses, a login the
+// Output: on success one JSON line on stdout with two counts and nothing else (never a name, a key or a path). When the exit code is not 0, nothing on stdout and one fixed sentence on stderr.
+// Exit codes: 0 done, or already done; 1 refused (a version registered with another public key or no longer active, a key the database refuses, a login the
 // database refuses); 2 usage; 3 the command could not run (a DSN file, a key directory or a database that cannot be used).
 package main
 
@@ -58,8 +58,6 @@ var (
 // failure maps an error to the exit code and the fixed sentence. The sentence never carries the error's text (A347); the SQLSTATE of a database error is a fixed five-character code.
 func failure(err error) (code int, sentence string) {
 	switch {
-	case errors.Is(err, errNameDiffers):
-		return exitRefused, "a tenant with this ID already exists under another name; nothing was changed"
 	case errors.Is(err, errKeyDiffers):
 		return exitRefused, "a different public key is already registered under this key version; nothing was changed"
 	case errors.Is(err, errKeyNotActive):
@@ -67,7 +65,7 @@ func failure(err error) (code int, sentence string) {
 	case errors.Is(err, errKeyRefused):
 		return exitRefused, "the database refused to register a key (a version that is not newer than the registered ones, or too many active keys); nothing was changed"
 	case errors.Is(err, errLoginDenied):
-		return exitRefused, "the login may not create tenants or register keys (only the operator's superuser does); nothing was changed"
+		return exitRefused, "the login may not register keys (only the owner of key_register and the operator's superuser may); nothing was changed"
 	case errors.Is(err, errKeysUnusable):
 		return exitFailure, "the signing keys cannot be loaded; nothing was changed"
 	case errors.Is(err, errDSNUnusable):
@@ -123,7 +121,7 @@ func runWith(args []string, out, errw io.Writer, dial dialFunc) int {
 		defer ccancel()
 		_ = conn.Close(cctx)
 	}()
-	c, err := apply(ctx, conn, s.tenants, keys)
+	c, err := apply(ctx, conn, keys)
 	if err != nil {
 		return fail(err)
 	}

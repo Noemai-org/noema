@@ -56,3 +56,19 @@ Exit 0 done or already done; 1 refused (nothing changed); 2 usage; 3 could not r
 ## Pre-work for the next agent
 - Exact next step: the Architect's answer on the tenant rows and the login (see the PR comments); then either drop the tenant half or amend the guard.
 - Do not touch: `deploy/compose/postgres/test_provision_env.sh` (the guard) without that decision.
+
+# Session 2026-11-21 15:10 WAT · TRU-02 (tenantinit, ruling A489: the core-trust public key only)
+
+## Session summary
+- What changed (PR links): noema#852: `tenantinit` registers the core-trust public key only and creates no tenant row (A489, interim record `DEC-2026-11-21-architect-rulings-a489-a492`, which amends A484). The `--tenant` flag, the tenant insert, the name check and the two tenant counts are removed; the output is `{"keys_registered":N,"keys_existing":N}`. A run neither creates, changes nor removes a tenant row.
+- Why: A353 gives tenant rows one creator, `create-tenants.sh`, and its guard (`deploy/compose/postgres/test_provision_env.sh`, job `compose-scripts`) fails on a second one. A489 chose this option (my option 1 in the CONFLICT block on the PR).
+- Risks, and how they are contained: the Compose one-shot IL writes against the old flags and output must drop `--tenant` (a usage refusal now, exit 2, before any file is read). The command no longer needs the superuser: any login that may call `key_register` works; the database decides.
+- Tests added (REQ-SEC-004, REQ-SEC-005; INV-11, INV-12; AGENT-13, A347): `tenants_test.go` (no tenant row after two runs; an existing tenant row with its kill switch and time zone is untouched; a runtime login is refused for keys); `args_test.go` (a `--tenant` flag in either form is a usage refusal with nothing opened); the key, DSN-file and secret tests carry the two-count output. RED was read failing in CI before GREEN (A302).
+- Regression cases added: the `--tenant` refusal and the no-tenant-row test. Debt entries: none.
+- Conflicts raised: the tenant-row CONFLICT block on noema#852 is resolved by A489.
+
+## Pre-work for the next agent
+- Exact next step: IL wires the Compose one-shot without `--tenant`; the open questions 1, 3, 4 and 6 above are closed by A489 (the tenant half is gone).
+- Open questions (owner): the DSN login of the one-shot, owner of `key_register` or the superuser (IL, OQ-09); other signing identities (Architect, question 5 above).
+- Files to read first: `services/core/cmd/tenantinit/README.md`, `deploy/compose/postgres/create-tenants.sh`, `deploy/compose/postgres/test_provision_env.sh`.
+- Do not touch: `services/core/migrations/`, `deploy/compose/` (IL's).
