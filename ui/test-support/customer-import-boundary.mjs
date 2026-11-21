@@ -36,6 +36,7 @@ export async function customerImportViolations(root, roots) {
     visit(source);
     for (const spec of specs) {
       if (!spec || !ts.isStringLiteralLike(spec)) { findings.push("computed-import"); continue; }
+      if (spec.text.startsWith("/") || /^[a-z][a-z0-9+.-]*:/iu.test(spec.text)) { findings.push("unsupported-import"); continue; }
       if (!spec.text.startsWith(".")) continue;
       const next = await resolveSource(file, spec.text);
       if (!next) findings.push("missing-local-module"); else pending.push(next);

@@ -43,6 +43,14 @@ test("A433: a computed dynamic import fails closed", async () => {
   });
 });
 
+test("A433: root-relative and URL imports fail closed", async () => {
+  for (const specifier of ["/contract_types/approver.js", "https://example.invalid/approver.js"]) {
+    await graph({ "main.ts": `import(${JSON.stringify(specifier)});` }, async (root) => {
+      assert.notDeepEqual(await customerImportViolations(root, ["main.ts"]), []);
+    });
+  }
+});
+
 test("A433: every current customer source module stays outside the approver entry", async () => {
   const root = fileURLToPath(new URL("../src/", import.meta.url));
   const sources = (await readdir(root, { recursive: true, withFileTypes: true }))
