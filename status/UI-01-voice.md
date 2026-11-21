@@ -23,3 +23,7 @@ Node 22 tests specify PCM16 conversion and the disabled-without-sink button; the
 ## Session 2026-11-20 · capture slice
 UI CI at `e0bb435b` observed the missing-module failure. The capture slice requests a 16 kHz AudioContext and fails closed if unsupported; it encodes mono samples as signed little-endian PCM16 and stops tracks on release, unmount, failure or an ended-track notification. The button is disabled without a host-supplied sink. No voice endpoint or transmission is provided.
 Node 22: the full Node suite and six Chromium Playwright checks pass locally, including synthetic-device capture with the actual context rate asserted, microphone permission denial and a simulated ended notification. The browser tests do not prove physical Android microphone behavior. A physical webview and an approved live voice path remain outstanding.
+
+## A505 · voice security follow-up
+- The push-to-talk component shows the visible `Recording` status while capture is active and removes it when capture stops. The host must supply a maximum recording duration; no production default is assumed (#860).
+- Technical debt — owner: Frontend Engineer, with Voice Engineer review. `ScriptProcessorNode` is deprecated; replace it with `AudioWorklet` in a follow-up while preserving PCM16 mono framing, the recording deadline, cleanup and privacy tests. This POC does not claim physical-device or live voice-sink acceptance.
