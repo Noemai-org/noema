@@ -44,7 +44,7 @@ func newGwDirs(t *testing.T, tenants ...string) gwDirs {
 		}
 	}
 	writeKey(t, d.keys, "core-edge.ed25519.1.key", aSeed, 0o400)
-	if err := os.WriteFile(d.hash, []byte(strings.Repeat("h", 40)+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(d.hash, []byte(strings.Repeat("h", 40)+"\n"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	return d
@@ -111,7 +111,7 @@ func TestAPartialConfigurationNamesTheMissingSetting(t *testing.T) {
 func TestASettingThatCannotBeAppliedIsAnErrorNamingIt(t *testing.T) {
 	d := newGwDirs(t, tenA)
 	short := filepath.Join(t.TempDir(), "short.key")
-	if err := os.WriteFile(short, []byte("tooshort\n"), 0o600); err != nil {
+	if err := os.WriteFile(short, []byte("tooshort\n"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	cases := map[string]envMap{

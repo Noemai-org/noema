@@ -128,3 +128,13 @@ func Load(dir string, opt Options) (*grants.Keys, error) {
 	}
 	return Ring(files, opt)
 }
+
+// ReadFile reads one secret file under the same checks as Load: opened without following a link or blocking on a special file; a regular file owned by the process's user with mode 0400;
+// at most maxBytes long. The error never holds the file's content. It is for a secret that is a file but not a grant key (the Input Gateway's input-hash key).
+func ReadFile(path string, maxBytes int) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, errors.New("not a readable regular file")
+	}
+	return os.ReadFile(path)
+}

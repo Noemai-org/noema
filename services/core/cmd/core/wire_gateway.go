@@ -14,6 +14,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
+	"github.com/Noemai-org/noema/services/core/trust/grants/keyfiles"
 )
 
 // wire_gateway.go builds the Input Gateway (EDG-01, UND-02; REQ-API-001, REQ-INP-002; INV-12, INV-02, AGENT-10, AGENT-16, AGENT-13). It holds no product logic: it reads the
@@ -37,6 +38,9 @@ const (
 	EnvInputRecordTimeout = "NOEMA_INPUT_RECORD_TIMEOUT"
 
 	edgeIdentity = "core-edge"
+
+	// inputHashKeyMaxBytes is the most the input-hash key file may hold. It bounds the read of a mounted secret; it is not a setting (a mounted key is a few dozen bytes).
+	inputHashKeyMaxBytes = 4096
 )
 
 // ErrNoGatewayForTenant marks a tenant that has no core-edge login: nothing is asked of any database, and no other tenant's login is used (INV-12).
@@ -133,12 +137,9 @@ func buildGateway(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSou
 	if start == nil {
 		return nil, nil, errNoSeam
 	}
-	if env.ReadFile == nil {
-		return nil, nil, fmt.Errorf("cmd/core: %s cannot be read: the process has no file access wired", EnvInputHashKeyFile)
-	}
-	raw, err := env.ReadFile(env.Getenv(EnvInputHashKeyFile))
+	raw, err := keyfiles.ReadFile(env.Getenv(EnvInputHashKeyFile), inputHashKeyMaxBytes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cmd/core: %s: the file cannot be read", EnvInputHashKeyFile)
+		return nil, nil, fmt.Errorf("cmd/core: %s: the file cannot be used as a secret (a regular file you own, mode 0400, no link)", EnvInputHashKeyFile) // never repeats the key
 	}
 	hashKey := bytes.TrimRight(raw, "\r\n")
 	if len(hashKey) < 32 {
