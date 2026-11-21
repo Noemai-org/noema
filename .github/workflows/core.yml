@@ -99,7 +99,7 @@ jobs:
           test "$(grep -c -- '--- PASS: TestRecordVerifyCITamperingFailsTheJob/' "$RUNNER_TEMP/record-verify.txt")" -eq 7
       # UND-16 (REQ-INT-001, REQ-BEN-004; INV-21, INV-22; A460, A478): the G1 replay fixture equals what the core's Interpreter port builds now. The generator is a Go test in the interpreter port's package; the two
       # paths are given here, on its command line, because the core holds no benchmark-aware string (REQ-TST-006) and the lint has no exemption (A478). The fresh output goes to a temp file and is compared byte
-      # for byte with the committed fixture (the tree is never written). Inert while the generator is not on the tree; once it is, a missing fixture, a skipped generator or any difference fails the job.
+      # for byte with the committed fixture (the tree is never written). Inert only while neither the generator nor the fixture is on the tree; a fixture without its generator, a generator without its fixture, a skipped generator or any difference fails the job.
       - name: G1 replay fixture equals fresh generator output (UND-16, A460)
         if: matrix.shard == 0
         env:
@@ -108,7 +108,11 @@ jobs:
           G1_FIXTURE: benchmark/replay/g1_canonical_inputs.json
         run: |
           set -eu
-          if [ ! -f "$G1_GENERATOR" ]; then echo "the generator is not on this tree: nothing to prove"; exit 0; fi
+          if [ ! -f "$G1_GENERATOR" ]; then
+            # Skip only when NEITHER exists (the state before the fixture lands). A fixture with no generator is a fixture nothing can prove (renamed, moved or deleted generator): fail.
+            if [ -e "$G1_FIXTURE" ]; then echo "the replay fixture is on this tree and its generator is not: nothing can prove it equals fresh output"; exit 1; fi
+            echo "neither the generator nor the fixture is on this tree: nothing to prove"; exit 0
+          fi
           test -f "$G1_FIXTURE"
           test -f "$G1_INPUTS"
           fresh="$RUNNER_TEMP/g1_fresh.json"

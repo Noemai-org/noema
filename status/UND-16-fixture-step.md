@@ -14,3 +14,9 @@ State: PR open (A478). Workflow change only; SR approves the step, a non-author 
 ## Pre-work for the next agent
 - Exact next step: when noema#811 (the generator) and the real fixture `benchmark/replay/g1_canonical_inputs.json` land, the step starts proving. If the fixture is absent when the generator lands, the step fails (closed) until it is committed.
 - Open questions (SR): the step read. Files to read first: `.github/workflows/core.yml` (step "G1 replay fixture equals fresh generator output"). Do not touch: CODEOWNERS, the generator's flags (`-g1-inputs`, `-g1-fixture`).
+
+## Session 2026-11-21 · UND-16 · SR's NOT READY on the inert branch (C2)
+- **What changed:** the step skips only when NEITHER the generator nor the fixture is on the tree. A fixture with no generator (a renamed, moved or deleted generator) now fails with a fixed message (`exit 1`). SR's finding at `e9ebe8d2`: the old `if [ ! -f generator ] ... exit 0` passed whenever the generator was absent, so the fixture could stay on main unproven, the opposite of A460.
+- **Observed (the step's `run:` extracted from the YAML, run with its `env`, three trees):** neither file: passes, one line; fixture and no generator: `exit 1`, "the replay fixture is on this tree and its generator is not: nothing can prove it equals fresh output"; generator and no fixture: `exit 1`. The generator-present cases (equal, one byte different, stale inputs) are as in the earlier section.
+- **CI on this PR** still exercises only the "neither" branch (#811 is not on main); that is stated, not hidden.
+- Debt: none. Conflicts raised: none.
