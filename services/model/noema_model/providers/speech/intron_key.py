@@ -35,6 +35,8 @@ def key_reader(environ: Mapping[str, str]) -> Callable[[], str]:
                 raise KeyFileError("the Intron key file is not a regular file")
             if os.name != "nt" and stat.S_IMODE(info.st_mode) & _FORBIDDEN_MODE:
                 raise KeyFileError("the Intron key file must be readable by its owner only")
+            if os.name != "nt" and info.st_uid != getattr(os, "geteuid")():
+                raise KeyFileError("the Intron key file must be owned by the user that reads it")  # the SEC-09 loader pattern (SR on #689)
             raw = os.read(descriptor, MAX_KEY_BYTES + 1)
         except OSError:
             raise KeyFileError("the Intron key file cannot be read") from None
