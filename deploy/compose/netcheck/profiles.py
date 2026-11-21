@@ -189,7 +189,26 @@ BENCH_CORE_SETTINGS = {
     "NOEMA_GRANT_KEY_DIR": "/run/grant-keys", "NOEMA_PACK_DIR": "/run/packs", "NOEMA_TRUST_DSN_DIR": "/run/trust-dsn",
     # A445 (interim): the pack bounds are the Architect's bench values (the largest pack file is 64,069 bytes); the manifest path is a setting, not a constant, because a fixed path would name a vertical in core.
     "NOEMA_PACK_MANIFEST": "fintech/manifest.v1.json", "NOEMA_PACK_MAX_BYTES": "1048576", "NOEMA_PACK_MAX_DEPTH": "32",
+    # A477 (interim): the gateway, worker and recovery settings; Compose only, bench only, no code default. Durations are Go durations ("5m"), the others whole numbers.
+    "NOEMA_INPUT_DEDUP_WINDOW": "5m", "NOEMA_INPUT_RECORD_TIMEOUT": "5s", "NOEMA_INVESTIGATION_QUEUE": "64", "NOEMA_INVESTIGATION_WORKERS": "1", "NOEMA_INVESTIGATION_RUN_TIMEOUT_MS": "180000", "NOEMA_INVESTIGATION_START_TIMEOUT_MS": "30000", "NOEMA_EDGE_KEY_MAX_ACTIVE": "2", "NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS": "240000", "NOEMA_TEMPORAL_SHUTDOWN_DRAIN_MS": "30000", "NOEMA_STM_RECOVERY_IDLE_MS": "240000", "NOEMA_STM_RECOVERY_BATCH_SIZE": "50"
 }
+
+
+def settings_order_problems(values):
+    """The ordering constraints of A477, which the loaders enforce: the activity timeout and the recovery idle time must each exceed the investigation run timeout, or a live run could be picked
+    up twice. A value that is not a whole number is a problem too."""
+    try:
+        run = int(values["NOEMA_INVESTIGATION_RUN_TIMEOUT_MS"])
+        activity = int(values["NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS"])
+        idle = int(values["NOEMA_STM_RECOVERY_IDLE_MS"])
+    except (KeyError, ValueError):
+        return ["the run timeout, the activity timeout and the recovery idle time must be whole numbers of milliseconds (A477)"]
+    bad = []
+    if activity <= run:
+        bad.append("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS must exceed NOEMA_INVESTIGATION_RUN_TIMEOUT_MS (A477)")
+    if idle <= run:
+        bad.append("NOEMA_STM_RECOVERY_IDLE_MS must exceed NOEMA_INVESTIGATION_RUN_TIMEOUT_MS (A477)")
+    return bad
 TRUST_DSN_INIT, TRUST_DSN_VOLUME, TENANT_LOGIN_SECRET = "trust-dsn-init", "trust_dsns", "noema_tenant_login_password"
 # The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
 # server certificate, TEMPORAL_TLS_SERVER_CA_CERT the CA the in-process worker trusts, TEMPORAL_TLS_FRONTEND_SERVER_NAME the name it verifies) and the settings the image's CLI reads
@@ -550,6 +569,10 @@ def self_test(configs):
         "trust-dsn-init adds a capability it does not need": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].append("DAC_OVERRIDE")),
         "trust-dsn-init loses a capability it needs": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].remove("SETGID")),
         "trust-dsn-init is dropped": ("bench", lambda c: c["services"].pop("trust-dsn-init")),
+        "the bench core's input dedup window changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INPUT_DEDUP_WINDOW": "24h"})),
+        "the bench core runs two investigation workers": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INVESTIGATION_WORKERS": "2"})),
+        "the bench core's activity timeout drops below the run timeout": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS": "100000"})),
+        "the bench core loses the recovery batch size": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_STM_RECOVERY_BATCH_SIZE")),
         "the bench core's pack size bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_PACK_MAX_BYTES": "4194304"})),
         "the bench core loses the pack manifest setting": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PACK_MANIFEST")),
         "the bench core's store timeout changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_STORE_TIMEOUT_MS": "5000"})),

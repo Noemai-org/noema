@@ -10,7 +10,7 @@ import json
 from typing import Any
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from noema_model.contracts.intent_object_v3 import IntentObjectV3
@@ -303,11 +303,24 @@ def test_a_null_slot_member_is_refused_whatever_the_slot_and_the_member(slot: st
     assert not result.ok and result.reasons == (Reason.SHAPE,)
 
 
+def _member_names(node: Any) -> set[str]:
+    """Every member name that occurs anywhere in a proposal: the names a model could put at the WRONG level (a slot's `confidence` at the top, `slots` inside `principal`)."""
+    if not isinstance(node, dict):
+        return set()
+    return set(node) | {name for child in node.values() for name in _member_names(child)}
+
+
+# Random text almost never spells a real member, so on its own it never tries the likeliest hostile input: a real member at the wrong level. Half the names are drawn from the
+# names the proposal really has. `sig` is a contract member at the top only: a model-set one has its own reason (SIG_SET_BY_MODEL); anywhere else it is just unknown.
+_KNOWN_NAMES = sorted(_member_names(proposal()))
+_SLOT_MEMBERS = frozenset({"surface_form", "confidence", "status", "window", "value", "unit", "resolved_ref"})
+_PLACES = [(), ("principal",), ("source",), ("pack",), ("slots", "subject_resource"), ("slots", "amount"), ("slots", "when"), ("slots", "counterparty"), ("slots", "requested_remedy")]
+
+
 @settings(max_examples=10_000, derandomize=True, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
-    where=st.sampled_from([(), ("principal",), ("source",), ("pack",), ("slots", "subject_resource"), ("slots", "amount"), ("slots", "when"), ("slots", "counterparty"),
-                           ("slots", "requested_remedy")]),
-    name=st.text(min_size=1, max_size=12).filter(lambda s: s not in proposal() and s != "sig"),  # `sig` is a contract member: a model-set one has its own reason (SIG_SET_BY_MODEL)
+    where=st.sampled_from(_PLACES),
+    name=st.one_of(st.text(min_size=1, max_size=12), st.sampled_from(_KNOWN_NAMES)),
     value=st.one_of(st.none(), st.booleans(), st.integers(), st.text(max_size=8)),
 )
 def test_fuzz_an_unknown_member_anywhere_is_always_refused(where: tuple[str, ...], name: str, value: Any) -> None:
@@ -315,8 +328,8 @@ def test_fuzz_an_unknown_member_anywhere_is_always_refused(where: tuple[str, ...
     node: Any = doc
     for step in where:
         node = node[step]
-    if name in node:
-        return
+    # A slot may legitimately hold any of the members a slot type allows (an optional `surface_form` on a Resource): those names are the contract's, not unknown ones.
+    assume(name not in node and not (where == () and name == "sig") and not (where[:1] == ("slots",) and name in _SLOT_MEMBERS))
     node[name] = value
     result = check(doc)
     assert not result.ok and result.reasons == (Reason.SHAPE,)
