@@ -109,3 +109,16 @@ Rulings used (all "interim, relayed, not yet committed"): the Founder's order of
 ## Pre-work for the next agent
 - Exact next step: noema#794, noema#812; Compose to set the whole worker group and both timeouts (EL, `deploy/`).
 - Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.
+
+# Session 2026-11-21 WAT · STM-01 (main composition, review fix: the payload reader is built with the injection screen)
+
+## Session summary
+- What changed: new `cmd/core/wire_screened_payloads.go`: `ScreenDeps{Screen, Correlation, Alert}` and `buildScreenedPayloads(payloadSource, deps)`, which refuses a missing part or a nil pointer in an interface (a nil `*trustPayloads` is what an unset `NOEMA_TRUST_DSN_DIR` gives) and returns `payloadread.NewReader(...)`. Security Reviewer (noema#830, noema#842): the Reader is built with the screen; the hash is verified before decode/map (payloadread's own order: decode, canonical hash, compare, then screen).
+- Findings: (1) noema#780 makes the screen part of `payloadread.Reader` (`Payloads`, `Screen`, `Correlation`, `Alert`; `NewReader` requires all four and a Reader without one returns `ErrScreenRefused`), so it does refuse. (2) NOT wired in the composition: nothing in `cmd/core` builds a `payloadread.Reader` or `intakesources.EvidenceLists` yet; `buildPayloadReader` only builds `trustPayloads`. (3) The production screen is NOT the model-service client: it is `injection.Screener{Detector, Recorder}` in `evidence/injection` (on main). Missing to build it here: the manifest-verified pack data for `injection.Parse` (noema#773 pack load is not on main), the `injection.Limits` settings (their home in configuration is still an open question, `status/EVD-06.md`), the per-tenant evidence-login pool and appender for `RecordRecorder`, and the correlation source and Alert implementations. None is invented.
+- Bound: `NOEMA_PAYLOAD_MAX_BYTES` (already required, no default, applied in SQL: `ErrPayloadTooLarge`) bounds the payload read. `portread.Reader.MaxPayloadBytes` (list payload bound, zero refuses) has no setting in the composition because `portread` is not composed yet; when it is, it needs `NOEMA_<AREA>_<WHAT>_BYTES`, no default.
+- Tests (REQ-CTX-007, REQ-AUD-001; INV-19, AGENT-09): `wire_screened_payloads_test.go` (4). Hand mutants: 8, 8 killed after adding the typed-nil cases (2 survived at first).
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when the pack load (noema#773) and the injection limits setting are decided, build `ScreenDeps` (an `injection.Screener` over the pack's Detector and a `RecordRecorder` per tenant) and call `buildScreenedPayloads` from the consumer of payloads.
+- Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.
