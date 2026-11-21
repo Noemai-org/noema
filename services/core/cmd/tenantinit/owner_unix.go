@@ -15,3 +15,8 @@ func fileOwner(info os.FileInfo) (uint32, bool) {
 	}
 	return st.Uid, true
 }
+
+// openDSN opens the DSN path once for reading: a link at the path is refused (O_NOFOLLOW) and a FIFO is opened without waiting (O_NONBLOCK), so that the descriptor's own type decides.
+func openDSN(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+}

@@ -14,7 +14,7 @@ tenantinit --dsn-file /run/secrets/operator_dsn --key-dir /run/secrets/core-trus
 
 | Flag | Meaning |
 |---|---|
-| `--dsn-file` | a regular file (not a link, at most 8 KiB, owned by the caller, no group or other permission bit) holding the DSN of a login that may call `key_register` (see "Which login"). The DSN is never an argument and never printed |
+| `--dsn-file` | a regular file (not a link, at most 8 KiB, owned by the caller, no group or other permission bit; opened once without following a link, and checked and read on that one descriptor, so replacing the path afterwards changes nothing) holding the DSN of a login that may call `key_register` (see "Which login"). The DSN is never an argument and never printed |
 | `--key-dir` | the directory of the `core-trust` signing keys: `core-trust.ed25519.<version>.key`, mode 0400, owned by the user that runs the command. Read with `execution/signing.LoadRing`; only the public half is derived |
 | `--key-max-active` | how many key files may be in the directory at once (1 to 16), the rotation overlap. No default. The database separately refuses a third ACTIVE key (migration 0013) |
 

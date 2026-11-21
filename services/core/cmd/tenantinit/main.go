@@ -180,10 +180,19 @@ func connectAs(ctx context.Context, path string, euid uint32) (*pgx.Conn, error)
 	return conn, nil
 }
 
-// readDSNFile returns the bytes of the DSN file. SCAFFOLD (names only, the behaviour of the earlier head): the file is checked by path and then read by path. afterCheck, when not nil, runs
-// between the check and the read: a test uses it to replace the path at that moment.
+// readDSNFile returns the bytes of the DSN file. The path is opened once, without following a link and without waiting on a FIFO, and everything is then checked on that descriptor and
+// read from it: a regular file, at most maxDSNBytes, with no group or other permission bit, owned by euid. Nothing is looked at by path a second time, so replacing the path after the
+// open changes nothing about the file that was checked (Codex on noema#852). afterCheck, when not nil, runs between the checks and the read: a test uses it to replace the path at that moment.
 func readDSNFile(path string, euid uint32, afterCheck func()) ([]byte, error) {
-	info, err := os.Lstat(path)
+	if path == "" {
+		return nil, errDSNUnusable
+	}
+	f, err := openDSN(path)
+	if err != nil {
+		return nil, errDSNUnusable
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes || info.Mode().Perm()&0o077 != 0 {
 		return nil, errDSNUnusable
 	}
@@ -193,7 +202,11 @@ func readDSNFile(path string, euid uint32, afterCheck func()) ([]byte, error) {
 	if afterCheck != nil {
 		afterCheck()
 	}
-	return os.ReadFile(path)
+	raw, err := io.ReadAll(io.LimitReader(f, maxDSNBytes+1))
+	if err != nil || len(raw) > maxDSNBytes {
+		return nil, errDSNUnusable
+	}
+	return raw, nil
 }
 
 // connectError is a connection that could not be opened. It keeps the SQLSTATE of the database's refusal, when there is one, and nothing else: a driver's text can quote the DSN.
