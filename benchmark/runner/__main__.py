@@ -21,6 +21,7 @@ from .api import PublicApi
 from .control import MockCaseControl
 from .cost import CostFiles
 from .env import DirSessionProvider, IdpSessionProvider, RunEnv, SessionProvider, UnavailableFixtureLoader
+from .request_log import RequestRecorder
 from .run import run_suite
 from .suite import SuiteError, load_suite
 from .support import report as support_report
@@ -133,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
             "monetary_calls", "no source: pass --proxy-url (the proxy's request log) or declare no monetary route with a reason")
     oracle = OracleClient(MockCaseTruth(args.bench_url, credential or "unset"), refusal_log=RefusalLog(args.mock_case_log) if args.mock_case_log else None,
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
-    env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
+    env = RunEnv(api=PublicApi(args.api_url, recorder=RequestRecorder()), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
                  fixtures=StandInFixtureLoader(args.standin_url, standin_credential) if args.standin_url and standin_credential else UnavailableFixtureLoader(NO_LOADER), sessions=sessions, run_id=args.run_id,
                  admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,

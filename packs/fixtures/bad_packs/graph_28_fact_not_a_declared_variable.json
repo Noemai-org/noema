@@ -1,0 +1,14 @@
+{
+  "requirement": "REQ-AG-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "graph",
+  "expect_message_contains": "fact",
+  "patch": [
+    {
+      "op": "replace",
+      "file": "fintech/graph/g2_escalate.json",
+      "path": "/nodes/1/params/0/fact",
+      "value": "no_such_fact"
+    }
+  ]
+}

@@ -7,7 +7,7 @@
 ## 1. What governs, and what is not yet in force
 
 - **A179 to A182** (`DEC-2026-11-13-voice-provider-intron`): Intron Sahara v2.5 is the sole integrated speech provider; **A179 takes effect only with the SoT edit that adopts it (v1.12), and "no one builds against this record" until then.** The record is itself Proposed until a non-author Founder merges it. So **this plan can be written and reviewed now, but nothing is built or run on Intron until the SoT edit is approved.** Until then only synthetic audio goes to any speech provider.
-- **A180:** no real speaker's audio or transcript goes to Intron until the Founder commits written terms. **This run uses synthetic audio only**, so A180's wall is respected by construction, and the plan adds a check that makes a real recording impossible to send (section 5).
+- **A377 to A379 (Founder's rulings, committed with docs#211 on 20 Nov 2026; they replace A180's written-terms wall):** there is no DPA, written-terms, consent or counsel precondition. Raw audio stays in the bench Environment's private store (never in the repository, an artifact, a log or a summary). Synthetic audio stays labelled as synthetic, and **this run still uses synthetic audio only**: the check of section 5 is kept, because the label is what makes a synthetic recording distinguishable from a person's, not because a term is awaited. **No money is spent on a custom voice**: no custom voice is bought, cloned or trained, and a TTS voice is one Intron already offers.
 - **A181:** spoken amounts, account identifiers and transaction references are never trusted; a missing confidence counts as low; partial transcripts never set a slot; TTS speaks only the core's masked text. This run measures a transcript. It does not feed the core's slot-setting.
 - **A182:** Intron's STT (and, if used, TTS) model IDs are **pinned and qualified (UND-13) before any gate run**; **G5 thresholds do not change**; "a weak result is reported as measured".
 - **OD-P-90:** "pace every run to Intron's documented limits". **The rulings give no figure and nobody may invent one (AGENT-18).** The limits are therefore a run **input** that Intron's written answer (PRE-04) must supply. **OD-P-91:** a missing per-token confidence counts as low.
@@ -59,7 +59,7 @@ A Founder-dispatched workflow in a bench Environment (the same model as the othe
 ## 5. Safeguards for "synthetic only"
 
 1. **The audio set is produced from the generated cases only** (layer GENERATED). A case from any other layer is refused (INV-22), the same rule as `select_subset` in the qualification code.
-2. **The sender accepts only audio the run itself generated**: each file carries a provenance entry (case id, generator version and seed, TTS model id, the SHA-256 of the text) and the sender refuses any file without one. A recording of a person has no such entry and cannot be sent by this path. This is a check in the sender, not a promise.
+2. **The sender accepts only audio the run itself generated**: each file carries a provenance entry (case id, generator version and seed, TTS model id, the SHA-256 of the text) and the sender refuses any file without one. A recording of a person has no such entry and cannot be sent by this path. This is a check in the sender, not a promise. **If a later run adds recordings of team members (the Voice baseline, noema#767, accepts them), this check must first learn the same origin label the Voice harness uses (`TEAM_RECORDING` beside `SYNTHETIC`, noema#694) and refuse anything else; this run stays synthetic-only and does not.**
 3. **No transcript or amount is written to an artifact.** The leak scan runs over the session summary and the job log, with a planted canary it must find; digit runs over four never appear (A154): amounts are compared as booleans and reported as counts.
 4. **No second provider hears any audio** (noema#630; one provider only).
 
@@ -69,7 +69,7 @@ A Founder-dispatched workflow in a bench Environment (the same model as the othe
 2. Intron's STT (and TTS) model ids are **pinned and qualified under UND-13** (the qualification records of noema#199, merged; the run needs a qualified record for the Intron identity, which needs the Intron adapter and a qualification run on synthetic audio first).
 3. The Intron adapter exists behind the provider-neutral STT and TTS interfaces (VOI-01, rewritten by the change request), with the 10 to 100 character TTS chunking done in the adapter (A181). All 29 cases are 85 characters or fewer, so the longest is one chunk; a text shorter than 10 characters is checked and refused with a named reason.
 4. Intron's written answer on capacity and rate limits (PRE-04; OD-P-90), and the Founder's capacity decision. **Without these `R` has no value and session 1 cannot be dispatched.**
-5. The Founder's cost ceiling for the run, and the Intron key in the bench Environment (A240 is about Tushe; for Intron the same rule: bench Environment only).
+5. The Founder's cost ceiling for the run, with no spend on a custom voice (A379), and the Intron key in the bench Environment (A240 is about Tushe; for Intron the same rule: bench Environment only).
 6. The leak scan and its canary applied to the voice workflow; VOI-18 enforced in the bench profile.
 
 ## 7. Evidence and review

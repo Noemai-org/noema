@@ -77,7 +77,10 @@
         "CROSS_SCOPE_ATTEMPT",
         "REQUEST_ID_REUSED",
         "IDEMPOTENCY_COLLISION",
-        "CHAIN_BREAK"
+        "CHAIN_BREAK",
+        "CONFIRMATION_REFUSED",
+        "KILL_SWITCH_CLEARED",
+        "KILL_SWITCH_CLEAR_REFUSED"
       ]
     },
     "GrantVoidReason": {

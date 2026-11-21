@@ -30,7 +30,7 @@ MAPPING = "fintech/evidence_mapping/mapping.v1.json"
 RULES = "fintech/recon_rules/rules.v1.json"
 PACK = "fintech_v1.json"
 LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES}
-EXPECTED = {"evidence_mapping_id": "fin.map.v1@1", "recon_rule_set_id": "fin.recon.rules@1"}
+EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1"}
 
 
 def sha256(path: Path) -> str:
@@ -137,7 +137,7 @@ class RealManifest(Base):
 
     def test_the_core_does_not_hard_code_the_ids(self):
         # INV-14: nothing in the core names the ids; the manifest does. The Go loader is another pull request, so only the absence is asserted.
-        hits = [str(p) for p in (ROOT / "services/core").rglob("*.go") if not p.name.endswith("_test.go") and "fin.map.v1@1" in p.read_text(encoding="utf-8", errors="ignore")]
+        hits = [str(p) for p in (ROOT / "services/core").rglob("*.go") if not p.name.endswith("_test.go") and "fin.map.v1@2" in p.read_text(encoding="utf-8", errors="ignore")]
         self.assertEqual(hits, [])
 
     def test_the_makefile_runs_the_manifest_check(self):
@@ -299,8 +299,8 @@ class UnlistedFile(Base):
 class IdMatch(Base):
     def test_an_expected_id_that_is_not_the_files_id_fails(self):
         cases = (
-            ("evidence_mapping_id", "fin.map.v2@1", "fin.map.v1@1"),
-            ("evidence_mapping_id", "fin.map.v1@2", "fin.map.v1@1"),
+            ("evidence_mapping_id", "fin.map.v2@1", "fin.map.v1@2"),
+            ("evidence_mapping_id", "fin.map.v1@1", "fin.map.v1@2"),
             ("recon_rule_set_id", "fin.recon.rules@2", "fin.recon.rules@1"),
             ("recon_rule_set_id", "fin.recon.other@1", "fin.recon.rules@1"),
         )
