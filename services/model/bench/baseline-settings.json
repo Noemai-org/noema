@@ -1,0 +1,21 @@
+{
+  "stt_final_s": 20.0,
+  "response_s": 1.0,
+  "tts_first_s": 10.0,
+  "session_s": 40.0,
+  "read_s": 2.0,
+  "close_s": 1.0,
+  "hold_s": 5.0,
+  "concurrency": 1,
+  "min_pause_s": 2.0,
+  "connections_per_minute": 3,
+  "connections_per_session": 2,
+  "budget_minutes": 20.0,
+  "utterance_min_s": 5.0,
+  "utterance_max_s": 15.0,
+  "open_timeout_s": 10.0,
+  "ping_interval_s": null,
+  "ping_timeout_s": null,
+  "max_message_bytes": 4194304,
+  "tts_poll_s": 0.2
+}

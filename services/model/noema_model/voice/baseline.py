@@ -29,6 +29,7 @@ from noema_model.voice.latency import Stage, nearest_rank_percentile
 _SPEAKER_REF = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}")  # never starts with a dot: the store scan counts such a name as an object without a speaker reference (SR on #824)
 _FILE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}")  # never starts with a dot
 _BYTES_PER_SAMPLE = 2
+MAX_READ_BYTES = 16000 * _BYTES_PER_SAMPLE * 60  # a recording of at most a minute of 16 kHz PCM16: a ceiling that refuses a wrong file, not a threshold of the study
 
 
 class StoreError(Exception):
@@ -101,6 +102,25 @@ class AudioStore:
             raise StoreError("the audio store could not be written") from None
 
 
+    def read(self, speaker_ref: str, name: str) -> bytes:
+        """Read one file under `<store>/<speaker_ref>/` (a recording made earlier). Plain names only, no link followed, at most `MAX_READ_BYTES`."""
+        if not _SPEAKER_REF.fullmatch(speaker_ref) or speaker_ref in (".", "..") or not _FILE_NAME.fullmatch(name):
+            raise StoreError("a name must be a plain name")
+        try:
+            descriptor = os.open(self._root / speaker_ref / name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0))
+        except OSError:
+            raise StoreError("the audio store file could not be read") from None
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_READ_BYTES:
+                raise StoreError("the audio store file is not a regular file of a size a recording can have")
+            return os.read(descriptor, info.st_size)
+        except OSError:
+            raise StoreError("the audio store file could not be read") from None
+        finally:
+            os.close(descriptor)
+
+
 def _positive(value: float, what: str) -> float:
     if isinstance(value, bool) or not (math.isfinite(value) and value > 0):
         raise ValueError(f"{what} must be a positive finite number from configuration")
@@ -153,6 +173,7 @@ class ManifestItem:
     audio_s: float  # the utterance's length in seconds (declared in the manifest, the estimate the budget is planned from)
     answer_s: float  # the spoken answer's length in seconds
     script: str | None  # what was said; required for a recording of a team member, so its accuracy can be counted
+    file: str | None = None  # a recording of a team member: its file name under `<store>/<speaker_ref>/`
 
     def __post_init__(self) -> None:
         _positive(self.audio_s, "audio_s")

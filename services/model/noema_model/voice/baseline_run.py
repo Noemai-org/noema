@@ -1,0 +1,310 @@
+"""The baseline-run entry point (VOI-16, REQ-VOI-001, REQ-VOI-004, REQ-NFR-003; rulings A332, A377 to A383, A451; AGENT-13, AGENT-16, INV-21).
+
+`run_baseline` runs a manifest one session at a time through the speech-to-text and text-to-speech adapters (they are arguments), writes the synthetic fixtures it generates to the private
+raw-audio store, paces the sessions, stops at the first quota refusal or after two failures in a row, and returns a counts-only report. `main` is the command line: it reads the key ONLY from an
+owner-only file (`INTRON_API_KEY_FILE`, the reader of noema#689), loads the settings and the manifest from files in which every value is required and none is defaulted, refuses before any
+connection is made when anything is wrong, and writes the report as an owner-only file outside the store. The key, the audio, the transcripts and the paths of the store never appear in its output.
+
+Run it as `python -m noema_model.voice.baseline_run` with the arguments of `main`; the Founder starts it (noema#767) once the key file is in place.
+"""
+
+import argparse
+import asyncio
+import json
+import math
+import os
+import sys
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from noema_model.platform.clock import SystemClock
+from noema_model.providers.speech.base import AudioChunk, AudioCodec, Locale, PipelineMode, ProviderCapabilities, SpeechProvider, StreamRequest, Support
+from noema_model.providers.speech.errors import ProviderError, ProviderFailure
+from noema_model.providers.speech.intron_connect import websocket_connector
+from noema_model.providers.speech.intron_key import KeyFileError, key_reader
+from noema_model.providers.speech.intron_stt import Connect, IntronSpeechToText
+from noema_model.providers.speech.intron_tts import IntronTextToSpeech, Voice
+from noema_model.providers.speech.tts import SpeechSynthesizer, SynthesisRequest
+from noema_model.voice.baseline import AudioStore, BaselineSettings, ManifestItem, StoreError, build_report, downsample_pcm16, pause_s, plan_budget, word_error_rate
+from noema_model.voice.bench import AudioBudget, AudioOrigin, BenchError, SessionResult, Utterance, measure_session
+from noema_model.voice.latency import Stage, StageTimeline
+
+_STT_RATE_HZ = 16000
+_FRAME_BYTES = 3200  # 100 ms of 16 kHz PCM16 mono: well under the 32,000-byte ceiling of A191
+_STOP_AFTER_FAILURES = 2  # the plan: two failures in a row end the run
+
+
+class RunnerConfigError(Exception):
+    """A settings, manifest or argument problem. The message is fixed text and never carries a value, a path or content."""
+
+
+@dataclass(frozen=True, slots=True)
+class WireSettings:
+    open_timeout_s: float
+    ping_interval_s: float | None
+    ping_timeout_s: float | None
+    max_message_bytes: int
+    tts_poll_s: float
+
+
+_BASELINE_FLOATS = ("stt_final_s", "response_s", "tts_first_s", "session_s", "read_s", "close_s", "hold_s", "min_pause_s", "budget_minutes")
+_BASELINE_INTS = ("concurrency", "connections_per_minute", "connections_per_session")
+_EXTRA_FLOATS = ("utterance_min_s", "utterance_max_s", "open_timeout_s", "tts_poll_s")
+_EXTRA_NULLABLE = ("ping_interval_s", "ping_timeout_s")
+_EXTRA_INTS = ("max_message_bytes",)
+
+
+def _load_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise RunnerConfigError("a configuration file cannot be read as JSON") from None
+
+
+def _number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def load_settings(path: Path) -> tuple[BaselineSettings, tuple[float, float], WireSettings]:
+    """The settings file: exactly the keys below, every one required, of the right type. The values are the Architect's (A380) and the bench's wire settings (A332), never defaults in code."""
+    document = _load_json(path)
+    names = {*_BASELINE_FLOATS, *_BASELINE_INTS, *_EXTRA_FLOATS, *_EXTRA_NULLABLE, *_EXTRA_INTS}
+    if not isinstance(document, dict) or set(document) != names:
+        raise RunnerConfigError("the settings file must hold exactly the required settings")
+    for name in (*_BASELINE_FLOATS, *_EXTRA_FLOATS):
+        if not _number(document[name]):
+            raise RunnerConfigError("a setting has the wrong type")
+    for name in _EXTRA_NULLABLE:
+        if document[name] is not None and not _number(document[name]):
+            raise RunnerConfigError("a setting has the wrong type")
+    for name in (*_BASELINE_INTS, *_EXTRA_INTS):
+        if isinstance(document[name], bool) or not isinstance(document[name], int):
+            raise RunnerConfigError("a setting has the wrong type")
+    try:
+        baseline = BaselineSettings(**{name: document[name] for name in (*_BASELINE_FLOATS, *_BASELINE_INTS)})
+        wire = WireSettings(**{name: document[name] for name in ("open_timeout_s", "ping_interval_s", "ping_timeout_s", "max_message_bytes", "tts_poll_s")})
+        low, high = float(document["utterance_min_s"]), float(document["utterance_max_s"])
+        if not (0 < low <= high):
+            raise ValueError
+    except ValueError:
+        raise RunnerConfigError("a setting is out of range") from None
+    return baseline, (low, high), wire
+
+
+_MANIFEST_KEYS = {"label", "locale", "origin", "speaker_ref", "audio_s", "answer_s", "script", "file"}
+
+
+def load_manifest(path: Path) -> list[ManifestItem]:
+    document = _load_json(path)
+    if not isinstance(document, list) or not document:
+        raise RunnerConfigError("the manifest must be a non-empty list")
+    items: list[ManifestItem] = []
+    for entry in document:
+        if not isinstance(entry, dict) or not {"label", "locale", "origin", "speaker_ref", "audio_s", "answer_s", "script"} <= set(entry) or not set(entry) <= _MANIFEST_KEYS:
+            raise RunnerConfigError("a manifest item has missing or unknown fields")
+        try:
+            origin = AudioOrigin(entry["origin"])
+            file = entry.get("file")
+            if origin is AudioOrigin.TEAM_RECORDING and not isinstance(file, str):
+                raise ValueError
+            if not isinstance(entry["label"], str) or not isinstance(entry["script"], str) or not _number(entry["audio_s"]) or not _number(entry["answer_s"]):
+                raise ValueError
+            items.append(ManifestItem(label=entry["label"], locale=Locale(entry["locale"]), origin=origin, speaker_ref=str(entry["speaker_ref"]), audio_s=float(entry["audio_s"]),
+                                      answer_s=float(entry["answer_s"]), script=entry["script"], file=file))
+        except ValueError:
+            raise RunnerConfigError("a manifest item is not valid") from None
+    if len({item.label for item in items}) != len(items):
+        raise RunnerConfigError("manifest labels must be unique")
+    return items
+
+
+class _StandIn:
+    """The response stage of a vendor baseline: admits the transcript (keeping only its word error rate against the script) and returns a fixed masked sentence."""
+
+    def __init__(self, reference: str | None, answer_text: str) -> None:
+        self._reference, self._answer = reference, answer_text
+        self.wer: float | None = None
+
+    async def admit(self, text: str) -> None:
+        self.wer = None if self._reference is None else word_error_rate(self._reference, text)
+
+    async def answer(self) -> str:
+        return self._answer
+
+
+def _frames(pcm: bytes) -> tuple[AudioChunk, ...]:
+    return tuple(AudioChunk(i, AudioCodec.PCM_S16LE, _STT_RATE_HZ, pcm[start:start + _FRAME_BYTES]) for i, start in enumerate(range(0, len(pcm) - len(pcm) % 2, _FRAME_BYTES)))
+
+
+async def _generate(tts: SpeechSynthesizer, text: str, locale: Locale, model_version: str, deadline_s: float) -> bytes:
+    pcm, rate = bytearray(), 0
+    async with asyncio.timeout(deadline_s):
+        stream = tts.synthesize(SynthesisRequest(text=text, locale=locale, model_version=model_version))
+        async for chunk in stream:
+            if chunk.codec is not AudioCodec.PCM_S16LE or (rate and chunk.sample_rate_hz != rate):
+                raise ProviderError(ProviderFailure.MALFORMED)
+            rate = chunk.sample_rate_hz
+            pcm += chunk.data
+    if not pcm:
+        raise ProviderError(ProviderFailure.MALFORMED)
+    return downsample_pcm16(bytes(pcm), rate, _STT_RATE_HZ)
+
+
+def _lost(item: ManifestItem, failure: ProviderFailure, clock_ms: Callable[[], int]) -> SessionResult:
+    line = StageTimeline(clock_ms)
+    line.mark(Stage.END_OF_SPEECH)  # incomplete by construction: it counts as the worst case
+    return SessionResult(item.label, item.origin, line, failure)
+
+
+async def run_baseline(
+    *,
+    items: Sequence[ManifestItem],
+    stt: SpeechProvider,
+    tts: SpeechSynthesizer,
+    settings: BaselineSettings,
+    bounds_s: tuple[float, float],
+    store: AudioStore,
+    clock_ms: Callable[[], int],
+    wall: Callable[[], datetime],
+    sleep: Callable[[float], Awaitable[None]],
+    tts_model_version: str,
+    answer_text: str,
+    targets_ms: int,
+) -> dict[str, object]:
+    plan = plan_budget(items, budget_minutes=settings.budget_minutes)
+    budget = AudioBudget(total_s=settings.budget_minutes * 60.0)
+    results: list[SessionResult] = []
+    wers: list[float] = []
+    generation_s = stt_s = spoken_s = 0.0
+    failures_in_a_row = 0
+    ran = 0
+    for index, item in enumerate(plan.kept):
+        if index:
+            await sleep(pause_s(settings))
+        if item.origin is AudioOrigin.SYNTHETIC:
+            assert item.script is not None
+            try:
+                pcm = await _generate(tts, item.script, item.locale, tts_model_version, settings.session_s)
+                store.write(item.speaker_ref, f"{item.label}.pcm", pcm, wall())
+            except (ProviderError, TimeoutError, StoreError):
+                break  # a generation or a store failure ends the run: the plan stops at the first one
+            generation_s += len(pcm) / 2 / _STT_RATE_HZ
+        else:
+            assert item.file is not None
+            pcm = store.read(item.speaker_ref, item.file)
+        utterance = Utterance(label=item.label, locale=item.locale, frames=_frames(pcm), origin=item.origin)
+        core = _StandIn(item.script if item.origin is AudioOrigin.TEAM_RECORDING else None, answer_text)
+        try:
+            async with asyncio.timeout(settings.session_s):
+                result = await measure_session(stt=stt, tts=tts, core=core, utterance=utterance, stt_request=_request(item.locale), tts_model_version=tts_model_version, clock_ms=clock_ms,
+                                               deadline_s=settings.stt_final_s, core_deadline_s=settings.response_s, tts_deadline_s=settings.tts_first_s, cleanup_s=settings.close_s,
+                                               bounds_s=bounds_s, budget=budget)
+        except TimeoutError:
+            result = _lost(item, ProviderFailure.TIMEOUT, clock_ms)
+        ran += 1
+        results.append(result)
+        stt_s += utterance.duration_s
+        spoken_s += item.answer_s
+        if core.wer is not None and result.failure is None:
+            wers.append(core.wer)
+        failures_in_a_row = failures_in_a_row + 1 if result.failure is not None else 0
+        if result.failure is ProviderFailure.RATE_LIMITED or failures_in_a_row >= _STOP_AFTER_FAILURES:
+            break
+    not_run = len(plan.kept) - ran
+    if not results:
+        return {"sessions": {"total": 0, "complete": 0, "incomplete": 0}, "not_run": not_run, "dropped_from_manifest": len(plan.dropped)}
+    report = build_report(results, wers=wers, target_ms=targets_ms, spent={"generation_s": generation_s, "stt_s": stt_s, "spoken_s": spoken_s}, budget_s=settings.budget_minutes * 60.0,
+                          dropped=len(plan.dropped))
+    report["not_run"] = not_run
+    return report
+
+
+def _request(locale: Locale) -> StreamRequest:
+    return StreamRequest(model_version="not reported", locale_hint=locale)  # Intron reports no model version (A182 asks for one in the technical session)
+
+
+_ARGUMENTS = ("settings", "manifest", "store", "report", "base-url", "voices", "tts-model-version", "answer-text", "target-ms")
+
+
+def _fail(message: str) -> int:
+    print(f"baseline-run: {message}", file=sys.stderr)
+    return 2
+
+
+def _load_voices(path: Path) -> dict[Locale, Voice]:
+    document = _load_json(path)
+    if not isinstance(document, dict) or not document:
+        raise RunnerConfigError("the voices file must be a non-empty object")
+    voices: dict[Locale, Voice] = {}
+    try:
+        for locale, entry in document.items():
+            if not isinstance(entry, dict) or set(entry) != {"language", "accent", "gender"}:
+                raise ValueError
+            voices[Locale(locale)] = Voice(str(entry["language"]), str(entry["accent"]), str(entry["gender"]))
+    except ValueError:
+        raise RunnerConfigError("a voice is not valid") from None
+    return voices
+
+
+def main(
+    argv: Sequence[str],
+    environ: Mapping[str, str],
+    *,
+    make_connector: Callable[..., Connect] = websocket_connector,
+    wall: Callable[[], datetime] | None = None,
+    clock_ms: Callable[[], int] | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> int:
+    """Exit 0 ran (see the report), 2 refused before any connection. Nothing the key, the audio or a transcript is ever printed."""
+    parser = argparse.ArgumentParser(prog="baseline-run", add_help=False, exit_on_error=False)
+    for name in _ARGUMENTS:
+        parser.add_argument(f"--{name}", required=True)
+    try:
+        args = vars(parser.parse_args(list(argv)))
+    except (argparse.ArgumentError, SystemExit):
+        return _fail("every argument is required and none has a default")
+    system = SystemClock()  # the one clock module (INV-21); tests pass their own
+    wall_now = wall if wall is not None else system.now_utc
+    clock = clock_ms if clock_ms is not None else system.monotonic_ms
+    key = key_reader(environ)
+    try:
+        key()  # read once now so that a missing or unsafe key file refuses before anything is built or connected
+    except KeyFileError:
+        return _fail("the Intron key file is missing or not safe (INTRON_API_KEY_FILE, owner-only)")
+    try:
+        settings, bounds, wire = load_settings(Path(args["settings"]))
+        items = load_manifest(Path(args["manifest"]))
+        voices = _load_voices(Path(args["voices"]))
+        store_root, report_path = Path(args["store"]), Path(args["report"])
+        if not str(args["target_ms"]).isdigit() or int(args["target_ms"]) < 1:
+            raise RunnerConfigError("target-ms must be a positive whole number")
+        if report_path.resolve() == store_root.resolve() or store_root.resolve() in report_path.resolve().parents:
+            raise RunnerConfigError("the report must not be written inside the audio store")
+        store = AudioStore(store_root, wall_now)
+    except (RunnerConfigError, StoreError) as error:
+        return _fail(str(error))
+    connect = make_connector(open_timeout_s=wire.open_timeout_s, close_timeout_s=settings.close_s, ping_interval_s=wire.ping_interval_s, ping_timeout_s=wire.ping_timeout_s,
+                             max_message_bytes=wire.max_message_bytes)
+    capabilities = ProviderCapabilities("intron", PipelineMode.TRANSCRIBE_ONLY, Support.YES, tuple((locale, Support.YES) for locale in voices), tuple((locale, Support.YES) for locale in voices), None, Support.YES, None, False)
+    stt = IntronSpeechToText(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key)
+    tts = IntronTextToSpeech(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key, voices=voices, poll_s=wire.tts_poll_s)
+    try:
+        report = asyncio.run(run_baseline(items=items, stt=stt, tts=tts, settings=settings, bounds_s=bounds, store=store, clock_ms=clock, wall=wall_now, sleep=sleep,
+                                          tts_model_version=args["tts_model_version"], answer_text=args["answer_text"], targets_ms=int(args["target_ms"])))
+    except (BenchError, StoreError):
+        return _fail("the run was refused")
+    try:
+        descriptor = os.open(report_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2, sort_keys=True)
+    except OSError:
+        return _fail("the report could not be written (an existing report is never overwritten)")
+    print("baseline-run: done; the report was written")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:], os.environ))
