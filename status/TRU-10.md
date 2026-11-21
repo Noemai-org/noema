@@ -14,7 +14,7 @@ State: built locally on `prep/tru10-linkage` (two commits, not pushed, no PR). O
 - Not built (stated): the production adapter that derives the set from the pack's escalation plan. In this repository the escalation plan is `packs/fintech/graph/g2_escalate.json` (graph `fin.graph.escalate`, three WRITE nodes: create case, record evidence, route), but no pack field says "this graph is the escalation plan" (no purpose or kind field in `action-graph.v2` or `pack.v1`). The adapter needs that designation, which is a pack or contract decision (AGENT-15) and is not made here. The tests read g2 as data to build the set, which is the only place a graph is named.
 - Risks, and how they are contained: a Writer built without `Escalation` refuses every step that names a disposition (fail closed), so the production wiring must set it. No production caller of `Writer.Write` exists yet (status/TRU-05.md), so nothing in the repository is affected.
 - Tests added (REQ-TRU-010, INV-25, REQ-SEC-004), all on real PostgreSQL, in `escalation_link_test.go`:
-  - a decision naming no disposition is written whatever its steps (the complaint write, an unknown capability);
+  - (SUPERSEDED on 18 Nov by A317-A328, see the last section) a decision naming no disposition was written whatever its steps;
   - each step of the escalation plan follows an ESCALATE disposition; the record, the column and the Record show the link; a REJECT of a step links too;
   - a step outside the set under a disposition (alone, mixed, first) is refused and the rows are unchanged;
   - the writer follows the injected set, and the empty set refuses every step;
@@ -28,7 +28,7 @@ State: built locally on `prep/tru10-linkage` (two commits, not pushed, no PR). O
 ## Readings settled, and the open one for the Architect
 - **Action decision** (settled, PERD 23.1): "For each write step in the escalation plan ... an action decision evaluated separately under the capability's trust profile. Action decisions reference `disposition_decision_id`." REQ-TRU-010: "Each step is evaluated as its own action decision, and the action decisions reference the disposition." In the recorder an action decision is a decision that names a disposition. Its steps are the escalation plan's writes.
 - **ESCALATE authorises only the escalation plan** (settled, ruling A297 and INV-25).
-- **OPEN reading: does a non-escalation ALLOW need a disposition?** PERD 23.1 and REQ-TRU-010 say that the steps of an escalation plan reference their disposition. They do not say that every ALLOW with a write step must. The pack has a write outside the escalation graph (`fin.cap.log_complaint_reference`, `g3_complaint.json`) with its own policy rules (`permit_complaint`, `complaint_confirm`) and a bridge mapping. Requiring a disposition for every write would make it unwritable, because the database allows only an ESCALATE disposition and under it only the escalation plan's capabilities. The narrower reading is implemented: no disposition required, and a decision that names none is unchanged. If the Architect rules that every write must link, the change is one condition in `check` plus new tests, and the complaint write needs a ruling of its own.
+- **(CLOSED on 18 Nov by A317-A328, see the last section) Does a non-escalation ALLOW need a disposition?** PERD 23.1 and REQ-TRU-010 say that the steps of an escalation plan reference their disposition. They do not say that every ALLOW with a write step must. The pack has a write outside the escalation graph (`fin.cap.log_complaint_reference`, `g3_complaint.json`) with its own policy rules (`permit_complaint`, `complaint_confirm`) and a bridge mapping. Requiring a disposition for every write would make it unwritable, because the database allows only an ESCALATE disposition and under it only the escalation plan's capabilities. The narrower reading is implemented: no disposition required, and a decision that names none is unchanged. If the Architect rules that every write must link, the change is one condition in `check` plus new tests, and the complaint write needs a ruling of its own.
 - **OPEN: same investigation or intent.** The disposition is "for the investigation intent" (PERD 23.1) and each step has its own decision; the two-node intent model gives them different intents. The recorder does not compare `intent_id` or `correlation_id`. A rule would need to say which field links them.
 - **OPEN: which graph is "the escalation plan".** See "Not built". The Steward or Architect to name the designation (a pack field, or a deployment setting).
 
@@ -37,3 +37,35 @@ State: built locally on `prep/tru10-linkage` (two commits, not pushed, no PR). O
 - Open questions (owner): the three above (Architect).
 - Files to read first: `services/core/trust/recorder/recorder.go` (`check`, `requireEscalationDisposition`), `escalation_link_test.go`, `services/core/migrations/0012_decision_record.sql`.
 - Do not touch: `Write`'s order (Record first on a miss; nothing appended on a hit); migration 0012.
+
+# Session 2026-11-18 · TRU-10 · every grant-issuing action decision links a disposition (A317-A328, relayed, interim)
+
+## Session summary
+- What changed (noema#713): `Writer.Write` now refuses a decision that carries steps (it issues grants) and names no disposition: `ErrDispositionRequired`, checked in `check()` before anything is written. A decision with no step still needs none. The disposition must still be an existing same-tenant ESCALATE decision (`ErrDispositionNotValid`) and every step must be in the injected `Writer.Escalation` set (`ErrStepOutsideEscalation`). This replaces the narrow reading of the first round.
+- Tests (REQ-TRU-010; INV-25): red first at `8514de9c` (only the two new-behaviour tests failed: `TestADecisionWithStepsAndNoDispositionIsRefusedAndNothingIsWritten` and the rapid property, which now also requires that no grant belongs to a decision naming no disposition); `TestADecisionWithNoStepsNeedsNoDisposition` covers an ALLOW of a disclosure, a REJECT and a WAIT. The existing recorder tests link a seeded SYNTHETIC ESCALATE decision (`dec_SEEDDISP`, inserted directly, no Record event, no grant) when they give steps; their decision-record counts exclude it (`recordsQ`); no expected number changed.
+- Mutants killed (against the new tests): N1 drop the new check; N3 check after the write; N4 require only for more than one step; N5 require for any ALLOW; M1 drop the existence check; M2 another tenant's disposition; M3 skip the ESCALATE restriction; M4 hard-coded capability list; M5 disposition check after the write; M6 drop the outcome check (killed by `TestTheRecorderRefusesAnInvalidDispositionOnItsOwnWithTheForeignKeyOff`); M7 an empty set allows every step (killed by `TestTheWriterUsesTheEscalationSetItIsGivenAndFailsClosedWithNone`). M6 and M7 were re-run by C1 after the agent's run was cut short.
+- Verified: `go test -count=1 ./trust/...` ok; `gofmt`, `go vet ./trust/...`, `python3 tools/lint/run.py` clean.
+
+## Consequence for the Architect
+A write outside the escalation plan can no longer be recorded with grants through `Writer.Write`: `fin.cap.log_complaint_reference` (`g3_complaint.json`) is the pack's example. It would need an ESCALATE disposition and a step in the escalation set; it is in neither, and the database allows only an ESCALATE disposition, so there is no valid way to link it. No production caller of `Writer.Write` exists yet, so nothing is broken today; the complaint write needs its own ruling before one does.
+
+## Still open
+- The pack names no escalation graph, so the production adapter that builds the set is not built (a pack field is a contract change, AGENT-15, or a deployment setting).
+- The disposition's `intent_id` and `correlation_id` are not compared with the action decision's.
+
+## Pre-work for the next agent
+- Exact next step: the Architect rules on the complaint write and the escalation-plan designation; then the production adapter and the composition-root wiring (EL).
+- Do not touch: migration 0012.
+
+# Session 2026-11-21 · TRU-10 (merge of main; a conflict with the production adapter)
+
+## Session summary
+- What changed (PR links): noema#733: main merged into the branch. One textual conflict (`trust/recorder/doc.go`): main's new confirmation paragraphs are kept, and this PR's three-rule disposition paragraph replaces main's older two-rule one. Tests that main added since this branch (`confirmation_state_test.go`, `confirmrequest_test.go`) counted every `decision_record` row and so counted the seeded disposition: they now use `recordsQ`, and the tenant-B ALLOW in `TestTheConfirmationStateKeyIsPerTenant` names tenant B's own ESCALATE disposition; the "ALLOW with a request" case names the seeded one so the request, not the missing disposition, is what is refused. Test-only; no production code changed by the merge. `go test ./trust/recorder/` passes.
+- Why: the PR was dirty against main.
+- Risks, and how they are contained: **a conflict with the production Recorder adapter (CONFLICT block on the PR).** When this PR was written no production caller of `Writer.Write` existed. `orchestrator/portadapters/trust.RecorderAdapter` (merged since) records the intake's ALLOW with steps and names no disposition, so the rule now refuses the adapter's main path: seven tests of that package fail with "a decision that issues grants must name its escalation disposition" (`TestRecordWritesTheDecisionTheGrantsAndTheirEventsTogether` and six more). I did not give those tests a disposition: that would pass them while the production path stays refused.
+- Tests added / regression cases / debt: none new this session.
+- Conflicts raised: yes (above). Also not from this PR: `cmd/core` tests do not build on main (`fatalConn` is declared in `wire_worker_ports_test.go` and `worker_run_fatal_test.go`).
+
+## Pre-work for the next agent
+- Exact next step: the Architect rules whether the intake's ALLOW with steps needs a disposition (A319's wording is for the per-step "action decision" of an escalation), or the rule is limited to the escalation's action decisions; then the adapter tests and this rule agree.
+- Do not touch: `orchestrator/portadapters/trust/recorder_test.go` to name a disposition before that ruling.

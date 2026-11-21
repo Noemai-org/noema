@@ -6,6 +6,7 @@ package recorder_test
 
 import (
 	"errors"
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -109,7 +110,11 @@ func TestPUS06TheRefusalIsMadeBeforeTheFirstWriteInTheCallersTransaction(t *test
 	}
 	for _, table := range []string{"decision_record", "decision_grant", "confirmation_spend"} {
 		var n int
-		if err := tx.QueryRow(ctx(t), `SELECT count(*) FROM `+table).Scan(&n); err != nil {
+		q := `SELECT count(*) FROM ` + table
+		if table == "decision_record" {
+			q = recordsQ // the world's seeded SYNTHETIC ESCALATE disposition is not a write of this test
+		}
+		if err := tx.QueryRow(ctx(t), q).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != 0 {
@@ -132,7 +137,7 @@ func TestPUS06ADecisionWithNoStepStillRecordsWhileTheSwitchIsOn(t *testing.T) {
 			t.Fatalf("%s with no step: %+v %v", o, res, err)
 		}
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 3 {
+	if n := w.count(t, recordsQ); n != 3 {
 		t.Errorf("%d decision records, want 3", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 0 {
@@ -177,7 +182,7 @@ func TestPUS06TheSwitchIsReadAtEveryWriteAndOffMeansNormal(t *testing.T) {
 	if n := w.grantIssuedEvents(t, tenant); n != 2 {
 		t.Errorf("%d GRANT_ISSUED events, want 2 (one per allowed write)", n)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 2 {
+	if n := w.count(t, recordsQ); n != 2 {
 		t.Errorf("%d decision records, want 2: the refused write left none", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 2 {
@@ -200,8 +205,14 @@ func TestPUS06AnotherTenantsSwitchDoesNotAffectThisTenant(t *testing.T) {
 	w.setSwitch(t, tenant, true)
 	w.setSwitch(t, otherTenant, false)
 	bb := newTenantTrust(t, w, otherTenant)
+	const otherDisposition = "dec_SEEDDISPB" // ten_bb's own SYNTHETIC ESCALATE disposition (the world seeds ten_aa's only)
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		VALUES ($1, $2, jsonb_set($3::jsonb, '{outcome}', '"ESCALATE"'), 'ESCALATE', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
+		otherDisposition, otherTenant, testpg.DecisionDocJSON(otherDisposition, otherTenant, testpg.FixtureIntentHash, testpg.FixturePolicyVersion, "corr_synth01")); err != nil {
+		t.Fatal(err)
+	}
 	rb := request(t, decision(t, decide.Allow, b), b, step(t))
-	rb.TenantID = otherTenant
+	rb.TenantID, rb.DispositionDecisionID = otherTenant, otherDisposition
 	if res, err := w.writeVia(t, bb, rb); err != nil || len(res.Grants) != 1 {
 		t.Fatalf("ten_bb with only ten_aa's switch on: %+v %v", res, err)
 	}
@@ -211,7 +222,7 @@ func TestPUS06AnotherTenantsSwitchDoesNotAffectThisTenant(t *testing.T) {
 	// and ten_bb's switch on stops ten_bb, as ten_aa's stops ten_aa
 	w.setSwitch(t, otherTenant, true)
 	rb2 := request(t, decision(t, decide.Allow, b), b, step(t))
-	rb2.TenantID, rb2.IntentID = otherTenant, "int_01B"
+	rb2.TenantID, rb2.IntentID, rb2.DispositionDecisionID = otherTenant, "int_01B", otherDisposition
 	if _, err := w.writeVia(t, bb, rb2); !errors.Is(err, recorder.ErrWritesDisabled) {
 		t.Fatalf("ten_bb with its own switch on: %v", err)
 	}

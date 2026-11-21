@@ -94,7 +94,7 @@ func TestAConfirmAndTheAllowThatFollowsItsAcceptOnOneTupleAreTwoDecisionsAndARep
 	if allow.Record.Outcome != "ALLOW" || allow.Record.DecisionId == confirm.Record.DecisionId || len(allow.Grants) != 1 {
 		t.Fatalf("the ALLOW: %s %s with %d grants; the CONFIRM is %s", allow.Record.Outcome, allow.Record.DecisionId, len(allow.Grants), confirm.Record.DecisionId)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 2 {
+	if n := w.count(t, recordsQ); n != 2 {
 		t.Fatalf("%d decision records, want the CONFIRM and the ALLOW", n)
 	}
 	if s, null := w.stateOf(t, string(confirm.Record.DecisionId)); !null {
@@ -107,12 +107,12 @@ func TestAConfirmAndTheAllowThatFollowsItsAcceptOnOneTupleAreTwoDecisionsAndARep
 	if payload["confirmation_request_id"] != "cfr_"+strings.TrimPrefix(given, "cfe_") {
 		t.Errorf("the ALLOW's DECISION_MADE names request %v, want the one it rests on", payload["confirmation_request_id"])
 	}
-	events, decisions, grants, spends := len(w.events(t)), w.count(t, `SELECT count(*) FROM decision_record`), w.count(t, `SELECT count(*) FROM decision_grant`), w.spends(t)
+	events, decisions, grants, spends := len(w.events(t)), w.count(t, recordsQ), w.count(t, `SELECT count(*) FROM decision_grant`), w.spends(t)
 	again, err := w.write(t, allowOnTheTuple(t, "evs_01ABC", given), true)
 	if err != nil || again.Record.DecisionId != allow.Record.DecisionId || len(again.Grants) != 1 || asJSON(t, again.Grants[0]) != asJSON(t, allow.Grants[0]) {
 		t.Fatalf("the same ALLOW again: %v, %s, want the stored %s", err, again.Record.DecisionId, allow.Record.DecisionId)
 	}
-	if len(w.events(t)) != events || w.count(t, `SELECT count(*) FROM decision_record`) != decisions || w.count(t, `SELECT count(*) FROM decision_grant`) != grants || w.spends(t) != spends {
+	if len(w.events(t)) != events || w.count(t, recordsQ) != decisions || w.count(t, `SELECT count(*) FROM decision_grant`) != grants || w.spends(t) != spends {
 		t.Error("a repeated ALLOW wrote something: a decision, a grant, a spend or an event")
 	}
 	// and the CONFIRM asked for again is still the stored one (its state is NULL), not a third decision
@@ -131,11 +131,11 @@ func TestADifferentConfirmationOnATupleThatHasAnAllowOnAnotherIsAConflict(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, decisions, spends := len(w.events(t)), w.count(t, `SELECT count(*) FROM decision_record`), w.spends(t)
+	events, decisions, spends := len(w.events(t)), w.count(t, recordsQ), w.spends(t)
 	if _, err := w.write(t, allowOnTheTuple(t, "evs_01ABC", "cfe_01OTHER2"), true); !errors.Is(err, recorder.ErrDecisionConflict) {
 		t.Errorf("an ALLOW on another confirmation, same tuple: err %v, want ErrDecisionConflict", err)
 	}
-	if len(w.events(t)) != events || w.count(t, `SELECT count(*) FROM decision_record`) != decisions || w.spends(t) != spends {
+	if len(w.events(t)) != events || w.count(t, recordsQ) != decisions || w.spends(t) != spends {
 		t.Error("the conflict wrote something")
 	}
 	if s, _ := w.stateOf(t, string(first.Record.DecisionId)); s != "cfr_01SPENT" {
@@ -159,7 +159,7 @@ func TestADecisionThatRestsOnNoConfirmationOnTheTupleOfAStoredConfirmIsStillACon
 	if _, err := w.write(t, rej, true); !errors.Is(err, recorder.ErrDecisionConflict) {
 		t.Errorf("a REJECT with no confirmation on the tuple of a stored CONFIRM: err %v, want ErrDecisionConflict", err)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decisions, want the CONFIRM only", n)
 	}
 }
@@ -178,14 +178,14 @@ func TestADeclinedRejectOnTheTupleOfAStoredConfirmIsASecondDecisionAndARepeatIsO
 	if s, null := w.stateOf(t, string(first.Record.DecisionId)); null || s != "cfr_01DECLINED" {
 		t.Errorf("the REJECT rests on %q (null %v)", s, null)
 	}
-	decisions, events := w.count(t, `SELECT count(*) FROM decision_record`), len(w.events(t))
+	decisions, events := w.count(t, recordsQ), len(w.events(t))
 	if again, err := w.write(t, declinedReject(t, "evs_01ABC", "cfr_01DECLINED"), true); err != nil || again.Record.DecisionId != first.Record.DecisionId {
 		t.Errorf("the same declined REJECT again: %v, %s, want %s", err, again.Record.DecisionId, first.Record.DecisionId)
 	}
 	if _, err := w.write(t, declinedReject(t, "evs_01ABC", "cfr_01ANOTHER"), true); !errors.Is(err, recorder.ErrDecisionConflict) {
 		t.Errorf("a REJECT resting on another declined request: err %v, want ErrDecisionConflict", err)
 	}
-	if w.count(t, `SELECT count(*) FROM decision_record`) != decisions || len(w.events(t)) != events || decisions != 2 {
+	if w.count(t, recordsQ) != decisions || len(w.events(t)) != events || decisions != 2 {
 		t.Errorf("a repeat or a conflict wrote something (%d decisions)", decisions)
 	}
 	for name, r := range map[string]recorder.Request{
@@ -229,17 +229,30 @@ func TestTheConfirmationStateKeyIsPerTenant(t *testing.T) {
 	if err != nil || confirmB.Record.Outcome != "CONFIRM" {
 		t.Fatalf("tenant B's CONFIRM on the tuple tenant A has decided: %v", err)
 	}
-	allowB, err := w.writeVia(t, bb, asB(allowOnTheTuple(t, "evs_01ABC", given)))
+	bEvaluated := evaluated(t)
+	bDispositionRequest := request(t, decision(t, decide.Escalate, bEvaluated), bEvaluated) // tenant B's own ESCALATE decision, written through B's login: the one its ALLOW names
+	bDispositionRequest.TenantID, bDispositionRequest.IntentHash = "ten_bb", h2(7)
+	bDispositionResult, err := w.writeVia(t, bb, bDispositionRequest)
+	if err != nil {
+		t.Fatalf("tenant B's disposition: %v", err)
+	}
+	bDisposition := string(bDispositionResult.Record.DecisionId)
+	allowAsB := func(r recorder.Request) recorder.Request {
+		r = asB(r)
+		r.DispositionDecisionID = bDisposition
+		return r
+	}
+	allowB, err := w.writeVia(t, bb, allowAsB(allowOnTheTuple(t, "evs_01ABC", given)))
 	if err != nil || allowB.Record.DecisionId == allowA.Record.DecisionId || allowB.Record.Outcome != "ALLOW" {
 		t.Fatalf("tenant B's ALLOW resting on the same request ID: %v, %s (tenant A's is %s)", err, allowB.Record.DecisionId, allowA.Record.DecisionId)
 	}
-	if again, err := w.writeVia(t, bb, asB(allowOnTheTuple(t, "evs_01ABC", given))); err != nil || again.Record.DecisionId != allowB.Record.DecisionId {
+	if again, err := w.writeVia(t, bb, allowAsB(allowOnTheTuple(t, "evs_01ABC", given))); err != nil || again.Record.DecisionId != allowB.Record.DecisionId {
 		t.Errorf("tenant B's ALLOW again: %v, %s, want B's own %s", err, again.Record.DecisionId, allowB.Record.DecisionId)
 	}
-	if n := w.countFor(t, `SELECT count(*) FROM decision_record WHERE tenant_id = $1`, "ten_bb"); n != 2 {
+	if n := w.countFor(t, `SELECT count(*) FROM decision_record WHERE tenant_id = $1 AND outcome <> 'ESCALATE'`, "ten_bb"); n != 2 {
 		t.Errorf("%d decisions for tenant B, want 2", n)
 	}
-	if n := w.countFor(t, `SELECT count(*) FROM decision_record WHERE tenant_id = $1`, tenant); n != 2 {
+	if n := w.countFor(t, `SELECT count(*) FROM decision_record WHERE tenant_id = $1 AND outcome <> 'ESCALATE'`, tenant); n != 2 {
 		t.Errorf("%d decisions for tenant A, want 2", n)
 	}
 }
