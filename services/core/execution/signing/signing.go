@@ -167,7 +167,7 @@ func loadKey(identity, path, id string) (Key, error) {
 	if err != nil {
 		return Key{}, fmt.Errorf("%scannot open %q (a symbolic link is refused): %w", errPrefix, filepath.Base(path), err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only: a close error changes nothing
 	info, err := f.Stat()
 	if err != nil {
 		return Key{}, fmt.Errorf("%scannot stat %q: %w", errPrefix, filepath.Base(path), err)

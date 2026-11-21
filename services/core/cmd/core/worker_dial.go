@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
+	"sync/atomic"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -16,11 +18,49 @@ import (
 // worker_dial.go: the real connection to Temporal (STM-04 slice 2). Always TLS with the server verified; the client certificate is sent only when configured (A310, DEBT-46: the bench
 // Temporal does not authenticate clients for now). There is no plain connection to fall back to.
 
-type sdkConnection struct{ c client.Client }
+type sdkConnection struct {
+	c client.Client
+	f *fatalState
+}
 
 func (s sdkConnection) NewWorker(taskQueue string) temporalWorker {
-	return worker.New(s.c, taskQueue, worker.Options{})
+	return worker.New(s.c, taskQueue, workerOptions(s.f))
 }
+
+// Fatal delivers, once, the error that stopped the worker on its own.
+func (s sdkConnection) Fatal() <-chan error { return s.f.Fatal() }
+
+// Ready is false once the worker has died on its own.
+func (s sdkConnection) Ready() bool { return s.f.Ready() }
+
+// fatalState records the one fatal error of a worker (REQ-OPS-003, AGENT-07). The SDK calls OnFatalError from its own goroutines, so report never blocks and starts no goroutine: the
+// first error goes into a channel of one, later ones are dropped, and readiness turns false. Nothing in the error is logged or rewritten here.
+type fatalState struct {
+	once sync.Once
+	ch   chan error
+	dead atomic.Bool
+}
+
+func newFatalState() *fatalState { return &fatalState{ch: make(chan error, 1)} }
+
+func (f *fatalState) report(err error) {
+	if err == nil {
+		return
+	}
+	f.once.Do(func() {
+		f.dead.Store(true)
+		f.ch <- err
+	})
+}
+
+// Fatal delivers the first fatal error once. It is never closed.
+func (f *fatalState) Fatal() <-chan error { return f.ch }
+
+// Ready is false once a fatal error was reported.
+func (f *fatalState) Ready() bool { return !f.dead.Load() }
+
+// workerOptions wires the SDK's fatal callback into f. Nothing else about the worker is set here (no option is a safety setting, AGENT-16).
+func workerOptions(f *fatalState) worker.Options { return worker.Options{OnFatalError: f.report} }
 
 func (s sdkConnection) Close() { s.c.Close() }
 
@@ -34,7 +74,7 @@ func dialTemporal(_ context.Context, cfg *WorkerConfig) (Connection, error) {
 	if err != nil {
 		return nil, err
 	}
-	return sdkConnection{c: c}, nil
+	return sdkConnection{c: c, f: newFatalState()}, nil
 }
 
 // temporalTLS builds the client's TLS configuration from the CA that signs the server and, when configured, the client certificate and key. TLS 1.3 at least, the server name is the host

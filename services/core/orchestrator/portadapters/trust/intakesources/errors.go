@@ -21,6 +21,20 @@ var (
 	// ErrIntent marks a stored intent that cannot give a fact it does name: a slot without a status, a status outside the contract, a resolved reference on a slot that is not
 	// RESOLVED, an intent node other than the query's.
 	ErrIntent = errors.New("intakesources: the stored intent cannot give this fact")
+	// ErrNoSnapshot is the answer for a snapshot that does not exist for the tenant, that is not sealed, and that another tenant owns: the same answer, in value and in text.
+	ErrNoSnapshot = errors.New("intakesources: no such sealed snapshot for this tenant")
+	// ErrSnapshotIntegrity marks a stored snapshot that is not exactly what was sealed: an item missing, repeated, of another case, or a set hash that does not verify (INV-17).
+	ErrSnapshotIntegrity = errors.New("intakesources: the stored snapshot is not what was sealed")
+	// ErrListItem marks a sealed snapshot that has no usable item for a list: none, more than one, or one whose fact status is not KNOWN. Never "no such row" (INV-19).
+	ErrListItem = errors.New("intakesources: the sealed snapshot has no usable item for this list")
+	// ErrNoPayload is the answer for a payload that does not exist for the tenant and for one that another tenant owns: the same answer, in value and in text.
+	ErrNoPayload = errors.New("intakesources: no such payload for this tenant")
+	// ErrPayloadTooLarge marks a payload over the configured bound of the store.
+	ErrPayloadTooLarge = errors.New("intakesources: the payload is larger than the configured bound")
+	// ErrListPayload marks an item whose stored payload cannot be had as the one the snapshot sealed (unreadable, or its hash is not the item's).
+	ErrListPayload = errors.New("intakesources: the item's payload cannot be used as the sealed one")
+	// ErrList marks a payload the evidence mapping cannot read as the list: not marked complete, not the shape the mapping names, no such list. The mapping's own error is the cause.
+	ErrList = errors.New("intakesources: the list cannot be read from the payload")
 )
 
 // failure is an error with a fixed text and a cause that errors.Is can still find: a database or login error can name a server, a login, a tenant or a row, so its text is never
