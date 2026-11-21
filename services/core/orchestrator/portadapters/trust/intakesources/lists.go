@@ -54,6 +54,11 @@ type EvidenceLists struct {
 	Items    SnapshotItems
 	Payloads payloadread.PayloadReader
 	Entities map[string]ListSpec
+	// Screen, Correlation and Alert are the injection screen of the payload Reader (REQ-CTX-007, A372): a list payload is text from a source and is screened like any other evidence payload. All three
+	// are required and have no default; a Reader without one refuses every read (payloadread.ErrScreenRefused), so the lists would never be read.
+	Screen      payloadread.Screen
+	Correlation payloadread.CorrelationOf
+	Alert       payloadread.Alert
 }
 
 // valid refuses a configuration that cannot read a list safely: a missing part, an entity with no name, source or prefix, and two entities of one source whose prefixes overlap, so
@@ -61,6 +66,9 @@ type EvidenceLists struct {
 func (l EvidenceLists) valid() error {
 	if l.Mapping == nil || l.Items == nil || l.Payloads == nil || len(l.Entities) == 0 {
 		return fmt.Errorf("%w: the lists need a mapping, a snapshot reader, a payload reader and at least one entity", ErrConfig)
+	}
+	if _, err := payloadread.NewReader(l.Payloads, l.Screen, l.Correlation, l.Alert); err != nil {
+		return fmt.Errorf("%w: the lists need an injection screen, a correlation source and an alert for the payload reader", ErrConfig)
 	}
 	for name, spec := range l.Entities {
 		if name == "" || spec.Source == "" || spec.ScopePrefix == "" {
@@ -110,7 +118,11 @@ func (l EvidenceLists) rows(ctx context.Context, tenantID string, items []Snapsh
 	if it.Status != statusKnown {
 		return nil, fmt.Errorf("%w: the item of the list %s is not KNOWN", ErrListItem, entity)
 	}
-	payload, err := payloadread.Reader{Payloads: l.Payloads}.Payload(ctx, tenantID, layer.Item{EvidenceID: it.EvidenceID, PayloadRef: it.PayloadRef, PayloadHash: it.PayloadHash})
+	reader, err := payloadread.NewReader(l.Payloads, l.Screen, l.Correlation, l.Alert)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the payload reader", ErrConfig)
+	}
+	payload, err := reader.Payload(ctx, tenantID, layer.Item{EvidenceID: it.EvidenceID, PayloadRef: it.PayloadRef, PayloadHash: it.PayloadHash})
 	if err != nil {
 		return nil, wrapped(ErrListPayload, err)
 	}
