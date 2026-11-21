@@ -12,7 +12,7 @@ migrate --dsn-file /run/secrets/migrator_dsn --migrations-dir /migrations
 
 | Flag | Meaning |
 |---|---|
-| `--dsn-file` | a regular file (not a link, not a directory), not empty, at most 8 KiB, holding the DSN of the migration login. The DSN is never an argument, never read from the environment and never printed. No default |
+| `--dsn-file` | a file holding the DSN of the migration login, at most 8 KiB, not empty. It is opened once, without following a link and without waiting on a special file, and checked on the open descriptor: a regular file, **owned by the user the command runs as, with no group or world permission bit** (mode 0400 or 0600), as the Trust DSN files of the Compose stack are (written 0400 by `trust-dsn-init`). A file that fails any check is refused before any connection. The DSN is never an argument, never read from the environment and never printed. No default |
 | `--migrations-dir` | a directory holding at least one `NNNN_name.sql` file. A path that is not a directory, or a directory with no `.sql` file, is refused, so a wrong mount cannot look like a database that is up to date. No default |
 
 **Output.** One JSON line on stdout with the PERD 44.2 fields (`ts`, `level`, `service`, `power`, `event`, `correlation_id`, `msg`) and `result` (`migrated`, `up_to_date`, `refused`, `error`), `reason`, `applied_count`, `applied` (the file names applied by this run) and `sqlstate` when there is one. When the exit code is not 0, one fixed sentence on stderr. Never a DSN, a login, a host, a SQL text or a driver's text.
