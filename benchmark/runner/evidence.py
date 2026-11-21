@@ -17,6 +17,7 @@ Two commands, each writing one JSON file under --out and exiting 0 (met), 1 (a c
 The correlation ids come from `correlations.json`, which the runner writes into its run directory. SYNTHETIC (AGENT-25)."""
 import argparse
 import json
+import re
 import secrets
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -160,6 +161,16 @@ def negative_probes(base_url: str, issue: Callable[[str, str, str], str], cases:
     return {"met": bool(rows) and all(r["ok"] for r in rows), "cases": rows}
 
 
+_SHA = re.compile(r"[0-9a-f]{40}")
+_RUN_ID = re.compile(r"[0-9]{1,20}")
+
+
+def _stamped(doc: Json, sha: str | None, run_id: str | None) -> Json:
+    """The document with the dispatch SHA and run id in a top-level "stamp", for the G1 package to compare with the run it reads (noema#717). With neither asked for, the document as it was."""
+    if sha is None and run_id is None:
+        return doc
+    return {**doc, "stamp": {"sha": sha, "run_id": run_id}}
+
 SERVED = "SERVED"  # the outcome the reconstruction handler logs for a reconstruction it served (record/reconstruct/handler.go)
 NOT_FOUND_OUTCOME = "NOT_FOUND_OR_NOT_AUTHORIZED"  # and for a correlation that does not exist, reached by an allowed role
 
@@ -234,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--suite", type=Path, required=True)
         s.add_argument("--run", type=Path, required=True, help="the runner's output directory (results/ and correlations.json)")
         s.add_argument("--out", type=Path, required=True)
+        s.add_argument("--sha", help="the dispatch commit SHA (40 lowercase hexadecimal); stamped into the evidence file; with --run-id, both or neither")
+        s.add_argument("--run-id", help="the workflow run id (digits); stamped into the evidence file")
     access = sub.add_parser("record-access")
     access.add_argument("--probes", type=Path, required=True, help="negative-probes.json written by the probes command")
     access.add_argument("--log", type=Path, required=True, help="the core's log (JSON lines), collected after the run")
@@ -249,6 +262,10 @@ def main(argv: list[str] | None = None) -> int:
     probes.add_argument("--tenant-id", required=True)
     probes.add_argument("--other-tenant-id", required=True)
     a = p.parse_args(argv)
+    sha, run_id = getattr(a, "sha", None), getattr(a, "run_id", None)  # only the fault-plans and probes commands take them
+    if (sha is None) != (run_id is None) or (sha is not None and not (_SHA.fullmatch(sha) and _RUN_ID.fullmatch(run_id or ""))):
+        print("refused: --sha (40 lowercase hexadecimal) and --run-id (digits) are given together and well formed, or not at all")
+        return 2
     if a.command in ("probes", "record-access") and a.other_tenant_id == a.tenant_id:
         print("refused: the other tenant must differ from the run's tenant")
         return 2
@@ -271,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         ran = _run_cases(a.run)
         if a.command == "fault-plans":
             doc = fault_plan_evidence(suite, ran)
-            _write(a.out, "fault-plans.json", doc)
+            _write(a.out, "fault-plans.json", _stamped(doc, a.sha, a.run_id))
             print(f"fault plans: {'MET' if doc['met'] else 'NOT MET'}: {'; '.join(doc['problems']) or 'every plan has its id, seed and producer'}")
             return 0 if doc["met"] else 1
         correlations = json.loads((a.run / "correlations.json").read_text(encoding="utf-8")) if (a.run / "correlations.json").is_file() else {}
@@ -284,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
             if provider.unavailable_reason:
                 raise NotRun(provider.unavailable_reason)
         doc = negative_probes(a.api_url, lambda tenant, principal, role: sessions[tenant].token_for(principal, [role]), wanted, a.tenant_id, a.other_tenant_id, roles={cid: by_case[cid]["principal"]["roles"] for cid, _, _ in wanted})
-        _write(a.out, "negative-probes.json", doc)
+        _write(a.out, "negative-probes.json", _stamped(doc, a.sha, a.run_id))
         bad = [r["case_id"] for r in doc["cases"] if not r["ok"]]
         print(f"negative probes: {'MET' if doc['met'] else 'NOT MET'} for {len(doc['cases'])} cases" + (f"; failing: {', '.join(bad)}" if bad else ""))
         return 0 if doc["met"] else 1

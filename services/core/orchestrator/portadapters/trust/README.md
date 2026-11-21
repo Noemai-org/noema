@@ -4,6 +4,27 @@ Date: 2026-11-18 · Status: current. All data is SYNTHETIC. This README says wha
 
 The adapters between the orchestrator and Trust (package `trustport`). Each adapter of the Trust intake (T7 to T15) is its own pull request in this package (ruling A329, interim). Add a section for yours below; do not rewrite another's.
 
+## PackProfiles (the `SourceProfiles` of the Evidence adapter; TRU-07, C2)
+
+`PackProfiles` implements `SourceProfiles` over the pack's data. REQ-TRU-001, REQ-CTX-003, REQ-NFR-002; INV-14, INV-16, INV-23; AGENT-13, AGENT-16.
+
+`NewPackProfiles(nodes, profiles)` takes the pack's `intent_nodes` and `trust_profiles` (decoded through the generated contract types) and `SourceRules(ctx, tenantID, intentNode)` answers the governing profile's `evidence_required` and `max_evidence_age_seconds` as a copy. No node, profile or source ID and no number is written in the code; the pack is the same for every tenant and `tenantID` is only checked to be a tenant.
+
+| Case | Answer |
+|---|---|
+| Node with a profile | its rules, as a copy |
+| Unknown node, empty node, node with no `trust_profile` | `ErrProfileNotFound` (never an empty rule set) |
+| Zero value | `ErrConfig` |
+| Tenant ID not of the shape `ten_...` | `ErrSession` |
+| Context done | its own error |
+| Build: no node; a node or profile with no ID or repeated; a node naming a missing profile; age limit below 1; no required source, an empty or a repeated one | `ErrProfilesData` (the whole pack, at the build) |
+
+Errors name the rule, never a node, a profile or a source (AGENT-13). **Open:** a profile that requires no source is refused (safer reading; the schema allows it); the pack is decoded once by `trustpack.LoadPack` and once for this adapter unless EL exposes the two slices from `trustpack.Pack`.
+
+**For the composition (EL):** `trustport.NewPackProfiles(doc.IntentNodes, doc.TrustProfiles)` with `doc` a `contracts.PackV1`; pass it to `NewEvidence`.
+
+**Tests.** `profiles_test.go` (no database; every helper starts with `spr`), including the real `packs/fintech_v1.json` against an independent reader of the file.
+
 ## Evidence (the intake's T9 read; A329, C2)
 
 `Evidence` implements `intake.Evidence`. REQ-TRU-001, REQ-TRU-002 (T9), REQ-TRU-003, REQ-CTX-003, REQ-CTX-004, REQ-NFR-002; INV-11, INV-16, INV-17, INV-19, INV-23; AGENT-13, AGENT-16.
