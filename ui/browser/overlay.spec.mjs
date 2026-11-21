@@ -5,7 +5,9 @@ const stylesheet = await readFile("dist/tokens.css", "utf8");
 const scanner = await readFile("build/js/privacy.js", "utf8");
 
 async function load(page) {
-  await page.setContent(markup);
+  // These isolated scanner tests inject test CSS and a blob module. The real
+  // delivered policy is exercised separately by browser-build.spec.mjs.
+  await page.setContent(markup.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/u, ""));
   await page.addStyleTag({ content: stylesheet });
 }
 
