@@ -19,6 +19,7 @@ const waitParam = "wait_seconds"
 type PolicyBook struct {
 	policyID string
 	versions map[string]policy.Version
+	hashes   map[string]string // the document hash of each version, recomputed from the pack's bytes at load (A413)
 	scope    predicate.Scope
 	needs    map[string]FactNeed // target to what the rules that apply to it read
 }
@@ -173,6 +174,9 @@ func (b *PolicyBook) inForce(published []policystore.Publication, now, admittedA
 				return policy.Set{}, fail(ErrNoDocument, "", fmt.Errorf("%s@%s", b.policyID, pub.Version))
 			}
 			continue
+		}
+		if want, have := b.hashes[pub.Version], pub.DocumentHash; have == "" || have != want {
+			return policy.Set{}, fail(ErrDrift, "", fmt.Errorf("%s@%s", b.policyID, pub.Version))
 		}
 		status := policy.Retired
 		if i == newest {

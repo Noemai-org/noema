@@ -116,60 +116,60 @@ func runCommand(args []string, out, errw io.Writer) int {
 	fs.SetOutput(io.Discard)
 	work := fs.String("work", "", "an existing, empty directory for the synthetic key files")
 	if err := fs.Parse(args); err != nil || *work == "" || fs.NArg() != 0 {
-		fmt.Fprintln(errw, "usage: grantdrill --work DIR (an existing, empty directory)")
+		_, _ = fmt.Fprintln(errw, "usage: grantdrill --work DIR (an existing, empty directory)")
 		return exitCannot
 	}
 	entries, err := os.ReadDir(*work)
 	if err != nil || len(entries) != 0 {
-		fmt.Fprintln(errw, "grantdrill: --work must be an existing, empty directory")
+		_, _ = fmt.Fprintln(errw, "grantdrill: --work must be an existing, empty directory")
 		return exitCannot
 	}
 	oldSecret, e1 := secret()
 	newSecret, e2 := secret()
 	attacker, e3 := secret()
 	if err := errors.Join(e1, e2, e3); err != nil {
-		fmt.Fprintln(errw, "grantdrill: no random source")
+		_, _ = fmt.Fprintln(errw, "grantdrill: no random source")
 		return exitCannot
 	}
 	m, err := newMount(*work, oldSecret, newSecret)
 	defer m.cleanup()
 	if err != nil {
-		fmt.Fprintln(errw, "grantdrill: cannot write the key files")
+		_, _ = fmt.Fprintln(errw, "grantdrill: cannot write the key files")
 		return exitCannot
 	}
 	if _, err := m.load("one"); err != nil {
 		if errors.Is(err, keyfiles.ErrUnsupported) {
-			fmt.Fprintln(errw, "grantdrill: key files cannot be checked on this system")
+			_, _ = fmt.Fprintln(errw, "grantdrill: key files cannot be checked on this system")
 		} else {
-			fmt.Fprintln(errw, "grantdrill: the key files cannot be loaded")
+			_, _ = fmt.Fprintln(errw, "grantdrill: the key files cannot be loaded")
 		}
 		return exitCannot
 	}
 	safeRetire := overlap + validity // the last grant signed by the old key was issued before the overlap, so it has expired by now
 	safe, err := run(plan{ring: m.ring(safeRetire), retireAt: safeRetire, oldSecret: oldSecret, attacker: attacker})
 	if err != nil {
-		fmt.Fprintln(errw, "grantdrill: the safe run could not complete")
+		_, _ = fmt.Fprintln(errw, "grantdrill: the safe run could not complete")
 		return exitCannot
 	}
 	control, err := run(plan{ring: m.ring(overlap), retireAt: overlap, oldSecret: oldSecret, attacker: attacker})
 	if err != nil {
-		fmt.Fprintln(errw, "grantdrill: the control run could not complete")
+		_, _ = fmt.Fprintln(errw, "grantdrill: the control run could not complete")
 		return exitCannot
 	}
-	fmt.Fprintln(out, "grantdrill: SYNTHETIC keys and simulated time")
-	fmt.Fprintf(out, "safe rule (old key retired after its last grant expired): grants %d (old key %d, new key %d); checks %d; valid grants rejected %d; forgeries tried %d; forgeries accepted %d\n",
+	_, _ = fmt.Fprintln(out, "grantdrill: SYNTHETIC keys and simulated time")
+	_, _ = fmt.Fprintf(out, "safe rule (old key retired after its last grant expired): grants %d (old key %d, new key %d); checks %d; valid grants rejected %d; forgeries tried %d; forgeries accepted %d\n",
 		safe.issued, safe.signedOld, safe.signedNew, safe.checks, safe.rejectedValid, safe.tried, safe.forgedAccepted)
-	fmt.Fprintf(out, "control (old key retired the moment the new one joined): valid grants rejected %d (must be above 0)\n", control.rejectedValid)
+	_, _ = fmt.Fprintf(out, "control (old key retired the moment the new one joined): valid grants rejected %d (must be above 0)\n", control.rejectedValid)
 	problems := safe.failures()
 	if control.rejectedValid == 0 {
 		problems = append(problems, "the control rejected nothing: the drill cannot detect the operator mistake")
 	}
 	for _, p := range problems {
-		fmt.Fprintln(out, "FAIL:", p)
+		_, _ = fmt.Fprintln(out, "FAIL:", p)
 	}
 	if len(problems) != 0 {
 		return exitFailed
 	}
-	fmt.Fprintln(out, "PASS: 0 valid grants rejected, 0 forged grants accepted")
+	_, _ = fmt.Fprintln(out, "PASS: 0 valid grants rejected, 0 forged grants accepted")
 	return exitPass
 }

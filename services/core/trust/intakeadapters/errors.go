@@ -14,6 +14,9 @@ var (
 	ErrNoDocument = errors.New("intakeadapters: a published policy version has no document")
 	// ErrPublications marks a history of publications that cannot be put in order in time (two versions with one time, or a newer version with an earlier time).
 	ErrPublications = errors.New("intakeadapters: the publication history is not usable")
+	// ErrDrift marks a published policy version whose stored document hash is missing (a row from before the hash existed) or is not the hash of the document the pack carries for that
+	// version: what is in force cannot be shown to be what the pack evaluates, so nothing is evaluated (A413; INV-09, INV-21).
+	ErrDrift = errors.New("intakeadapters: the published policy document is not the one the pack carries")
 	// ErrFacts marks facts the policy cannot be evaluated over: a fact the rules read is missing, undeclared or of another type. An absence is never a negative fact (INV-19).
 	ErrFacts = errors.New("intakeadapters: the facts are not usable")
 	// ErrAnchor marks an anchor time that is not a time (zero or negative) for an event the source says happened.

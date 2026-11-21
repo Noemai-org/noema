@@ -89,7 +89,7 @@ func (s *Store) Save(ctx context.Context, actor string, a Admitted) (Ref, error)
 		return Ref{}, fmt.Errorf("%sbegin: %w", prefix, err)
 	}
 	fail := func(err error) (Ref, error) {
-		rb, stop := context.WithTimeout(context.Background(), s.Timeout)
+		rb, stop := context.WithTimeout(context.WithoutCancel(ctx), s.Timeout)
 		defer stop()
 		_ = tx.Rollback(rb)
 		return Ref{}, err

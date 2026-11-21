@@ -35,3 +35,6 @@ Run against `test_pool.py` (bench) and `test_compile_acceptance_pool.py` with `t
 # Session 2026-11-20 · UND-16 · the fan-out reader and noema#792 (Integration Lead)
 - `main`'s `benchmark` job went red after noema#792: `run_pipeline` gained a second `asyncio.gather` (the candidates' screening, one awaitable), and `test_pool.py` required exactly one. The reader now takes the widest gather (still 5), refuses a starred gather and a pipeline with none, and counts created tasks as before. Four unit cases on synthetic source were written first and failed.
 - Not changed: the pool size (6) and the rest of C2's test.
+
+# Session 2026-11-20 (later) · UND-16 · the fan-out is the sum of all gathers (Integration Lead)
+- A480 (noema#832 follow-up): `fan_out_of` sums the calls every `asyncio.gather` of `run_pipeline` starts (a bare-name argument is an existing task or coroutine, not a new call) and takes the larger of that and the tasks `create_task` makes. The real pipeline's is 5 against a pool of 6 (unchanged). A synthetic pipeline of two gathers (three and two calls) is 5, not the widest 3; that case failed first.

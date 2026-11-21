@@ -32,4 +32,4 @@ The Trust intake's Reconciler (T10), package `reconcilerport` (TRU-07; ruling A3
 
 **Pack data.** `Pack` gives the escalation reason of a classification and the capabilities allowed under a freeze. The pack does not carry them in a loadable form yet, so the composition (`wire_trust.go`) supplies them.
 
-**Tests.** From `services/core/`: `go test -race -skip TestDB ./orchestrator/portadapters/trust/reconciler/` needs no database. `TestDB*` need `NOEMA_TEST_DATABASE_URL` (CI). Written first; the mutants that were killed are in `status/TRU-07-reconciler.md`.
+**Tests.** From `services/core/`: `go test -race -skip TestDB ./orchestrator/portadapters/trust/reconciler/` needs no database. `TestDB*` need `NOEMA_TEST_DATABASE_URL` (CI). Written first; the mutants that were killed are in `status/TRU-07-reconciler.md`. `readers_agree_db_test.go` (DEBT-52) seals one snapshot and reads it through this Store and through the Evidence adapter's `SealedSnapshots`, and asserts that they agree; its mutants are in `status/TRU-07-readers.md`.

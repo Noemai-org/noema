@@ -1,0 +1,7 @@
+{
+  "investigation_id": "inv_01234567890123456789ABCDEF",
+  "conversation_ref": "inv_01234567890123456789ABCDEF",
+  "state": "understanding",
+  "stream_url": "/v1/conversations/inv_01234567890123456789ABCDEF/events",
+  "correlation_id": "corr_01234567890123456789ABCDEF"
+}

@@ -73,7 +73,11 @@ func New(o Options) (*Server, error) {
 			return nil, &MissingUpstreamError{name}
 		}
 	}
-	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, reqlog: newRequestLog(o.RequestLogLimit), stale: newStale(), held: newHeld()}, nil
+	reqlog, err := newRequestLog(o.RequestLogLimit)
+	if err != nil {
+		return nil, err
+	}
+	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, reqlog: reqlog, stale: newStale(), held: newHeld()}, nil
 }
 
 // MissingUpstreamError says a route names an upstream with no URL.
