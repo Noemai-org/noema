@@ -34,9 +34,11 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
+	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/platform/packload"
+	"github.com/Noemai-org/noema/services/core/record/admission"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile/mapping"
 	"github.com/Noemai-org/noema/services/core/understanding"
 	"github.com/Noemai-org/noema/services/core/understanding/interpreter"
@@ -251,9 +253,16 @@ func undFakeRecorder(t *testing.T, tenants ...string) *orchestratorRecorder {
 	return rec
 }
 
+// undAdmissions answers no lookup: the builder tests never run a turn.
+type undAdmissions struct{}
+
+func (undAdmissions) Lookup(context.Context, orchestrator.Session, string) (orchestrator.Admission, error) {
+	return orchestrator.Admission{}, errors.New("no admission")
+}
+
 func buildUnd(t *testing.T, e envMap, rec *orchestratorRecorder) (UnderstandingParts, error) {
 	t.Helper()
-	return buildUnderstanding(Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, clock.NewManual(apiEpoch), rec)
+	return buildUnderstanding(Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, clock.NewManual(apiEpoch), rec, undAdmissions{})
 }
 
 func wantNone(t *testing.T, what string, p UnderstandingParts) {
@@ -556,7 +565,7 @@ func newUndWorld(t *testing.T, more envMap) *undWorld {
 	rec, closeRec, err := buildRecorder(t.Context(), env, clk, ids.New(clk, nil), records)
 	must(t, err)
 	t.Cleanup(func() { closeRec(); closeRecords() })
-	parts, err := buildUnderstanding(env, clk, rec)
+	parts, err := buildUnderstanding(env, clk, rec, admissionsport.Port{Reader: &admission.Reader{DBs: records}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,12 +824,12 @@ func TestAModelServiceFromAnotherCAIsNeverCalled(t *testing.T) {
 func TestAnEmptyRecorderOrNoClockBuildsNothing(t *testing.T) {
 	m := newModelStub(t)
 	env := Env{Getenv: undSettings(copyPack(t), m).get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
-	p, err := buildUnderstanding(env, clock.NewManual(apiEpoch), &orchestratorRecorder{stores: map[string]*investigations.Store{}})
+	p, err := buildUnderstanding(env, clock.NewManual(apiEpoch), &orchestratorRecorder{stores: map[string]*investigations.Store{}}, undAdmissions{})
 	if err == nil {
 		t.Error("a recorder with no tenant login was accepted")
 	}
 	wantNone(t, "an empty recorder", p)
-	p, err = buildUnderstanding(env, nil, undFakeRecorder(t, "ten_aa"))
+	p, err = buildUnderstanding(env, nil, undFakeRecorder(t, "ten_aa"), undAdmissions{})
 	if err == nil || !strings.Contains(err.Error(), "clock") {
 		t.Errorf("no clock: got %v; want a refusal that names the clock", err)
 	}
@@ -951,4 +960,15 @@ func TestAnEmptySessionIsNotTheAbsenceOfOne(t *testing.T) {
 	if _, err := s.Resolve(t.Context(), orchestrator.Session{}); !errors.Is(err, ErrSessionUnavailable) {
 		t.Errorf("got %v; want ErrSessionUnavailable", err)
 	}
+}
+
+// UND-17, A219: the Interpreter port confirms each turn's recorded input, so a build with no admissions is refused and nothing is built.
+func TestNoAdmissionsBuildsNothing(t *testing.T) {
+	m := newModelStub(t)
+	env := Env{Getenv: undSettings(copyPack(t), m).get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
+	p, err := buildUnderstanding(env, clock.NewManual(apiEpoch), undFakeRecorder(t, "ten_aa"), nil)
+	if err == nil || !strings.Contains(err.Error(), "admissions") {
+		t.Errorf("no admissions: got %v; want a refusal that names them", err)
+	}
+	wantNone(t, "no admissions", p)
 }
