@@ -294,8 +294,20 @@ def none_option_collisions(doc) -> list[str]:
 
 
 def conversation_response_mismatches(doc) -> list[str]:
-    """SCAFFOLD (A479): names only, no behaviour yet."""
-    return []
+    """The members of a conversation-response that disagree with its investigation_id (A479, the follow-up of noema#815); empty when they all agree.
+
+    The schema states each member alone. These relations it cannot state: conversation_ref is the same value as investigation_id; stream_url is
+    `/v1/conversations/<investigation_id>/events`; correlation_id is `corr_` and the ULID of investigation_id. A document that is not an object, whose
+    investigation_id is not `inv_` and a string, or that lacks a member, is a mismatch and never a crash. The core's writer holds the same relations
+    (services/core/cmd/core/conversations.go, `checkAnswer`) against the same fixtures.
+    """
+    if not isinstance(doc, dict):
+        return ["document"]
+    inv = doc.get("investigation_id")
+    if not isinstance(inv, str) or not inv.startswith("inv_"):
+        return ["investigation_id"]
+    wanted = {"conversation_ref": inv, "stream_url": f"/v1/conversations/{inv}/events", "correlation_id": "corr_" + inv.removeprefix("inv_")}
+    return [member for member, value in wanted.items() if doc.get(member) != value]
 
 
 def keywords(error) -> set[str]:

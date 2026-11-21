@@ -65,8 +65,28 @@ func conversationAnswer(correlationID string) (map[string]any, error) {
 	}, nil
 }
 
-// checkAnswer is the writer's own check of the relations the schema cannot state (A479; the validator's check is tools/contracts/validate.py). SCAFFOLD: names only, no behaviour yet.
-func checkAnswer(map[string]any) error { return nil }
+// errAnswerInconsistent is the refusal of checkAnswer. Its text names no member and no value (AGENT-13, A347).
+var errAnswerInconsistent = errors.New("cmd/core: the answer's members do not name one investigation")
+
+// checkAnswer is the writer's own check of the relations the schema cannot state (A479; the validator's check is tools/contracts/validate.py, on the same fixtures): conversation_ref is the
+// value of investigation_id, stream_url is the events route of it, and correlation_id is corr_ and its ULID. An answer that is not made of these five strings is refused.
+func checkAnswer(a map[string]any) error {
+	text := func(member string) (string, bool) { v, ok := a[member].(string); return v, ok }
+	id, ok := text("investigation_id")
+	if !ok || !strings.HasPrefix(id, "inv_") {
+		return errAnswerInconsistent
+	}
+	for member, want := range map[string]string{
+		"conversation_ref": id,
+		"stream_url":       "/v1/conversations/" + id + "/events",
+		"correlation_id":   "corr_" + strings.TrimPrefix(id, "inv_"),
+	} {
+		if got, ok := text(member); !ok || got != want {
+			return errAnswerInconsistent
+		}
+	}
+	return nil
+}
 
 func startConversationWith(inner http.Handler, derive answerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
