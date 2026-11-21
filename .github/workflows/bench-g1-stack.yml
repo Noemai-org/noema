@@ -183,6 +183,43 @@ jobs:
             --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
             --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" >> benchmark/out/joblog/evidence.log 2>&1
           echo "probes=$?" >> "$GITHUB_OUTPUT"
+      # A476 (docs#213, corrected by A502): the recovery trigger is a restart of the core container. The core runs one recovery sweep at startup (and a ticker repeats it). After the cases finish
+      # and the evidence is written, the stack job restarts the core; the re-read phases of BO's `reread` (noema#854) then wait for /readyz 200 and read each case's reconstruction through the audit-only
+      # route as an audit session of the run's own IdP (a random usr_ principal with the audit role: nothing is seeded, A502; the oracle is never used). `after_replay` is a second read whose bytes must equal
+      # the first: a re-read of the Record, not a replay (INV-21 is not claimed from it). Full mode only; each exits 0 or the Result step fails the run. The wait bound is a run setting, not a safety threshold.
+      - id: restart
+        name: Restart the core, the recovery trigger (A476)
+        if: always() && inputs.mode == 'full'
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/joblog
+          $compose restart core >> benchmark/out/joblog/restart.log 2>&1
+          echo "restart=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+      - id: recovery
+        name: Re-read every case's reconstruction after the restart (after_recovery, A476)
+        if: always() && inputs.mode == 'full' && steps.restart.outputs.restart == '0'
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/joblog
+          $compose exec -T bench-runner python -m benchmark.runner.reread --run /bench-out/run --phase after_recovery --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core --tenant-id ten_alpha --readyz-url http://core:8080/readyz --ready-timeout-s 120 >> benchmark/out/joblog/reread.log 2>&1
+          echo "recovery=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+      - id: replay
+        name: Read again and compare the bytes with the first read (after_replay, A476)
+        if: always() && inputs.mode == 'full' && steps.recovery.outputs.recovery == '0'
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/joblog
+          $compose exec -T bench-runner python -m benchmark.runner.reread --run /bench-out/run --phase after_replay --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core --tenant-id ten_alpha --readyz-url http://core:8080/readyz --ready-timeout-s 120 >> benchmark/out/joblog/reread.log 2>&1
+          echo "replay=$?" >> "$GITHUB_OUTPUT"
+          exit 0
       # BO's package inputs (A444, noema#821): the run directory gets stamp.json and mock-case-writes.json (each case's writes, from the runner's own results; a case that cannot be counted has no entry,
       # never a zero), and the probes file is stamped. It runs before the leak scan, so what it writes is scanned and uploaded. 0 all counted, 1 a case uncounted (the rest written), 2 unusable input.
       - id: package
@@ -344,6 +381,9 @@ jobs:
           READYZ: ${{ steps.run.outputs.readyz }}
           NETCHECK: ${{ steps.run.outputs.netcheck }}
           PACKAGE: ${{ steps.package.outputs.package }}
+          RESTART: ${{ steps.restart.outputs.restart }}
+          RECOVERY: ${{ steps.recovery.outputs.recovery }}
+          REPLAY: ${{ steps.replay.outputs.replay }}
           # Owner: IL (G1 stack workflow, noema#436). A445 allows this interim report; the final composition PR (EL) flips it to "true" and is the only thing that should (A445: reported now, required after it merges).
           # A445: reported now; the final composition PR flips this to "true", and then a stack-check whose core does not answer /readyz 200, or whose netcheck fails, fails.
           READINESS_REQUIRED: "false"
@@ -364,6 +404,9 @@ jobs:
             echo "STACK-CHECK only: not evidence for G1."
             exit "$fail"
           fi
+          [ "${RESTART:-missing}" = 0 ] || { echo "::error::The core could not be restarted (exit ${RESTART:-missing}): the recovery phase did not run."; fail=1; }
+          [ "${RECOVERY:-missing}" = 0 ] || { echo "::error::The after_recovery re-read did not pass (exit ${RECOVERY:-missing}; 3 is NOT RUN, 1 a differing read)."; fail=1; }
+          [ "${REPLAY:-missing}" = 0 ] || { echo "::error::The after_replay re-read did not pass (exit ${REPLAY:-missing}; 1 is a read whose bytes differ from the first)."; fail=1; }
           [ "${PACKAGE:-missing}" = 0 ] || { echo "::error::The package inputs were not all produced (exit ${PACKAGE:-missing}; 1 is a case whose writes could not be counted, 2 is an unusable input)."; fail=1; }
           [ "${RECORD_ACCESSED:-missing}" = 0 ] || { echo "::error::SR condition 1 not met: the RECORD_ACCESSED count (exit ${RECORD_ACCESSED:-missing})."; fail=1; }
           [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: a service's log could not be collected, so the scan did not see it (collected=${COLLECTED:-missing})."; fail=1; }
