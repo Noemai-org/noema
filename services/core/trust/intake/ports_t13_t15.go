@@ -133,6 +133,10 @@ type RecordRequest struct {
 	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on (A470); optional, and empty for every other decision. The Recorder's writer
 	// shape-checks it and refuses any other outcome that names one.
 	DeclinedRequestID string
+	// DispositionDecisionID is the ESCALATE disposition (a decision with no step and no grant, recorded first through the Recorder) that an escalation action decision links (A503;
+	// PERD 23.1, REQ-TRU-010); optional, and empty for every decision this intake records itself: the escalation path records the disposition and passes its ID. The Recorder's writer
+	// keeps its rule that a decision with escalation-set steps names one (ErrDispositionRequired) and that it is an existing same-tenant ESCALATE decision (ErrDispositionNotValid).
+	DispositionDecisionID string
 	// ConfirmationRequest is set only on a CONFIRM decision that creates the confirmation request (T13, Pending with a NewRequest): the eight bound values, the approver
 	// requirement, the requester and the expiry. The Recorder mints the request ID and computes the binding hash itself (SoT 43.2a); a CONFIRM that names an already open
 	// request carries none, and so does every other decision.

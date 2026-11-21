@@ -69,3 +69,18 @@ A write outside the escalation plan can no longer be recorded with grants throug
 ## Pre-work for the next agent
 - Exact next step: the Architect rules whether the intake's ALLOW with steps needs a disposition (A319's wording is for the per-step "action decision" of an escalation), or the rule is limited to the escalation's action decisions; then the adapter tests and this rule agree.
 - Do not touch: `orchestrator/portadapters/trust/recorder_test.go` to name a disposition before that ruling.
+
+# Session 2026-11-21 17:05 WAT · TRU-10 (A503: the Writer rule stays; DispositionDecisionID on the intake's RecordRequest)
+
+## Session summary
+- What changed (PR links): noema#733. Ruling A503 (interim, `DEC-2026-11-21-architect-rulings-a502-a506`) settles the CONFLICT block: PERD 23.1 and REQ-TRU-010 make an ESCALATE disposition its own Trust decision and each escalation write step its own action decision that references it, so the Writer's rule stays (a decision with escalation-set steps must link a disposition). The production path changes instead: `intake.RecordRequest` gains an optional `DispositionDecisionID`, which EL's escalation path fills after recording the ESCALATE disposition (no step, no grant) through the Recorder (A470). The intake itself records no escalation action decision, so it leaves the field empty.
+- Contract check (A503, "C1 confirms"): `disposition_decision_id` is already in `decision-record.v1.json` and `v2` (an optional `common.v1` DecisionId), in the generated types and in migration 0012 (the column, the form check and the same-tenant ESCALATE foreign key). No minor bump and no migration note are needed.
+- The real-writer e2e tests (`adapters/outcome_e2e/real_grant_test.go`) are main's again: they no longer seed a disposition (A503: not until the production path records one). **Two of them fail on this PR for that reason** (`TestAGrantTheRealWriterIssuedIsLoadedVerifiedAndExecutedByExecution`, `TestARetryOfTheSameInputReturnsTheStoredGrantStillSigned`: "a decision that issues grants must name its escalation disposition"). That is the rule working, not a defect; this PR cannot be green or merge until the escalation path records a disposition and those tests use it.
+- Tests added (REQ-TRU-010; INV-25): `trust/intake/disposition_decision_id_test.go` (the field exists, is a string, is empty by default, and an ALLOW, a CONFIRM and a REJECT the intake records leave it empty). RED was pushed alone (`628e0c65`).
+- Regression cases added: the same. Debt entries: none. Conflicts raised: the CONFLICT block is settled by A503.
+
+## Pre-work for the next agent
+- Exact next step: EL's escalation path records the ESCALATE disposition through the Recorder first, then passes its ID in `DispositionDecisionID` on each escalation action decision; then the e2e tests get their disposition from that path (never an INSERT) and this PR goes green. BO's expected Record events for US-06 list the disposition decision first (A503).
+- Open questions (owner): the disposition's intent is not compared with the action decision's (still open, Architect); how the write outside the escalation plan (`fin.cap.log_complaint_reference`, `g3_complaint.json`) is recorded (Architect).
+- Files to read first: `trust/recorder/recorder.go` (`ErrDispositionRequired`), `trust/intake/ports_t13_t15.go`, `adapters/outcome_e2e/real_grant_test.go`.
+- Do not touch: `services/core/migrations/` (0012 already has the column).
