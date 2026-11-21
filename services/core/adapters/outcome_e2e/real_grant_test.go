@@ -8,7 +8,6 @@ package outcomee2e_test
 
 import (
 	"encoding/json"
-	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"math/rand"
 	"testing"
 	"time"
@@ -54,16 +53,8 @@ func newRealGrantWorld(t *testing.T) *realGrantWorld {
 		t.Fatal(err)
 	}
 	s.ctl.Keys = crypto.NewKeyRing(map[string][]byte{realGrantKeyID: secret})
-	// A decision that issues grants names its ESCALATE disposition and every step is a capability of the escalation plan (A317 to A328): this step is the escalation plan's create-case
-	// write, and the disposition is a SYNTHETIC ESCALATE decision of the tenant, inserted directly (no Record event, no grant).
-	const disposition = "dec_REALGRANTDISP"
-	if _, err := s.admin.Exec(bg(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		VALUES ($1, $2, jsonb_set($3::jsonb, '{outcome}', '"ESCALATE"'), 'ESCALATE', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
-		disposition, tenant, testpg.DecisionDocJSON(disposition, tenant, testpg.FixtureIntentHash, testpg.FixturePolicyVersion, correlation)); err != nil {
-		t.Fatal(err)
-	}
 	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: &chain.Appender{Clock: s.clk, IDs: gen, Signers: recordsig.Local("outcome-e2e", nil, "core-trust")}, Clock: s.clk, IDs: gen,
-		RecordLifetime: time.Hour, Escalation: recorder.NewEscalationSet(bridge.CapCreateEscalationCase)}
+		RecordLifetime: time.Hour}
 
 	now := s.clk.Now().Unix()
 	bb, err := decide.NewBasisBuilder("fintech@1.0", now)
@@ -102,7 +93,7 @@ func newRealGrantWorld(t *testing.T) *realGrantWorld {
 		EvidenceSetHash: contracts.CommonV1Hash(hash(2)), PlanHash: contracts.CommonV1Hash(hash(3)), PlanStep: 1, Permission: perm}
 	rw := &realGrantWorld{stack: s, w: w, steps: []grants.Step{step}}
 	rw.req = recorder.Request{TenantID: tenant, CorrelationID: correlation, IntentID: "int_realgrant", IntentHash: contracts.CommonV1Hash(hash(1)), PolicyID: policyScope, Decision: d,
-		Evaluated: bb, Steps: rw.steps, DispositionDecisionID: disposition}
+		Evaluated: bb, Steps: rw.steps}
 	rw.plan = controller.PlanStep{PlanHash: hash(3), Step: 1, CapabilityID: bridge.CapCreateEscalationCase, Registered: true, AdapterExists: true, Params: params,
 		KeyFields: controller.KeyFields{TransactionID: txRef, LogicalAction: "ESCALATE_CASE", ReasonCode: reasonCode, PolicyScope: policyScope, LogicalResolutionEpoch: "1"}, TimeoutMS: dispatchMS}
 	return rw
