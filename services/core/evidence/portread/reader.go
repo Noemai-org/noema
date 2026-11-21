@@ -56,6 +56,13 @@ type Reader struct {
 	// own provenance label instead.
 	DataSource string
 	Synthetic  bool
+
+	// The case lists (ReadCases only; ReadTransaction does not use them). Cases and CaseRecords are the stand-in's ports; CaseSources the pack's descriptors;
+	// MaxPayloadBytes the size limit of one list payload, from configuration: zero refuses ReadCases (no default, AGENT-16).
+	Cases           adapters.Case
+	CaseRecords     adapters.CaseRecords
+	CaseSources     CaseSources
+	MaxPayloadBytes int
 }
 
 func (s Source) check() error {

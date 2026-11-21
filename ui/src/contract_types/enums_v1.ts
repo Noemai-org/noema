@@ -38,6 +38,13 @@ export function parseEnumsV1FactStatus(v: unknown, p: string = "$"): EnumsV1Fact
   return oneOfLit(v, p, ["KNOWN", "INFERRED", "AMBIGUOUS", "UNAVAILABLE", "STALE", "CONTRADICTORY", "UNKNOWN", "UNAUTHORIZED"] as const);
 }
 
+/** EnumsV1TransactionClassification, generated from enums.v1.json#$defs/TransactionClassification. The derived state classification of a transaction (PERD v1.18 state table): a closed list of twelve. It is not an Execution Receipt state (ExecutionState): EXECUTION_OUTCOME_UNKNOWN is a classification, OUTCOME_UNKNOW... */
+export type EnumsV1TransactionClassification = "SUCCESS_CONFIRMED" | "REJECTED_CONFIRMED" | "DEBIT_POSTED_CREDIT_UNCONFIRMED" | "SETTLEMENT_PENDING" | "REVERSAL_PENDING" | "REVERSED_CONFIRMED" | "POSSIBLE_DUPLICATE" | "PARTIAL" | "EXECUTION_OUTCOME_UNKNOWN" | "CONTRADICTORY_STATE" | "EVENT_ORDER_UNCERTAIN" | "INSUFFICIENT_EVIDENCE";
+
+export function parseEnumsV1TransactionClassification(v: unknown, p: string = "$"): EnumsV1TransactionClassification {
+  return oneOfLit(v, p, ["SUCCESS_CONFIRMED", "REJECTED_CONFIRMED", "DEBIT_POSTED_CREDIT_UNCONFIRMED", "SETTLEMENT_PENDING", "REVERSAL_PENDING", "REVERSED_CONFIRMED", "POSSIBLE_DUPLICATE", "PARTIAL", "EXECUTION_OUTCOME_UNKNOWN", "CONTRADICTORY_STATE", "EVENT_ORDER_UNCERTAIN", "INSUFFICIENT_EVIDENCE"] as const);
+}
+
 /** EnumsV1Verdict, generated from enums.v1.json#$defs/Verdict. Outcome Verdict (SoT §43.4). Anything except ACHIEVED creates a RecoveryRequest to Trust. */
 export type EnumsV1Verdict = "ACHIEVED" | "NOT_ACHIEVED" | "PARTIALLY_ACHIEVED" | "PENDING_EXTERNAL" | "UNKNOWN" | "COMPENSATED";
 

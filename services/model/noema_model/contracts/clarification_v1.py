@@ -20,7 +20,7 @@ class ClarificationV1OptionsItem(ContractModel):
     """ClarificationV1OptionsItem Source: clarification.v1.json#/properties/options/items"""
 
     model_config = ConfigDict(extra="forbid")
-    option_id: Annotated[str, StringConstraints(pattern='\\A[a-z0-9_]{1,32}\\Z')]
+    option_id: Annotated[str, StringConstraints(pattern='\\A(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}\\Z')]
     label: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', min_length=1, max_length=160)]
 
 
@@ -35,6 +35,7 @@ class ClarificationV1(ContractModel):
     question_key: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')]
     options: Annotated[list[ClarificationV1OptionsItem], Field(max_length=4)]
     allow_none: Literal[True]
+    none_option_id: Annotated[str, StringConstraints(pattern='\\A(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}\\Z')]
     expires_at: CommonV1Timestamp
     round: Annotated[int, Field(ge=1, le=2)]
     mode: ClarificationV1Mode | None = Field(default=None)
