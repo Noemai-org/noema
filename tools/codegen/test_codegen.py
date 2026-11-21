@@ -274,14 +274,14 @@ class TypeScriptOutput(unittest.TestCase):
         self.assertTrue({"errors_v3", "customer_answer_v1", "overlay_card_v1", "investigation_response_v1", "message_request_v1", "conversation_response_v1", "sse_event_v1"} <= names)
         self.assertFalse(names & {"reconstruction_v3", "record_event_v3", "operator"}, names)
         parsers = set(re.findall(r'^  "([^"]+)": parse', files[base + "customer.ts"], re.M))
-        self.assertEqual(parsers, {"conversation-response.v1", "customer-answer.v1", "errors.v3", "investigation-response.v1", "message-request.v1", "overlay-card.v1", "sse-event.v1"})
+        self.assertEqual(parsers, {"confirmation-answer.v1", "conversation-response.v1", "customer-answer.v1", "errors.v3", "investigation-response.v1", "message-request.v1", "overlay-card.v1", "sse-event.v1"})  # A433: a customer answers a SELF confirmation
 
     def test_the_front_end_bundle_holds_only_what_a_root_reaches(self):
         # REQ-UI-001, INV-02 (the Security Reviewer's note 3 on noema#615): enums.v1 holds the core reason codes, and no root uses them; a shared contract file the UI reads only in part
         # must not put the unused definitions (the internal reason-code names) into the client bundle. Every parser the TypeScript holds is a root's or is called by another parser.
         files = generate.render_all(generate.load_schemas())
-        entries = (f"{generate.TS_DIR}/operator.ts", f"{generate.TS_DIR}/benchmark.ts")
-        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "customer.ts", "operator.ts", "benchmark.ts"))}
+        entries = (f"{generate.TS_DIR}/operator.ts", f"{generate.TS_DIR}/benchmark.ts", f"{generate.TS_DIR}/approver.ts")
+        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "customer.ts", "operator.ts", "benchmark.ts", "approver.ts"))}
         defined = {m: f for f, text in ts.items() for m in re.findall(r"^export function (parse\w+)\(", text, re.M)}
         roots = {"parse" + m for f, text in files.items() if f in entries for m in re.findall(r"import \{ parse(\w+) \}", text)}
         every = "\n".join(ts.values())
@@ -373,6 +373,45 @@ class TypeScriptOutput(unittest.TestCase):
         for m in modules:
             for imported in re.findall(r'from "\./([\w.]+)"', files[base + m + ".ts"]):
                 self.assertIn(imported, {"_runtime.js", "scorecard_view_v1.js"}, f"{m} imports {imported}")
+
+    # -- the approver entry point (noema#760, after #758; REQ-UI-001, REQ-TRU-009, INV-12, INV-25, A258) ------------------------------------------------------
+    def test_ts_json_names_exactly_four_audiences_and_the_approver_one_holds_the_confirmation_answer_only(self):
+        # noema#760: confirmation-answer.v1 (the closed {request_id, response} body an approver sends) gets its own audience, `approver`, as the scorecard view has `benchmark`. A433: a
+        # customer may answer a SELF confirmation, so the customer entry point exports it too; no customer page imports the approver entry. The approver list is that one schema: an
+        # operator or a customer contract listed under it would put that contract on the approver's path. The benchmark list never holds it.
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(cfg), ["approver", "benchmark", "comment", "customer", "operator"])
+        self.assertEqual(cfg["approver"], ["confirmation-answer.v1.json"])
+        self.assertIn("confirmation-answer.v1.json", cfg["customer"], "A433: a customer SELF confirmation uses the customer entry point")
+        self.assertNotIn("confirmation-answer.v1.json", cfg["benchmark"])
+
+    def test_the_approver_entry_point_reaches_that_schema_and_the_shared_definitions_only(self):
+        files = generate.render_all(generate.load_schemas())
+        base = f"{generate.TS_DIR}/"
+        self.assertTrue(base + "approver.ts" in files, "no approver entry point")
+        self.assertTrue(base + "confirmation_answer_v1.ts" in files, "no confirmation-answer module")
+        self.assertEqual(set(re.findall(r'^  "([^"]+)": parse', files[base + "approver.ts"], re.M)), {"confirmation-answer.v1"})
+        # the answer, the runtime and the two shared definition files it refers to (common.v1: the request id; enums.v1: the response): no entry point, no contract of another audience
+        self.assertEqual(self._closure(files, "approver"), {"approver", "confirmation_answer_v1", "common_v1", "enums_v1", "_runtime"})
+
+    def test_the_customer_entry_exports_the_answer_and_no_entry_point_reaches_the_approver_one(self):
+        # A433: the customer entry point exports confirmation-answer.v1 (a customer answers a SELF confirmation); no customer page imports the approver entry, so no entry point other than
+        # approver.ts reaches the approver entry; the benchmark entry reaches neither the answer nor the approver one.
+        files = generate.render_all(generate.load_schemas())
+        self.assertTrue(f"{generate.TS_DIR}/approver.ts" in files, "no approver entry point")
+        approver = self._closure(files, "approver")
+        others = {e: self._closure(files, e) for e in ("customer", "operator", "benchmark")}
+        for e, reached in others.items():
+            self.assertNotIn("approver", reached, f"{e} reaches the approver entry point: {reached}")
+        self.assertIn("confirmation_answer_v1", others["customer"], "A433: the customer entry point exports the answer")
+        self.assertIn("confirmation_answer_v1", others["operator"], "the operator entry point holds the customer set")
+        self.assertNotIn("confirmation_answer_v1", others["benchmark"])
+        self.assertEqual(set(re.findall(r'^  "([^"]+)": parse', files[f"{generate.TS_DIR}/customer.ts"], re.M)) & {"confirmation-answer.v1"}, {"confirmation-answer.v1"})
+        # what the approver shares with the customer is the answer, the runtime and the two shared definition files, nothing that is a contract of another audience
+        self.assertEqual(approver & others["customer"], {"_runtime", "common_v1", "enums_v1", "confirmation_answer_v1"})
+        self.assertFalse(approver & {"customer", "operator", "benchmark", "reconstruction_v3", "record_event_v3", "confirmation_request_v1", "noema_resolution_v1", "customer_answer_v1", "errors_v2", "errors_v3",
+                                    "overlay_card_v1", "sse_event_v1", "scorecard_view_v1"}, approver)
+        self.assertEqual(approver & others["benchmark"], {"_runtime", "common_v1", "enums_v1"} & others["benchmark"])
 
     def test_a_union_names_its_type_so_that_the_alternatives_do_not_have_to_agree_by_inference(self):
         # REQ-UI-001: the four public contracts (noema#521) hold a oneOf of different object shapes. `union(v, p, [a, b])` lets TypeScript infer T from the first

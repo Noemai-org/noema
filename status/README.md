@@ -11,6 +11,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 - `CON-07-conversation-response.md` (Claude, 20 Nov 2026): the new contract `conversation-response.v1` (the success answer of `POST /v1/conversations`, rulings A234 and A446), its session and the open questions.
 - `CON-08.md` (Core Engineer 1, 18 Nov 2026): the new contract `message-request.v1` (the body of a customer's message; "None of these" as `option_id`, ruling A275), its session and the three readings for the Architect.
 - `CON-03-scorecard-ts.md` (Core Engineer 1, 17 Nov 2026): the benchmark-only TypeScript entry point for `scorecard-view.v1` (noema#677), its session and its message.
+- `UI-approver-entry.md` (helper session of Core Engineer 1, 19 Nov 2026): the approver-only TypeScript entry point for `confirmation-answer.v1` (noema#760), its isolation tests and the route and role boundary as the specs state them.
 - `REC-kill-switch-events.md` (helper session of Core Engineer 1, 19 Nov 2026): `KILL_SWITCH_CLEARED` and `KILL_SWITCH_CLEAR_REFUSED` as `SECURITY_EVENT` kinds of record-event.v3 (PERD §32.2, A114), and the conflict with the relayed wording (event types).
 - `REC-03.md` (Core Engineer 1, 1 Nov 2026): the reconstruction endpoint, its session and its messages.
 - One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
