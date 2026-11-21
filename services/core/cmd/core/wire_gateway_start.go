@@ -57,7 +57,7 @@ type turnRunner interface {
 
 // investigationStarter is the investigation store of one tenant (investigations.Store).
 type investigationStarter interface {
-	Start(ctx context.Context, sess orchestrator.Session, r investigations.StartRequest) (orchestrator.Investigation, bool, error)
+	Start(ctx context.Context, sess orchestrator.Session, authnRef string, r investigations.StartRequest) (orchestrator.Investigation, bool, error)
 }
 
 // startStores gives the starter of one tenant, or an error: never another tenant's (INV-12).
@@ -211,9 +211,11 @@ func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
 		return err
 	}
 	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.PrincipalID, Role: string(session.RoleCustomer)}
+	// t.SessionID is the authenticated session's reference, put on the identity by the edge's session middleware (gatewayIdentity): the store writes it with the role as the investigation's
+	// recorded session (A441, INV-12). It is never read from the request body.
 	sctx, cancel := context.WithTimeout(ctx, s.cfg.Start)
 	defer cancel()
-	inv, _, err := store.Start(sctx, sess, investigations.StartRequest{InvestigationID: invID, CorrelationID: t.CorrelationID, InputReceivedRef: t.Input.EventID})
+	inv, _, err := store.Start(sctx, sess, t.SessionID, investigations.StartRequest{InvestigationID: invID, CorrelationID: t.CorrelationID, InputReceivedRef: t.Input.EventID})
 	if err != nil {
 		return fmt.Errorf("cmd/core: the investigation cannot be started: %w", err)
 	}
