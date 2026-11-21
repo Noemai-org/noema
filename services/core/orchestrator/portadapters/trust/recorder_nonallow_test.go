@@ -53,15 +53,15 @@ func rnaRequest(t *testing.T, outcome string, withRequest bool) intake.RecordReq
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := intake.RecordRequest{TenantID: recTenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_88213", IntentID: "int_01J9X3", IntentHash: recHash(10), IntentVersion: 2,
+	r := intake.RecordRequest{TenantID: recTenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_01J9X3ABCDEFGHJKMNPQRSTVWX", IntentID: "int_01J9X3", IntentHash: recHash(10), IntentVersion: 2,
 		Decision: d, Evaluated: b.Sealed(), BasisDigest: digest}
 	if withRequest {
 		composite, err := d.Basis().CompositePolicyVersion()
 		if err != nil {
 			t.Fatal(err)
 		}
-		r.ConfirmationRequest = &intake.NewConfirmationRequest{PrincipalID: "usr_88213", IntentHash: recHash(10), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(13),
-			ConfirmationBindingEvidenceHash: recHash(11), PlanHash: recHash(12), PolicyVersion: composite, Requirement: "SELF", RequesterID: "usr_88213", ExpiresAt: recEpoch.Unix() + 600}
+		r.ConfirmationRequest = &intake.NewConfirmationRequest{PrincipalID: "usr_01J9X3ABCDEFGHJKMNPQRSTVWX", IntentHash: recHash(10), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(13),
+			ConfirmationBindingEvidenceHash: recHash(11), PlanHash: recHash(12), PolicyVersion: composite, Requirement: "SELF", RequesterID: "usr_01J9X3ABCDEFGHJKMNPQRSTVWX", ExpiresAt: recEpoch.Unix() + 600}
 	}
 	return r
 }
