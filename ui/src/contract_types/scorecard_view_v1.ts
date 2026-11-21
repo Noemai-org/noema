@@ -108,10 +108,10 @@ export function parseScorecardViewV1Latency(v: unknown, p: string = "$"): Scorec
   const o = obj(v, p);
   closed(o, ["n", "p50_ms", "p95_ms", "p99_ms"], p);
   return {
-    n: int(req(o, "n", p), p + ".n", {minimum: 0}),
-    p50_ms: (req(o, "p50_ms", p) === null ? null : int(req(o, "p50_ms", p), p + ".p50_ms", {minimum: 0})),
-    p95_ms: (req(o, "p95_ms", p) === null ? null : int(req(o, "p95_ms", p), p + ".p95_ms", {minimum: 0})),
-    p99_ms: (req(o, "p99_ms", p) === null ? null : int(req(o, "p99_ms", p), p + ".p99_ms", {minimum: 0})),
+    n: int(req(o, "n", p), p + ".n", {minimum: 0, maximum: 9007199254740991}),
+    p50_ms: (req(o, "p50_ms", p) === null ? null : int(req(o, "p50_ms", p), p + ".p50_ms", {minimum: 0, maximum: 9007199254740991})),
+    p95_ms: (req(o, "p95_ms", p) === null ? null : int(req(o, "p95_ms", p), p + ".p95_ms", {minimum: 0, maximum: 9007199254740991})),
+    p99_ms: (req(o, "p99_ms", p) === null ? null : int(req(o, "p99_ms", p), p + ".p99_ms", {minimum: 0, maximum: 9007199254740991})),
   };
 }
 
@@ -209,8 +209,8 @@ export function parseScorecardViewV1Slice(v: unknown, p: string = "$"): Scorecar
   const o = obj(v, p);
   closed(o, ["n", "gate_trips", "correct"], p);
   return {
-    n: int(req(o, "n", p), p + ".n", {minimum: 0}),
-    gate_trips: int(req(o, "gate_trips", p), p + ".gate_trips", {minimum: 0}),
+    n: int(req(o, "n", p), p + ".n", {minimum: 0, maximum: 9007199254740991}),
+    gate_trips: int(req(o, "gate_trips", p), p + ".gate_trips", {minimum: 0, maximum: 9007199254740991}),
     correct: parseScorecardViewV1Rate(req(o, "correct", p), p + ".correct"),
   };
 }
@@ -244,10 +244,10 @@ export function parseScorecardViewV1Tier0SeverityCounts(v: unknown, p: string = 
   const o = obj(v, p);
   closed(o, ["S0", "S1", "S2", "S3"], p);
   return {
-    S0: int(req(o, "S0", p), p + ".S0", {minimum: 0}),
-    S1: int(req(o, "S1", p), p + ".S1", {minimum: 0}),
-    S2: int(req(o, "S2", p), p + ".S2", {minimum: 0}),
-    S3: int(req(o, "S3", p), p + ".S3", {minimum: 0}),
+    S0: int(req(o, "S0", p), p + ".S0", {minimum: 0, maximum: 9007199254740991}),
+    S1: int(req(o, "S1", p), p + ".S1", {minimum: 0, maximum: 9007199254740991}),
+    S2: int(req(o, "S2", p), p + ".S2", {minimum: 0, maximum: 9007199254740991}),
+    S3: int(req(o, "S3", p), p + ".S3", {minimum: 0, maximum: 9007199254740991}),
   };
 }
 
@@ -301,8 +301,8 @@ export function parseScorecardViewV1Tier3(v: unknown, p: string = "$"): Scorecar
   const o = obj(v, p);
   closed(o, ["cost_usd_micros_total", "cost_usd_micros_per_correct_outcome", "latency", "latency_by_path"], p);
   return {
-    cost_usd_micros_total: (req(o, "cost_usd_micros_total", p) === null ? null : int(req(o, "cost_usd_micros_total", p), p + ".cost_usd_micros_total", {minimum: 0})),
-    cost_usd_micros_per_correct_outcome: (req(o, "cost_usd_micros_per_correct_outcome", p) === null ? null : int(req(o, "cost_usd_micros_per_correct_outcome", p), p + ".cost_usd_micros_per_correct_outcome", {minimum: 0})),
+    cost_usd_micros_total: (req(o, "cost_usd_micros_total", p) === null ? null : int(req(o, "cost_usd_micros_total", p), p + ".cost_usd_micros_total", {minimum: 0, maximum: 9007199254740991})),
+    cost_usd_micros_per_correct_outcome: (req(o, "cost_usd_micros_per_correct_outcome", p) === null ? null : int(req(o, "cost_usd_micros_per_correct_outcome", p), p + ".cost_usd_micros_per_correct_outcome", {minimum: 0, maximum: 9007199254740991})),
     latency: parseScorecardViewV1Latency(req(o, "latency", p), p + ".latency"),
     latency_by_path: mapOf(req(o, "latency_by_path", p), p + ".latency_by_path", (x, q) => parseScorecardViewV1Latency(x, q), PATTERN_3),
   };
@@ -323,9 +323,9 @@ export function parseScorecardViewV1TurnsToResolution(v: unknown, p: string = "$
   return {
     n: int(req(o, "n", p), p + ".n", {minimum: 0, maximum: 9007199254740991}),
     mean: (req(o, "mean", p) === null ? null : num(req(o, "mean", p), p + ".mean", {minimum: 0})),
-    median: (req(o, "median", p) === null ? null : int(req(o, "median", p), p + ".median", {minimum: 0})),
-    p90: (req(o, "p90", p) === null ? null : int(req(o, "p90", p), p + ".p90", {minimum: 0})),
-    max: (req(o, "max", p) === null ? null : int(req(o, "max", p), p + ".max", {minimum: 0})),
+    median: (req(o, "median", p) === null ? null : int(req(o, "median", p), p + ".median", {minimum: 0, maximum: 9007199254740991})),
+    p90: (req(o, "p90", p) === null ? null : int(req(o, "p90", p), p + ".p90", {minimum: 0, maximum: 9007199254740991})),
+    max: (req(o, "max", p) === null ? null : int(req(o, "max", p), p + ".max", {minimum: 0, maximum: 9007199254740991})),
   };
 }
 

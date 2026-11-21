@@ -20,31 +20,31 @@ func (g *Gateway) Handler(resolve func(*http.Request) (Identity, bool)) http.Han
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
-			g.fail(w, http.StatusMethodNotAllowed, contracts.ErrorsV2ErrorCodeINPUTINVALID, "Use POST.", false)
+			g.fail(w, http.StatusMethodNotAllowed, contracts.ErrorsV3ErrorCodeINPUTINVALID, "Use POST.", false)
 			return
 		}
 		id, ok := resolve(r)
 		if !ok {
-			g.fail(w, http.StatusUnauthorized, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.", false)
+			g.fail(w, http.StatusUnauthorized, contracts.ErrorsV3ErrorCodeUNAUTHENTICATED, "A session is required.", false)
 			return
 		}
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, g.maxBody))
 		if err != nil {
-			g.fail(w, http.StatusRequestEntityTooLarge, contracts.ErrorsV2ErrorCodeINPUTINVALID, "The request body is too large or cannot be read.", false)
+			g.fail(w, http.StatusRequestEntityTooLarge, contracts.ErrorsV3ErrorCodeINPUTINVALID, "The request body is too large or cannot be read.", false)
 			return
 		}
 		res, err := g.Accept(r.Context(), id, raw)
 		switch {
 		case errors.Is(err, ErrRequestIDReused):
-			g.fail(w, http.StatusConflict, contracts.ErrorsV2ErrorCodeREQUESTIDREUSED, "This request id was used before with another body.", false)
+			g.fail(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeREQUESTIDREUSED, "This request id was used before with another body.", false)
 		case errors.Is(err, ErrInvalidInput):
-			g.fail(w, http.StatusBadRequest, contracts.ErrorsV2ErrorCodeINPUTINVALID, "The request body is not valid.", false)
+			g.fail(w, http.StatusBadRequest, contracts.ErrorsV3ErrorCodeINPUTINVALID, "The request body is not valid.", false)
 		case errors.Is(err, ErrNoIdentity):
-			g.fail(w, http.StatusUnauthorized, contracts.ErrorsV2ErrorCodeSESSIONINVALID, "The session is not valid.", false)
+			g.fail(w, http.StatusUnauthorized, contracts.ErrorsV3ErrorCodeSESSIONINVALID, "The session is not valid.", false)
 		case errors.Is(err, ErrRecord), errors.Is(err, ErrStart):
-			g.fail(w, http.StatusServiceUnavailable, contracts.ErrorsV2ErrorCodeDEPENDENCYUNAVAILABLE, "The request cannot be taken now.", true)
+			g.fail(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The request cannot be taken now.", true)
 		case err != nil:
-			g.fail(w, http.StatusInternalServerError, contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be taken.", false)
+			g.fail(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be taken.", false)
 		default:
 			status := http.StatusAccepted
 			if res.Deduplicated {
@@ -80,8 +80,8 @@ func requestCorrelation(w http.ResponseWriter) string {
 	return noCorrelationID
 }
 
-// fail writes the error envelope of errors.v2. It carries a code and a fixed sentence, never a part of the input, and the request's own correlation ID: it mints none
+// fail writes the error envelope of errors.v3. It carries a code and a fixed sentence, never a part of the input, and the request's own correlation ID: it mints none
 // (the investigation's correlation, which the success body reports, is another thing).
-func (g *Gateway) fail(w http.ResponseWriter, status int, code contracts.ErrorsV2ErrorCode, message string, retryable bool) {
+func (g *Gateway) fail(w http.ResponseWriter, status int, code contracts.ErrorsV3ErrorCode, message string, retryable bool) {
 	g.write(w, status, map[string]any{"error": map[string]any{"code": string(code), "message": message, "retryable": retryable, "correlation_id": requestCorrelation(w)}})
 }
