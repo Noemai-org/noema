@@ -60,7 +60,6 @@ func newGeneration(source io.Reader) (string, error) {
 // errNoRandomness is returned when the operating system's source of randomness fails.
 var errNoRandomness = errors.New("hostility proxy: no randomness for the request log generation")
 
-
 type requestLog struct {
 	mu         sync.Mutex
 	generation string
