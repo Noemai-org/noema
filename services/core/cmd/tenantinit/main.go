@@ -164,14 +164,7 @@ func connect(ctx context.Context, path string) (*pgx.Conn, error) {
 // connectAs is connect for a caller whose effective uid is euid. The DSN file is a regular file (not a link), owned by the caller, with no group or other permission bit, as the
 // other one-shots' secret files are (SR on noema#852).
 func connectAs(ctx context.Context, path string, euid uint32) (*pgx.Conn, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes || info.Mode().Perm()&0o077 != 0 {
-		return nil, errDSNUnusable
-	}
-	if owner, ok := fileOwner(info); !ok || owner != euid {
-		return nil, errDSNUnusable
-	}
-	raw, err := os.ReadFile(path)
+	raw, err := readDSNFile(path, euid, nil)
 	dsn := strings.TrimSpace(string(raw))
 	if err != nil || dsn == "" {
 		return nil, errDSNUnusable
@@ -185,6 +178,22 @@ func connectAs(ctx context.Context, path string, euid uint32) (*pgx.Conn, error)
 		return nil, connectError{state: sqlState(err)}
 	}
 	return conn, nil
+}
+
+// readDSNFile returns the bytes of the DSN file. SCAFFOLD (names only, the behaviour of the earlier head): the file is checked by path and then read by path. afterCheck, when not nil, runs
+// between the check and the read: a test uses it to replace the path at that moment.
+func readDSNFile(path string, euid uint32, afterCheck func()) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes || info.Mode().Perm()&0o077 != 0 {
+		return nil, errDSNUnusable
+	}
+	if owner, ok := fileOwner(info); !ok || owner != euid {
+		return nil, errDSNUnusable
+	}
+	if afterCheck != nil {
+		afterCheck()
+	}
+	return os.ReadFile(path)
 }
 
 // connectError is a connection that could not be opened. It keeps the SQLSTATE of the database's refusal, when there is one, and nothing else: a driver's text can quote the DSN.
