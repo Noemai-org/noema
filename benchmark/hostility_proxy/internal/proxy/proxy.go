@@ -38,6 +38,8 @@ type Options struct {
 	Log        *slog.Logger
 	// RequestLogLimit bounds the per-route request log; 0 means the default (10000).
 	RequestLogLimit int
+	// Entropy is the source of the request log's generation; nil means the system's (crypto/rand). A test passes its own, so no package-level state is ever replaced (A492).
+	Entropy io.Reader
 }
 
 // Stats are the counters of the control API.
@@ -60,7 +62,9 @@ type Server struct {
 	reqlog *requestLog
 	stale  *stale
 	held   *held
-	stats  Stats
+	// entropy is the Server's own source for a new request log generation (nil: crypto/rand).
+	entropy io.Reader
+	stats   Stats
 }
 
 // New builds a Server. Every upstream a route names must have a URL.
@@ -73,11 +77,11 @@ func New(o Options) (*Server, error) {
 			return nil, &MissingUpstreamError{name}
 		}
 	}
-	reqlog, err := newRequestLog(o.RequestLogLimit)
+	reqlog, err := newRequestLog(o.RequestLogLimit, o.Entropy)
 	if err != nil {
 		return nil, err
 	}
-	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, reqlog: reqlog, stale: newStale(), held: newHeld()}, nil
+	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, reqlog: reqlog, stale: newStale(), held: newHeld(), entropy: o.Entropy}, nil
 }
 
 // MissingUpstreamError says a route names an upstream with no URL.
