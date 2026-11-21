@@ -12,6 +12,8 @@ import (
 type Publication struct {
 	Version     string
 	PublishedAt int64
+	// DocumentHash is the hash of the policy document the row was published with (migration 0035, A413); empty for a row published before the hash existed (NULL).
+	DocumentHash string
 }
 
 // Querier is the read side that returns several rows: a pool, a connection or a transaction.
@@ -29,7 +31,7 @@ func Published(ctx context.Context, q Querier, tenantID, policyID string) ([]Pub
 	if !tenantRe.MatchString(tenantID) || !policyIDRe.MatchString(policyID) {
 		return nil, fmt.Errorf("%w: a tenant or policy ID is outside its pattern", ErrRequest)
 	}
-	rows, err := q.Query(ctx, `SELECT version, floor(extract(epoch FROM published_at))::bigint FROM policy_publication
+	rows, err := q.Query(ctx, `SELECT version, floor(extract(epoch FROM published_at))::bigint, coalesce(document_hash, '') FROM policy_publication
 		WHERE tenant_id = $1 AND policy_id = $2 ORDER BY version_key ASC`, tenantID, policyID)
 	if err != nil {
 		return nil, &storeError{text: errPrefix + "the publications could not be read", cause: err}
@@ -38,7 +40,7 @@ func Published(ctx context.Context, q Querier, tenantID, policyID string) ([]Pub
 	var out []Publication
 	for rows.Next() {
 		var p Publication
-		if err := rows.Scan(&p.Version, &p.PublishedAt); err != nil {
+		if err := rows.Scan(&p.Version, &p.PublishedAt, &p.DocumentHash); err != nil {
 			return nil, &storeError{text: errPrefix + "a publication could not be read", cause: err}
 		}
 		out = append(out, p)

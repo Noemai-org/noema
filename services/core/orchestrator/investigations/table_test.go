@@ -56,7 +56,7 @@ func newSQLWorld(t *testing.T) *sqlWorld {
 		trustA: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantA)}
 }
 
-const insertRow = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref) VALUES ($1, $2, $3, $4, $5, $6, 'usr_01')`
+const insertRow = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref) VALUES ($1, $2, $3, $4, $5, $6, 'usr_01', 'customer', 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`
 
 func (w *sqlWorld) insert(t *testing.T, p *pgxpool.Pool, tenant, inv, ref, state string, version int64) error {
 	t.Helper()
@@ -202,7 +202,7 @@ func TestATenantSeesOnlyItsOwnRowsAndOnlyTheOrchestratorTouchesThem(t *testing.T
 // A243 (migration 0029): every new investigation names its principal, an empty one is refused, and the column never changes after the insert.
 func TestAnInvestigationNamesItsPrincipalAndNeverChangesIt(t *testing.T) {
 	w := newSQLWorld(t)
-	const insertWith = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref) VALUES ($1, $2, $3, $4, 'RECEIVED', 0, $5)`
+	const insertWith = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref) VALUES ($1, $2, $3, $4, 'RECEIVED', 0, $5, 'customer', 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`
 	if _, err := w.orchA.Exec(ctx(t), insertWith, tenantA, "inv_AA11", "recev_AA11", "corr_AA11", "usr_01"); err != nil {
 		t.Fatalf("an investigation with a principal: %v", err)
 	}
