@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/evidence/readseal"
@@ -191,7 +192,7 @@ func newWorld(t *testing.T, specs ...spec) *world {
 	t.Helper()
 	rs := ruleSet(t)
 	w := &world{t: t, pay: &payloads{byRef: map[string][]byte{}}, rs: rs, mp: theMapping(t, rs)}
-	w.baseConf = reconciler.Config{RuleSet: rs, Mapping: w.mp, Payloads: payloadread.Reader{Payloads: w.pay}}
+	w.baseConf = reconciler.Config{RuleSet: rs, Mapping: w.mp, Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: w.pay}}
 	var items []layer.Item
 	for i, s := range specs {
 		id, ref := "evr_"+string(rune('a'+i)), "pay_"+string(rune('a'+i))
@@ -756,3 +757,16 @@ func TestNoErrorCarriesAPayloadAnIDOrATenant(t *testing.T) {
 		}
 	}
 }
+
+// cleanScreen is a screen that finds nothing (SYNTHETIC); the Reader needs one (A372).
+type cleanScreen struct{}
+
+func (cleanScreen) Screen(context.Context, injection.Subject, map[string]string) (injection.Result, error) {
+	return injection.Result{}, nil
+}
+
+func corrOf(context.Context) string { return "cor_SYNTHETIC" }
+
+type noAlert struct{}
+
+func (noAlert) ScreenFlagged(context.Context, payloadread.Flag) {}

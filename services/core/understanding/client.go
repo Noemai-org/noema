@@ -107,7 +107,7 @@ func (c *Client) Compile(ctx context.Context, req CompileRequest) (Compiled, err
 	if err != nil {
 		return Compiled{}, &CompileError{Failure: FailureUnavailable}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only: a close error changes nothing
 	data, err := io.ReadAll(io.LimitReader(resp.Body, c.max+1))
 	if err != nil {
 		return Compiled{}, &CompileError{Failure: FailureUnavailable}

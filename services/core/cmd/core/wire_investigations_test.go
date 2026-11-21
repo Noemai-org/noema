@@ -77,8 +77,8 @@ func (w *wireWorld) seed(t *testing.T, tenant, inv, state, principal string) {
 	t.Helper()
 	w.refCounter++
 	ref := "recev_" + strings.Repeat("A", 4) + string(rune('a'+w.refCounter))
-	if _, err := w.admin.Exec(deadline(t), `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref)
-		VALUES ($1, $2, $3, 'corr_AA11', 'RECEIVED', 0, $4)`, tenant, inv, ref, principal); err != nil {
+	if _, err := w.admin.Exec(deadline(t), `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref)
+		VALUES ($1, $2, $3, 'corr_AA11', 'RECEIVED', 0, $4, 'customer', 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`, tenant, inv, ref, principal); err != nil {
 		t.Fatal(err)
 	}
 	if state != "RECEIVED" {
