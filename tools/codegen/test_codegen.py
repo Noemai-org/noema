@@ -271,10 +271,10 @@ class TypeScriptOutput(unittest.TestCase):
             seen.add(f)
             todo.extend(base + m + ".ts" for m in re.findall(r'from "\./(\w+)\.js"', files[f]))
         names = {f[len(base):-3] for f in seen}
-        self.assertTrue({"errors_v3", "customer_answer_v1", "overlay_card_v1", "investigation_response_v1", "message_request_v1", "sse_event_v1"} <= names)
+        self.assertTrue({"errors_v3", "customer_answer_v1", "overlay_card_v1", "investigation_response_v1", "message_request_v1", "conversation_response_v1", "sse_event_v1"} <= names)
         self.assertFalse(names & {"reconstruction_v3", "record_event_v3", "operator"}, names)
         parsers = set(re.findall(r'^  "([^"]+)": parse', files[base + "customer.ts"], re.M))
-        self.assertEqual(parsers, {"confirmation-answer.v1", "customer-answer.v1", "errors.v3", "investigation-response.v1", "message-request.v1", "overlay-card.v1", "sse-event.v1"})  # A433: a customer answers a SELF confirmation
+        self.assertEqual(parsers, {"confirmation-answer.v1", "conversation-response.v1", "customer-answer.v1", "errors.v3", "investigation-response.v1", "message-request.v1", "overlay-card.v1", "sse-event.v1"})  # A433: a customer answers a SELF confirmation
 
     def test_the_front_end_bundle_holds_only_what_a_root_reaches(self):
         # REQ-UI-001, INV-02 (the Security Reviewer's note 3 on noema#615): enums.v1 holds the core reason codes, and no root uses them; a shared contract file the UI reads only in part

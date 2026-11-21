@@ -8,6 +8,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 
 - `status/README.md` (this file): the index and the format.
 - Session notes of other sessions, moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-status): `ENV-08.md` and `ENV-13.md` (two sessions each, one dated section per session) and `T5-T6.3.md`. Each task's file now holds its state, its sessions and its message log.
+- `CON-07-conversation-response.md` (Claude, 20 Nov 2026): the new contract `conversation-response.v1` (the success answer of `POST /v1/conversations`, rulings A234 and A446), its session and the open questions.
 - `CON-08.md` (Core Engineer 1, 18 Nov 2026): the new contract `message-request.v1` (the body of a customer's message; "None of these" as `option_id`, ruling A275), its session and the three readings for the Architect.
 - `CON-03-scorecard-ts.md` (Core Engineer 1, 17 Nov 2026): the benchmark-only TypeScript entry point for `scorecard-view.v1` (noema#677), its session and its message.
 - `UI-approver-entry.md` (helper session of Core Engineer 1, 19 Nov 2026): the approver-only TypeScript entry point for `confirmation-answer.v1` (noema#760), its isolation tests and the route and role boundary as the specs state them.
