@@ -49,7 +49,7 @@ def _prior(value: str) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="python -m benchmark.compile_acceptance", description=__doc__)
+    p = argparse.ArgumentParser(prog="python -m benchmark.compile_acceptance", description=__doc__, allow_abbrev=False)
     p.add_argument("--dry-run", action="store_true", help="price the first request of each example; call no provider")
     p.add_argument("--pack-ref", required=True, type=_pattern(_PACK_REF))
     p.add_argument("--provider", required=True, choices=("openai",))

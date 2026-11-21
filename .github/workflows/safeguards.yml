@@ -89,9 +89,12 @@ jobs:
       - name: Compile-acceptance workflow guard (noema#546)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_bench_live_compile.py
-      - name: The Terra harness is not selectable from any benchmark workflow (A362, A374)
+      - name: The harness configuration is fixed in every workflow, Compose and env file (A362)
         if: github.event.action != 'edited'
-        run: python3 -I tools/ci/test_no_terra_in_bench_workflows.py
+        run: python3 -I tools/ci/test_harness_selection_is_closed.py
+      - name: The runner parsers refuse an abbreviated flag (A362)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_runner_parsers_refuse_abbreviations.py
       - name: Administrator credential absent from workflows (SEC-02)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/check_no_admin_in_workflows.py
