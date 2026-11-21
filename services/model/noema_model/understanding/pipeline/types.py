@@ -24,6 +24,13 @@ from noema_model.understanding.resolution import (
 )
 
 
+class ScreenStage(StrEnum):
+    """Which injection screen did not run (A437). Internal to the model service: it is never part of an answer."""
+
+    UTTERANCE = "UTTERANCE"
+    CANDIDATES = "CANDIDATES"
+
+
 class Outcome(StrEnum):
     PROPOSED = "PROPOSED"
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
@@ -154,3 +161,4 @@ class PipelineResult:
     resolution: Resolution | None
     injection_signals: Mapping[str, bool]
     calls: tuple[CallRecord, ...]
+    screen_not_run: tuple[ScreenStage, ...] = ()

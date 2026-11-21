@@ -277,13 +277,22 @@ func TestAWaitIsReevaluatedAtTheReadingPlusTheRulesWaitAndAnUnusableWaitIsAnErro
 	}
 	for name, params := range map[string]map[string]any{
 		"no wait_seconds": nil, "a zero wait": {"wait_seconds": json.Number("0")}, "a negative wait": {"wait_seconds": json.Number("-5")},
-		"a wait given as text": {"wait_seconds": "600"}, "a wait that overflows the clock": {"wait_seconds": json.Number("9223372036854775807")},
-		"a boolean wait": {"wait_seconds": true},
+		"a wait given as text": {"wait_seconds": "600"},
+		"a boolean wait":       {"wait_seconds": true},
 	} {
 		got, err := w.policies(t, wait(params), &adm{at: t1}, &facts{master: resolvedMaster()}).Evaluate(ctx(t), query(lookup, late))
 		if !errors.Is(err, ErrRule) || !reflect.DeepEqual(got, intake.PolicyEvaluation{}) {
 			t.Errorf("%s: %+v, %v; want ErrRule and no answer", name, got, err)
 		}
+	}
+	// a wait that overflows the clock: the guard is held on the winning rule itself. The integrated case is no longer reachable with a published row: a number beyond 2^53-1 has no
+	// document hash (policy.DocumentHash refuses it, so policypublish never publishes it), and a published row for such a version is a drift (A413).
+	overflow := &policy.Applied{RuleID: "fin.pol.workflow.hold", Params: map[string]policy.Param{waitParam: {Kind: policy.ParamInteger, Int: 9223372036854775807}}}
+	if at, err := reevaluateAt(overflow, late); !errors.Is(err, ErrRule) || at != 0 {
+		t.Errorf("a wait that overflows the clock: %d, %v; want ErrRule and no time", at, err)
+	}
+	if got, err := w.policies(t, wait(map[string]any{"wait_seconds": json.Number("9223372036854775807")}), &adm{at: t1}, &facts{master: resolvedMaster()}).Evaluate(ctx(t), query(lookup, late)); !errors.Is(err, ErrDrift) || !reflect.DeepEqual(got, intake.PolicyEvaluation{}) {
+		t.Errorf("a published row for a document that has no hash: %+v, %v; want ErrDrift and no answer", got, err)
 	}
 	// another effect carries no re-evaluation time
 	p := w.policies(t, book(t, realPack(t)), &adm{at: t1}, &facts{master: resolvedMaster()})
