@@ -138,7 +138,11 @@ func (i *Interpreter) Interpret(ctx context.Context, in Input) (Result, error) {
 		}
 		return Result{}, wrap(ErrCompile, err)
 	}
-	compiled.IntentObject = withRawRef(compiled.IntentObject, in.RawRef)
+	doc, err := withRawRef(compiled.IntentObject, in.RawRef)
+	if err != nil {
+		return Result{}, wrap(ErrCompile, err)
+	}
+	compiled.IntentObject = doc
 	subject := Subject{TenantID: in.Session.TenantID, Actor: in.Actor, CorrelationID: in.CorrelationID}
 	adm, err := i.c.Gate.Admit(compiled.IntentObject, in.Session, in.CorrelationID)
 	if err != nil {
@@ -180,30 +184,35 @@ func admitted(a understanding.AdmittedIntent) intentstore.Admitted {
 }
 
 // withRawRef writes the core's reference to the recorded input over whatever the model put in `source.raw_ref`, including the unset marker (A219). It runs after the model
-// service's schema gate and before the core's gate, so the gate and the store only ever see the core's value. A document that is not an object with an object `source` is returned
-// as it is: the gate refuses it, and nothing that fails to parse is admitted.
-func withRawRef(doc []byte, rawRef string) []byte {
+// service's schema gate and before the core's gate, so the gate and the store only ever see the core's value. It fails closed: a document with no `source`, a `source` that is
+// not an object, or a `raw_ref` that is not a string is an error, never passed through with the model's value. Only raw_ref is written; a document that is not an object at all
+// is returned as it is, for the gate to refuse.
+func withRawRef(doc []byte, rawRef string) ([]byte, error) {
 	var top map[string]json.RawMessage
 	if json.Unmarshal(doc, &top) != nil || top == nil {
-		return doc
+		return doc, nil
 	}
 	var source map[string]json.RawMessage
 	if json.Unmarshal(top["source"], &source) != nil || source == nil {
-		return doc
+		return nil, errBadSource
+	}
+	if cur, ok := source["raw_ref"]; ok {
+		var s string
+		if json.Unmarshal(cur, &s) != nil || string(cur) == "null" {
+			return nil, errBadSource
+		}
 	}
 	ref, err := json.Marshal(rawRef)
 	if err != nil {
-		return doc
+		return nil, errBadSource
 	}
 	source["raw_ref"] = ref
 	src, err := json.Marshal(source)
 	if err != nil {
-		return doc
+		return nil, errBadSource
 	}
 	top["source"] = src
-	out, err := json.Marshal(top)
-	if err != nil {
-		return doc
-	}
-	return out
+	return json.Marshal(top)
 }
+
+var errBadSource = errors.New("the compiled intent has no usable source")

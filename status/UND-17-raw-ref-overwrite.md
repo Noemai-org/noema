@@ -2,6 +2,14 @@
 
 State: red pushed, green committed locally, not pushed.
 
+## Safer readings taken (for the PR body)
+- Fail-closed on `source` (SR on noema#837): a compiled intent with no `source`, a `source` that is null, an array, a string or a number, or a `raw_ref` that is present but not a string (number, null, object, array, boolean) is REFUSED before the gate. Nothing is recorded as a gate refusal and nothing is saved. A MISSING `raw_ref` member is still written (the unset marker is the compiler's own).
+- The refusal is `ErrCompile` (wrapping a fixed-text cause), not `ErrInput`: `ErrInput` is documented as the caller's bug, and a malformed `source` is the model service's answer. Nothing quotes the document.
+- Only `source.raw_ref` is core-owned (A219, interim, relayed, not yet committed; no other member is named); a property test shows every other `source` member is stored as compiled.
+- A document that is not a JSON object at all still goes to the gate, which refuses it and records the refusal; it is not admitted.
+- This reverses the earlier test cases "not a string: 7" and "null" for raw_ref (they were overwritten; now refused).
+- DB-backed Record tests (pgsodium) run in CI only.
+
 # Session 2026-11-20 WAT · UND-17
 
 ## Session summary
