@@ -19,7 +19,7 @@ func readKeyFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("cannot open the file (a symbolic link is refused)")
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only: a close error changes nothing
 	info, err := f.Stat()
 	if err != nil {
 		return nil, errors.New("cannot stat the file")

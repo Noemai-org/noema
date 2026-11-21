@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-TRU-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "schema",
+  "expect_message_contains": "non-empty",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/trust_profiles/0/evidence_required",
+      "value": []
+    }
+  ]
+}

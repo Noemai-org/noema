@@ -96,10 +96,16 @@ func TestSealedFactsTakeTheHashFromTheSealedSnapshotOfTheEvaluation(t *testing.T
 }
 
 // A request has no field that could carry an evidence hash or a target version: if one is ever added, this fails and the fact source must be reviewed (INV-17).
+// The one named exception is RecordRequest.ConfirmationBindingEvidenceHash (A435): the content digest the confirmation was bound over, which the Writer recomputes and
+// never lets reach the snapshot's set hash, the decision or the grant (TestNoValueOfTheRequestReachesTheEvidenceHashOrTheVersions injects it). It is allowed on the
+// request alone, never on a step, and under no other name.
 func TestARecordRequestHasNoFieldThatCouldCarryAHashOrAVersionOfTheFacts(t *testing.T) {
 	for _, typ := range []reflect.Type{reflect.TypeOf(intake.RecordRequest{}), reflect.TypeOf(intake.RecordStep{})} {
 		for i := 0; i < typ.NumField(); i++ {
 			n := typ.Field(i).Name
+			if typ == reflect.TypeOf(intake.RecordRequest{}) && n == "ConfirmationBindingEvidenceHash" {
+				continue
+			}
 			if strings.Contains(n, "Evidence") || strings.Contains(n, "Version") && n != "IntentVersion" || strings.Contains(n, "Snapshot") {
 				t.Errorf("%s.%s could carry a fact the sealed snapshot owns", typ.Name(), n)
 			}
@@ -115,6 +121,7 @@ func TestNoValueOfTheRequestReachesTheEvidenceHashOrTheVersions(t *testing.T) {
 		rd, st := &sfxReader{snap: sfxSnapshot(t)}, &sfxSteps{}
 		r := recRequest(t, 1+rng.Intn(3))
 		r.IntentHash, r.PlanHash = junk(), junk()
+		r.ConfirmationBindingEvidenceHash = junk()
 		for j := range r.Steps {
 			r.Steps[j].ParamsHash = junk()
 		}

@@ -5,12 +5,18 @@ package main
 // INV-12. Keys and DSNs are SYNTHETIC.
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Noemai-org/noema/services/core/record/reconstruct"
 )
 
 // readinessOrder is the stable order in which /readyz names what is missing: every component of Components, the ports first. It is written out here, not derived from the
@@ -51,7 +57,7 @@ func TestEveryComponentFieldHasAReadinessName(t *testing.T) {
 			for j := 0; j < pt.NumField(); j++ {
 				fields = append(fields, "Ports."+pt.Field(j).Name)
 			}
-		case "AccessLog":
+		case "AccessLog", "ServedTenants":
 		default:
 			fields = append(fields, f.Name)
 		}
@@ -165,5 +171,78 @@ func TestReadyzIs200OnlyForAFullComposition(t *testing.T) {
 	code, body, raw := readyz(t, composeReadiness(full(), okAPI))
 	if code != http.StatusOK || body["status"] != "ready" || len(body) != 1 {
 		t.Fatalf("status %d, body %s", code, raw)
+	}
+}
+
+// loginDBs is a Record reader that holds a login for the named tenants only: For answers as the production reader does, with the tenant's own handle or an error.
+type loginDBs struct{ have map[string]bool }
+
+type stubPool struct{}
+
+func (stubPool) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+	return nil, errors.New("not used: the readiness check dials nothing")
+}
+
+func (d loginDBs) For(tenant string) (reconstruct.TxBeginner, error) {
+	if !d.have[tenant] {
+		return nil, errors.New("no login")
+	}
+	return stubPool{}, nil
+}
+
+// nilDBs hands out no error and no handle: a reader that does that has no login either.
+type nilDBs struct{}
+
+func (nilDBs) For(string) (reconstruct.TxBeginner, error) { return nil, nil }
+
+// A434 (interim; DEC-2026-11-20-architect-rulings-a358-a453): a served tenant with no Record login is a deployment defect. /readyz is not ready and names the component by a fixed
+// name, "record logins", never a tenant ID; with a login for every served tenant, or with no served tenant, nothing is named. The check uses the reader's own For, the call the
+// handler makes, so the two cannot disagree.
+func TestReadinessFailsWhenAServedTenantHasNoRecordLogin(t *testing.T) {
+	const name = "record logins"
+	c := full()
+	c.ServedTenants = []string{"ten_aa", "ten_bb"}
+	c.Records = loginDBs{have: map[string]bool{"ten_aa": true, "ten_bb": true}}
+	if ok, reason := composeReadiness(c, okAPI)(); !ok || reason != "" {
+		t.Fatalf("a login for each served tenant: ready %v, reason %q", ok, reason)
+	}
+	c.Records = loginDBs{have: map[string]bool{"ten_aa": true}}
+	ok, reason := composeReadiness(c, okAPI)()
+	if ok || reason != wantReason(name) {
+		t.Fatalf("ten_bb has no login: ready %v, reason %q; want not ready and %q", ok, reason, wantReason(name))
+	}
+	if strings.Contains(reason, "ten_") {
+		t.Errorf("the reason names a tenant: %q", reason)
+	}
+	if app, err := compose(c, okAPI); err == nil || app != nil || !strings.Contains(err.Error(), name) || strings.Contains(err.Error(), "ten_") {
+		t.Errorf("composed with a served tenant that has no login: %v", err)
+	}
+	c.Records = nilDBs{}
+	if ok, reason := composeReadiness(c, okAPI)(); ok || reason != wantReason(name) {
+		t.Errorf("a reader that gives no handle: ready %v, reason %q", ok, reason)
+	}
+	c.Records = loginDBs{}
+	c.ServedTenants = nil
+	if ok, reason := composeReadiness(c, okAPI)(); !ok || reason != "" {
+		t.Errorf("no served tenant: ready %v, reason %q", ok, reason)
+	}
+	// A reader that is not built is already named, as "record reader", and the logins are not named twice.
+	c.ServedTenants = []string{"ten_aa"}
+	c.Records = nil
+	if ok, reason := composeReadiness(c, okAPI)(); ok || reason != wantReason("record reader") {
+		t.Errorf("no reader: ready %v, reason %q; want only the record reader named", ok, reason)
+	}
+}
+
+// The name comes right after "record reader" and before the components that follow it, and is named with the others when they are missing too.
+func TestTheRecordLoginsAreNamedAfterTheRecordReaderInTheStableOrder(t *testing.T) {
+	c := full()
+	zeroField(t, &c, "Gateway")
+	zeroField(t, &c, "Ports.Evidence")
+	c.ServedTenants = []string{"ten_aa"}
+	c.Records = loginDBs{}
+	ok, reason := composeReadiness(c, nil)()
+	if want := wantReason("evidence", "edge chain", "record logins", "input gateway"); ok || reason != want {
+		t.Fatalf("ready %v, reason %q; want %q", ok, reason, want)
 	}
 }

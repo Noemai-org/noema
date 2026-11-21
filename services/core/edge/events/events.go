@@ -190,13 +190,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	last := after
 	for {
 		if len(batch.Events) > h.o.MaxBatch {
-			out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr))
+			_ = out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)) // the stream ends either way
 			return
 		}
 		for _, e := range batch.Events {
 			frame, err := h.frame(e, last)
 			if err != nil {
-				out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr))
+			_ = out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)) // the stream ends either way
 				return
 			}
 			if out.write(frame) != nil {

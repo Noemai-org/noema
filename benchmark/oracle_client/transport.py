@@ -38,6 +38,7 @@ class JsonClient:
         if not base_url.startswith(("http://", "https://")):
             raise ValueError("only http and https URLs are accepted")
         self.base_url, self._token, self.timeout = base_url.rstrip("/"), token, timeout
+        self.last_status: int | None = None  # the status of the last answer received (None until one comes); the runner's request record reads it
         self._opener = urllib.request.build_opener(_NoRedirect)
 
     def request(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> tuple[Json, dict[str, str]]:
@@ -54,8 +55,10 @@ class JsonClient:
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
                 raw = response.read()
+                self.last_status = int(response.status)
                 return (json.loads(raw) if raw else {}), dict(response.headers.items())
         except urllib.error.HTTPError as error:
+            self.last_status = int(error.code)
             raw = error.read()
             try:
                 envelope = json.loads(raw).get("error", {})

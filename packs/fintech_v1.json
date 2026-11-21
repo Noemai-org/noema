@@ -135,7 +135,8 @@
       "evidence_required": [
         "fin.src.core_ledger",
         "fin.src.switch",
-        "fin.src.settlement"
+        "fin.src.settlement",
+        "fin.src.case_system"
       ],
       "max_evidence_age_seconds": 300,
       "data_sensitivity": "S3_financial_pii"
@@ -2087,6 +2088,9 @@
         },
         "epoch": {
           "type": "Integer"
+        },
+        "effective_at": {
+          "type": "Timestamp"
         }
       }
     }

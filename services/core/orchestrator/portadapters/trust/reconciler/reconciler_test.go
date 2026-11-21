@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/evidence/readseal"
@@ -40,7 +41,7 @@ const (
 	ledger   = "fin.src.core_ledger"
 	sw       = "fin.src.switch"
 	dest     = "fin.src.destination"
-	expected = "fin.map.v1@1"
+	expected = "fin.map.v1@2"
 	leak     = "payload-body-must-not-leak"
 	dsnLeak  = "postgres://trust_rw:hunter2@db.internal:5432/noema"
 )
@@ -72,7 +73,7 @@ func ruleSet(t *testing.T) *reconcile.RuleSet {
 
 func theMapping(t *testing.T, rs *reconcile.RuleSet) *mapping.Mapping {
 	t.Helper()
-	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest, "fin.src.case_system"}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(packDir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func newWorld(t *testing.T, specs ...spec) *world {
 	t.Helper()
 	rs := ruleSet(t)
 	w := &world{t: t, pay: &payloads{byRef: map[string][]byte{}}, rs: rs, mp: theMapping(t, rs)}
-	w.baseConf = reconciler.Config{RuleSet: rs, Mapping: w.mp, Payloads: payloadread.Reader{Payloads: w.pay}}
+	w.baseConf = reconciler.Config{RuleSet: rs, Mapping: w.mp, Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: w.pay}}
 	var items []layer.Item
 	for i, s := range specs {
 		id, ref := "evr_"+string(rune('a'+i)), "pay_"+string(rune('a'+i))
@@ -756,3 +757,16 @@ func TestNoErrorCarriesAPayloadAnIDOrATenant(t *testing.T) {
 		}
 	}
 }
+
+// cleanScreen is a screen that finds nothing (SYNTHETIC); the Reader needs one (A372).
+type cleanScreen struct{}
+
+func (cleanScreen) Screen(context.Context, injection.Subject, map[string]string) (injection.Result, error) {
+	return injection.Result{}, nil
+}
+
+func corrOf(context.Context) string { return "cor_SYNTHETIC" }
+
+type noAlert struct{}
+
+func (noAlert) ScreenFlagged(context.Context, payloadread.Flag) {}
