@@ -10,11 +10,13 @@ package events_test
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +25,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/edge/edgetest"
 	"github.com/Noemai-org/noema/services/core/edge/events"
 	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
@@ -77,16 +80,10 @@ func (deadlineRec) SetWriteDeadline(time.Time) error { return nil }
 
 func newRec() *deadlineRec { return &deadlineRec{httptest.NewRecorder()} }
 
-// vocab is the test vocabulary: what each kind of event may carry in Fields and Numbers (and the largest each number may be).
-func vocab() map[events.Kind]events.Vocabulary {
-	v := events.Vocabulary{Fields: []string{"state", "text"}, Numbers: map[string]int64{"version": 1000}}
-	return map[events.Kind]events.Vocabulary{events.KindProgress: v, events.KindClarification: v, events.KindConfirmation: v, events.KindAnswer: v, events.KindError: v}
-}
-
 // baseOptions are valid options; a test changes the one it is about.
 func baseOptions(feed events.Feed, wait func(context.Context, time.Duration) error) events.Options {
 	return events.Options{Feed: feed, Mask: digitsMasker, Wait: wait, Clock: clock.NewManual(epoch), Poll: time.Second, MaxStream: time.Minute, MaxEventBytes: 2048,
-		WriteTimeout: 5 * time.Second, MaxStreams: 8, MaxStreamsPerPrincipal: 2, MaxBatch: 32, Vocabulary: vocab(), MaxNumberDigits: 4}
+		WriteTimeout: 5 * time.Second, MaxStreams: 8, MaxStreamsPerPrincipal: 2, MaxBatch: 32}
 }
 
 func newRig(t *testing.T, feed *fakeFeed, wait func(context.Context, time.Duration) error) rig {
@@ -134,23 +131,50 @@ func (r rig) get(path, tenant string, role session.Role, hdr map[string]string) 
 	return rec
 }
 
-func ev(cursor int64, kind events.Kind) events.Event {
-	return events.Event{Cursor: cursor, Kind: kind, At: epoch.Add(time.Duration(cursor) * time.Second), Refs: map[string]string{"investigation_id": "inv_AA11"},
-		Fields: map[string]string{"state": "INTERPRETING"}, Numbers: map[string]int64{"version": cursor}}
+type kind string
+
+const (
+	kindProgress kind = "progress"
+	kindAnswer   kind = "answer"
+)
+
+func stamp(cursor int64) contracts.CommonV1Timestamp {
+	return contracts.CommonV1Timestamp(epoch.Add(time.Duration(cursor) * time.Second).Format(time.RFC3339))
+}
+
+// ev is one committed event: a progress event, or (kindAnswer) a minimal valid answer.
+func ev(cursor int64, k kind) events.Event {
+	if k == kindAnswer {
+		return events.Event{Cursor: cursor, Answer: &contracts.SseEventV1Answer{At: stamp(cursor), Answer: contracts.CustomerAnswerV1{SchemaVersion: "1.0", Found: []string{"Your card is active."}, NotKnown: []contracts.CustomerAnswerV1NotKnownItem{},
+			Done: contracts.CustomerAnswerV1Done{Summary: "Checked."}, Advice: contracts.CustomerAnswerV1Advice{Do: []string{}, DoNot: []string{}}, Next: contracts.CustomerAnswerV1Next{What: "Nothing more."}}}}
+	}
+	return events.Event{Cursor: cursor, Progress: &contracts.SseEventV1Progress{At: stamp(cursor), State: contracts.InvestigationResponseV1PublicStageWorking}}
+}
+
+func clarification(cursor int64, question, id string) events.Event {
+	return events.Event{Cursor: cursor, Clarification: &contracts.SseEventV1Clarification{At: stamp(cursor), Card: contracts.OverlayCardV1ClarificationCard{CardType: "CLARIFICATION", SchemaVersion: "1.0",
+		ClarificationId: contracts.CommonV1ClarificationId(id), Question: question, Options: []contracts.OverlayCardV1ClarificationCardOptionsItem{{OptionId: "opt1", Label: "Option one"}}, AllowNone: true, ExpiresAt: stamp(cursor + 60)}}}
+}
+
+// isFault reports whether body is exactly one safe error event (the sse-event.v1 error payload) with the given code and nothing else written before it.
+func isFault(body, code string) bool {
+	return strings.HasPrefix(body, "event: error\ndata: {\"event\":\"error\",\"schema_version\":\"1.0\"") && strings.Contains(body, `"code":"`+code+`"`) && strings.Count(body, "event: ") == 1 && !strings.Contains(body, "id: ")
 }
 
 const path = "/v1/conversations/inv_AA11/events"
 
 func TestAStreamIsServerSentEventsFromTheFeedAndEndsWhenTheConversationIsDone(t *testing.T) {
-	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindProgress), ev(2, events.KindProgress)}}, {Events: []events.Event{ev(3, events.KindAnswer)}, Done: true}}}
+	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, kindProgress), ev(2, kindProgress)}}, {Events: []events.Event{ev(3, kindAnswer)}, Done: true}}}
 	r := newRig(t, f, nil)
 	rec := r.get(path, edgetest.Tenant, session.RoleCustomer, nil)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" || rec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("%d %v", rec.Code, rec.Header())
 	}
-	want := "id: 1\nevent: progress\ndata: {\"at\":\"2026-11-12T09:00:01Z\",\"fields\":{\"state\":\"INTERPRETING\"},\"numbers\":{\"version\":1},\"refs\":{\"investigation_id\":\"inv_AA11\"}}\n\n" +
-		"id: 2\nevent: progress\ndata: {\"at\":\"2026-11-12T09:00:02Z\",\"fields\":{\"state\":\"INTERPRETING\"},\"numbers\":{\"version\":2},\"refs\":{\"investigation_id\":\"inv_AA11\"}}\n\n" +
-		"id: 3\nevent: answer\ndata: {\"at\":\"2026-11-12T09:00:03Z\",\"fields\":{\"state\":\"INTERPRETING\"},\"numbers\":{\"version\":3},\"refs\":{\"investigation_id\":\"inv_AA11\"}}\n\n"
+	pf := func(c int, at string) string {
+		return "id: " + strconv.Itoa(c) + "\nevent: progress\ndata: {\"event\":\"progress\",\"schema_version\":\"1.0\",\"at\":\"" + at + "\",\"state\":\"working\"}\n\n"
+	}
+	want := pf(1, "2026-11-12T09:00:01Z") + pf(2, "2026-11-12T09:00:02Z") + "id: 3\nevent: answer\ndata: {\"event\":\"answer\",\"schema_version\":\"1.0\",\"at\":\"2026-11-12T09:00:03Z\",\"answer\":" +
+		`{"schema_version":"1.0","found":["Your card is active."],"not_known":[],"done":{"summary":"Checked.","verified":false},"advice":{"do":[],"do_not":[]},"next":{"what":"Nothing more."}}}` + "\n\n"
 	if rec.Body.String() != want {
 		t.Fatalf("body:\n%q\nwant:\n%q", rec.Body.String(), want)
 	}
@@ -214,90 +238,90 @@ func TestAFeedFailureBeforeTheStreamIs503AndAfterItIsASafeErrorEvent(t *testing.
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "DEPENDENCY_UNAVAILABLE") || strings.Contains(rec.Body.String(), "secret_user") {
 		t.Fatalf("before the stream: %d %s", rec.Code, rec.Body.String())
 	}
-	f2 := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindProgress)}}}, errs: []error{nil, errors.New("connection to 10.0.0.7 refused")}}
+	f2 := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, kindProgress)}}}, errs: []error{nil, errors.New("connection to 10.0.0.7 refused")}}
 	rec = newRig(t, f2, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil)
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || !strings.HasPrefix(body, "id: 1\nevent: progress\n") || !strings.HasSuffix(body, "event: error\ndata: {\"code\":\"STREAM_UNAVAILABLE\"}\n\n") || strings.Contains(body, "10.0.0.7") {
+	if rec.Code != http.StatusOK || !strings.HasPrefix(body, "id: 1\nevent: progress\n") || !strings.Contains(body, "event: error\ndata: {\"event\":\"error\"") || !strings.Contains(body, `"code":"DEPENDENCY_UNAVAILABLE","message":"The service is not available now.","retryable":true`) || strings.Contains(body, "10.0.0.7") {
 		t.Fatalf("after the stream began: %d %q", rec.Code, body)
 	}
 }
 
-// AGENT-13, A154: free text is masked; typed IDs are validated and never masked; numbers and instants are typed.
-func TestFreeTextIsMaskedAndTypedIdsAreValidatedAndNeverMasked(t *testing.T) {
-	e := ev(1, events.KindAnswer)
-	e.Fields = map[string]string{"text": "Account 0123456789 is pending."}
-	e.Refs = map[string]string{"decision_id": "dec_0123456789ABCDEF"}
-	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{e}, Done: true}}}
-	body := newRig(t, f, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil).Body.String()
-	if !strings.Contains(body, `"text":"Account ******6789 is pending."`) || !strings.Contains(body, `"decision_id":"dec_0123456789ABCDEF"`) || strings.Contains(body, "0123456789 ") {
-		t.Fatalf("body %q", body)
+// AGENT-13, A154: the contract's texts carry no run of five or more digits. A text the masker would change is a bad event and is never written; the card's own IDs are checked
+// by their contract shape and are exempt (a ULID may hold a long digit run).
+func TestATextThatBreaksTheDigitRuleIsABadEventAndACardsIdsAreNotMasked(t *testing.T) {
+	bad := &fakeFeed{batches: []events.Batch{{Events: []events.Event{clarification(1, "Is account 0123456789 the one?", "clr_AA11")}, Done: true}}}
+	if body := newRig(t, bad, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil).Body.String(); !isFault(body, "INTERNAL_SAFETY_BLOCK") {
+		t.Fatalf("an unmasked digit run: %q", body)
+	}
+	good := &fakeFeed{batches: []events.Batch{{Events: []events.Event{clarification(1, "Which payment do you mean?", "clr_0123456789ABCDEF")}, Done: true}}}
+	body := newRig(t, good, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil).Body.String()
+	if !strings.HasPrefix(body, "id: 1\nevent: clarification\n") || !strings.Contains(body, `"clarification_id":"clr_0123456789ABCDEF"`) {
+		t.Fatalf("%q", body)
 	}
 }
 
 // A bad event from the feed ends the stream with an error event and nothing of the bad event is written. One case per rule.
 func TestAnEventTheFeedGotWrongEndsTheStreamWithAnErrorEventAndIsNeverWritten(t *testing.T) {
 	bad := map[string]events.Event{}
-	e := ev(1, events.KindProgress)
-	e.Kind = "debug"
-	bad["an unknown kind"] = e
-	e = ev(1, events.KindProgress)
+	bad["no payload"] = events.Event{Cursor: 1}
+	e := ev(1, kindProgress)
+	e.Answer = ev(1, kindAnswer).Answer
+	bad["two payloads"] = e
+	e = ev(1, kindProgress)
 	e.Cursor = 0
 	bad["a cursor of zero"] = e
-	e = ev(1, events.KindProgress)
-	e.At = time.Time{}
+	e = ev(1, kindProgress)
+	e.Progress.At = ""
 	bad["no instant"] = e
-	e = ev(1, events.KindProgress)
-	e.Refs = map[string]string{"investigation_id": "0123456789012"}
-	bad["a ref that is not a typed ID"] = e
-	e = ev(1, events.KindProgress)
-	e.Refs = map[string]string{"Investigation": "inv_AA11"}
-	bad["a key outside its pattern"] = e
-	e = ev(1, events.KindProgress)
-	e.Refs = map[string]string{"investigation_id": "acct_0123456789"}
-	bad["a ref whose prefix is not its key's ID type (a long digit run behind a typed-looking prefix)"] = e
-	e = ev(1, events.KindProgress)
-	e.Refs = map[string]string{"account_id": "acct_0123456789"}
-	bad["a ref under a key that names no contract ID"] = e
-	e = ev(1, events.KindProgress)
-	e.Refs = map[string]string{"decision_id": "dec_0123456789_0123456789"}
-	bad["a ref with a separator inside its body"] = e
-	e = ev(1, events.KindProgress)
-	e.Refs = map[string]string{"decision_id": "dec_" + strings.Repeat("A", 33)}
-	bad["a ref over the contract's 32 characters"] = e
-	e = ev(1, events.KindProgress)
-	e.Fields = map[string]string{"text": "x\nid: 9\nevent: answer"}
-	bad["a field that could forge a frame"] = e
-	e = ev(1, events.KindProgress)
-	e.Fields = map[string]string{"text": strings.Repeat("a", 4096)}
+	e = ev(1, kindProgress)
+	e.Progress.At = "2026-11-12T11:00:00+02:00"
+	bad["an instant that is not UTC with a Z"] = e
+	e = ev(1, kindProgress)
+	e.Progress.State = "debug_internal_state"
+	bad["a stage outside the contract"] = e
+	e = clarification(1, "Which one?", "clr_AA11")
+	e.Clarification.Card.ClarificationId = "acct_0123456789"
+	bad["a card ID that is not its contract ID"] = e
+	e = clarification(1, strings.Repeat("a", 4096), "clr_AA11")
 	bad["an event over the byte bound"] = e
-	e = ev(1, events.KindProgress)
-	e.Fields = map[string]string{}
-	for i := 0; i < 17; i++ {
-		e.Fields["k"+strings.Repeat("a", i)] = "x"
-	}
-	bad["more members than the bound"] = e
 	for name, b := range bad {
 		f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{b}, Done: true}}}
 		body := newRig(t, f, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil).Body.String()
-		if body != "event: error\ndata: {\"code\":\"STREAM_FAULT\"}\n\n" {
+		if !isFault(body, "INTERNAL_SAFETY_BLOCK") {
 			t.Errorf("%s: %q", name, body)
 		}
 	}
-	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(3, events.KindProgress), ev(3, events.KindProgress)}, Done: true}}}
+	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(3, kindProgress), ev(3, kindProgress)}, Done: true}}}
 	body := newRig(t, f, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil).Body.String()
-	if !strings.HasPrefix(body, "id: 3\n") || strings.Count(body, "id: 3\n") != 1 || !strings.HasSuffix(body, "event: error\ndata: {\"code\":\"STREAM_FAULT\"}\n\n") {
+	if !strings.HasPrefix(body, "id: 3\n") || strings.Count(body, "id: 3\n") != 1 || !strings.Contains(body, "event: error\n") {
 		t.Errorf("a repeated cursor: %q", body)
 	}
-	f = &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(5, events.KindProgress)}, Done: true}}}
+	f = &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(5, kindProgress)}, Done: true}}}
 	if body := newRig(t, f, nil).get(path, edgetest.Tenant, session.RoleCustomer, map[string]string{"Last-Event-ID": "5"}).Body.String(); !strings.HasPrefix(body, "event: error") {
 		t.Errorf("a cursor not above the one asked after: %q", body)
+	}
+}
+
+// The handler sets the payload's event name from which member is set: a Feed cannot name one kind and send another, and what is written is the contract's payload only.
+func TestTheEventNameComesFromThePayloadAndNothingInternalCanBeAdded(t *testing.T) {
+	e := ev(1, kindProgress)
+	e.Progress.Event = "answer"
+	e.Progress.SchemaVersion = "9.9"
+	body := newRig(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{e}, Done: true}}}, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil).Body.String()
+	if !strings.HasPrefix(body, "id: 1\nevent: progress\ndata: {\"event\":\"progress\",\"schema_version\":\"1.0\",") {
+		t.Fatalf("%q", body)
+	}
+	var m map[string]any
+	line := strings.TrimSuffix(strings.SplitN(body, "data: ", 2)[1], "\n\n")
+	if err := json.Unmarshal([]byte(line), &m); err != nil || len(m) != 4 {
+		t.Fatalf("members %v, %v; want exactly event, schema_version, at and state", m, err)
 	}
 }
 
 // The stream is bounded: it polls with the configured wait, sends a comment as a keepalive when nothing is new, stops when the client leaves, and its feed context
 // carries the stream's own deadline.
 func TestTheStreamKeepsAliveStopsWhenTheClientLeavesAndCarriesItsDeadline(t *testing.T) {
-	f := &fakeFeed{batches: []events.Batch{{}, {}, {Events: []events.Event{ev(1, events.KindProgress)}}}}
+	f := &fakeFeed{batches: []events.Batch{{}, {}, {Events: []events.Event{ev(1, kindProgress)}}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	waits := 0
 	wait := func(c context.Context, _ time.Duration) error {
@@ -420,7 +444,7 @@ func (r rig) request(w http.ResponseWriter, role session.Role) {
 
 // A closed or expired session ends the stream: it lasts no longer than the token does, even when MaxStream is longer.
 func TestAStreamEndsWhenTheSessionsTokenExpires(t *testing.T) {
-	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindProgress)}}}}
+	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, kindProgress)}}}}
 	wait := func(ctx context.Context, _ time.Duration) error { <-ctx.Done(); return ctx.Err() }
 	// the handler's clock is 100 ms before the token's expiry (epoch + 5 min); the stream limit is an hour
 	r := newRigWith(t, f, wait, func(o *events.Options) {
@@ -452,7 +476,7 @@ func TestATokenAlreadyExpiredByTheHandlersClockGetsNoStream(t *testing.T) {
 
 // A write that fails ends the stream at once (a slow or gone consumer), and every write has a deadline from the injected clock.
 func TestAFailedWriteEndsTheStreamAndEveryWriteHasADeadline(t *testing.T) {
-	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindProgress), ev(2, events.KindProgress)}}, {Events: []events.Event{ev(3, events.KindProgress)}}}}
+	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, kindProgress), ev(2, kindProgress)}}, {Events: []events.Event{ev(3, kindProgress)}}}}
 	r := newRig(t, f, nil)
 	w := &failWriter{ResponseRecorder: httptest.NewRecorder(), okWrites: 1}
 	r.request(w, session.RoleCustomer)
@@ -476,13 +500,13 @@ func TestAFailedWriteEndsTheStreamAndEveryWriteHasADeadline(t *testing.T) {
 func TestABatchOverTheCapEndsTheStreamAndNothingOfItIsWritten(t *testing.T) {
 	var evs []events.Event
 	for i := int64(1); i <= 4; i++ {
-		evs = append(evs, ev(i, events.KindProgress))
+		evs = append(evs, ev(i, kindProgress))
 	}
 	f := &fakeFeed{batches: []events.Batch{{Events: evs}}}
 	r := newRigWith(t, f, nil, func(o *events.Options) { o.MaxBatch = 3 })
 	rec := newRec()
 	r.request(rec, session.RoleCustomer)
-	if strings.Contains(rec.Body.String(), "id: ") || !strings.Contains(rec.Body.String(), "STREAM_FAULT") {
+	if strings.Contains(rec.Body.String(), "id: ") || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") {
 		t.Errorf("%q", rec.Body.String())
 	}
 }
@@ -551,7 +575,7 @@ func TestTheHandlerItselfRefusesANonCustomerWithTheSame404(t *testing.T) {
 }
 
 func TestTheStreamTellsProxiesNotToBuffer(t *testing.T) {
-	r := newRig(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindAnswer)}, Done: true}}}, nil)
+	r := newRig(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, kindAnswer)}, Done: true}}}, nil)
 	rec := newRec()
 	r.request(rec, session.RoleCustomer)
 	if got := rec.Header().Get("X-Accel-Buffering"); got != "no" {
@@ -591,66 +615,6 @@ func TestTheGlobalStreamCapHoldsAcrossPrincipals(t *testing.T) {
 	wg.Wait()
 }
 
-// ---- the reviewer's blocking finding (d) on e87e38c2: Numbers and Fields carry only what the configured vocabulary lists (REQ-SEC-003, AGENT-13) ----
-
-func badEvent(t *testing.T, name string, mutate func(*events.Event), tweak func(*events.Options)) {
-	t.Helper()
-	e := ev(1, events.KindProgress)
-	mutate(&e)
-	r := newRigWith(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{e}, Done: true}}}, nil, tweak)
-	rec := newRec()
-	r.request(rec, session.RoleCustomer)
-	if strings.Contains(rec.Body.String(), "id: ") || !strings.Contains(rec.Body.String(), "STREAM_FAULT") {
-		t.Errorf("%s: %q", name, rec.Body.String())
-	}
-}
-
-func TestANumberKeyOutsideTheVocabularyOrAValueOutsideItsRangeIsABadEvent(t *testing.T) {
-	badEvent(t, "an account number under an unlisted key", func(e *events.Event) { e.Numbers = map[string]int64{"account_number": 123456789012345678} }, nil)
-	badEvent(t, "a listed key over its maximum", func(e *events.Event) { e.Numbers = map[string]int64{"version": 1001} }, nil)
-	badEvent(t, "a negative number", func(e *events.Event) { e.Numbers = map[string]int64{"version": -1} }, nil)
-	badEvent(t, "a number under a kind that lists none", func(e *events.Event) { e.Numbers = map[string]int64{"version": 1} }, func(o *events.Options) {
-		o.Vocabulary[events.KindProgress] = events.Vocabulary{Fields: []string{"state"}}
-	})
-}
-
-func TestAFieldKeyOutsideTheVocabularyIsABadEvent(t *testing.T) {
-	badEvent(t, "a field under an unlisted key", func(e *events.Event) { e.Fields = map[string]string{"account_holder": "A. Person"} }, nil)
-	badEvent(t, "a field under a kind that lists none", func(e *events.Event) { e.Fields = map[string]string{"state": "X"} }, func(o *events.Options) {
-		o.Vocabulary[events.KindProgress] = events.Vocabulary{}
-	})
-}
-
-func TestNewRefusesAVocabularyItCannotRunWith(t *testing.T) {
-	ok := func() events.Options {
-		return baseOptions(&fakeFeed{}, func(context.Context, time.Duration) error { return nil })
-	}
-	cases := map[string]func(*events.Options){
-		"no vocabulary":   func(o *events.Options) { o.Vocabulary = nil },
-		"a kind missing":  func(o *events.Options) { delete(o.Vocabulary, events.KindError) },
-		"an unknown kind": func(o *events.Options) { o.Vocabulary[events.Kind("other")] = events.Vocabulary{} },
-		"a field key out of form": func(o *events.Options) {
-			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Fields: []string{"Account Number"}}
-		},
-		"a number key out of form": func(o *events.Options) {
-			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"Bad Key": 1}}
-		},
-		"a number maximum below zero": func(o *events.Options) {
-			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"version": -1}}
-		},
-		"a number maximum with more digits than the masking limit allows": func(o *events.Options) {
-			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"version": 100000}}
-		},
-	}
-	for name, mut := range cases {
-		o := ok()
-		mut(&o)
-		if h, err := events.New(o); err == nil || h != nil {
-			t.Errorf("%s: accepted", name)
-		}
-	}
-}
-
 // A writer that cannot take a write deadline gets no stream (fail closed): nothing is written and the feed is not asked.
 func TestAWriterThatCannotTakeAWriteDeadlineGetsNoStream(t *testing.T) {
 	f := &fakeFeed{}
@@ -659,21 +623,5 @@ func TestAWriterThatCannotTakeAWriteDeadlineGetsNoStream(t *testing.T) {
 	r.request(rec, session.RoleCustomer)
 	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") || len(f.calls) != 0 {
 		t.Fatalf("%d %s, calls %+v", rec.Code, rec.Body.String(), f.calls)
-	}
-}
-
-// Each kind has its own vocabulary: a key one kind lists is served for that kind and refused for another.
-func TestEachKindHasItsOwnVocabulary(t *testing.T) {
-	tweak := func(o *events.Options) {
-		o.Vocabulary[events.KindProgress] = events.Vocabulary{}
-		o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"version": 10}}
-	}
-	e := ev(1, events.KindAnswer)
-	e.Fields = nil
-	r := newRigWith(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{e}, Done: true}}}, nil, tweak)
-	rec := newRec()
-	r.request(rec, session.RoleCustomer)
-	if !strings.Contains(rec.Body.String(), "id: 1\nevent: answer\n") || strings.Contains(rec.Body.String(), "STREAM_FAULT") {
-		t.Errorf("an answer carrying a number its kind lists: %q", rec.Body.String())
 	}
 }

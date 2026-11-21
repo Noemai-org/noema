@@ -30,3 +30,9 @@
 - A stamped `reconstructions.json` must be exactly `{"stamp", "cases"}` with this stamp; anything else is refused, never overwritten.
 - Tests: 28 in `test_package_artifacts.py`; 13 mutations of the new logic, 12 caught and 1 equivalent (a missing request file raises anyway).
 
+# Session 2026-11-20 (fourth) · BEN-05 · the command builds the recorder (EL's finding on noema#821)
+
+## Session summary
+- EL's read of noema#821 found that `python -m benchmark.runner` built `PublicApi(args.api_url)` with no recorder, so a real run never wrote `requests.jsonl` and noema#730's full mode would end NOT RUN. Fixed: the command builds `PublicApi(args.api_url, recorder=RequestRecorder())`. The unit tests of #821 drove the run loop with a recorder they built themselves, which is why they did not see it; the new test goes through the command (red on main, green with the fix). 23 `test_cli` tests pass; mypy --strict and lint clean.
+- Not done: the `after_recovery` and `after_reread` phases (ruling A476): a separate PR.
+

@@ -43,7 +43,7 @@ func ScanRecord(ctx context.Context, dsn string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }() // a read-only scan: a close error changes nothing
 	var have bool
 	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.record_event') IS NOT NULL`).Scan(&have); err != nil || !have {
 		return nil, err

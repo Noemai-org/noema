@@ -129,7 +129,7 @@ def probe(base_url: str, secret: str, scheme: str, control_paths: list[str], pro
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     p.add_argument("--base-url", required=True, help="https URL of the Tushe API (never kept in the repository)")
     p.add_argument("--credential-file", type=Path, required=True)
     p.add_argument("--scheme", default="auto", choices=("auto", *SCHEMES), help="how the credential is presented; auto tries each against the control read")

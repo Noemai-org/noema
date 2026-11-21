@@ -61,6 +61,27 @@ class LiveFindings(unittest.TestCase):
         declared = {"core", "model", "ui", "postgres", "temporal", "another-init"}
         self.assertEqual(matrix.live_findings("ci", declared, declared - {"another-init"}), ["ci: another-init should be running and is not"])  # a suffix is not an exemption
 
+    def test_the_one_shot_trust_dsn_init_step_may_have_exited_too_by_exact_name(self) -> None:  # A356: the step that writes the per-tenant Trust login files
+        declared = {"core", "model", "ui", "postgres", "temporal", "grant-keys-init", "trust-dsn-init"}
+        self.assertEqual(matrix.live_findings("bench", declared, declared - {"grant-keys-init", "trust-dsn-init"}), [])
+        declared = {"core", "model", "ui", "postgres", "temporal", "trust-dsn-init-2"}
+        self.assertEqual(matrix.live_findings("bench", declared, declared - {"trust-dsn-init-2"}), ["bench: trust-dsn-init-2 should be running and is not"])
+
+    # A477 (interim): the bench settings of the gateway, the worker and recovery, with the ordering constraints the loaders enforce (the activity timeout and the recovery idle time must exceed the run
+    # timeout, or a live run could be picked up twice). The table is checked by number against the resolved configuration, and in itself.
+    def test_the_a477_values_are_in_the_table_and_obey_their_ordering(self) -> None:
+        want = {'NOEMA_INPUT_DEDUP_WINDOW': '5m', 'NOEMA_INPUT_RECORD_TIMEOUT': '5s', 'NOEMA_INVESTIGATION_QUEUE': '64', 'NOEMA_INVESTIGATION_WORKERS': '1', 'NOEMA_INVESTIGATION_RUN_TIMEOUT_MS': '180000', 'NOEMA_INVESTIGATION_START_TIMEOUT_MS': '30000', 'NOEMA_EDGE_KEY_MAX_ACTIVE': '2', 'NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS': '240000', 'NOEMA_TEMPORAL_SHUTDOWN_DRAIN_MS': '30000', 'NOEMA_STM_RECOVERY_IDLE_MS': '240000', 'NOEMA_STM_RECOVERY_BATCH_SIZE': '50'}
+        for name, value in want.items():
+            self.assertEqual(profiles.BENCH_CORE_SETTINGS.get(name), value, name)
+        self.assertEqual(profiles.settings_order_problems(profiles.BENCH_CORE_SETTINGS), [])
+
+    def test_a_table_that_breaks_an_ordering_is_found(self) -> None:
+        table = dict(profiles.BENCH_CORE_SETTINGS)
+        for name, value in (("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS", "180000"), ("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS", "100000"), ("NOEMA_STM_RECOVERY_IDLE_MS", "180000"), ("NOEMA_STM_RECOVERY_IDLE_MS", "1"),
+                             ("NOEMA_INVESTIGATION_RUN_TIMEOUT_MS", "240000"), ("NOEMA_INVESTIGATION_RUN_TIMEOUT_MS", "x")):
+            bad = dict(table, **{name: value})
+            self.assertTrue(profiles.settings_order_problems(bad), (name, value))
+
     def test_the_run_profiles_are_exactly_the_ones_with_a_live_check(self) -> None:
         self.assertEqual(set(matrix.LIVE_PROFILES), {"ci", "bench", "demo"})
         self.assertNotIn("dev", matrix.LIVE_PROFILES)  # dev is the stack every other check runs on

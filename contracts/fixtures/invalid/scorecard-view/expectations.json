@@ -8,5 +8,10 @@
   "extra_top_level.json": "additionalProperties",
   "ten_gates.json": "minItems",
   "rate_without_exact_bound.json": "required",
-  "understanding_families_repeated.json": "uniqueItems"
+  "understanding_families_repeated.json": "uniqueItems",
+  "latency_n_beyond_safe_integer.json": "maximum",
+  "latency_p95_beyond_safe_integer.json": "maximum",
+  "slice_n_beyond_safe_integer.json": "maximum",
+  "slice_gate_trips_beyond_safe_integer.json": "maximum",
+  "severity_count_beyond_safe_integer.json": "maximum"
 }

@@ -116,7 +116,7 @@ func Load(dir string, opt Options) (*grants.Keys, error) {
 		if !strings.HasSuffix(name, ".key") {
 			continue
 		}
-		raw, err := readKeyFile(filepath.Join(dir, name))
+		raw, err := readKeyFile(filepath.Join(dir, name), fileBytes)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %q: %w", ErrKeyFiles, name, err)
 		}
@@ -127,4 +127,13 @@ func Load(dir string, opt Options) (*grants.Keys, error) {
 		files = append(files, p)
 	}
 	return Ring(files, opt)
+}
+
+// ReadFile reads one secret file under the same checks as Load: opened without following a link or blocking on a special file; a regular file owned by the process's user with mode 0400;
+// at most maxBytes long. The error never holds the file's content. It is for a secret that is a file but not a grant key (the Input Gateway's input-hash key).
+func ReadFile(path string, maxBytes int) ([]byte, error) {
+	if maxBytes < 1 {
+		return nil, errors.New("the size limit must be positive")
+	}
+	return readKeyFile(path, maxBytes)
 }
