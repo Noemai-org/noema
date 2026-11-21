@@ -58,3 +58,18 @@ Updated 2026-11-03. Plan task REC-05: owner C1; REQ-AUD-005; Needs REC-01; done 
 
 ### Pre-work for the next agent
 - Exact next step: EXE-06 adds the ops login to `tenant_kill_switch_guard` and writes the SECURITY_EVENT naming the actor on every clear.
+
+## Session 2026-11-18 16:07 WAT · REC-05 (regression fix; local branch `prep/rec05-verifier-bug`, no PR yet)
+### Session summary
+- What changed (PR links): none yet. `record/verify/verify.go` (`checkHead`), `verify_test.go`, `README.md`. Red commit first (the reproduction test fails on `main`), fix commit after.
+- Why: finding 1 of the REC-06 hand-off on noema#687 (comment at `fd702fde`): a tenant with a tenant row, no event and no `record_chain_head` row (the head row is made by the first append, `record_lock_head_t`, migration 0004) was reported as `HEAD_MISMATCH` "the chain head row is missing", and `Run` turned its kill switch on. Any provisioned tenant that had not written yet would have been stopped by the first run against a real database.
+- Risks, and how they are contained: one case of the head check is relaxed: no head row AND no event is now clean. A missing head row while any event exists, and a head kept after every event is deleted, stay `HEAD_MISMATCH` (tests). What this cannot tell from an unused tenant is a Record whose every event and head row were deleted past the immutability trigger; that is the rewritten-head class the anchors close (REC-07), already stated in the README. Raised for the Architect or EL to confirm, because it narrows a detection rule.
+- Tests added (REQ-AUD-005, INV-11): `TestAProvisionedTenantThatHasNeverWrittenIsCleanAndIsNotStopped` (red on `main`), `TestAMissingOrStaleHeadStaysABreakWheneverTheTenantHasOrHadEvents` and `TestAHeadAtTheGenesisWithNoEventIsClean` (guards; pass on `main`).
+- Regression cases added: the three above. Mutants (4, all killed): missing head always clean; condition inverted; fix off; head check skipped for zero events.
+- Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: open the PR (Tier 1: Record), cite noema#687 finding 1; REC-06 (noema#687) may then drop its explicit genesis head row in `ci_test.go` if it wants to cover the unused-tenant case.
+- Open questions (owner): confirm the relaxed rule (Architect or EL).
+- Files to read first: `services/core/record/verify/verify.go` (`checkHead`).
+- Do not touch: `record/chain`, migrations.

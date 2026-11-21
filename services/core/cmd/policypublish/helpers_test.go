@@ -188,7 +188,7 @@ type outcome struct {
 }
 
 func (w *world) args(tenant, dsnFile, packDir string) []string {
-	return []string{"--tenant", tenant, "--pack-dir", packDir, "--pack-file", packName, "--dsn-file", dsnFile, "--key-dir", w.keyDir, "--key-max-active", "1", "--published-by", "adm_synth01"}
+	return []string{"--tenant", tenant, "--pack-dir", packDir, "--pack-file", packName, "--dsn-file", dsnFile, "--key-dir", w.keyDir, "--key-max-active", "1"}
 }
 
 func (w *world) run(args ...string) outcome {
@@ -206,6 +206,16 @@ func (w *world) run(args ...string) outcome {
 func (w *world) publish(tenant string, login *pgxpool.Pool) outcome {
 	w.t.Helper()
 	return w.run(w.args(tenant, w.login("trust-"+tenant, login), packRoot)...)
+}
+
+// sessionUser is the login a pool authenticated as, read as the database reads it.
+func (w *world) sessionUser(p *pgxpool.Pool) string {
+	w.t.Helper()
+	var role string
+	if err := p.QueryRow(ctx(w.t), `SELECT session_user::text`).Scan(&role); err != nil {
+		w.t.Fatal(err)
+	}
+	return role
 }
 
 func (w *world) count(query string, args ...any) int {
