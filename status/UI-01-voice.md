@@ -1,5 +1,8 @@
 # UI-01 · push-to-talk capture
 
+## Session 2026-11-21 · recording duration
+- UI CI at `a5e6e831` observed the recording deadline regression. The local fix requires a host-provided maximum recording duration, closes the microphone on expiry, disables the control without a valid limit and shows a visible recording indicator. Node 22 tests and seven synthetic Chromium checks pass locally; no physical device or live voice sink is claimed. #860 asks Architect/Voice to identify the production host value; none is defaulted.
+
 ## Session 2026-11-20 · A191 PCM frame bound
 - Voice's review identified that a maximum 16,384-sample audio callback produced 32,768 bytes, above the A191 32,000-byte model-service ceiling. Tests first at `33791f96`; Node 22 UI CI failed as expected on the missing limit.
 - Encode all samples before emission, then split into frames of at most 32,000 bytes on 16-bit sample boundaries. Stop emission on abort. The full Node 22 suite, six Playwright tests (including synthetic Chromium microphone with a forced 16,384-sample callback), pin and diff checks pass locally. This does not establish physical Android or live voice-sink acceptance.

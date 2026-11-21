@@ -31,3 +31,14 @@ test("REQ-UI-001: push-to-talk is disabled when no voice sink is supplied", () =
   const html = renderToStaticMarkup(createElement(PushToTalk));
   assert.match(html, /disabled=""[^>]*>Push to talk/u);
 });
+
+test("REQ-VOI-004: a sink without a host recording limit cannot enable capture", () => {
+  const html = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {} }));
+  assert.match(html, /disabled=""[^>]*>Push to talk/u);
+});
+
+test("REQ-VOI-004: invalid recording limits are refused before microphone access", async () => {
+  for (const value of [undefined, 0, -1, Infinity, 1.5]) {
+    await assert.rejects(capture.startPcmCapture(() => {}, new AbortController().signal, undefined, value), /Voice is unavailable/);
+  }
+});

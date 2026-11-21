@@ -59,7 +59,7 @@ test("REQ-VOI-001: a real browser captures mono PCM and stops its microphone on 
       const { startPcmCapture } = await import(url);
       globalThis.audioChunks = [];
       globalThis.abortCapture = new AbortController();
-      globalThis.stopCapture = await startPcmCapture((bytes) => globalThis.audioChunks.push(bytes.length), globalThis.abortCapture.signal);
+      globalThis.stopCapture = await startPcmCapture((bytes) => globalThis.audioChunks.push(bytes.length), globalThis.abortCapture.signal, undefined, 15000);
     } finally { URL.revokeObjectURL(url); }
   }, source);
   await expect.poll(() => page.evaluate(() => globalThis.audioChunks.length)).toBeGreaterThan(0);
@@ -85,7 +85,7 @@ test("REQ-VOI-001: denying microphone permission fails closed", async ({ page, c
     const url = URL.createObjectURL(new Blob([sourceText], { type: "text/javascript" }));
     try {
       const { startPcmCapture } = await import(url);
-      try { await startPcmCapture(() => {}, new AbortController().signal); return "unexpected success"; }
+      try { await startPcmCapture(() => {}, new AbortController().signal, undefined, 15000); return "unexpected success"; }
       catch { return "denied"; }
     } finally { URL.revokeObjectURL(url); }
   }, source);
@@ -109,7 +109,7 @@ test("REQ-VOI-001: an ended microphone track stops capture and reports failure",
       const { startPcmCapture } = await import(url);
       let resolveFailure;
       const failed = new Promise((resolve) => { resolveFailure = resolve; });
-      await startPcmCapture(() => {}, new AbortController().signal, resolveFailure);
+      await startPcmCapture(() => {}, new AbortController().signal, resolveFailure, 15000);
       // Simulate the device's ended notification on a real synthetic microphone track.
       track.dispatchEvent(new Event("ended"));
       await failed;

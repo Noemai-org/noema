@@ -27,20 +27,25 @@ export function encodePcm16Frames(samples: Float32Array): Uint8Array[] {
 export async function startPcmCapture(
   onPcm: (bytes: Uint8Array) => void,
   signal: AbortSignal,
-  onFailure: () => void = () => {},
+  onFailure: (() => void) | undefined,
+  maxRecordingMs: number,
 ): Promise<() => Promise<void>> {
-  if (signal.aborted) throw new Error("Voice is unavailable.");
+  if (signal.aborted || !Number.isSafeInteger(maxRecordingMs) || maxRecordingMs <= 0 || maxRecordingMs > 2_147_483_647) throw new Error("Voice is unavailable.");
+  const startedAt = Date.now();
+  const reportFailure = onFailure ?? (() => {});
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 }, video: false });
   let context: AudioContext | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
   let processor: ScriptProcessorNode | undefined;
   let muted: GainNode | undefined;
   let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const tracks = stream.getAudioTracks();
-  const lostTrack = () => { void stop().then(onFailure, onFailure); };
+  const lostTrack = () => { void stop().then(reportFailure, reportFailure); };
   const stop = async () => {
     if (stopped) return;
     stopped = true;
+    if (timer !== undefined) clearTimeout(timer);
     signal.removeEventListener("abort", abort);
     if (processor) processor.onaudioprocess = null;
     source?.disconnect();
@@ -50,9 +55,12 @@ export async function startPcmCapture(
     for (const track of stream.getTracks()) track.stop();
     if (context && context.state !== "closed") await context.close();
   };
-  const abort = () => { void stop().catch(onFailure); };
+  const abort = () => { void stop().catch(reportFailure); };
   try {
     if (signal.aborted) { await stop(); return stop; }
+    const remaining = maxRecordingMs - (Date.now() - startedAt);
+    if (remaining <= 0) { await stop(); throw new Error("Voice is unavailable."); }
+    timer = setTimeout(() => { void stop().then(reportFailure, reportFailure); }, remaining);
     context = new AudioContext({ sampleRate: 16000 });
     if (context.sampleRate !== 16000) throw new Error("Unsupported audio rate.");
     if (tracks.length !== 1 || tracks[0]?.readyState !== "live") throw new Error("Voice is unavailable.");
@@ -70,7 +78,7 @@ export async function startPcmCapture(
           onPcm(frame);
         }
       } catch {
-        void stop().then(onFailure, onFailure);
+        void stop().then(reportFailure, reportFailure);
       }
     };
     source.connect(processor);
