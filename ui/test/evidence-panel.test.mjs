@@ -40,9 +40,23 @@ test("REQ-UI-003: an unverified chain is refused by the reconstruction contract"
   const unverified = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: { ...value, chain: { ...value.chain, verified: false } } }));
   assert.deepEqual(scanVisibleText(verified), []);
   assert.deepEqual(scanVisibleText(unverified), []);
-  assert.match(verified, />Verified</i);
+  assert.doesNotMatch(verified, />Verified</i);
   assert.doesNotMatch(unverified, />Verified</i);
   assert.match(unverified, /This evidence is unavailable/i);
+});
+
+test("A491: parsing a chain without an achieved backend verdict never shows Verified", async () => {
+  for (const name of ["no_events", "clarification_only"]) {
+    const value = await load(name);
+    const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
+    assert.doesNotMatch(html, />Verified</i, name);
+    assert.deepEqual(scanVisibleText(html), []);
+  }
+  const pending = await load("full_write_case");
+  pending.sections.find((section) => section.kind === "VERIFICATION").items[0].facts.verdict = "PENDING_EXTERNAL";
+  const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: pending }));
+  assert.doesNotMatch(html, />Verified</i);
+  assert.deepEqual(scanVisibleText(html), []);
 });
 
 test("REQ-UI-003 POC-FR-17: reconstruction sections and masked explanation are presented", async () => {
