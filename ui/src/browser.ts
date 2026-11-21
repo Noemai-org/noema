@@ -10,7 +10,7 @@ import { RESPONSE_FRAME_LIMIT_BYTES } from "./transport-limits.js";
 const app = document.getElementById("app");
 const root = app ? hydrateRoot(app, createElement(Overlay)) : undefined;
 
-type HostContext = { baseUrl: string; sessionToken: string; investigationId: string; maxResponseBytes?: number };
+type HostContext = { baseUrl: string; sessionToken: string; investigationId: string; maxPollingMs: number; maxResponseBytes?: number };
 
 function LiveOverlay({ context }: { context: HostContext }) {
   const [state, setState] = useState<InvestigationResponseV1>();

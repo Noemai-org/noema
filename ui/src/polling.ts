@@ -6,6 +6,7 @@ interface PollInput {
   investigationId: string;
   sessionToken: string;
   maxResponseBytes: number;
+  maxPollingMs: number;
   signal?: AbortSignal;
   onState: (state: InvestigationResponseV1) => void;
 }
@@ -19,8 +20,29 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Poll only core-supplied state. Limits are supplied by the host until the wire bound is specified. */
+/** Poll only core-supplied state, for no longer than the host-approved duration. */
 export async function pollInvestigation(input: PollInput): Promise<"Connection lost." | undefined> {
+  if (!Number.isSafeInteger(input.maxPollingMs) || input.maxPollingMs <= 0 || input.maxPollingMs > 2_147_483_647) return "Connection lost.";
+  if (input.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const controller = new AbortController();
+  let expired = false;
+  const abort = () => controller.abort();
+  input.signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => { expired = true; controller.abort(); }, input.maxPollingMs);
+  try {
+    if (input.signal?.aborted) controller.abort();
+    return await pollUntilDone({ ...input, signal: controller.signal });
+  } catch (error) {
+    if (input.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (expired) return "Connection lost.";
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    input.signal?.removeEventListener("abort", abort);
+  }
+}
+
+async function pollUntilDone(input: PollInput): Promise<"Connection lost." | undefined> {
   for (;;) {
     let state: InvestigationResponseV1;
     try {

@@ -20,7 +20,8 @@ const test = base.extend({
 test("REQ-UI-001: the customer overlay has no automated WCAG A/AA violations", async ({ page }) => {
   const markup = await readFile("dist/index.html", "utf8");
   const stylesheet = await readFile("dist/tokens.css", "utf8");
-  await page.setContent(markup);
+  // Isolated fixture uses injected test CSS/scanner; real CSP is tested on the served page.
+  await page.setContent(markup.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/u, ""));
   await page.addStyleTag({ content: stylesheet });
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--noema-color-text").trim())).not.toBe("");
   await expect(page.getByRole("textbox", { name: "Your message" })).toBeVisible();
