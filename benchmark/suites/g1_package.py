@@ -185,6 +185,39 @@ def _probe_ok(row: Any) -> bool:
             and (unknown.get("status"), unknown.get("code"), unknown.get("message")) == (wrong.get("status"), wrong.get("code"), wrong.get("message")))
 
 
+SECRET_NAME = re.compile(r"(\.(key|pem|p12|pfx|jks)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)|(^|/)\.env|credential|secret|token|private)", re.IGNORECASE)
+
+
+def _row12(inputs: Mapping[str, Any], files: Any, leak_text: Any) -> tuple[bool, str]:
+    """No secret or key in any artifact or summary, computed (A355): the artifact file list is this run's (stamp line first), has no file named like a secret or a key, names no absolute or escaping
+    path and no file twice, and the leak scan passes AND read at least as many files as the list names."""
+    if not isinstance(files, str) or not files.strip():
+        return False, "no artifact file list: the row is computed from it and the leak scan (--artifact-files)"
+    head, _, rest = files.partition("\n")
+    if head != f"stamp: {inputs['dispatch_sha']} {inputs['run_id']}":
+        return False, "the artifact file list does not begin with this dispatch's and run's stamp line"
+    names = rest.split("\n")
+    if names and names[-1] == "":
+        names = names[:-1]
+    if not names or any(not n.strip() for n in names):
+        return False, "the artifact file list is empty or has a blank line"
+    if len(set(names)) != len(names):
+        return False, "the artifact file list names a file twice"
+    bad = sorted(n for n in names if n.startswith("/") or "\\" in n or re.match(r"^[A-Za-z]:", n) or ".." in n.split("/"))
+    if bad:
+        return False, f"an absolute or escaping path is listed: {', '.join(bad[:3])}"
+    secret = sorted(n for n in names if SECRET_NAME.search(n))
+    if secret:
+        return False, f"a file named like a secret or a key is in the uploaded set: {', '.join(secret[:3])}"
+    scanned, why = _row8(inputs, leak_text)
+    if not scanned:
+        return False, f"the leak scan does not pass (row 8): {why}"
+    clean = CLEAN_LINE.search(str(leak_text))
+    if not clean or int(clean.group("files")) < len(names):
+        return False, f"the leak scan read fewer files than the {len(names)} listed"
+    return True, f"computed from the artifact file list ({len(names)} files, none named like a secret or key) and the leak scan, which read at least all of them"
+
+
 def _row9(inputs: Mapping[str, Any], replay: Mapping[str, Any], doc: Any, run_stamp: Any, correlations: Any) -> tuple[bool, str]:
     stamp_problem = _stamp_problem(doc.get("stamp") if isinstance(doc, Mapping) else None, inputs, "the probe results") or _stamp_problem(run_stamp, inputs, "the run's stamp")
     if stamp_problem:
@@ -252,6 +285,17 @@ def _us06_problem(doc: Any) -> tuple[str | None, tuple[int, ...]]:
             return f"{kinds.count(kind)} {kind} events, not exactly one", counts
     if not kinds.count("VERIFICATION_READ"):
         return "no VERIFICATION_READ: the outcome was not verified by key", counts
+    decisions = _facts(doc, "DECISION")
+    at_decision = [seq for seq, kind in events if kind == "DECISION_MADE"]
+    if decisions is None or len(at_decision) < 2 or len(decisions) < 2:
+        return "needs the ESCALATE disposition decision and at least one action decision that references it (A503, PERD 23.1)", counts
+    disposition = decisions[0]
+    if disposition.get("decision_outcome") != "ESCALATE" or not _text_value(disposition.get("decision_id")):
+        return "the first decision is not the ESCALATE disposition decision with an id (A503, PERD 23.1)", counts
+    if any(f.get("disposition_decision_id") != disposition["decision_id"] for f in decisions[1:]):
+        return "an action decision after the disposition does not reference it by disposition_decision_id (A503, REQ-TRU-010)", counts
+    if max(at_decision) > min(seq for seq, kind in events if kind == "GRANT_ISSUED"):
+        return "a decision is recorded after the grant was issued", counts
     at = {k: [seq for seq, kind in events if kind == k] for k in ("GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT")}
     if not (at["GRANT_SPENT"][0] < at["DISPATCH_ATTEMPTED"][0] < at["RECEIPT"][0] < min(at["VERIFICATION_READ"]) < at["VERDICT"][0] and max(at["VERIFICATION_READ"]) < at["VERDICT"][0]):
         return "the events are not in order: spend, dispatch, receipt, the read by key, the verdict", counts
@@ -285,6 +329,10 @@ def _identity_problem(doc: Any, tenant: str, correlation: Any) -> str | None:
     return None
 
 
+def _canon(doc: Any) -> str:
+    return json.dumps(doc, sort_keys=True, separators=(",", ":"))
+
+
 def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any, correlations: Any) -> tuple[bool, str]:
     if not isinstance(docs, Mapping) or not isinstance(writes, Mapping) or not isinstance(correlations, Mapping):
         return False, "the reconstructions, the mock-case write counts or the run's correlations are not readable"
@@ -299,6 +347,8 @@ def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any, correlations: Any) 
             identity = _identity_problem(phases[ph], inputs["tenant_id"], correlations.get(case))
             if identity:
                 return False, f"{case} ({ph}): {identity}"
+        if _canon(phases["after_recovery"]) != _canon(phases["after_replay"]):
+            return False, f"{case}: after_replay is a second read of the same audit-only route (a re-read, not a replay) and it differs from the read after the recovery"
         results = {ph: _us06_problem(phases[ph]) for ph in PHASES}
         for ph in PHASES:
             if results[ph][0]:
@@ -327,6 +377,8 @@ def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str
         return _row5(inputs, replay, artifacts.get("check_runs"))
     if n == 8:
         return _row8(inputs, artifacts.get("leak_scan"))
+    if n == 12:
+        return _row12(inputs, artifacts.get("artifact_files"), artifacts.get("leak_scan"))
     if n == 9:
         return _row9(inputs, replay, artifacts.get("probes"), artifacts.get("run_stamp"), artifacts.get("correlations"))
     ok, link = _linked(inputs["rows"].get(str(n)))
@@ -374,6 +426,7 @@ def render(inputs: Mapping[str, Any], card_a: Mapping[str, Any], card_b: Mapping
     lines += ["| # | Item | Result | Evidence or reason |", "|---|---|---|---|"]
     for n, (title, (ok, why)) in enumerate(zip(ROWS, results), start=1):
         lines.append(f"| {n} | {title} | **{'MET' if ok else 'NOT MET'}** | {why} |")
+    lines += ["", "In row 2, `after_replay` is a second read of the same audit-only route after the recovery: a re-read of the Record, not a replay. Deterministic replay (INV-21) is not claimed from this evidence."]
     cov = replay.get("case_coverage", {})
     lines += ["", f"Replay coverage: {cov.get('covered', '?')} of {cov.get('of', '?')} cases."]
     excluded = [e["case_id"] for e in replay.get("open_exclusions", [])]
@@ -403,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m benchmark.suites.g1_package", description=__doc__)
     for flag in ("inputs", "a-score", "b-score", "replay", "check-runs", "leak-scan", "probes", "reconstructions", "mock-case-writes", "correlations", "run-stamp", "out"):
         p.add_argument(f"--{flag}", required=True)
+    p.add_argument("--artifact-files", help="the stamped list of the uploaded artifact files, one relative path per line (row 12)")
     args = p.parse_args(argv)
     try:
         inputs, a, b, replay, probes, reconstructions, writes, correlations, run_stamp = (json.loads(Path(getattr(args, f)).read_text(encoding="utf-8"))
@@ -410,7 +464,8 @@ def main(argv: list[str] | None = None) -> int:
         pages = _json_documents(Path(args.check_runs).read_text(encoding="utf-8"))
         text = render(inputs, a, b, replay, {"check_runs": pages[0] if len(pages) == 1 else pages, "leak_scan": Path(args.leak_scan).read_text(encoding="utf-8"), "probes": probes,
                                   "reconstructions": reconstructions, "mock_case_writes": writes, "correlations": correlations,
-                                  "run_stamp": run_stamp})
+                                  "run_stamp": run_stamp,
+                                  "artifact_files": Path(args.artifact_files).read_text(encoding="utf-8") if args.artifact_files else None})
     except (OSError, ValueError, PackageError) as exc:
         sys.stderr.write(f"g1 package: {exc}\n")
         return 2
