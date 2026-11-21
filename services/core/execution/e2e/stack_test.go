@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,6 +65,8 @@ type trustStandIn struct {
 	led   *ledger.Ledger
 	plans map[string]controller.PlanStep
 	n     int
+
+	policyChanged atomic.Bool
 }
 
 var (
@@ -79,7 +84,7 @@ func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant
 }
 
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
-	return true, nil
+	return !s.policyChanged.Load(), nil // S11: a policy publish after issue makes the decision's policy version no longer active
 }
 func (s *trustStandIn) Plan(_ context.Context, g controller.Grant) (controller.PlanStep, error) {
 	s.mu.Lock()
@@ -110,7 +115,7 @@ func (s *trustStandIn) issue(ctx context.Context, capability, target string, par
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_g2%04d", n), DecisionID: "dec_g2case", PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: capability, TargetRef: target, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n), TargetVersions: versions,
 		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
-		Nonce: fmt.Sprintf("nonce_g2%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
+		Nonce: fmt.Sprintf("n_ab2%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
 		return "", err
@@ -179,14 +184,21 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	keys := crypto.NewKeyRing(map[string][]byte{keyID: []byte("synthetic-test-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
+	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute, SerializationAttempts: 3}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: trustPool, keys: keys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
-	ctl := &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
-		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
+	// One SYNTHETIC key for every stack of the package, so that two runs of the same decision sign the same bytes (the proposer-swap test compares them).
+	ring, err := signingtest.RingAt(t.TempDir(), "e2e", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingtest.Register(t, admin, ring)
+	led.Rec.Signers = recordsig.All(t, admin, "e2e", map[string]chain.Signer{"core-execution": ring})
+	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases, Records: cases},
+		Ledger: led, Out: bridge.CaseDispatcher{Case: cases, Records: cases}, IDs: gen}
 	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
 		acts: &workflows.EscalateActivities{Executor: bridge.GrantExecutor{Controller: ctl}, Reader: bridge.CaseReadBack{Case: cases}, Issuer: trust}}
 }

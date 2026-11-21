@@ -7,7 +7,7 @@ pg_bin="${PG_BIN:-$(dirname "$(command -v initdb 2>/dev/null || ls /usr/lib/post
 work="$(mktemp -d)"
 trap '"$pg_bin/pg_ctl" -D "$work/data" -m immediate stop >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 mkdir -p "$work/secrets"
-for n in noema_core_password temporal_password noema_migrator_password noema_verify_password noema_tenant_login_password; do echo "synthetic-$n" > "$work/secrets/$n"; done
+for n in noema_core_password temporal_password noema_migrator_password noema_verify_password evidence_verify_password noema_tenant_login_password; do echo "synthetic-$n" > "$work/secrets/$n"; done
 # A4 (Architect ruling, 6 Nov 2026): each emitter login has its own file-mounted secret, one file per tenant and emitter.
 mkdir -p "$work/secrets/emitter_logins"
 echo "synthetic-emitter-ten_aa-core-edge" > "$work/secrets/emitter_logins/ten_aa__core-edge"
@@ -34,6 +34,10 @@ rm -rf "$work/bad"; cp -r "$work/secrets" "$work/bad"; cp "$work/bad/noema_core_
 ( export NOEMA_EMITTERS="core-edge Other"; rm -rf "$work/bad"; cp -r "$work/secrets" "$work/bad"; refuses "an upper-case emitter name" )
 sh "$here/init.sh" >/dev/null
 psql -v ON_ERROR_STOP=1 -X -q -U postgres -d noema -f "$here/assert_roles.sql" | grep -q "roles ok"
+# D10a: pgsodium is there, its event triggers are disabled, and no pgsodium function is executable by PUBLIC (this script needs a server with pgsodium installed).
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from pg_extension where extname = 'pgsodium'")" = "1" ] || { echo "pgsodium is not created in noema"; exit 1; }
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from pg_event_trigger e join pg_depend d on d.objid = e.oid and d.deptype = 'e' join pg_extension x on x.oid = d.refobjid and x.extname = 'pgsodium' where e.evtenabled <> 'D'")" = "0" ] || { echo "a pgsodium event trigger is enabled"; exit 1; }
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'pgsodium' and has_function_privilege('public', p.oid, 'EXECUTE')")" = "0" ] || { echo "a pgsodium function is executable by PUBLIC"; exit 1; }
 # As the core's login: it connects, and it creates nothing.
 as_core() { PGPASSWORD="synthetic-noema_core_password" psql -X -q -tA -U noema_core -d noema -c "$1" 2>&1; }
 [ "$(as_core 'select 1')" = "1" ] || { echo "noema_core cannot connect"; exit 1; }
@@ -50,7 +54,31 @@ owners="$(psql -X -q -tA -U postgres -d noema -c "select string_agg(pg_get_userb
 [ "$owners" = "noema_migrator,noema_migrator" ] || { echo "Record tables are owned by: $owners"; exit 1; }
 [ "$(psql -X -q -tA -U postgres -d noema -c "select has_schema_privilege('record_append','public','CREATE')")" = "f" ] || { echo "record_append still holds CREATE on public"; exit 1; }
 # The tenant logins and the emitter login are mapped by provision-tenants.sh, run as the migration login (DEBT-04, DEBT-07).
-psql -X -q -U postgres -d noema -c "insert into tenant (tenant_id, name) values ('ten_aa', 'A')" >/dev/null
+# SEC-08 (migration 0030, noema#716 ruling A353): tenant has FORCE row-level security and no INSERT policy for any role, so only the operator's superuser creates a tenant,
+# through create-tenants.sh. Neither a power login (no INSERT privilege) nor the migration login (the table's owner, which FORCE binds) can; the script refuses to run as either.
+as_login_tenant() { PGPASSWORD="synthetic-noema_tenant_login_password" psql -X -q -tA -U "$1" -d noema -c "$2" 2>&1; }
+as_mig() { PGPASSWORD="synthetic-noema_migrator_password" psql -X -q -tA -U noema_migration_login -d noema -c "$1" 2>&1; }
+for role in trust_rw__ten_aa execution_rw__ten_aa outcome_rw__ten_aa evidence_rw__ten_aa orchestrator_rw__ten_aa record_read__ten_aa; do
+  as_login_tenant "$role" "insert into tenant (tenant_id, name) values ('ten_aa', 'by $role')" | grep -q "^ERROR" || { echo "the login $role created a tenant"; exit 1; }
+done
+as_mig "insert into tenant (tenant_id, name) values ('ten_aa', 'by the migration login')" | grep -q "^ERROR" || { echo "the migration login created a tenant"; exit 1; }
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant")" = "0" ] || { echo "a tenant exists before the operator created one"; exit 1; }
+if out="$(PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_login PGDATABASE=noema sh "$here/create-tenants.sh" 2>&1)"; then echo "create-tenants.sh ran as the migration login"; exit 1; fi
+case "$out" in *synthetic-*) echo "create-tenants.sh printed a secret while refusing"; exit 1 ;; esac
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant")" = "0" ] || { echo "create-tenants.sh created a tenant as the migration login"; exit 1; }
+# The order is enforced by the database, not by convention (SEC-08, A353): provision-tenants.sh run before create-tenants.sh has no tenant row for its foreign key, so it stops and maps nothing.
+# A sequence that runs the two the wrong way round, or omits the creation step, fails here and at deploy time, loudly, never with a half-mapped tenant. This holds on arrival (it characterises the
+# schema); no repository script sequences the migrations and the two steps yet (the one-shot migrate service of EXE-08 does not exist), so the order itself is tested where it is written, when that lands.
+if PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_login PGDATABASE=noema sh "$here/provision-tenants.sh" >/dev/null 2>&1; then echo "provision-tenants.sh succeeded with no tenant row: it ran before create-tenants.sh"; exit 1; fi
+[ "$(psql -X -q -tA -U postgres -d noema -c "select (select count(*) from tenant_login) || '/' || (select count(*) from tenant)")" = "0/0" ] || { echo "provision-tenants.sh mapped a login for a tenant that was never created"; exit 1; }
+PGUSER=postgres PGDATABASE=noema sh "$here/create-tenants.sh" >/dev/null
+[ "$(psql -X -q -tA -U postgres -d noema -c "select tenant_id || '/' || case when kill_switch then 'on' else 'off' end from tenant")" = "ten_aa/off" ] || { echo "the tenant ten_aa is not there with its kill switch off"; exit 1; }
+# A second run is a no-op: the row is not rewritten, and a kill switch an operator has since set stays set.
+before="$(psql -X -q -tA -U postgres -d noema -c "select name || '|' || created_at from tenant where tenant_id = 'ten_aa'")"
+psql -X -q -U postgres -d noema -c "update tenant set kill_switch = true where tenant_id = 'ten_aa'" >/dev/null
+PGUSER=postgres PGDATABASE=noema sh "$here/create-tenants.sh" >/dev/null
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) || '/' || bool_and(kill_switch) || '/' || min(name || '|' || created_at) from tenant")" = "1/true/$before" ] || { echo "a second create-tenants.sh run changed the tenant"; exit 1; }
+psql -X -q -U postgres -d noema -c "update tenant set kill_switch = false where tenant_id = 'ten_aa'" >/dev/null
 PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_login PGDATABASE=noema sh "$here/provision-tenants.sh" >/dev/null
 mapped="$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant_login where tenant_id = 'ten_aa'")"
 [ "$mapped" = "7" ] || { echo "tenant_login rows for ten_aa: $mapped, want 7 (six tenant logins and core-edge)"; exit 1; }
@@ -61,4 +89,28 @@ for stmt in "select * from record_event" "select * from decision_grant" "select 
 done
 # The shared tenant-login password no longer opens an emitter login: impersonation across identities by a leaked shared secret (the security finding on noema#181).
 if PGPASSWORD="synthetic-noema_tenant_login_password" psql -X -q -tA -U record_emitter__ten_aa__core-edge -d noema -c "select 1" >/dev/null 2>&1; then echo "the shared tenant-login password opens the core-edge login"; exit 1; fi
+# EVD-03: the sealing path as the deployment runs it. The migration login is not a superuser here, so row-level security binds the
+# SECURITY DEFINER guard of context_snapshot to its owner's policy (Security Reviewer, noema#268): an owner with no policy on
+# evidence_item sees no evidence and every snapshot is refused. The Go tests migrate as a superuser and cannot show that.
+as_migrator() { PGPASSWORD="synthetic-noema_migrator_password" psql -v ON_ERROR_STOP=1 -X -q -tA -U noema_migration_login -d noema -c "$1" 2>&1; }
+as_login() { PGPASSWORD="synthetic-noema_tenant_login_password" psql -X -q -tA -U "$1" -d noema -c "$2" 2>&1; }
+h="sha256:$(printf 'a%.0s' $(seq 1 64))"
+as_login evidence_rw__ten_aa "insert into evidence_payload (payload_ref, tenant_id, json, raw_hash, sensitivity, created_at) values ('pay_1', 'ten_aa', '{\"synthetic\": true}', '$h', 'S2_internal', now())" >/dev/null
+as_login evidence_rw__ten_aa "insert into evidence_item (evidence_id, tenant_id, correlation_id, source, source_record_id, read_by, read_at, effective_at, freshness_sla_seconds, authority_class, resource_scope, principal_scope, sensitivity, fact_status, payload_hash, payload_ref, created_at) values ('evr_aa1', 'ten_aa', 'corr_synthetic', 'fin.src.core_ledger', 'rec-1', 'TRUST', now(), now(), 60, 'NONE', 'res_s', 'prn_s', 'S2_internal', 'KNOWN', '$h', 'pay_1', now())" >/dev/null
+seal() { as_login trust_rw__ten_aa "insert into context_snapshot (snapshot_id, tenant_id, correlation_id, evidence_ids, reconciliation_id, reconciliation_classification, evidence_set_hash, sealed_at) values ('evs_aa1', 'ten_aa', 'corr_synthetic', array['evr_aa1'], 'rec_synthetic', 'CONSISTENT', $1, now())"; }
+bad="$(seal "'$h'" || true)"
+echo "$bad" | grep -q "not the hash of the stored items" || { echo "a snapshot with a wrong hash was not refused for that reason: $bad"; exit 1; }
+good_hash="$(as_login trust_rw__ten_aa "select evidence_set_hash_of(array['evr_aa1'], array['$h'])")"
+out="$(seal "'$good_hash'" || true)"
+[ -z "$out" ] || { echo "an honest snapshot was refused under a non-superuser migration login: $out"; exit 1; }
+# After 0020 (EVD-03, D9): the evidence recompute's login reads the two tables and can write, read or create nothing else.
+as_ev() { PGPASSWORD="synthetic-evidence_verify_password" psql -X -q -tA -U evidence_verify -d noema -c "$1" 2>&1; }
+[ "$(as_ev 'select count(*) from context_snapshot')" = "1" ] || { echo "evidence_verify cannot read context_snapshot"; exit 1; }
+[ "$(as_ev 'select count(*) from evidence_item')" = "1" ] || { echo "evidence_verify cannot read evidence_item"; exit 1; }
+for stmt in "delete from context_snapshot" "delete from evidence_item" "select * from evidence_payload" "select * from record_event" "select * from tenant_login" "create temp table t(i int)" "create table t(i int)" "set role trust_rw"; do
+  if as_ev "$stmt" | grep -q "^ERROR"; then :; else echo "evidence_verify was allowed: $stmt"; exit 1; fi
+done
+# The evidence_verify secret must differ from every other login's (Security Reviewer, noema#268, non-blocking a): init.sh refuses a shared one before it touches the cluster.
+mkdir "$work/secrets_dup"; cp -r "$work/secrets"/. "$work/secrets_dup"/; cp "$work/secrets/noema_verify_password" "$work/secrets_dup/evidence_verify_password"
+if NOEMA_SECRETS_DIR="$work/secrets_dup" sh "$here/init.sh" 2>&1 | grep -q "evidence_verify_password"; then :; else echo "init.sh accepted an evidence_verify secret equal to another login's"; exit 1; fi
 echo "init.sh: ok"

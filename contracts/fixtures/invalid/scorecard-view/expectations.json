@@ -1,0 +1,17 @@
+{
+  "failure_list_present.json": "additionalProperties",
+  "gate_with_case_ids.json": "additionalProperties",
+  "incomplete_as_a_list.json": "type",
+  "structural_evidence_present.json": "additionalProperties",
+  "human_minutes_present.json": "additionalProperties",
+  "missing_failure_count.json": "required",
+  "extra_top_level.json": "additionalProperties",
+  "ten_gates.json": "minItems",
+  "rate_without_exact_bound.json": "required",
+  "understanding_families_repeated.json": "uniqueItems",
+  "latency_n_beyond_safe_integer.json": "maximum",
+  "latency_p95_beyond_safe_integer.json": "maximum",
+  "slice_n_beyond_safe_integer.json": "maximum",
+  "slice_gate_trips_beyond_safe_integer.json": "maximum",
+  "severity_count_beyond_safe_integer.json": "maximum"
+}

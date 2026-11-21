@@ -37,7 +37,7 @@ class DecisionRecordV2(ContractModel):
     """SoT §43.2 and PERD REQ-TRU-001. Produced by Trust; exactly one of seven outcomes. Written durably before any grant (SoT §48). Rules carried by the schema: CLARIFY carries a clarification and no other outcome does; WAI... Source: decision-record.v2.json"""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: Annotated[str, StringConstraints(pattern='^2\\.[0-9]+$')]
+    schema_version: Annotated[str, StringConstraints(pattern='\\A2\\.[0-9]+\\Z')]
     tenant_id: CommonV1TenantId
     correlation_id: CommonV1CorrelationId
     decision_id: CommonV1DecisionId
@@ -48,8 +48,8 @@ class DecisionRecordV2(ContractModel):
     reason_codes: list[DecisionRecordV2ReasonCodesItem]
     authority: DecisionRecordV2Authority
     evidence_snapshot_id: CommonV1SnapshotId
-    policy_version: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$')]
-    pack_version: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$')]
+    policy_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
+    pack_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
     evidence_freshness: list[DecisionRecordV2EvidenceFreshnessItem]
     clarification: ClarificationV1 | None = Field(default=None)
     reevaluate_at: CommonV1Timestamp | None = Field(default=None)

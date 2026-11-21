@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 601bbc39935e1ede87e904cd2436eca4818e942e. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 4878c3618c85dfb93884e1b815c519a4344a16b9. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -141,7 +141,7 @@ From PERD §36.1. The "never use instead" column is that table's rejected altern
 | JSON Schema in `/contracts`, with codegen to Pydantic and Go | Hand-written types per language |
 | React and TypeScript (thin) | Server-rendered templates |
 | GPT, Gemini and Claude behind `providers/` | A single provider with theoretical fallback |
-| Aethex AI, Indigenius and N-ATLAS behind `providers/` | A single vendor |
+| Aethex AI, Indigenius and N-ATLAS behind `providers/` (the rule until the SoT edit of DEC-2026-11-13-voice-provider-intron takes effect). **From that edit (A179, proposed):** Intron Sahara v2.5 behind separate speech-to-text and text-to-speech interfaces under `providers/`, the sole integrated speech provider in the POC | Until the edit: a single vendor. From the edit: integrating Aethex AI, Indigenius or N-ATLAS in the POC |
 | HMAC-SHA-256 grants and confirmations | Per-power asymmetric keys now (deferred to before Phase 2) |
 | mTLS between the services | A shared bearer token |
 | Hypothesis (Python) and a Go property-testing library | Example tests only. The Go library (`pgregory.net/rapid`) is [REC] and needs approval under AGENT-14 |
@@ -375,7 +375,7 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 5. The hand-off report (plan §4.1 step 6).
 6. CONFLICT blocks, if any.
 
-**Reviews.** P0-path PRs need two human reviews: EL plus C1 or C2 (plan §4). An agent's report is not acceptance (plan §4.1).
+**Reviews.** Review gates are set by tier (A143, plan §4). **Tier 1** (trust, execution, outcome, record, migrations, identity): Codex READY + SR READY + one independent role review (EL, C1 or C2, not the author) + CI + one Founder approval. **Tier 2** (contracts, packs, benchmark, voice, docs): Codex where A14 applies + one independent reviewer READY (SR counts) + CI + one Founder approval; `.github` and `deploy` still need SR. An agent's report is not acceptance (plan §4.1).
 
 **Approval and merge.** One approval from a Founder who did not author or drive the pull request is enough to merge any pull request in `docs` or `noema`, whatever paths it changes (A111, [DEC-2026-11-09-one-founder-approval](docs/decisions/DEC-2026-11-09-one-founder-approval.md)). The other gates above and in plan §13.1 are unchanged.
 
@@ -470,7 +470,9 @@ Rules for adding an entry:
 
 Entries:
 
-- (none yet)
+- 2026-11-15 · a `git add -A` after a red run or a mutant run committed `rapid` counterexample files (`testdata/rapid/**/*.fail`) twice (noema#592, noema#600); each held a mutant's or a stub's failure message, not a defect of the code · before committing, run `git diff --name-only --cached | grep testdata/rapid` and commit a `.fail` only for a real defect, together with its regression test; a CI check on new `.fail` files is a candidate if it happens again · approved by: pending EL review
+- 2026-11-20 · a stray `go build` in `services/core/cmd/core` left a 33.9 MB binary (`core`) that went into a pushed red commit twice (noema#721, noema#823) and forced a close and reopen from a fresh branch (A429, interim, relayed, not yet committed) · `services/core/cmd/core/.gitignore` ignores `/core` (noema#812), and before every commit run `git diff --cached --stat | sort -k3 -n | tail -3` and refuse any staged file over 1 MB; build with `go build -o /dev/null` or `go vet` instead of `go build` · approved by: pending EL review
+- 2026-11-20 · a Go comment named the evidence-mapping manifest id and failed the INV-14 guard `test_the_core_does_not_hard_code_the_ids` (noema#773, noema#830); the guard bans the id string in any non-test `.go` file, comments included · before pushing a change under `services/core`, run `python3 -m unittest tools.packcheck.test_manifest -k hard_code`; write 'the pack's evidence mapping', never the id; a follow-up makes the guard a version-agnostic pattern · approved by: pending EL review
 
 ## 16. Where things are
 

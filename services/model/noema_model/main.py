@@ -1,6 +1,6 @@
 """The model service entry point: Understanding, Explanation and Voice (SoT §35.6).
 
-This serves only the two health endpoints and holds no product logic (PLT-01). It builds the telemetry and the harness: NOEMA_MODEL_HARNESS_CONFIG names the harness configuration, and /readyz is ready only once the harness is built. The service reads no benchmark variable: the bench stack hands in its own cost-file telemetry from outside (benchmark/model_cost, Architect's ruling A55). No request endpoint exists yet.
+This serves only the two health endpoints and holds no product logic (PLT-01). It builds the telemetry and the harness: NOEMA_MODEL_HARNESS_CONFIG names the harness configuration, and /readyz is ready only once the harness is built. The service reads no benchmark variable: the bench stack hands in its own cost-file telemetry from outside (benchmark/model_cost, Architect's ruling A55). The compile route is mounted (UND-05); the service behind it is built only when NOEMA_MODEL_COMPILE_CONFIG names its configuration and the listener requires a client certificate (understanding/compiler/wiring.py).
 """
 
 import os
@@ -12,6 +12,10 @@ from fastapi.responses import JSONResponse
 from noema_model.harness import assemble_harness
 from noema_model.platform.clock import SystemClock
 from noema_model.platform.telemetry import NullTelemetry, OtelTelemetry, Telemetry
+from noema_model.evidence.transport import EvidenceTransport
+from noema_model.understanding.compiler import CompileService
+from noema_model.understanding.compiler.wiring import build_compile_service, compile_requested
+from noema_model.understanding.compiler.route import register as register_compile_route
 
 Readiness = Callable[[], tuple[bool, str]]
 
@@ -23,7 +27,11 @@ def build_telemetry() -> Telemetry:
 
 
 def create_app(
-    check: Readiness | None = None, telemetry: Telemetry | None = None, environ: Mapping[str, str] | None = None
+    check: Readiness | None = None,
+    telemetry: Telemetry | None = None,
+    environ: Mapping[str, str] | None = None,
+    compile_service: CompileService | None = None,
+    evidence_transport: EvidenceTransport | None = None,
 ) -> FastAPI:
     """Build the app. /healthz says the process is alive; /readyz says it can serve: by default, that the harness was built
     from its mounted configuration (NOEMA_MODEL_HARNESS_CONFIG), and if not, why. The telemetry and the harness are kept on
@@ -33,6 +41,11 @@ def create_app(
     app.state.telemetry = telemetry if telemetry is not None else build_telemetry()
     assembly = assemble_harness(env, SystemClock(), app.state.telemetry)
     app.state.harness = assembly.harness
+    if compile_service is None and compile_requested(env):
+        # Named by NOEMA_MODEL_COMPILE_CONFIG: built from that file, and only on a listener that requires a client certificate; any problem refuses to start (UND-05, noema#555).
+        compile_service = build_compile_service(env, assembly.harness, transport=evidence_transport)
+    app.state.compile_service = compile_service  # None unless named: the compile route then answers 503 (UND-05)
+    register_compile_route(app)
     readiness: Readiness = check if check is not None else (lambda: (assembly.harness is not None, assembly.reason))
 
     @app.get("/healthz")

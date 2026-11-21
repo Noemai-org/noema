@@ -17,7 +17,7 @@ class InboundEventV1(ContractModel):
     event_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     delivery_id: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = Field(default=None)
     sequence: Annotated[int, Field(ge=0, le=9007199254740991)] | None = Field(default=None)
-    event_type: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$')]
+    event_type: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*\\Z')]
     occurred_at: CommonV1Timestamp
     received_at: CommonV1Timestamp | None = Field(default=None)
     payload: dict[str, Any]

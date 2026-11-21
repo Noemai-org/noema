@@ -53,3 +53,24 @@ The client of the Noema-side stand-in (`synthetic/standin`), implementing the re
 | no pagination | the stand-in has none; an answer with more items than the query's `Limit` is `MALFORMED`, never cut |
 
 Tests: `standin_client_test.go` (the pinned assertion vector of the stand-in README, every status above, the request's credentials and expiry, a missing deadline, a timeout). Four deliberate breaks of the client (label check, hash, limit check, assertion lifetime) were each caught.
+
+## Evidence and complaints (EXE-05, ruling A157)
+
+`CaseClient` also implements `adapters.CaseRecords` (`records.go`): `AppendEvidence` and `LogComplaint` (one keyed POST each, `Idempotency-Key`, never retried), `GetEvidence`, `GetComplaint`, `FindEvidence` and `FindComplaints`. There is no method that changes or deletes a record, moves a clock or closes a case.
+
+- `AppendEvidence` sends the tenant, the exact payload and the SHA-256 of its exact bytes (`sha256:<hex>`), so the target refuses a payload that changed on the way (422 `PAYLOAD_HASH_MISMATCH`, `REJECTED_4XX`).
+- A 201 or 200 is `ACK_2XX` only if its body is exactly the record of THIS request: the same tenant, case and idempotency key (and, for evidence, the hash of the payload sent and a payload that matches it). Anything else is `NO_RESPONSE` with `<status>:UNRECOGNISED`: the write may have happened, so it is unknown. `ExternalAck` is the attachment ID or the complaint reference; `200:REPLAY` marks a replay.
+- 409 `IDEMPOTENCY_CONFLICT` sets `KeyCollision` (EC-E06); 404 (no such case in the tenant) is `REJECTED_4XX`; 429, 5xx, timeouts and the rest are classified as above.
+- A read returns the record with the hash of the bytes received (`RawHash`); a body that is not exactly the record asked for (another tenant, another ID, a payload that does not match its hash, an unknown member) is `MALFORMED`. A page carries the completeness marker: complete has no cursor, incomplete has one, anything else is `MALFORMED`; an empty complete page means none.
+
+Tests: `records_test.go` (the request and every status; wire shapes from `synthetic/mock_case/internal/api/openapi.json`) and `adapters/outcome_e2e/records_test.go` (the same operations against the real mock-case).
+
+## The transition log and the event feed (ENV-05; ruling A310; delta v1.3 section 3)
+
+`TusheReader` (`tushe_log_reader.go`) reads `GET /v1/accounts/{accountId}/payouts/{payoutId}/transitions` and the event feed (`GET /v1/events?after={sequence}&limit={n}`, read forward on `sequence`, never on a timestamp) into the neutral types of `adapters/tushe_log.go`. GET only; no redirect; no retry; the credential from a file, never in an error; every failure is a `*ReadError` (UNAVAILABLE for a timeout or a 5xx, UNAUTHORIZED, NOT_FOUND, and MALFORMED for a body it cannot read, which is UNKNOWN to the caller and never "no rows").
+
+**What it asserts, and what it does not.** The transition row has exactly the members the delta names (`seq`, `lifecycle`, `fromState`, `toState`, `source`, `sourceRef`, `inferred`, `injected`, `reason`, `occurredAt`, `observedAt`, `actor`, `request.{id, idempotencyKey}`); a member it does not name is refused as drift. The sequence of a log must strictly rise and the feed's sequence must rise past its cursor: a repeat or a rewind is MALFORMED. An event needs `id`, `sequence` (a JSON number) and `traceId`; every other member is kept in `Raw`.
+
+**Not in any governing document, so a parameter or left raw, never guessed (asked on noema#690):** how an API key is presented (the caller passes `PresentBearer` or `PresentAPIKeyHeader`; there is no default); the envelope of each list (`ListShapes`: the body is the array, or the array is a member of a named name; no default); the type of each member beyond what the tests pin; what a state means (states are raw strings; none is mapped); whether `fromState` is null on the first row (null reads as an empty string); the audit-events shape (`GET /v1/audit-events` is not read); which transition member is the `traceId` of the two-call join (BO's plan, noema#627). The fixtures in `testdata/tushe_v1_3/` hold only the delta's members and are SYNTHETIC; no part of this has been observed against Tushe.
+
+**Tests:** `tushe_log_reader_test.go`, from `services/core/`: `go test ./adapters/synthetic_tushe/`.

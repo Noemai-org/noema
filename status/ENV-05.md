@@ -44,3 +44,51 @@ Date: 2026-11-07 · Owner: Integration Lead role agent (A10: the stand-in and th
 - Architect: A, B or C on #223 (TST-05); the assertion v2 question in row 8; whether the three [OPEN] entries may start with my proposed defaults.
 - Benchmark Owner: `benchmark-fixture.v2` for row 9 (schema owner); the coverage table must show rows 4 and the stand-in side of S1 as "not applicable", not "pass".
 - Core Engineer 2: an Outcome crash hook for the third S9 point.
+# Session 2026-11-13 21:00 WAT · ENV-05 (Repo Steward, hotfix for a flaky proxy test)
+
+## Session summary
+- What changed (PR links): `TestRequestLogRecordsARouteThatIsNotInTheTable` in `benchmark/hostility_proxy/internal/proxy/request_log_test.go` used the query value `abc` and then failed if the request log contained `abc`. The log carries a random 32-hex-digit generation ID, so about one run in a hundred matched by chance. `main` went red on `hostility-proxy` after the merge of noema#272 (which does not touch this package). The marker is now `zq-query-marker`, and a test proves it cannot be made of hex digits.
+- Why: main red (A129 hotfix).
+- Risks, and how they are contained: test-only change; the assertion is not weakened (it still fails if the query string is logged); the earlier marker could only fail by chance.
+- Tests added (REQ, INV, US or EC IDs): `TestTheQueryMarkerCannotAppearInTheLogByChance` (REQ-ENV-005, REQ-TST-004). Reproduction: `go test -count=400` on `main` failed repeatedly, showing a `generation` ID that contained `abc`; with the fix 2,500 runs pass.
+- Regression cases added: the marker test above.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none.
+- Open questions (owner): none.
+- Files to read first: `benchmark/hostility_proxy/internal/proxy/request_log_test.go`.
+- Do not touch: the assertion itself (it must keep failing if the query string is logged).
+
+# Session 2026-11-18 · ENV-05 · the transition-log and event-feed reader (IL)
+
+## Session summary
+- What changed (this PR): `adapters.TransitionLog` and `adapters.EventFeed` (neutral types, `adapters/tushe_log.go`) and `synthetic_tushe.TusheReader` with SYNTHETIC fixtures (`testdata/tushe_v1_3/`), for the two reads delta v1.3 names field by field. Ruling A310: build from the delta's fields; unknowns are parameters or left raw.
+- Why: ENV-05 (the switch's payout status and inbound events) cannot wait for the OpenAPI where the adopted delta already names the fields; the rest of ENV-03/05 waits on noema#690.
+- Risks, and how they are contained: nothing is observed against Tushe. The shapes are the delta's words; what it does not say is a required parameter (credential presentation, list envelope) with no default, so adoption of the real shape changes one value. A member the delta does not name is refused as drift (UNKNOWN), never ignored.
+- Tests added (REQ-ENV-001, REQ-ENV-006; INV-21): 6 test functions with their subtests: every documented member in both envelope shapes; 12 unreadable transition bodies each MALFORMED; a feed read forward to caught-up with the cursor on the sequence; an error for a page limit, a repeated or lower sequence, a missing id or trace id, a string or negative sequence; the credential never in an error or file; a real refused connection and a real stalled server are UNAVAILABLE; no deadline and bad input are INVALID. Mutations that fail a test: no order check, no cursor check, unknown members allowed, an empty page not ending the read.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when the OpenAPI (noema#690) or a delta fixes the list envelopes, the credential presentation and the field types, set them in the caller and replace the synthetic fixtures with recorded exchanges. The normalised PERD 34.4 payloads (raw code and semantic status side by side) for the payout need the state vocabulary, which is not yet known.
+- Open questions (owner): the list envelopes, credential presentation, state vocabulary, the audit-events shape, and which member joins to `traceId` (Founders, with Tushe).
+- Files to read first: `services/core/adapters/tushe_log.go`, `services/core/adapters/synthetic_tushe/tushe_log_reader.go`.
+- Do not touch: the fixtures' members without a delta that names them.
+
+# Session 2026-11-18 · ENV-05
+
+## Session summary
+- What changed (PR links): noema#711 review fixes: a null or empty `traceId` is MALFORMED (it cannot join the trace); a body read that fails (stall to the deadline, reset, short body) is UNAVAILABLE with the transport codes, not MALFORMED `TOO_LARGE_OR_CUT`. An over-size body is still MALFORMED.
+- Why: Codex P2 and P2 on noema#711.
+- Risks, and how they are contained: classification only; no new request, retry or dependency.
+- Tests added (REQ, INV, US or EC IDs): ENV-05 reader tests: null and empty trace id; stall after headers; drop after headers, on a real TCP server (AGENT-12). Seen failing first.
+- Regression cases added: the four cases above.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: CI at the new head, then Codex.
+- Open questions (owner): the `core` check that was red before this push is not attributed by me; read its log at the new head.
+- Files to read first: services/core/adapters/synthetic_tushe/tushe_log_reader.go
+- Do not touch: the frozen Tushe specification.

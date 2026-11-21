@@ -41,3 +41,29 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Purpose: #64 failed because its branch predated the scan-scope fix (#69); `origin/main` is to be merged into `sC/t4-cost-reader` without rebase or force-push, the result pushed, checks run once on the new head, and the head SHA and each check's result reported in one table with run links on #64; the founder merges after the checks pass; every message is logged in `status/`.
 - Receiver used it for: the merge of `origin/main` into `sC/t4-cost-reader` (no conflicts), done in #64, and this entry.
 - Evidence: #64.
+
+# Session 2026-11-16 · BEN-03 · the plan for the harness's Tushe read-only fold and trace join
+
+## Session summary
+- What changed: `benchmark/oracle_client/PLAN-tushe-readonly-fold.md` and a pointer in `benchmark/oracle_client/README.md`. A plan only.
+- Why: the Founder's instruction of 16 Nov 2026: plan the harness oracle fold for transitions (Tushe M-02) and the traceId join (AT-19), to read through the read-only key when the Founder creates it (A240).
+- Risks, and how they are contained: none in code. The plan refuses to build a reader or name a route before a delta file adopts the addendum (DEC-2026-10-16 E10; the Steward's record of the addendum), and lists what is not known instead of guessing it.
+- Tests added: none (a plan; the tests it will start with are listed in its section 4). Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after the Founders adopt the addendum's routes by a delta file, build `tushe_fold.py` and `tushe_trace.py` (pure, tests first), then the reader.
+- Open questions (owner): the six in section 5 of the plan (routes and shapes, the order field, the join key, the scopes needed, time, the reply of 10 Nov): the Steward, the Founders and Tushe.
+- Files to read first: `benchmark/oracle_client/PLAN-tushe-readonly-fold.md`, `benchmark/oracle_client/README.md`.
+- Do not touch: no credential value is ever written in a file; the key goes in the bench Environment only.
+
+# Session 2026-11-18 (second round) · BEN-03 · Codex P2 on the fold at 52fbc856
+
+## Session summary
+- What changed: `fold_transitions` reads every row first (an unreadable row still fails the whole answer), then applies the one-id-two-rows rule against the cutoff: if every differing row is after the cutoff the id is not part of the answer (the prefix property, PLAN-tushe-readonly-fold.md 3.2); if any is at or before it the in-prefix row is the contested one and the answer is CHAIN_BROKEN.
+- Tests: 3 new, written first and failing before the fix; 8 mutations of the rule, 7 caught; the eighth (keeping a future-only conflicting id) is an equivalent mutant, since such a row never enters the prefix.
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval. The reader waits for noema#711, the delta file and the read-only key.
+- Do not touch: the row shape defaults (assumed until the delta file adopts them).
+

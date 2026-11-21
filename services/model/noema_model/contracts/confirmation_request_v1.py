@@ -14,9 +14,9 @@ class ConfirmationRequestV1Display(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     action: Annotated[str, StringConstraints(min_length=1)]
-    target: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$', min_length=1)]
+    target: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', min_length=1)]
     evidence_summary_ref: CommonV1SnapshotId
-    policy_version: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$')]
+    policy_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
 
 
 class ConfirmationRequestV1(ContractModel):

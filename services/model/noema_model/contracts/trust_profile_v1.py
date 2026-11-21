@@ -21,13 +21,13 @@ class TrustProfileV1(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     profile_id: CommonV1PackId
-    risk_class: Annotated[str, StringConstraints(pattern='^(R[0-9]_[a-z_]+|PROHIBITED)$')]
+    risk_class: Annotated[str, StringConstraints(pattern='\\A(R[0-9]_[a-z_]+|PROHIBITED)\\Z')]
     authority: TrustProfileV1Authority
     policy_templates: list[CommonV1PackId]
     clocks: list[CommonV1PackId]
     approvals: list[Annotated[str, StringConstraints(min_length=1)]]
     prohibited_capabilities: list[CommonV1PackId]
-    evidence_required: list[CommonV1PackId]
+    evidence_required: Annotated[list[CommonV1PackId], Field(min_length=1)]
     max_evidence_age_seconds: Annotated[int, Field(ge=1, le=9007199254740991)]
     data_sensitivity: Annotated[str, StringConstraints(min_length=1)]
 

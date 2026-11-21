@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal, TypeAlias, Union
 from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
 from .common_v1 import CommonV1PackId, CommonV1Predicate, CommonV1Semver, CommonV1SlotName
@@ -42,6 +42,31 @@ class ActionGraphV2NodesItemKind(StrEnum):
     WRITE = 'WRITE'
 
 
+# ActionGraphV2NodesItemParamsItemConst: one of several shapes. Source: action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/const
+ActionGraphV2NodesItemParamsItemConst: TypeAlias = Union[str, int, bool]
+
+
+class ActionGraphV2NodesItemParamsItemMap(ContractModel):
+    """ActionGraphV2NodesItemParamsItemMap Source: action-graph.v2.json#/properties/nodes/items/properties/params/items/properties/map"""
+
+    model_config = ConfigDict(extra="forbid")
+    from_: CommonV1SlotName = Field(alias='from')
+    values: dict[str, Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]]
+
+
+class ActionGraphV2NodesItemParamsItem(ContractModel):
+    """ActionGraphV2NodesItemParamsItem Source: action-graph.v2.json#/properties/nodes/items/properties/params/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    name: CommonV1SlotName
+    slot: CommonV1SlotName | None = Field(default=None)
+    const: ActionGraphV2NodesItemParamsItemConst | None = Field(default=None)
+    map: ActionGraphV2NodesItemParamsItemMap | None = Field(default=None)
+    fact: CommonV1SlotName | None = Field(default=None)
+    policy_param: CommonV1SlotName | None = Field(default=None)
+    evidence_packet: Literal[True] | None = Field(default=None)
+
+
 class ActionGraphV2NodesItem(ContractModel):
     """ActionGraphV2NodesItem Source: action-graph.v2.json#/properties/nodes/items"""
 
@@ -53,8 +78,9 @@ class ActionGraphV2NodesItem(ContractModel):
     postconditions: list[CommonV1Predicate]
     on_unknown: ActionGraphV2RecoveryAction
     on_failure: ActionGraphV2RecoveryAction
-    recovery_ref: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] | None
+    recovery_ref: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] | None
     escalation_ref: ActionGraphV2NodesItemEscalationRef | None
+    params: list[ActionGraphV2NodesItemParamsItem] | None = Field(default=None)
 
 
 class ActionGraphV2(ContractModel):
@@ -71,4 +97,6 @@ class ActionGraphV2(ContractModel):
 
 ActionGraphV2EdgesItem.model_rebuild()
 ActionGraphV2NodesItem.model_rebuild()
+ActionGraphV2NodesItemParamsItem.model_rebuild()
+ActionGraphV2NodesItemParamsItemMap.model_rebuild()
 ActionGraphV2.model_rebuild()

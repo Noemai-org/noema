@@ -63,7 +63,7 @@ class ReconstructionV2Item(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     record_event_id: CommonV1RecordEventId
-    object_ref: Annotated[str, StringConstraints(pattern='^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$')]
+    object_ref: Annotated[str, StringConstraints(pattern='\\A[a-z]{2,6}_[0-9A-Za-z_]{2,64}\\Z')]
     basis: ReconstructionV2ItemBasis
     facts: dict[str, ReconstructionV2ItemFactsValue | None]
 

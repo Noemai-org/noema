@@ -11,7 +11,8 @@ What the default run checks:
   2. money fields are integers with the M3 bounds, never `number` (M4);
   3. every document in fixtures/valid/<schema>/ is accepted (a clarification answer must also name only slots its
      companion <name>.clarification.json requested; expectation 'unknown_slot') and every one in fixtures/invalid/<schema>/
-     is rejected, for the reason named in that folder's expectations.json;
+     is rejected, for the reason named in that folder's expectations.json; a clarification's none_option_id must not equal
+     one of its own option_id values, which JSON Schema cannot compare (A275; expectation 'none_option_collision');
   4. every schema has a row in contracts/INVENTORY.md and every row names an existing schema;
   5. the enum drift guard (drift.py): enums.v1.json against the vendored state-registry.md, and
      money.v1.json against currencies.json.
@@ -27,11 +28,14 @@ import sys
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 from jsonschema.validators import extend
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools" / "codegen"))
+from anchors import fully_anchored  # noqa: E402
 CONTRACTS = ROOT / "contracts"
 SCHEMAS = CONTRACTS / "schemas"
 FIXTURES = CONTRACTS / "fixtures"
@@ -56,7 +60,17 @@ def _is_integer(checker, instance):
     return not isinstance(instance, (bool, WireFloat)) and isinstance(instance, int)
 
 
-StrictValidator = extend(Draft202012Validator, type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _is_integer))
+def _pattern(validator, pattern, instance, schema):
+    """A pattern means the whole string (A138): Python's `$` also matches before a final newline, ECMA 262 and Go do not."""
+    if validator.is_type(instance, "string") and not re.search(fully_anchored(pattern), instance):
+        yield ValidationError(f"{instance!r} does not match {pattern!r}")
+
+
+StrictValidator = extend(
+    Draft202012Validator,
+    validators={"pattern": _pattern},
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _is_integer),
+)
 
 
 def _no_constant(text: str):
@@ -185,9 +199,12 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                     problems.append(f"valid/{name}/{path.name}: names slots the clarification did not request: {sorted(extra)}")
             try:
                 errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
+                collisions = none_option_collisions(load_strict(path))
             except ValueError as exc:
                 problems.append(f"valid/{name}/{path.name}: decoder rejected a document that must be accepted: {exc}")
                 continue
+            if collisions:
+                problems.append(f"valid/{name}/{path.name}: none_option_id equals an option_id: {collisions}")
             for error in errors[:3]:
                 problems.append(f"valid/{name}/{path.name}: rejected at {'/'.join(map(str, error.absolute_path)) or '(root)'}: {error.message[:120]}")
         expectations_path = invalid_dir / "expectations.json"
@@ -206,6 +223,13 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                     problems.append(f"invalid/{name}/{path.name}: must be well formed and rejected only for its slot names, but the schema rejects it: {shape[0].message[:100]}")
                 elif not extra:
                     problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected (it names no unrequested slot)")
+                continue
+            if expected == "none_option_collision":
+                shape = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
+                if shape:
+                    problems.append(f"invalid/{name}/{path.name}: must be well formed and rejected only for its none_option_id, but the schema rejects it: {shape[0].message[:100]}")
+                elif not none_option_collisions(load_strict(path)):
+                    problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected (its none_option_id equals no option_id)")
                 continue
             try:
                 errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
@@ -234,6 +258,30 @@ def unrequested_slots(answer_file: Path) -> set[str] | None:
         return None
     requested = {load_strict(companion)["slot"]}
     return set(load_strict(answer_file)["answers"]) - requested
+
+
+def none_option_collisions(doc) -> list[str]:
+    """The none_option_id values of a document that equal an option_id of the same clarification (A275).
+
+    The core mints none_option_id, unique per clarification, and the UI submits it as option_id, so it must never be one of the
+    clarification's own option IDs. JSON Schema cannot compare two members of one object, so this is checked here, in any
+    clarification object (a clarification, an overlay card, a Decision Record's) found anywhere in the document.
+    """
+    found: list[str] = []
+
+    def visit(node) -> None:
+        if isinstance(node, dict):
+            options = node.get("options")
+            if "none_option_id" in node and isinstance(options, list) and node["none_option_id"] in {o.get("option_id") for o in options if isinstance(o, dict)}:
+                found.append(node["none_option_id"])
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(doc)
+    return found
 
 
 def keywords(error) -> set[str]:

@@ -18,11 +18,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from noema_model.contracts.canonical_input_v1 import CanonicalInputV1
+from noema_model.contracts.canonical_input_v2 import CanonicalInputV2
 from noema_model.platform.clock import Clock
 
-SCHEMA_VERSION = "1.0"
-TEXT_LIMIT = 2000  # canonical-input.v1.json, text.maxLength; the contract bounds it and this module enforces it after normalisation
+SCHEMA_VERSION = "2.0"
+TEXT_LIMIT = 2000  # canonical-input.v2.json, text.maxLength; the contract bounds it and this module enforces it after normalisation
 _BODY_KEYS = frozenset({"request_id", "channel", "text", "locale_hint", "voice", "conversation_ref"})
 _REQUIRED = ("request_id", "channel", "text")
 _VOICE_KEYS = frozenset({"provider_id", "model_version", "utterance_confidence", "token_confidences", "is_final", "audio_ref"})
@@ -39,6 +39,7 @@ class Reason(StrEnum):
     UNKNOWN_FIELD = "UNKNOWN_FIELD"
     CHANNEL_MISMATCH = "CHANNEL_MISMATCH"
     BAD_FIELD = "BAD_FIELD"
+    AUDIO_REF_NOT_ALLOWED = "AUDIO_REF_NOT_ALLOWED"
 
 
 class InputInvalid(Exception):
@@ -66,7 +67,7 @@ class Gateway:
     def __init__(self, clock: Clock) -> None:
         self._clock = clock
 
-    def canonicalise(self, raw: Mapping[str, Any], ctx: RequestContext) -> CanonicalInputV1:
+    def canonicalise(self, raw: Mapping[str, Any], ctx: RequestContext) -> CanonicalInputV2:
         if not isinstance(raw, Mapping):
             raise InputInvalid(Reason.BAD_FIELD, "body")
         extra = sorted(str(k) for k in raw if k not in _BODY_KEYS)
@@ -102,7 +103,7 @@ class Gateway:
         if voice is not None:
             document["voice"] = dict(voice)
         try:
-            return CanonicalInputV1.model_validate_json(json.dumps(document))  # the contract models are strict about Python enums, lax about JSON
+            return CanonicalInputV2.model_validate_json(json.dumps(document))  # the contract models are strict about Python enums, lax about JSON
         except ValidationError as err:
             first = err.errors()[0]
             field = ".".join(str(part) for part in first["loc"])
@@ -143,6 +144,10 @@ def _check_voice(voice: object) -> None:
     missing = sorted(_VOICE_KEYS - set(voice))
     if missing:
         raise InputInvalid(Reason.BAD_FIELD, f"voice.{missing[0]}")
+    if voice["audio_ref"] is not None:
+        # canonical-input.v2 (CR docs#137): null means the audio was discarded. No consent-backed retention path exists, so a reference of any shape is refused here,
+        # fail closed, and the refusal names the field, never the value (AGENT-13).
+        raise InputInvalid(Reason.AUDIO_REF_NOT_ALLOWED, "voice.audio_ref")
     final = voice["is_final"]
     if not isinstance(final, bool):
         raise InputInvalid(Reason.BAD_FIELD, "voice.is_final")

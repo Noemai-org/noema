@@ -122,13 +122,16 @@ def _execute(env: RunEnv, lc: LoadedCase, turns: _Turns) -> Json:
             env.control.advance(argument)
     turns.sent += 1  # counted when the request is sent: a timeout can come after the core received it (Codex review of noema#112)
     conv = env.api.start(token, f"{case['case_id']}-t1", texts[0], locale_hint=locale)
+    env.correlations[case["case_id"]] = conv.correlation_id
     env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
     _drive(env, token, case, after, conv)
     for number, text in enumerate(texts[1:], start=2):
         turns.sent += 1
         env.api.message(token, conv.conversation_ref, f"{case['case_id']}-t{number}", text=text)
         env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
-    parsed = parse(env.api.reconstruction(token, conv.correlation_id))
+    body = env.api.reconstruction(token, conv.correlation_id)
+    env.reconstructions[case["case_id"]] = {"initial": body}
+    parsed = parse(body)
     environment = env.oracle.readout(baseline, parsed.record_events)
     return {
         "run_id": env.run_id, "case_id": case["case_id"], "case_version": case["version"], "status": "COMPLETED", "error": None,
@@ -146,6 +149,17 @@ def _errored(env: RunEnv, case: Json, code: str, message: str, turns: int = 0) -
 
 def run_case(env: RunEnv, lc: LoadedCase) -> Json:
     """The result document for one case. Never raises for a case-level problem: that is an ERROR result."""
+    recorder = getattr(env.api, "recorder", None)
+    if recorder is not None:
+        recorder.begin(lc.case["case_id"])
+    try:
+        return _run_case(env, lc)
+    finally:
+        if recorder is not None:
+            recorder.end(lc.case["case_id"], env.correlations.get(lc.case["case_id"]))
+
+
+def _run_case(env: RunEnv, lc: LoadedCase) -> Json:
     turns = _Turns()
     try:
         result = _execute(env, lc, turns)
@@ -190,6 +204,11 @@ def run_suite(env: RunEnv, suite: Suite, out: Path, *, commit_sha: str | None, p
             result = run_case(env, lc)
             _write(out / "results" / f"{lc.case['case_id']}.json", result)
             results.append(result)
+    _write(out / "reconstructions.json", dict(sorted(env.reconstructions.items())))  # the initial phase of each completed case, for the G1 package (A444); stamped later by package_artifacts
+    recorder = getattr(env.api, "recorder", None)
+    if recorder is not None:
+        recorder.write(out / "requests.jsonl")  # the runner's own per-request record (A444); noema#730 derives the expected RECORD_ACCESSED count from it
+    _write(out / "correlations.json", dict(sorted(env.correlations.items())))  # the evidence probes read each case's reconstruction by its correlation id
     completed = sum(1 for r in results if r["status"] == "COMPLETED")
     errors: dict[str, int] = {}
     for r in results:

@@ -1,0 +1,134 @@
+# Bench startup only (ENV-04 wiring; noema#441; ruling A135): the bench stack's wiring on top of docker-compose.yml and bench-model.yml: the core's settings for reading the
+# Noema-side stand-in through the hostility proxy, and the runner's output directory.
+# NOT included by docker-compose.yml. `make bench-up` adds it with `-f` (after bench-model.yml); `make up`, the dev, ci and demo profiles never do, so nothing here is in any other stack.
+#
+# What it does:
+#   - the hostility proxy loads the stand-in route table (routes.standin.json), so the core's reads of the stand-in pass the proxy and are in its per-route request log
+#     (the source of monetary_calls) and can be faulted by a FaultPlan (AGENT-12);
+#   - the core gets the settings its stand-in read adapter will need: the data URL (the proxy's data side on tushe_net), the tenant, and the file-mounted runtime credential
+#     and principal key. The tenant is the stand-in's own (STANDIN_TENANT_ID): the adapter's assertion names it and an answer for another tenant is refused (A135).
+#   - the core holds only the runtime credential and the principal key, never the bench credential: the key that loads never reads (REQ-ENV-002).
+#
+# Honest status: nothing in the core reads these settings yet. `services/core/cmd/core` serves /healthz and /readyz only, and the read call site (the evidence read inside the
+# investigation, with the Scope built from the authenticated session, INV-12) belongs to the Evidence Layer and the Edge (noema#441). The names below are the contract that
+# call site is to use; until it exists a G1 run ends NOT RUN.
+volumes:
+  # The Trust login DSN files the core loads: written once by trust-dsn-init at mode 0400 owned by the core's user (A356, INV-29). Only that step writes it; only the core mounts it, read-only.
+  trust_dsns: {}
+services:
+  core:
+    environment:
+      NOEMA_STANDIN_URL: "http://hostility-proxy:8080"
+      NOEMA_STANDIN_TENANT_ID: "${STANDIN_TENANT_ID:-ten_alpha}"
+      NOEMA_STANDIN_RUNTIME_TOKEN_FILE: /run/standin/runtime/token
+      NOEMA_STANDIN_PRINCIPAL_KEY_FILE: /run/standin/principal/key
+      # The session settings of the protected /v1 API (EDG-01; all six or none, no defaults, AGENT-16): the synthetic IdP's PUBLIC key under its key id, the audience, the one tenant,
+      # the pack's session limits, and the body limit, which a person gives at dispatch (no value is approved in the repository). `make bench-tokens` makes the key pair under
+      # $NOEMA_BENCH_OUT/idp: the core mounts the public key only, never the private key or the issuer binary, which only the runner reads.
+      NOEMA_SESSION_PUBLIC_KEY_FILE: /run/idp/public.pem
+      NOEMA_SESSION_KID: "${BENCH_KID:-bench-k1}"
+      NOEMA_SESSION_AUDIENCE: "${BENCH_AUDIENCE:-noema-core}"
+      NOEMA_SESSION_TENANTS: "${STANDIN_TENANT_ID:-ten_alpha}"
+      NOEMA_SESSION_LIMITS_FILE: /run/idp/session_limits.json
+      NOEMA_MAX_BODY_BYTES: "${NOEMA_BENCH_MAX_BODY_BYTES:?set by make bench-up from BENCH_MAX_BODY_BYTES}"
+      # The most bytes the core reads of one evidence payload (noema#606). No default in the core (AGENT-16): this number is the Architect's, ruling A236 (interim, relayed; docs#187),
+      # for the bench profile only and provisional; a production value goes through an [OPEN] entry. The core reads it only when its Trust-login DSN directory is set.
+      NOEMA_PAYLOAD_MAX_BYTES: "262144"
+      # The bench settings with no default in code (A356, interim, relayed; docs/decisions/DEC-2026-11-19-architect-rulings-a341-a357.md): the Architect's values, for the bench profile only. They collect
+      # the settings of A319, A320, A330 and A345; a setting the core does not read yet is inert until its lane merges. Changing a number here is a ruling, not an edit (AGENT-16).
+      NOEMA_STORE_TIMEOUT_MS: "1000"
+      NOEMA_SEAL_TIMEOUT_MS: "1000"
+      NOEMA_COMPILE_TIMEOUT_MS: "3000"
+      NOEMA_READ_TIMEOUT_MS: "2000"
+      NOEMA_TRUST_DB_TIMEOUT_MS: "1000"
+      NOEMA_TRUST_RECONCILE_TIMEOUT_MS: "1000"
+      NOEMA_GRANT_KEY_MAX_ACTIVE: "2"
+      NOEMA_DB_SERIALIZATION_ATTEMPTS: "3"
+      NOEMA_OUTBOX_INTERVAL_MS: "1000"
+      # The three paths. The grant keys are the grant_keys volume of docker-compose.yml (written by grant-keys-init, SEC-09); the pack is the repository's packs folder, read-only; the Trust logins
+      # are the trust_dsns volume below (one file per tenant, written by trust-dsn-init), so the core never holds the tenant login password as a secret of its own.
+      NOEMA_GRANT_KEY_DIR: /run/grant-keys
+      NOEMA_PACK_DIR: /run/packs
+      NOEMA_TRUST_DSN_DIR: /run/trust-dsn
+      # The pack's manifest (relative to the pack directory) and the bounds of the pack loader (A445, interim, relayed): the Architect's bench values, no default in code (AGENT-16).
+      NOEMA_PACK_MANIFEST: fintech/manifest.v1.json
+      NOEMA_PACK_MAX_BYTES: "1048576"
+      NOEMA_PACK_MAX_DEPTH: "32"
+    volumes:
+      - ../../packs:/run/packs:ro
+      - trust_dsns:/run/trust-dsn:ro
+      - standin_runtime_credential:/run/standin/runtime:ro
+      - standin_principal_key:/run/standin/principal:ro
+      - ${NOEMA_BENCH_OUT:?set by make bench-up}/idp/key/public.pem:/run/idp/public.pem:ro
+      - ../../packs/fintech/limits/session_limits.json:/run/idp/session_limits.json:ro
+    depends_on:
+      trust-dsn-init:
+        condition: service_completed_successfully
+      hostility-proxy:
+        condition: service_healthy
+      standin:
+        condition: service_healthy
+  # One-shot, as root, no network (A356): turns the tenant login password secret and the tenant list into the per-tenant Trust login DSN files the core reads (mode 0400, owner 65532), and checks
+  # each by reading it as that user. It prints file names, never a password. If it fails the core does not start. The tenant list is the one postgres creates logins for, so the two cannot differ.
+  trust-dsn-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    # Only what the step does: CHOWN and FOWNER (give the file to the core's user, then set its mode after it is no longer the step's own), SETUID and SETGID (read each file back as that user).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
+    environment:
+      TRUST_DSN_SRC: /run/secrets
+      TRUST_DSN_OUT: /out
+      TRUST_DSN_UID: "65532"
+      TRUST_DSN_GID: "65532"
+      TRUST_DSN_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [noema_tenant_login_password]
+    volumes:
+      - ./trust-dsn/init.py:/init/init.py:ro
+      - trust_dsns:/out
+  postgres:
+    environment:
+      NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
+  hostility-proxy:
+    environment:
+      HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/config/routes.standin.json
+  # Temporal serves server-side TLS in the bench profile (A296, interim; NO client authentication and not mTLS: DEBT-46): the frontend presents the stack's `temporal` certificate, so a plain client is refused (EL's "refuse plain" test follows this).
+  # The names are the ones of the pinned image's config template (docker/config_template.yaml, release 1.29.7): TEMPORAL_TLS_FRONTEND_CERT and _KEY are the server certificate;
+  # TEMPORAL_TLS_SERVER_CA_CERT and TEMPORAL_TLS_FRONTEND_SERVER_NAME are what the in-process worker trusts and verifies when it dials the frontend; TEMPORAL_TLS, TEMPORAL_TLS_CA and
+  # TEMPORAL_TLS_SERVER_NAME are read by the image's `temporal` CLI (its default-namespace set-up and the healthcheck below) and are not the server's names.
+  # What this is NOT: client authentication. The frontend does not require a client certificate (TEMPORAL_TLS_REQUIRE_CLIENT_AUTH stays false): with it the combined auto-setup server's
+  # own worker would need a client certificate its template cannot give it, and the clean answer is an internal-frontend split, which is a decision for EL and the Architect, not a setting here.
+  temporal:
+    environment:
+      TEMPORAL_TLS_FRONTEND_CERT: /run/tls/temporal.crt
+      TEMPORAL_TLS_FRONTEND_KEY: /run/tls/temporal.key
+      TEMPORAL_TLS_SERVER_CA_CERT: /run/tls/ca.crt
+      TEMPORAL_TLS_FRONTEND_SERVER_NAME: temporal
+      # The internode listeners present the same certificate: in the pinned template TEMPORAL_TLS_SERVER_CA_CERT is also the root of the internode client, so without a
+      # matching server certificate the services could not dial each other (Codex P1 on noema#698). Server-side TLS only, no client authentication (DEBT-46).
+      TEMPORAL_TLS_SERVER_CERT: /run/tls/temporal.crt
+      TEMPORAL_TLS_SERVER_KEY: /run/tls/temporal.key
+      TEMPORAL_TLS_INTERNODE_SERVER_NAME: temporal
+      TEMPORAL_TLS: "true"
+      TEMPORAL_TLS_CA: /run/tls/ca.crt
+      TEMPORAL_TLS_SERVER_NAME: temporal
+    volumes:
+      - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
+      - ./secrets/tls/temporal.crt:/run/tls/temporal.crt:ro
+      - ./secrets/tls/temporal.key:/run/tls/temporal.key:ro
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $$(hostname -i):7233 --tls --tls-ca-path /run/tls/ca.crt --tls-server-name temporal"]
+  # The runner writes the suite, the run and the score into the same directory the model writes its cost files to, and reads the live mock-case log from it.
+  # The invoking user, so the files on the host are theirs. NOEMA_BENCH_* are set by `make bench-up`.
+  bench-runner:
+    user: "${NOEMA_BENCH_UID:?set by make bench-up}:${NOEMA_BENCH_GID:?set by make bench-up}"
+    environment:
+      BENCH_OUT: /bench-out
+    volumes:
+      - ${NOEMA_BENCH_OUT:?set by make bench-up}:/bench-out

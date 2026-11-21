@@ -16,7 +16,7 @@ class ExplanationFactsV2ActionsItem(ContractModel):
     model_config = ConfigDict(extra="forbid")
     capability_label: Annotated[str, StringConstraints(min_length=1)]
     verdict: EnumsV1Verdict
-    case_ref_masked: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$')] | None = Field(default=None)
+    case_ref_masked: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z')] | None = Field(default=None)
 
 
 class ExplanationFactsV2FactsItemFactStatus(StrEnum):
@@ -40,7 +40,7 @@ class ExplanationFactsV2NextStepsItem(ContractModel):
     """ExplanationFactsV2NextStepsItem Source: explanation-facts.v2.json#/properties/next_steps/items"""
 
     model_config = ConfigDict(extra="forbid")
-    kind: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    kind: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     until: CommonV1Timestamp | None = Field(default=None)
 
 
@@ -49,16 +49,16 @@ class ExplanationFactsV2UnknownsItem(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     fact_id: Annotated[str, StringConstraints(min_length=1, max_length=64)]
-    kind: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_.]*$')]
+    kind: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_.]*\\Z')]
     status: EnumsV1FactStatus
-    why_code: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    why_code: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
 
 
 class ExplanationFactsV2Voice(ContractModel):
     """Audio of the spoken answer, if the channel is voice. audio_ref is an opaque reference to stored spoken-answer audio, `aud_` followed by 2 to 32 letters or digits, and is null when none exists. Never raw audio (AGENT-13). Source: explanation-facts.v2.json#/properties/voice"""
 
     model_config = ConfigDict(extra="forbid")
-    audio_ref: Annotated[str, StringConstraints(pattern='^aud_[A-Za-z0-9]{2,32}$')] | None
+    audio_ref: Annotated[str, StringConstraints(pattern='\\Aaud_[A-Za-z0-9]{2,32}\\Z')] | None
 
 
 class ExplanationFactsV2FactsItem(ContractModel):
@@ -66,10 +66,10 @@ class ExplanationFactsV2FactsItem(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     fact_id: Annotated[str, StringConstraints(min_length=1, max_length=64)]
-    kind: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_.]*$')]
+    kind: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_.]*\\Z')]
     fact_status: ExplanationFactsV2FactsItemFactStatus
     rule_id: Annotated[str, StringConstraints(min_length=1)] | None = Field(default=None)
-    value_masked: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$', max_length=200)]
+    value_masked: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', max_length=200)]
     source_label: Annotated[str, StringConstraints(min_length=1)]
     as_of: CommonV1Timestamp
 
@@ -84,10 +84,10 @@ class ExplanationFactsV2(ContractModel):
     facts: list[ExplanationFactsV2FactsItem]
     unknowns: list[ExplanationFactsV2UnknownsItem]
     actions: list[ExplanationFactsV2ActionsItem]
-    advice: list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]]
+    advice: list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]]
     next_steps: list[ExplanationFactsV2NextStepsItem]
     outcome_id: CommonV1PackId
-    classification: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    classification: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     voice: ExplanationFactsV2Voice | None = Field(default=None)
 
 

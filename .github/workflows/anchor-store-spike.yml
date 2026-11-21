@@ -7,6 +7,9 @@ on:
   pull_request:
     paths: ['deploy/spike/anchor-store/**', '.github/workflows/anchor-store-spike.yml']
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -19,5 +22,7 @@ jobs:
         store: [seaweedfs, silo]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Run A1 to A7 on ${{ matrix.store }}
         run: deploy/spike/anchor-store/run.sh ${{ matrix.store }}

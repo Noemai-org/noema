@@ -25,12 +25,12 @@ func (c *Controller) Recover(ctx context.Context, tenantID string) (int, error) 
 			return written, fmt.Errorf("%smint receipt ID: %w: %v", errPrefix, ErrIDSource, err)
 		}
 		rc, err := c.sign(Receipt{ReceiptID: receiptID, GrantID: p.GrantID, TenantID: p.TenantID, CorrelationID: p.CorrelationID, IdempotencyKey: p.IdempotencyKey,
-			LogicalAction: p.LogicalAction, Attempt: p.Attempt, DispatchedAt: c.Clock.Now().UTC().Format(time.RFC3339Nano),
+			LogicalAction: p.CapabilityID, Attempt: p.Attempt, DispatchedAt: p.SpentAt.UTC().Format(time.RFC3339Nano),
 			TransportResult: transportSweeperNoReceipt, State: StateOutcomeUnknown})
 		if err != nil {
 			return written, err
 		}
-		ok, err := c.Ledger.Complete(ctx, rc)
+		ok, err := c.completeReceipt(ctx, rc)
 		if err != nil {
 			return written, fmt.Errorf("%scomplete: %w", errPrefix, err)
 		}

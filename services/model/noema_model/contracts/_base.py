@@ -8,7 +8,8 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 # JSON types are not coerced: "1" is not an integer and 1.0 is not an integer. Patterns use the Python regex engine because some
-# contract patterns use look-ahead.
+# contract patterns use look-ahead. Patterns are emitted whole-string anchored (\\A...\\Z, tools/codegen/anchors.py): Python's `$` also matches before
+# a final newline, the contract's does not (A138).
 CONFIG = ConfigDict(strict=True, regex_engine="python-re", populate_by_name=True, extra="forbid")
 
 

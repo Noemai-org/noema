@@ -130,9 +130,26 @@ func TestRequestLogRecordsWhatTheFaultDid(t *testing.T) {
 	}
 }
 
+// queryMarker is the secret the test puts in a query string. It must never be able to appear in the
+// log by chance: the log carries a random 32-hex-digit generation ID and a hash, and the earlier marker
+// "abc" is made of hex digits, so about one run in a hundred found it in the generation ID and failed
+// (a flaky test, found on main after noema#272; REQ-ENV-005, REQ-TST-004). It contains characters
+// that are not hex digits, so a match can only mean the query string was logged.
+const queryMarker = "zq-query-marker"
+
+func TestTheQueryMarkerCannotAppearInTheLogByChance(t *testing.T) {
+	const hexDigits = "0123456789abcdef"
+	if strings.Trim(queryMarker, hexDigits) == "" {
+		t.Fatal("the query marker is made only of hex digits, so a random ID or hash can contain it")
+	}
+	if !strings.ContainsAny(queryMarker, "ghijklmnopqrstuvwxyz") {
+		t.Fatal("the query marker needs a letter that is not a hex digit")
+	}
+}
+
 func TestRequestLogRecordsARouteThatIsNotInTheTable(t *testing.T) {
 	r := newRig(t)
-	if res := r.get("/v1/secret-admin?token=abc"); res.status != 404 {
+	if res := r.get("/v1/secret-admin?token=" + queryMarker); res.status != 404 {
 		t.Fatalf("want 404, got %d", res.status)
 	}
 	v := r.requests("")
@@ -143,7 +160,7 @@ func TestRequestLogRecordsARouteThatIsNotInTheTable(t *testing.T) {
 	if e.Target != "-" || e.Operation != "-" || e.Outcome != "refused" || e.Status != 404 || e.Forwarded || e.Path != "/v1/secret-admin" {
 		t.Fatalf("unmatched entry wrong: %+v", e)
 	}
-	if strings.Contains(r.ctl("GET", "/control/v1/requests", "").body, "abc") {
+	if strings.Contains(r.ctl("GET", "/control/v1/requests", "").body, queryMarker) {
 		t.Fatal("the query string must not be logged")
 	}
 	if r.tushe.hits.Load() != 0 {

@@ -6,6 +6,9 @@ on:
   pull_request:
   push:
     branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -26,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - id: changed
         run: |
@@ -48,6 +52,12 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go test -race -count=1 ./...
+          # G0-N (ENV-14): the TEN-03 and TEN-04 results with their seeds, printed as TEN_RESULT lines (a second, verbose run of those two tests only), so the gate record can quote them.
+          # The lines are checked, not only printed: a renamed test would make -run match nothing and still pass (Security Reviewer's note 3 on noema#578).
+          go test -count=1 -run '^TestTEN0[34]' -v ./internal/api/ > "$RUNNER_TEMP/ten.txt"
+          cat "$RUNNER_TEMP/ten.txt"
+          grep -Eq 'TEN_RESULT id=TEN-03 seed=none pass=true$' "$RUNNER_TEMP/ten.txt"
+          grep -Eq 'TEN_RESULT id=TEN-04 seed=[0-9]+ pass=true$' "$RUNNER_TEMP/ten.txt"
           go build ./...
       - if: steps.changed.outputs.run == 'true'
         run: docker build -t noema-mock-case:ci synthetic/mock_case

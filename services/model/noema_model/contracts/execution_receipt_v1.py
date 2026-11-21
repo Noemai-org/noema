@@ -18,11 +18,11 @@ class ExecutionReceiptV1(ContractModel):
     correlation_id: CommonV1CorrelationId
     receipt_id: CommonV1ReceiptId
     grant_id: CommonV1GrantId
-    idempotency_key: Annotated[str, StringConstraints(pattern='^idk_v1_[0-9a-f]{64}$')]
+    idempotency_key: Annotated[str, StringConstraints(pattern='\\Aidk_v1_[0-9a-f]{64}\\Z')]
     logical_action: CommonV1PackId
     attempt: CommonV1PositiveInt
     dispatched_at: CommonV1Timestamp
-    transport_result: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] | None
+    transport_result: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] | None
     external_ack: Annotated[str, StringConstraints(min_length=1)] | None
     execution_state: EnumsV1ExecutionState
     sig: CommonV1Sig

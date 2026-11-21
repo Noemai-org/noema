@@ -49,6 +49,7 @@ contracts-validate:
 	.venv-contracts/bin/python -m unittest discover -s packs/tests -p 'test_*.py'
 	.venv-contracts/bin/python -m unittest discover -s tools/packcheck -p 'test_*.py'
 	.venv-contracts/bin/python tools/packcheck validate packs/fintech_v1.json
+	.venv-contracts/bin/python tools/packcheck manifest packs/fintech/manifest.v1.json
 	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done
 	.venv-contracts/bin/python tools/codegen/shape_refusals.py --check
 
@@ -61,7 +62,7 @@ codegen-check:
 	python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test bench-venv bench bench-live
+.PHONY: bench-test bench-venv bench-reproduce bench bench-live bench-tokens bench-tokens-test bench-us bench-chaos bench-evil bench-full bench-g1
 BENCH_VENV := .venv-bench
 BENCH_PY := $(BENCH_VENV)/bin/python
 BENCH_SEED ?= 20261020
@@ -75,6 +76,11 @@ bench-venv:
 bench-test: bench-venv
 	$(BENCH_VENV)/bin/python -m unittest discover -s benchmark -t . -p 'test_*.py'
 	$(BENCH_VENV)/bin/python -m mypy -p benchmark --config-file benchmark/pyproject.toml
+
+# BEN-04 (G0-N N10): generate the suite twice in two separate processes into two empty directories and compare every file (the oracle documents are in the trees, so only the summary is ever uploaded).
+bench-reproduce: bench-venv
+	test -n "$(BENCH_OUT)" && rm -rf "$(BENCH_OUT)/reproduce"
+	$(BENCH_PY) -m benchmark.generator reproduce --seed $(BENCH_SEED) --out $(BENCH_OUT)/reproduce --summary $(BENCH_OUT)/reproduce-summary.txt
 
 # mock-case (ENV-08): the synthetic case system. Tests run against a real PostgreSQL; scripts/test.sh starts a
 # throwaway server unless MOCK_CASE_TEST_DATABASE_URL points at one.
@@ -105,9 +111,43 @@ bench: bench-venv
 	$(BENCH_PY) -m benchmark.scoring --cases $(BENCH_OUT)/suite/cases --oracles $(BENCH_OUT)/suite/oracle --results $(BENCH_OUT)/run/results \
 	  --pack packs/fintech_v1.json --manifest $(BENCH_OUT)/suite/manifest.json --run-id $(BENCH_RUN_ID) --out $(BENCH_OUT)/score
 
+# make bench-tokens (EDG-01): the synthetic IdP for a run. Needs BENCH_TENANT and BENCH_MAX_BODY_BYTES (no defaults). Writes $(BENCH_OUT)/idp/core.env (the core's
+# NOEMA_SESSION_* settings) and $(BENCH_OUT)/idp/runner-args (pass them in BENCH_RUNNER_ARGS). Tokens are issued on demand and last at most 15 minutes.
+bench-tokens:
+	BENCH_OUT="$(abspath $(BENCH_OUT))" deploy/compose/bench_tokens.sh
+
+bench-tokens-test:
+	sh deploy/compose/test_bench_tokens.sh
+
 # The oracle client and every translated fault plan against a real mock-case and PostgreSQL. Needs go and PostgreSQL server binaries on this machine.
 bench-live: bench-venv
 	$(BENCH_PY) -m benchmark.oracle_client.live_check
+
+# BEN-29: one command per named suite (benchmark/suites/suites.json): us, chaos, evil, full. Each starts with `make reset` (Docker), generates the suite, runs the selected
+# cases through the public API, scores exactly those cases and records the run, with its run ID, in $(BENCH_OUT)/<suite>/suite-run.json.
+# BENCH_SUITE_RUN_ID names the run (default: the suite name and the UTC time). BENCH_RESET=0 skips `make reset`; the record then says reset_done false.
+# Exit codes as `make bench`: 0 complete and Tier 0 all zero, 1 incomplete or a gate not zero, 2 bad input, 3 not run, no access. The held-out layer is never run here.
+BENCH_RESET ?= 1
+# What brings the environment back after a reset: the bench stack with the model writing cost records, waited on until healthy. `make reset` destroys the volumes.
+BENCH_UP ?= model-bench-up
+BENCH_SUITE_ARGS ?=
+bench-us bench-chaos bench-evil bench-full: bench-venv
+	@suite=$(patsubst bench-%,%,$@); \
+	if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; $(MAKE) $(BENCH_UP) || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
+	run_id="$${BENCH_SUITE_RUN_ID:-$$suite-$$(date -u +%Y%m%dT%H%M%SZ)}"; \
+	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite > /dev/null || exit $$?; \
+	$(BENCH_PY) -m benchmark.suites run $$suite --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/$$suite --run-id "$$run_id" $$reset_flag -- --cost-dir $(BENCH_OUT)/cost $(BENCH_SUITE_ARGS)
+
+# BEN-05, the G1 evidence run: the g1 suite (every case covering US-01 or US-06) twice, each leg from `make reset` with its own run ID and the same commit, then the replay diff
+# (benchmark/replay, noema#102) of the Trust decisions and verdicts with the named open exclusions. Needs OUT-01 and REC-03 on main and the environment; until then each leg is
+# NOT_RUN (exit 3) and the target stops. BENCH_G1_ID names the pair (default g1-<UTC date>); the legs are <id>-a and <id>-b. A rerun is a new pair with its own ID.
+BENCH_G1_ID ?= g1-$(shell date -u +%Y%m%d-%H%M%S)
+# Where the scenario data comes from. G1 runs on the Noema-side stand-in (Founder's decision of 4 Nov 2026) and the evidence is labelled so; "tushe" only once its OpenAPI is frozen.
+BENCH_G1_DATA_SOURCE ?= stand-in
+bench-g1: bench-venv
+	@$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/g1-suite > /dev/null || exit $$?; \
+	reset_flag=""; if [ "$(BENCH_RESET)" = "1" ]; then reset_flag="--reset"; fi; \
+	$(BENCH_PY) -m benchmark.suites g1 --suite $(BENCH_OUT)/g1-suite --out $(BENCH_OUT)/g1 --run-id "$(BENCH_G1_ID)" --commit-sha "$$(git rev-parse HEAD)" --data-source "$(BENCH_G1_DATA_SOURCE)" $$reset_flag -- --cost-dir $(BENCH_OUT)/cost $(BENCH_SUITE_ARGS)
 
 # webhook relay (ENV-13): standard library only; no database or network needed.
 env-relay-test:
@@ -120,6 +160,29 @@ env-relay-build:
 # Only this target adds deploy/compose/bench-model.yml, so `make up` never sets BENCH_OUT or mounts anything writable.
 model-bench-up:
 	deploy/compose/secrets_local.sh
-	mkdir -p $(BENCH_OUT)
+	mkdir -p $(BENCH_OUT)/cost
 	NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) \
 	  docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml --profile bench up -d --build --wait
+
+# The full bench stack for a G1 run (ENV-04 wiring): the bench profile with the model's cost files (bench-model.yml) and the stand-in wiring plus the runner's output
+# directory (bench-stack.yml). The runner is a container on bench_net and edge_net (services/bench-runner.yml); the workflow runs the suite in it.
+# The optional Intron key overlay (A377 to A379): only when the host path of the key file is given (NOEMA_BENCH_INTRON_KEY_FILE); without it the model has no mount and the provider is not registered.
+BENCH_INTRON = $(if $(NOEMA_BENCH_INTRON_KEY_FILE),-f deploy/compose/bench-intron.yml)
+BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml $(BENCH_INTRON) --profile bench
+# BENCH_MAX_BODY_BYTES has no default: the body limit is not an approved number, so a person gives it. bench-up refuses without it and makes the synthetic IdP first (bench-tokens), because
+# the core mounts its public key. Compose interpolates the variable for every command, so bench-down gets a placeholder when none is given (it uses no value).
+BENCH_TENANT ?= ten_alpha
+# One tenant list for the secret step and for Compose: NOEMA_TENANTS in the shell, else in Compose's .env, else the stand-in tenant (bench_tenants.sh). postgres makes a login per tenant of it and secrets_local.sh a secret per tenant of it.
+BENCH_TENANTS = $(shell sh deploy/compose/bench_tenants.sh "$(BENCH_TENANT)")
+BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) NOEMA_BENCH_MAX_BODY_BYTES=$(or $(BENCH_MAX_BODY_BYTES),1) STANDIN_TENANT_ID=$(BENCH_TENANT) NOEMA_TENANTS="$(BENCH_TENANTS)"
+.PHONY: bench-up bench-down
+bench-up:
+	@test -n "$(BENCH_TENANTS)" || { echo "bench-up: the tenant list is empty or was refused (see bench_tenants.sh above)" >&2; exit 2; }
+	@test -n "$(BENCH_MAX_BODY_BYTES)" || { echo "bench-up: BENCH_MAX_BODY_BYTES is required (no default: the body limit is not an approved number)" >&2; exit 2; }
+	NOEMA_TENANTS="$(BENCH_TENANTS)" deploy/compose/secrets_local.sh
+	mkdir -p $(BENCH_OUT)/cost
+	BENCH_TENANT="$(BENCH_TENANT)" BENCH_MAX_BODY_BYTES="$(BENCH_MAX_BODY_BYTES)" $(MAKE) bench-tokens
+	$(BENCH_ENV) $(BENCH_COMPOSE) up -d --build --wait
+
+bench-down:
+	$(BENCH_ENV) $(BENCH_COMPOSE) down

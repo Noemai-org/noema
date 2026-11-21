@@ -140,13 +140,16 @@ class RecordEventV3SecurityKind(StrEnum):
     REQUEST_ID_REUSED = 'REQUEST_ID_REUSED'
     IDEMPOTENCY_COLLISION = 'IDEMPOTENCY_COLLISION'
     CHAIN_BREAK = 'CHAIN_BREAK'
+    CONFIRMATION_REFUSED = 'CONFIRMATION_REFUSED'
+    KILL_SWITCH_CLEARED = 'KILL_SWITCH_CLEARED'
+    KILL_SWITCH_CLEAR_REFUSED = 'KILL_SWITCH_CLEAR_REFUSED'
 
 
 class RecordEventV3RecordEvent(ContractModel):
     """RecordEventV3RecordEvent Source: record-event.v3.json#$defs/RecordEvent"""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: Annotated[str, StringConstraints(pattern='^3\\.[0-9]+$')]
+    schema_version: Annotated[str, StringConstraints(pattern='\\A3\\.[0-9]+\\Z')]
     tenant_id: CommonV1TenantId
     correlation_id: CommonV1CorrelationId
     event_id: CommonV1RecordEventId
@@ -157,10 +160,10 @@ class RecordEventV3RecordEvent(ContractModel):
     actor: RecordEventV3Principal
     event_type: RecordEventV3RecordEventType
     kind: RecordEventV3SecurityKind | None = Field(default=None)
-    object_ref: Annotated[str, StringConstraints(pattern='^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$')]
+    object_ref: Annotated[str, StringConstraints(pattern='\\A[a-z]{2,6}_[0-9A-Za-z_]{2,64}\\Z')]
     payload_hash: CommonV1Hash
     at: CommonV1Timestamp
-    reason: str | None = Field(default=None)
+    reason: Annotated[str, StringConstraints(pattern='\\A[A-Z_]{1,64}\\Z', max_length=64)] | None = Field(default=None)
 
 
 # RecordEventV3. Source: record-event.v3.json

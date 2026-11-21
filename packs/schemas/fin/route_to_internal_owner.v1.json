@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packs.noema.invalid/fintech/schemas/fin/route_to_internal_owner.v1.json",
+  "title": "fin.cap.route_to_internal_owner",
+  "description": "Assign a case to a queue. The expected version token is read by Execution, never passed by the caller. Pack data (noema#362): only the fields a caller supplies; additionalProperties false. SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The case to route (descriptor case.id)."
+    },
+    "owner_queue": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The target queue; the pack's routing allowlist decides whether it is allowed."
+    }
+  },
+  "required": [
+    "case_id",
+    "owner_queue"
+  ],
+  "additionalProperties": false
+}

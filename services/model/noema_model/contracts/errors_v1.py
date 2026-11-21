@@ -14,7 +14,7 @@ class ErrorsV1ErrorBodyDetailsItem(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     field: Annotated[str, StringConstraints(min_length=1, max_length=200)]
-    issue: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$', min_length=1, max_length=200)]
+    issue: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', min_length=1, max_length=200)]
 
 
 class ErrorsV1ErrorCode(StrEnum):
@@ -105,7 +105,7 @@ class ErrorsV1ErrorBody(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     code: ErrorsV1ErrorCode
-    message: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$', min_length=1, max_length=300)]
+    message: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', min_length=1, max_length=300)]
     retryable: bool
     correlation_id: CommonV1CorrelationId
     details: list[ErrorsV1ErrorBodyDetailsItem] | None = Field(default=None)

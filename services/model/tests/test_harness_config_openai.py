@@ -12,6 +12,7 @@ from noema_model.platform.telemetry import InMemoryTelemetry
 from noema_model.providers.llm.base import HttpResponse
 from tests.support import ManualClock, RecordingTransport, raw_config, run
 from tests.test_harness_call import request
+from tests.support import MASKING
 
 SECRET = "sk-synthetic-not-a-real-key"
 
@@ -93,7 +94,7 @@ def test_the_key_reaches_the_request_header_and_nothing_else() -> None:
             "usage": {"input_tokens": 100, "output_tokens": 300}}
     transport = RecordingTransport(HttpResponse(200, json.dumps(body).encode()))
     telemetry = InMemoryTelemetry()
-    harness = Harness(config, build_providers(config, transport, {"OPENAI_API_KEY": SECRET}), ManualClock(), telemetry)
+    harness = Harness(config, build_providers(config, transport, {"OPENAI_API_KEY": SECRET}), ManualClock(), telemetry, masking=MASKING)
     result = run(harness.generate(request()))
     url, headers, sent = transport.requests[0]
     assert headers["authorization"] == f"Bearer {SECRET}" and SECRET not in json.dumps(sent)
@@ -116,7 +117,7 @@ def call(raw: dict[str, Any], reported: str) -> Any:
             "output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps({"surface": "20k", "confidence": 0.9})}]}],
             "usage": {"input_tokens": 1, "output_tokens": 1}}
     transport = RecordingTransport(HttpResponse(200, json.dumps(body).encode()))
-    harness = Harness(config, build_providers(config, transport, {}), ManualClock(), InMemoryTelemetry())
+    harness = Harness(config, build_providers(config, transport, {}), ManualClock(), InMemoryTelemetry(), masking=MASKING)
     return harness, transport
 
 

@@ -1,0 +1,413 @@
+# The G1 stack run (ENV-04 wiring; noema#441): the bench stack up with Compose, the runner executed INSIDE it on bench_net and edge_net (services/bench-runner.yml), the live mock-case
+# log captured for the whole run, and the artifacts uploaded. workflow_dispatch only. It reads no secret and calls no model provider.
+#
+# It does not make G1 pass. It exists so that when the pieces it waits for exist, the run is one dispatch away. Session tokens are now minted on demand: `make bench-up` makes a
+# throw-away SYNTHETIC key pair with the Edge's issuer (`make bench-tokens`, EDG-01), the core mounts the PUBLIC key only and the runner issues each principal's token with the
+# private key and the issuer binary, which stay under benchmark/out/idp (mode 0600 in a 0700 directory) and are never uploaded. A run still ends NOT RUN (exit 3) until the core's
+# call site reads the stand-in (noema#441) and the write path exists (the G1 card, noema#436). A run that did not run FAILS the job and is never presented as evidence (same rule as
+# bench-suites). The held-out set is never mounted or read (INV-22). Inputs reach the shell only through the environment, never expanded into the script, and are validated first.
+name: bench-g1-stack
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run ID to record (letters, digits, dot, dash, underscore; default g1-stack-gh<github run id>)"
+        type: string
+        default: ""
+      mode:
+        description: "full: the whole G1 run (scored; the only mode that can be evidence). stack-check: bring the stack up and check that every service is running and healthy; it runs no suite, scores nothing and is NOT EVIDENCE for G1 (A325, relayed)."
+        type: choice
+        options:
+          - full
+          - stack-check
+        default: full
+      playwright:
+        description: "Also run the browser checks (Playwright, A388) against the running stack after it is up. Opt-in until the wiring merges; FE owns the specs. Not evidence for G1."
+        type: boolean
+        default: false
+      max_body_bytes:
+        description: "The core's request body limit in bytes (NOEMA_MAX_BODY_BYTES). No default: no value is approved in the repository, so the person who dispatches gives it."
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: bench-g1-stack
+  cancel-in-progress: false
+jobs:
+  g1-stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      BENCH_MAX_BODY_BYTES: ${{ inputs.max_body_bytes }}
+      GIVEN_RUN_ID: ${{ inputs.run_id }}
+      MODE: ${{ inputs.mode }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # The whole string is checked with `case`, never a line at a time: `grep -Eq '^...$'` passes a value when any ONE of its lines matches, so a run id of `ok`, a newline and anything else
+      # would pass and then reach $GITHUB_OUTPUT and the step summary (Security Reviewer on noema#577); and `printf '%s' ''` has no line at all, so grep rejected the empty default
+      # (Codex P1). An empty run id is allowed: the default g1-stack-gh<run> is used.
+      - name: Validate the inputs
+        run: |
+          set -eu
+          case "$GIVEN_RUN_ID" in *[!A-Za-z0-9_.-]*) echo "run_id may hold only letters, digits, dot, dash and underscore"; exit 2 ;; esac
+          case "$MODE" in full|stack-check) ;; *) echo "mode must be full or stack-check"; exit 2 ;; esac
+          [ "${#GIVEN_RUN_ID}" -le 64 ] || { echo "run_id must be at most 64 characters"; exit 2; }
+          case "$BENCH_MAX_BODY_BYTES" in ''|0*|*[!0-9]*) echo "max_body_bytes must be a positive whole number without a leading zero"; exit 2 ;; esac
+          [ "${#BENCH_MAX_BODY_BYTES}" -le 16 ] || { echo "max_body_bytes has more than 16 digits"; exit 2; }
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: services/core/go.mod
+          cache-dependency-path: services/core/go.mod
+      - name: Start the bench stack (makes the synthetic IdP's key pair and issuer first)
+        run: make bench-up
+      - id: run
+        name: Run the suite in the runner container, capturing mock-case's live log
+        env:
+          GIVEN_RUN_ID: ${{ inputs.run_id }}
+          GITHUB_RUN: ${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set +e
+          run_id="${GIVEN_RUN_ID:-g1-stack-gh$GITHUB_RUN}"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="$BENCH_MAX_BODY_BYTES" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out benchmark/out/joblog
+          # Nothing the runner, the generator or the scorer prints reaches the job log: their output goes to files under benchmark/out/joblog, which the leak scan reads and the upload
+          # carries, and is shown in a later step only if the scan is clean (Security Reviewer's first-dispatch condition 2 on noema#436: the job log is as public as an artifact).
+          # The runner reads this file during the run (it marks its size before each case and counts refusals after), so it is a live stream, not a copy taken at the end.
+          : > benchmark/out/mock-case.log
+          # The collector's own errors go to its own file, not to /dev/null, and it is checked below: a collector that never started or died leaves a readable file, and the
+          # refusal counters would report zero accesses (Codex P1 on noema#444).
+          $compose logs -f --no-log-prefix --since 0s mock-case >> benchmark/out/mock-case.log 2> benchmark/out/mock-case-collector.err &
+          logpid=$!
+          sleep 2
+          collector_dead=0
+          kill -0 "$logpid" 2>/dev/null || collector_dead=1
+          code=2
+          gen=1
+          if [ "$MODE" = stack-check ]; then
+            # STACK-CHECK: not evidence. It proves only that the stack came up: each service the run needs is running and, where it has a health check, healthy. No suite is generated or run.
+            code=0
+            for svc in core model postgres temporal ui mock-case hostility-proxy standin; do
+              row="$($compose ps --all --format '{{.Service}} {{.State}} {{.Health}}' "$svc" 2>/dev/null | head -n 1)"
+              case "$row" in
+                "$svc running healthy"|"$svc running") ;;
+                *) echo "::error::stack-check: $svc is not running and healthy (${row:-no row})"; code=3 ;;
+              esac
+            done
+            [ "$collector_dead" -eq 0 ] || code=3
+            # A445 (interim): reported now, required once the final composition PR merges (READINESS_REQUIRED in the Result step). /readyz is asked from the runner, which is on the core's network;
+            # the netcheck is the static profile check over the resolved Compose configuration. Neither changes the stack-check's own code here.
+            $compose exec -T bench-runner python -c 'import http.client as h; c = h.HTTPConnection("core", 8080, timeout=5); c.request("GET", "/readyz"); print(c.getresponse().status)' >> benchmark/out/joblog/readyz.log 2>&1
+            readyz="$(tail -n 1 benchmark/out/joblog/readyz.log)"
+            echo "stack-check: /readyz answered ${readyz:-nothing}"
+            netcheck=0
+            python3 -I deploy/compose/netcheck/profiles.py > /dev/null 2>&1 || netcheck=$?
+            echo "stack-check: netcheck (static profiles) exit $netcheck"
+          else
+            $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite >> benchmark/out/joblog/generator.log 2>&1
+            gen=$?
+          fi
+          if [ "$MODE" = full ] && [ "$gen" -eq 0 ] && [ "$collector_dead" -eq 0 ]; then
+            $compose exec -T bench-runner python -m benchmark.runner \
+              --suite /bench-out/suite --out /bench-out/run --run-id "$run_id" --commit-sha "$COMMIT" \
+              --api-url http://core:8080 \
+              --bench-url http://mock-case:8091 --bench-credential-file /creds/mock-case/token \
+              --standin-url http://standin:8094 --standin-credential-file /creds/standin/token \
+              --proxy-url http://hostility-proxy:8081 --proxy-credential-file /creds/proxy/bench_token \
+              --mock-case-log /bench-out/mock-case.log --cost-dir /bench-out/cost --model-writer model-service \
+              --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
+              --tenant-id ten_alpha >> benchmark/out/joblog/runner.log 2>&1
+            code=$?
+          fi
+          # A collector that exited during the run invalidates it: the counters would read an empty or stale file as zero accesses. NOT RUN, never scored.
+          kill -0 "$logpid" 2>/dev/null || collector_dead=1
+          if [ "$collector_dead" -eq 1 ]; then echo "::error::the mock-case log collector is not running; the refusal counters are not evidence"; fi
+          [ "$collector_dead" -eq 1 ] && code=3
+          # The scorer decides the result when the run ran (Codex P1 on noema#444). Runner exit 0 or 1 is scored, as `make bench` does; 2 (bad input) and 3 (NOT RUN) are never
+          # scored. The scorer exits 0 only when the run is complete and Tier 0 is all zero (SoT 38.3), so that exit becomes the recorded code and a non-zero Tier 0 fails the job.
+          if [ "$MODE" = full ] && [ "$code" -le 1 ]; then
+            $compose exec -T bench-runner python -m benchmark.scoring \
+              --cases /bench-out/suite/cases --oracles /bench-out/suite/oracle --results /bench-out/run/results \
+              --pack packs/fintech_v1.json --manifest /bench-out/suite/manifest.json --run-id "$run_id" --out /bench-out/score >> benchmark/out/joblog/scorer.log 2>&1
+            score_code=$?
+            code="$score_code"
+          fi
+          sleep 2
+          kill "$logpid" 2>/dev/null
+          echo "readyz=${readyz:-not-checked}" >> "$GITHUB_OUTPUT"
+          echo "netcheck=${netcheck:-not-checked}" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+      # A388: browser checks against the running stack, opt-in. FE owns the specs and the stack config (ui/playwright.stack.config.mjs, tests under ui/browser-stack/). Without that config the step is NOT
+      # RUN (exit 3), never a pass; the checks are not evidence for G1. The UI publishes on 127.0.0.1:8082 only. `npm ci` only: the lock file decides what runs. The Chrome of the runner image is used.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: inputs.playwright
+        with:
+          node-version-file: ui/.nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - id: playwright
+        name: Browser checks against the stack (Playwright, opt-in; not evidence for G1)
+        if: always() && inputs.playwright
+        working-directory: ui
+        env:
+          NOEMA_UI_URL: http://127.0.0.1:8082
+        run: |
+          set +e
+          if [ ! -f playwright.stack.config.mjs ]; then
+            echo "NOT RUN: ui/playwright.stack.config.mjs does not exist yet (FE owns the stack specs); this is not a pass."
+            echo "playwright=3" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npm ci && npx playwright test -c playwright.stack.config.mjs --reporter=line
+          echo "playwright=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+      # Evidence for the Security Reviewer's criteria 6 and 9 (noema#436): the FaultPlan of every case with its seed and producer, and one negative probe of each kind per case.
+      # Each exits 0 (met), 1 (not met), 2 (bad input) or 3 (NOT RUN); anything but 0 fails the job.
+      - id: evidence
+        name: Record the FaultPlans and probe identity and tenant (criteria 6 and 9)
+        if: always() && inputs.mode == 'full'
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/evidence benchmark/out/joblog
+          $compose exec -T bench-runner python -m benchmark.runner.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" >> benchmark/out/joblog/evidence.log 2>&1
+          echo "fault_plans=$?" >> "$GITHUB_OUTPUT"
+          $compose exec -T bench-runner python -m benchmark.runner.evidence probes --suite /bench-out/suite --run /bench-out/run \
+            --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
+            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" >> benchmark/out/joblog/evidence.log 2>&1
+          echo "probes=$?" >> "$GITHUB_OUTPUT"
+      # BO's package inputs (A444, noema#821): the run directory gets stamp.json and mock-case-writes.json (each case's writes, from the runner's own results; a case that cannot be counted has no entry,
+      # never a zero), and the probes file is stamped. It runs before the leak scan, so what it writes is scanned and uploaded. 0 all counted, 1 a case uncounted (the rest written), 2 unusable input.
+      - id: package
+        name: Stamp the run and count each case's writes (the G1 package)
+        if: always() && inputs.mode == 'full'
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/joblog
+          $compose exec -T bench-runner python -m benchmark.runner.package_artifacts --run /bench-out/run --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --probes /bench-out/evidence/negative-probes.json >> benchmark/out/joblog/package.log 2>&1
+          echo "package=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+      - id: logs
+        name: Capture the services' logs for the leak scan
+        if: always()
+        run: |
+          set +e
+          collected=0
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/service-logs
+          for svc in core model hostility-proxy standin; do
+            # A service whose log could not be collected leaves an empty file that the scan would pass: the failure is recorded and the Result step fails on it (Codex P2 on noema#591).
+            $compose logs --no-color --no-log-prefix "$svc" > "benchmark/out/service-logs/$svc.log" 2> "benchmark/out/service-logs/$svc.err" || collected=1
+            [ -s "benchmark/out/service-logs/$svc.log" ] || collected=1
+          done
+          echo "collected=$collected" >> "$GITHUB_OUTPUT"
+          exit 0
+      # The second half of criterion 9 (Security Reviewer's first-dispatch condition 1 on noema#436): the core's own access log must show that the reconstruction handler ran for the control
+      # and the unknown-correlation probe and for no refusal. A refusal with the right status that had already reached the handler passes the probes and fails here. It needs the core's log,
+      # so it runs after the logs are captured, in the runner container (benchmark/out is mounted there), before the stack stops.
+      - id: access
+        name: The access log shows the handler ran for the control and for no refusal (criterion 9, second half)
+        if: always() && inputs.mode == 'full'
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/joblog
+          $compose exec -T bench-runner python -m benchmark.runner.evidence record-access --probes /bench-out/evidence/negative-probes.json --log /bench-out/service-logs/core.log \
+            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence >> benchmark/out/joblog/evidence.log 2>&1
+          echo "record_access=$?" >> "$GITHUB_OUTPUT"
+      # A354: every Record read wrote one RECORD_ACCESSED line (REQ-AUD-003), counted against the runner's own request record, not a constant: for each correlation the SERVED lines equal the answered reconstruction requests of the record, and no line carries Record content. That a case HAS a control read is the `access` step's check (evidence record-access), not this one.
+      # 0 met, 1 not met, 3 not run (an empty log is never a pass). Smoke reads no Record, so it is skipped there.
+      - id: count
+        name: Count the RECORD_ACCESSED lines in the core log against the request record (A354)
+        if: always() && inputs.mode == 'full'
+        shell: bash
+        run: |
+          set +e
+          python3 -I tools/ci/g1_record_access.py --core-log benchmark/out/service-logs/core.log --correlations benchmark/out/run/correlations.json --requests benchmark/out/run/requests.jsonl > benchmark/out/record-accessed.txt 2>&1
+          echo "record_accessed=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ inputs.mode }}
+          CODE: ${{ steps.run.outputs.code }}
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+          FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
+          PROBES: ${{ steps.evidence.outputs.probes }}
+          READYZ: ${{ steps.run.outputs.readyz }}
+          NETCHECK: ${{ steps.run.outputs.netcheck }}
+          RECORD_ACCESS: ${{ steps.access.outputs.record_access }}
+        run: |
+          {
+            echo "## bench-g1-stack: mode $MODE, run id $RUN_ID, exit code $CODE"
+            [ "$MODE" = stack-check ] && echo "Readiness, reported (A445): /readyz answered ${READYZ:-nothing}; netcheck (static profiles) exit ${NETCHECK:-missing}. Required only once the final composition PR merges."
+            [ "$MODE" = stack-check ] && echo "**STACK-CHECK: the stack came up (or did not). This is NOT EVIDENCE for G1: no suite ran and nothing was scored.**"
+            case "$CODE" in
+              0) echo "Complete, scored, and Tier 0 is all zero." ;;
+              3) echo "**NOT RUN: no access. This is not a pass and not evidence.** The reason is in the run manifest below; nothing was faked. This job fails on purpose." ;;
+              1) echo "Ran and was scored, but the run is incomplete or a Tier 0 gate is not at zero. This fails the job." ;;
+              *) echo "Failed with exit code $CODE (2: bad input or a missing part of the checkout)." ;;
+            esac
+            echo "Criterion 6, the recorded FaultPlans (id, seed, producer per case): exit ${FAULT_PLANS:-missing} (0 is met). Criterion 9, one negative probe of each kind per case: exit ${PROBES:-missing} (0 is met). The access log shows the handler ran for no refusal: exit ${RECORD_ACCESS:-missing} (0 is met)."
+            [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
+            [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
+          } > benchmark/out/summary.md
+      # The stack stops before the scan, so nothing is still writing to the files that are scanned and uploaded (Security Reviewer's note on noema#591).
+      - name: Stop the stack
+        if: always()
+        run: make bench-down
+      # The summary is written to a file of the workflow's own, not to $GITHUB_STEP_SUMMARY: that variable names a different file in every step, so a scan step would read its own empty
+      # one (Codex P2 on noema#591). The file is scanned with the artifacts and published to the step summary only if the scan is clean (the summary is public like the artifacts).
+      # Criterion 8: a leak scan over every artifact the run produced, the summary included, with a canary planted where the scanner must find it. A scanner that finds nothing is
+      # NOT RUN, never clean. The allow file lets only named numeric fields and the scorer's own metadata lines through the digit-run rule: no other exception.
+      - id: scan
+        name: Leak scan over every artifact, with a planted canary (criterion 8)
+        if: always()
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set +e
+          mkdir -p benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/joblog
+          # Only what this mode produced is scanned: a stack-check run has no access check, so benchmark/out/record-accessed.txt does not exist and a scan that names it would refuse (exit 2)
+          # and fail a healthy run (Codex P2 on noema#730). The list is fixed per mode, never "whatever is there": a path a full run should have and lacks is still refused.
+          # BO's package compares the evidence with the run it reads: the first line of the saved scan output names the dispatch commit and the run (noema#717).
+          echo "stamp: $GITHUB_SHA $GITHUB_RUN_ID" > benchmark/out/leak-scan.txt
+          # The allow file of this run: the standing one plus ONE line that names this run's own id on a "run_id" line (the stamp), so no other digit string passes under that key (C1 on noema#730).
+          allow="$RUNNER_TEMP/g1-allow"
+          cp tools/ci/g1_leakscan.allow "$allow"
+          printf '%s\n' '^\s*"run_id":\s*"'"$GITHUB_RUN_ID"'",?\s*$' >> "$allow"
+          set -- benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/joblog benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
+          [ "$MODE" = stack-check ] || set -- "$@" benchmark/out/record-accessed.txt
+          python3 -I tools/ci/g1_leakscan.py --allow "$allow" --workdir "$RUNNER_TEMP/g1-leakscan" "$@" | tee -a benchmark/out/leak-scan.txt
+          echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload the artifacts (only if the leak scan is clean)
+        if: always() && steps.scan.outputs.scan == '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bench-g1-stack-${{ github.run_id }}
+          path: |
+            benchmark/out/run/
+            benchmark/out/score/
+            benchmark/out/evidence/
+            benchmark/out/service-logs/
+            benchmark/out/joblog/
+            benchmark/out/mock-case.log
+            benchmark/out/mock-case-collector.err
+            benchmark/out/record-accessed.txt
+            benchmark/out/leak-scan.txt
+          if-no-files-found: warn
+          retention-days: 30
+      # The run's own output is shown in the job log only now, and only if the scan that covered it was clean: until then the log holds exit codes and ::error:: lines of fixed text.
+      - name: Show the run output (only if the leak scan is clean)
+        if: always()
+        env:
+          SCAN: ${{ steps.scan.outputs.scan }}
+        run: |
+          if [ "${SCAN:-missing}" = 0 ]; then
+            for f in benchmark/out/joblog/*.log; do [ -f "$f" ] && { echo "::group::$(basename "$f")"; cat "$f"; echo "::endgroup::"; }; done
+          else
+            echo "The run output is not shown: the leak scan did not pass (exit ${SCAN:-missing}); the files are in the artifact only if it did."
+          fi
+      - name: Publish the step summary (only if the leak scan is clean)
+        if: always()
+        env:
+          SCAN: ${{ steps.scan.outputs.scan }}
+        run: |
+          if [ "${SCAN:-missing}" = 0 ] && [ -f benchmark/out/summary.md ]; then
+            cat benchmark/out/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The step summary is not shown: the leak scan did not pass (exit ${SCAN:-missing})." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Result (only a run that ran, complete, scored, with the evidence met and a clean leak scan, passes)
+        env:
+          MODE: ${{ inputs.mode }}
+          CODE: ${{ steps.run.outputs.code }}
+          FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
+          PROBES: ${{ steps.evidence.outputs.probes }}
+          RECORD_ACCESS: ${{ steps.access.outputs.record_access }}
+          SCAN: ${{ steps.scan.outputs.scan }}
+          COLLECTED: ${{ steps.logs.outputs.collected }}
+          RECORD_ACCESSED: ${{ steps.count.outputs.record_accessed }}
+          PLAYWRIGHT: ${{ steps.playwright.outputs.playwright }}
+          READYZ: ${{ steps.run.outputs.readyz }}
+          NETCHECK: ${{ steps.run.outputs.netcheck }}
+          PACKAGE: ${{ steps.package.outputs.package }}
+          # Owner: IL (G1 stack workflow, noema#436). A445 allows this interim report; the final composition PR (EL) flips it to "true" and is the only thing that should (A445: reported now, required after it merges).
+          # A445: reported now; the final composition PR flips this to "true", and then a stack-check whose core does not answer /readyz 200, or whose netcheck fails, fails.
+          READINESS_REQUIRED: "false"
+          WANT_PLAYWRIGHT: ${{ inputs.playwright }}
+        run: |
+          fail=0
+          if [ "$WANT_PLAYWRIGHT" = true ]; then
+            [ "${PLAYWRIGHT:-missing}" = 0 ] || { echo "::error::The browser checks were asked for and did not pass (exit ${PLAYWRIGHT:-missing}; 3 is NOT RUN). They are not evidence for G1."; fail=1; }
+          fi
+          if [ "$READINESS_REQUIRED" = true ] && [ "$MODE" = stack-check ]; then
+            [ "${READYZ:-missing}" = 200 ] || { echo "::error::stack-check: /readyz answered ${READYZ:-nothing}, not 200."; fail=1; }
+            [ "${NETCHECK:-missing}" = 0 ] || { echo "::error::stack-check: the netcheck exit ${NETCHECK:-missing}."; fail=1; }
+          fi
+          if [ "$MODE" = stack-check ]; then
+            [ "$CODE" = 0 ] || { echo "::error::stack-check: the stack did not come up (code ${CODE:-missing})."; fail=1; }
+            [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::stack-check: a service's log could not be collected."; fail=1; }
+            [ "${SCAN:-missing}" = 0 ] || { echo "::error::stack-check: the leak scan (exit ${SCAN:-missing})."; fail=1; }
+            echo "STACK-CHECK only: not evidence for G1."
+            exit "$fail"
+          fi
+          [ "${PACKAGE:-missing}" = 0 ] || { echo "::error::The package inputs were not all produced (exit ${PACKAGE:-missing}; 1 is a case whose writes could not be counted, 2 is an unusable input)."; fail=1; }
+          [ "${RECORD_ACCESSED:-missing}" = 0 ] || { echo "::error::SR condition 1 not met: the RECORD_ACCESSED count (exit ${RECORD_ACCESSED:-missing})."; fail=1; }
+          [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: a service's log could not be collected, so the scan did not see it (collected=${COLLECTED:-missing})."; fail=1; }
+          [ "${FAULT_PLANS:-missing}" = 0 ] || { echo "::error::Criterion 6 not met: the recorded FaultPlans (exit ${FAULT_PLANS:-missing})."; fail=1; }
+          [ "${PROBES:-missing}" = 0 ] || { echo "::error::Criterion 9 not met: the negative probes (exit ${PROBES:-missing})."; fail=1; }
+          [ "${RECORD_ACCESS:-missing}" = 0 ] || { echo "::error::Criterion 9 not met: the access log does not show the handler ran for the control and for no refusal (exit ${RECORD_ACCESS:-missing})."; fail=1; }
+          [ "${SCAN:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: the leak scan (exit ${SCAN:-missing}); nothing was uploaded."; fail=1; }
+          case "$CODE" in
+            0) ;;
+            3) echo "::error::The run did not run (exit 3, not run: no access). That is not a pass."; fail=1 ;;
+            *) echo "::error::The run ended with exit code $CODE."; fail=1 ;;
+          esac
+          exit "$fail"
+
+  # SR's first-dispatch condition 2: the job's own log is public like the artifacts and was never scanned. A second job starts after the first has ended, reads its log through the API,
+  # and runs the same scanner with a planted canary. A finding or a scanner that found nothing fails it; the run is then not evidence, and nothing here edits or hides the log.
+  joblog-scan:
+    needs: g1-stack
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Scan the g1-stack job log, with a planted canary
+        run: |
+          set -eu
+          id="$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '.jobs[] | select(.name == "g1-stack") | .id' | head -n 1)"
+          case "$id" in ''|*[!0-9]*) echo "::error::the g1-stack job id could not be found"; exit 3 ;; esac
+          mkdir -p "$RUNNER_TEMP/joblog"
+          ok=0
+          for _ in 1 2 3 4 5 6; do
+            if gh api "repos/$REPO/actions/jobs/$id/logs" > "$RUNNER_TEMP/joblog/g1-stack.log" 2>/dev/null && [ -s "$RUNNER_TEMP/joblog/g1-stack.log" ]; then ok=1; break; fi
+            sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "::error::the job log could not be read; it was not scanned"; exit 3; }
+          # The digit-run rule is OFF for this file only: the runner writes its own digits into the log (image version, run id, byte counts, the dispatch inputs it echoes), which no allow
+          # rule short of a broad one could cover (Codex P2 on noema#730). Every other rule is still proved by a planted canary, api key, JWT-shaped value and bearer token, and applied.
+          python3 -I tools/ci/g1_leakscan.py --no-digit-rule --workdir "$RUNNER_TEMP/g1-joblog-scan" "$RUNNER_TEMP/joblog/g1-stack.log"

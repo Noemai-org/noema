@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "turn_id": "trn_01J9X3KQ7M",
+  "correlation_id": "corr_4c21f9",
+  "label": "SYNTHETIC",
+  "mode": "NATIVE_TOOL_CALLING",
+  "diagnostic": false,
+  "status": "DONE",
+  "provider_id": "provider_a",
+  "model_version": "2026-09",
+  "tool_calls": [
+    {
+      "call_id": "call_01",
+      "name": "fin.lookup_transaction",
+      "arguments": {
+        "transaction_ref": "TX88213"
+      }
+    }
+  ],
+  "text": null,
+  "usage": {
+    "input_tokens": 412,
+    "output_tokens": 37,
+    "cost_micros": 1840
+  },
+  "latency_ms": 820
+}

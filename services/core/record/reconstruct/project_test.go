@@ -88,11 +88,11 @@ func TestFactsOutsideTheContractAreRefused(t *testing.T) {
 		"nested":            map[string]any{"a": "b"},
 	}
 	for k, v := range bad {
-		if _, err := fact(k, v); err == nil {
+		if _, err := fact(k, v, nil); err == nil {
 			t.Errorf("fact %s = %v was accepted", k, v)
 		}
 	}
-	if _, err := fact("bound_fact_status", nil); err != nil {
+	if _, err := fact("bound_fact_status", nil, nil); err != nil {
 		t.Errorf("a claim bound to no fact (null) is itself a finding and must be servable: %v", err)
 	}
 }

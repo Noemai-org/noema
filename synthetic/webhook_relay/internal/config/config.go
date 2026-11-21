@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Noemai-org/noema/synthetic/webhook_relay/internal/verify"
 )
@@ -19,7 +21,15 @@ type Config struct {
 	Listen string
 	Store  string
 	Key    []byte
+	// Hold is how long the relay holds its 200 after the delivery is stored; zero means it does not (the default). Set by the bench only (A247).
+	Hold time.Duration
 }
+
+// TusheDeliveryTimeoutSeconds is Tushe's delivery timeout, from its addendum of 15 Nov 2026 (ruling A240): a response held past it is recorded by Tushe as a timeout. It is Tushe's number,
+// not ours; a hold must be strictly above it or it would prove nothing.
+const TusheDeliveryTimeoutSeconds = 12
+
+const holdEnv = "WEBHOOK_RELAY_HOLD_SECONDS"
 
 const secretEnv = "WEBHOOK_RELAY_SIGNING_SECRET_FILE"
 
@@ -62,6 +72,14 @@ func Load(environ []string, getenv func(string) string, readFile func(string) ([
 		return nil, err
 	}
 	c := &Config{Listen: getenv("WEBHOOK_RELAY_LISTEN"), Store: getenv("WEBHOOK_RELAY_STORE_FILE"), Key: key}
+	// No default and no hold unless set. The number is the bench's (A247: 15); here it is only checked: a whole number of seconds above Tushe's timeout.
+	if v := getenv(holdEnv); v != "" {
+		n, err := strconv.ParseUint(v, 10, 31)
+		if err != nil || n <= TusheDeliveryTimeoutSeconds {
+			return nil, fmt.Errorf("%s must be a whole number of seconds above Tushe's %d-second delivery timeout (it is a bench-only hold; leave it unset for none)", holdEnv, TusheDeliveryTimeoutSeconds)
+		}
+		c.Hold = time.Duration(n) * time.Second
+	}
 	if c.Listen == "" {
 		c.Listen = ":8090"
 	}

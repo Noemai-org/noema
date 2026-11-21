@@ -8,5 +8,6 @@
   "missing_provenance_ref.json": "required",
   "unknown_field.json": "additionalProperties",
   "bad_memory_id.json": "pattern",
-  "upper_case_key.json": "pattern"
+  "upper_case_key.json": "pattern",
+  "memory_id_trailing_newline.json": "pattern"
 }

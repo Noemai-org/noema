@@ -44,7 +44,9 @@ def canaries() -> int:
             continue
         found = lint(tree)
         rules = {v[0] for v in found}
-        ok = rules == {tree.name.split("__")[0]}
+        # A tree named clean__* is a positive control: allowed patterns that no rule may flag.
+        expected = set() if tree.name.startswith("clean__") else {tree.name.split("__")[0]}
+        ok = rules == expected
         bad += 0 if ok else 1
         print(f"[{'PASS' if ok else 'FAIL'}] canary '{tree.name}': rules fired {sorted(rules) or 'none'}")
         if found:

@@ -10,6 +10,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '41 5 * * 1'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -19,6 +22,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Self-test against a synthetic S3 model (a correct store passes; eight flaws are caught)
         working-directory: deploy/spike/anchor-store
         run: python3 test_aws_check.py
@@ -29,6 +34,8 @@ jobs:
     environment: anchor-store
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Self-test first
         working-directory: deploy/spike/anchor-store
         run: python3 test_aws_check.py

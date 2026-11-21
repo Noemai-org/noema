@@ -3,6 +3,9 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
 	"testing"
 	"time"
@@ -135,6 +138,7 @@ type world struct {
 	bind   *binder
 	ctl    *controller.Controller
 	ids    *ids.Generator
+	ring   *signing.Ring
 }
 
 func newWorld(t *testing.T) *world {
@@ -150,13 +154,17 @@ func newWorld(t *testing.T) *world {
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)}
 	gen := ids.New(clk, nil)
 	keys := crypto.NewKeyRing(map[string][]byte{keyID: []byte("synthetic-test-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
+	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute, SerializationAttempts: 3}
 	params := map[string]any{"transaction_ref": "TX1", "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED", "epoch": int64(1)}
 	b := &binder{l: led, params: params, fields: controller.KeyFields{TransactionID: "TX1", LogicalAction: "ESCALATE_CASE", ReasonCode: "CUSTOMER_DISPUTE_UNRECOGNIZED",
 		PolicyScope: "pol_escalate", LogicalResolutionEpoch: "1"}}
 	target := &fakeTarget{admin: admin, answer: controller.TransportResult{Class: controller.TransportAck2xx, ExternalAck: "CASE-1", RawCode: "201"}}
 	w := &world{admin: admin, exec: exec, clk: clk, keys: keys, led: led, target: target, bind: b, ids: gen}
-	w.ctl = &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
+	ring := signingtest.Ring(t, 1)
+	signingtest.Register(t, admin, ring)
+	w.ring = ring
+	led.Rec.Signers = recordsig.All(t, admin, "ledger", map[string]chain.Signer{"core-execution": ring})
+	w.ctl = &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
 	return w
 }
 
@@ -172,7 +180,7 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 		IntentHash: "sha256:" + fmt.Sprintf("%064d", 1), CapabilityID: capab, TargetRef: "TX1", ParamsHash: ph, EvidenceSetHash: "sha256:" + fmt.Sprintf("%064d", 2),
 		PlanHash: "sha256:" + fmt.Sprintf("%064d", 3), PlanStep: 1, TargetVersions: []controller.TargetVersion{{ResourceRef: "case:TX1", Source: "mock-case", VersionToken: "v1"}},
 		PolicyVersion: "pol_escalate@1.0", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
-		Nonce: fmt.Sprintf("nonce_%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
+		Nonce: fmt.Sprintf("n_ab3%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
 	for _, m := range mutate {
 		m(&g)
 	}

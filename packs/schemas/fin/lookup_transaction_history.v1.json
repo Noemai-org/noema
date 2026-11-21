@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packs.noema.invalid/fintech/schemas/fin/lookup_transaction_history.v1.json",
+  "title": "fin.cap.lookup_transaction_history",
+  "description": "Transaction history of one account within a time window. Pack data (noema#362): only the fields a caller supplies; additionalProperties false. SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "account_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The account whose history is read (descriptor account.id)."
+    },
+    "from": {
+      "type": "string",
+      "description": "Start of the window, inclusive, RFC 3339 instant in UTC with a Z suffix (the common.v1 Timestamp).",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$",
+      "maxLength": 30,
+      "not": {
+        "pattern": "\\n"
+      }
+    },
+    "to": {
+      "type": "string",
+      "description": "End of the window, exclusive, RFC 3339 instant in UTC with a Z suffix (the common.v1 Timestamp).",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$",
+      "maxLength": 30,
+      "not": {
+        "pattern": "\\n"
+      }
+    }
+  },
+  "required": [
+    "account_ref",
+    "from",
+    "to"
+  ],
+  "additionalProperties": false
+}

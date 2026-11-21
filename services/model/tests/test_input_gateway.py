@@ -14,12 +14,12 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from noema_model.contracts.canonical_input_v1 import CanonicalInputV1
+from noema_model.contracts.canonical_input_v2 import CanonicalInputV2
 from noema_model.understanding.gateway import Gateway, InputInvalid, Reason, RequestContext
 
 ROOT = Path(__file__).resolve().parents[3]
-VALID = ROOT / "contracts" / "fixtures" / "valid" / "canonical-input"
-INVALID = ROOT / "contracts" / "fixtures" / "invalid" / "canonical-input"
+VALID = ROOT / "contracts" / "fixtures" / "valid" / "canonical-input.v2"
+INVALID = ROOT / "contracts" / "fixtures" / "invalid" / "canonical-input.v2"
 
 
 class FixedClock:
@@ -40,7 +40,7 @@ RID = "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"
 
 VOICE = {
     "provider_id": "asr_a", "model_version": "2026-09", "utterance_confidence": 0.91,
-    "token_confidences": [0.99, 0.87], "is_final": True, "audio_ref": "rec_raw_01J9X3",
+    "token_confidences": [0.99, 0.87], "is_final": True, "audio_ref": None,
 }
 
 
@@ -62,18 +62,18 @@ def refused(raw: Any, reason: Reason) -> None:
 # REQ-INP-001: the output is a valid CanonicalInput carrying the session's identity and the clock's time.
 def test_text_becomes_a_canonical_input_with_the_sessions_identity_and_the_clocks_time() -> None:
     out = GATEWAY.canonicalise(text_raw(locale_hint="en-NG"), CTX)
-    assert isinstance(out, CanonicalInputV1)
+    assert isinstance(out, CanonicalInputV2)
     assert (out.tenant_id, out.principal_ref, out.session_id, out.correlation_id) == ("ten_demo", "prn_opaque_88213", "ses_7a1b2c", "corr_4c21f9")
     assert out.mode.value == "MODE_1" and out.channel.value == "text" and out.voice is None
-    assert out.received_at == "2026-10-01T09:47:02.123Z" and out.schema_version == "1.0" and out.locale_hint == "en-NG"
-    CanonicalInputV1.model_validate_json(out.model_dump_json(by_alias=True, exclude_none=True))
+    assert out.received_at == "2026-10-01T09:47:02.123Z" and out.schema_version == "2.0" and out.locale_hint == "en-NG"
+    CanonicalInputV2.model_validate_json(out.model_dump_json(by_alias=True, exclude_none=True))
 
 
 # REQ-VOI-001: a voice request has the same shape; the voice block is carried as given.
 def test_a_final_transcript_becomes_the_same_canonical_input_with_its_voice_block() -> None:
     out = GATEWAY.canonicalise(voice_raw(), CTX)
     assert out.channel.value == "voice" and out.voice is not None and out.voice.is_final is True
-    assert out.voice.token_confidences == [0.99, 0.87] and out.voice.audio_ref == "rec_raw_01J9X3"
+    assert out.voice.token_confidences == [0.99, 0.87] and out.voice.audio_ref is None
     assert out.text == "SYNTHETIC: I sent 20k to Tunde"
 
 
@@ -84,9 +84,20 @@ def test_every_valid_contract_fixture_round_trips_and_every_invalid_one_is_refus
         ctx = RequestContext(correlation_id=fx["correlation_id"], tenant_id=fx["tenant_id"], session_id=fx["session_id"], principal_ref=fx["principal_ref"])
         raw = {k: fx[k] for k in ("request_id", "channel", "text", "locale_hint", "voice", "conversation_ref") if k in fx}
         at = datetime.fromisoformat(fx["received_at"].replace("Z", "+00:00"))
+        if (fx.get("voice") or {}).get("audio_ref") is not None:
+            # Valid against the schema (its shape), refused by the Gateway: no retention path exists, so no non-null reference may enter (CR docs#137, A1).
+            with pytest.raises(InputInvalid) as caught:
+                Gateway(FixedClock(at)).canonicalise(raw, ctx)
+            assert caught.value.reason is Reason.AUDIO_REF_NOT_ALLOWED, path.name
+            continue
         out = Gateway(FixedClock(at)).canonicalise(raw, ctx)
         # The gateway always writes milliseconds ("...:02.000Z"); a fixture may omit them. Everything else must be equal.
-        assert json.loads(out.model_dump_json(by_alias=True, exclude_none=True)) == {**fx, "received_at": at.strftime("%Y-%m-%dT%H:%M:%S.000Z")}, path.name
+        # Not exclude_none: it would drop voice.audio_ref, a required key whose value is null, and the result would no longer be a valid v2 document.
+        dumped = json.loads(out.model_dump_json(by_alias=True))
+        dumped = {k: v for k, v in dumped.items() if v is not None}
+        if isinstance(dumped.get("voice"), dict):
+            assert "audio_ref" in dumped["voice"], path.name
+        assert dumped == {**fx, "received_at": at.strftime("%Y-%m-%dT%H:%M:%S.000Z")}, path.name
     for path in sorted(INVALID.glob("*.json")):
         if path.name == "expectations.json":
             continue
@@ -228,3 +239,24 @@ def test_the_gateway_reads_no_wall_clock_and_imports_no_provider_or_decision_cod
         names = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         assert not [n for n in names if n.startswith(("noema_model.providers", "noema_model.understanding.pipeline", "noema_model.understanding.resolution", "time", "random"))], path.name
         assert "datetime.now" not in path.read_text() and ".utcnow(" not in path.read_text(), path.name
+
+
+# CR-2026-11-08-VOI-canonical-input-audio-ref (docs#137), REQ-VOI-004, AGENT-13: `null` means the audio was discarded, which is the default and the only value the Gateway
+# lets through until a consent-backed retention path exists. A non-null reference of any shape is refused, with a reason that never carries the value.
+@pytest.mark.parametrize("value", ["raw_01J9X3KQ7M", "rec_raw_01J9X3", "aud_01J9X3KQ7M", "", "UklGRiQAAABXQVZFZm10IBAAAAABAAEA=", "raw_" + "A" * 40, 7, True, [], {},
+                                   "raw_01J9X3KQ7M\n", " raw_01J9X3KQ7M", "raw_\uff21\uff22\uff11\uff12", "RAW_01J9X3KQ7M", "raw_\u0130\u0130", "raw_\u017f\u017f", "\u0000", "raw_" + "9" * 100000])
+def test_a_non_null_audio_reference_is_refused_whatever_its_shape(value: Any) -> None:
+    with pytest.raises(InputInvalid) as caught:
+        GATEWAY.canonicalise(voice_raw(audio_ref=value), CTX)
+    assert caught.value.reason is Reason.AUDIO_REF_NOT_ALLOWED
+    assert caught.value.field == "voice.audio_ref"
+    assert "UklG" not in str(caught.value) and "raw_" not in str(caught.value)
+
+
+def test_the_audio_reference_key_is_still_required_and_null_is_accepted() -> None:
+    raw = voice_raw()
+    del raw["voice"]["audio_ref"]
+    refused(raw, Reason.BAD_FIELD)
+    out = GATEWAY.canonicalise(voice_raw(audio_ref=None), CTX)
+    assert out.voice is not None and out.voice.audio_ref is None
+    assert json.loads(out.model_dump_json(by_alias=True))["voice"]["audio_ref"] is None  # the key stays present as null

@@ -52,7 +52,7 @@ class ExecutionLimitsV1(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     schema_version: ExecutionLimitsV1SchemaVersion
-    pack_id: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*$')]
+    pack_id: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\Z')]
     label: ExecutionLimitsV1Label
     circuit_breaker: ExecutionLimitsV1CircuitBreaker
     dispatch_budget: ExecutionLimitsV1DispatchBudget

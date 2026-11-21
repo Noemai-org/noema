@@ -251,7 +251,7 @@ func resultAndCases(t *testing.T, st *stack, res *workflows.EscalateResult) (str
 // differs between two runs of the very same decision:
 //   - the random part of the ids the core mints (event ids "recev_<ULID>", receipt ids "rcp_<ULID>"; ids.New is given no
 //     seeded reader by the stack, and the ULID entropy is random);
-//   - the hashes and signatures that cover those ids (prev_hash and payload_hash in a Record event, the receipt signature),
+//   - the hashes and signatures that cover those ids (prev_hash and payload_hash in a Record event, the receipt's Ed25519 signature, which covers the random receipt id),
 //     which cannot be compared without them: the chain is verified in each run instead (chain.Verify) and the content the
 //     hashes cover is compared;
 //   - mock-case's case id and case reference, and the time it stamps on a case.
@@ -266,14 +266,14 @@ func scrub(res *workflows.EscalateResult, s string) string {
 	s = caseCreatedAt.ReplaceAllString(s, `"CreatedAt":"<mock-case time>"`)
 	s = mintedID.ReplaceAllString(s, "${1}_<random>")
 	s = chainHash.ReplaceAllString(s, `"${1}": "<hash>"`)
-	return receiptSig.ReplaceAllString(s, `"sig": {"value": "<hmac>"`)
+	return receiptSig.ReplaceAllString(s, `"sig": {"value": "<ed25519>"`)
 }
 
 var (
 	caseCreatedAt = regexp.MustCompile(`"CreatedAt":"[^"]*"`)
 	mintedID      = regexp.MustCompile(`\b(recev|rcp)_[0-9A-Z]{26}\b`)
 	chainHash     = regexp.MustCompile(`"(prev_hash|payload_hash)": "sha256:[0-9a-f]{64}"`)
-	receiptSig    = regexp.MustCompile(`"sig": \{"value": "[0-9a-f]{64}"`)
+	receiptSig    = regexp.MustCompile(`"sig": \{"value": "[0-9a-f]{128}"`)
 )
 
 func (s *stack) mockCaseCount(t *testing.T) int {

@@ -5,6 +5,9 @@ on:
   pull_request:
   push:
     branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -13,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - id: changed
         run: |
@@ -28,5 +32,15 @@ jobs:
           python-version: "3.13"
       - if: steps.changed.outputs.run == 'true'
         run: make bench-test
+      # BEN-04 (G0-N N10): two generations in two separate processes, compared byte for byte; the summary is the evidence. Only the summary is uploaded: the generated trees hold the oracle documents (INV-22).
+      - if: steps.changed.outputs.run == 'true'
+        run: make bench-reproduce BENCH_OUT="${{ runner.temp }}/bench-out"
+      - if: steps.changed.outputs.run == 'true' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: generator-reproduce-summary
+          path: ${{ runner.temp }}/bench-out/reproduce-summary.txt
+          if-no-files-found: warn
+          retention-days: 30
       - if: steps.changed.outputs.run != 'true'
         run: echo "no benchmark change; nothing to test"

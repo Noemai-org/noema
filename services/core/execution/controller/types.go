@@ -47,7 +47,8 @@ type SignedGrant struct {
 }
 
 // VoidReason is the reason a grant is void (PERD section 27.1). A void grant produces a RecoveryRequest
-// addressed to Trust and is never retried locally (REQ-EXE-001).
+// addressed to Trust and is never retried locally (REQ-EXE-001). Eight reasons void a grant before its write; the
+// ninth, REJECTED_STALE_VERSION, voids it after the one write, in the same step as the receipt (REQ-EXE-004).
 type VoidReason string
 
 // The reasons of PERD section 27.1 and REQ-EXE-003.
@@ -71,11 +72,28 @@ const (
 	eventSecurity             = "SECURITY_EVENT"
 	receiptSchemaVersion      = "1.0"
 	kindIdempotencyCollision  = "IDEMPOTENCY_COLLISION"
+	kindSignatureInvalid      = "SIGNATURE_INVALID"
+)
+
+// The cause carried by the SECURITY_EVENT SIGNATURE_INVALID of a receipt that did not verify (DEC-2026-10-28 section 7).
+const (
+	CauseSignatureNotVerified = "RECEIPT_SIGNATURE_NOT_VERIFIED"
+	CauseDocumentNotCanonical = "RECEIPT_DOCUMENT_NOT_CANONICAL"
 )
 
 // ErrKeyCollision is what a Ledger returns from Spend when the idempotency key already exists with other
 // parameters or another action (EC-E06). Nothing was spent; the controller voids the grant.
 var ErrKeyCollision = errors.New(errPrefix + "idempotency key collision")
+
+// ErrSpendRetryable is what a Ledger returns from Spend, wrapped around the database's own error and matched with errors.Is, when the database kept refusing the spend
+// with a serialization failure through every attempt the Ledger is allowed (noema#714, Architect ruling A339, relayed). It tells "try again" from a refusal: nothing was
+// spent, written or dispatched, the grant is still ISSUED, and presenting it again can succeed with no change by the caller. Execute returns it, wrapped, unchanged in
+// meaning: it is never a void, a receipt or an outcome.
+var ErrSpendRetryable = errors.New(errPrefix + "the spend did not commit and the grant is unspent: present it again")
+
+// CodeSpendRetryable is the code of contracts/schemas/errors.v2.json (RetryableErrorCode) under which an edge reports ErrSpendRetryable: the database, a dependency, could
+// not serialise the spend now. No new code was added for it.
+const CodeSpendRetryable = "DEPENDENCY_UNAVAILABLE"
 
 // ExecutionState is the Execution Receipt state (contracts enums ExecutionState). Execution never writes
 // SUCCEEDED: that word belongs to Outcome.
@@ -99,8 +117,8 @@ const (
 	TransportAck2xx          TransportClass = "ACK_2XX"
 	TransportVersionConflict TransportClass = "VERSION_CONFLICT_409_412"
 	TransportDuplicate409    TransportClass = "DUPLICATE_409_SAME_KEY"
-	// TransportDuplicateCreate: a create conditional on absence was refused because the target already holds a case for
-	// the subject and epoch under another key. The string is the error code DUPLICATE_CREATE of contracts/schemas/errors.v2.json.
+	// TransportDuplicateCreate: a create conditional on absence was refused because the target already holds a case (or a
+	// complaint for the case) for the subject and epoch under another key. The string is the error code DUPLICATE_CREATE of contracts/schemas/errors.v2.json.
 	TransportDuplicateCreate TransportClass = "DUPLICATE_CREATE"
 	TransportRejected4xx     TransportClass = "REJECTED_4XX"
 	TransportTimeout         TransportClass = "TIMEOUT"
@@ -135,6 +153,7 @@ type Receipt struct {
 	ExternalAck     *string
 	State           ExecutionState
 	Sig             Sig
+	SignedJCS       []byte // the exact bytes that were signed (the document without sig), stored so the database can verify them (D8)
 }
 
 // Outcome of one Execute call. Exactly one field group is set.
@@ -143,6 +162,9 @@ type Outcome struct {
 	Replayed bool       // the grant was already spent; nothing was done (E8 conflict)
 	Receipt  *Receipt   // E11 ran: the receipt that was written
 	Raced    bool       // another writer already wrote this attempt's receipt (first writer wins)
+	// BudgetSpent: the database refused the spend because the key's dispatch budget is used up (ruling A153). Nothing was written, the grant is not spent
+	// and nothing was dispatched; the caller escalates, and no new dispatch of the key is authorised (REQ-RCV-003).
+	BudgetSpent bool
 }
 
 // Point is a step boundary of the protocol. A crash can be injected at every one (D7).

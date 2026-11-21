@@ -51,7 +51,7 @@ class EnumsV1ConsequenceLevel(StrEnum):
 
 
 class EnumsV1CoreReasonCode(StrEnum):
-    """The 17 core (tier 1) reason codes, a closed list. The last three are [REC] until the founders confirm them. Pack codes (<vertical>.reason.<name>) are the second tier and live in the pack's catalogue. Source: enums.v1.json#$defs/CoreReasonCode"""
+    """The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED) and the last three of the original list are [REC] until the founders co... Source: enums.v1.json#$defs/CoreReasonCode"""
 
     PROHIBITED_CAPABILITY = 'PROHIBITED_CAPABILITY'
     AMBIGUOUS_COUNTERPARTY = 'AMBIGUOUS_COUNTERPARTY'
@@ -70,10 +70,13 @@ class EnumsV1CoreReasonCode(StrEnum):
     RATE_LIMITED = 'RATE_LIMITED'
     INTERNAL_ERROR = 'INTERNAL_ERROR'
     MODE_NOT_ENABLED = 'MODE_NOT_ENABLED'
+    TARGET_FROZEN = 'TARGET_FROZEN'
+    CLOCK_BREACHED_UNROUTED = 'CLOCK_BREACHED_UNROUTED'
+    DISPATCH_BUDGET_EXHAUSTED = 'DISPATCH_BUDGET_EXHAUSTED'
 
 
 # EnumsV1DataSensitivity. Source: enums.v1.json#$defs/DataSensitivity
-EnumsV1DataSensitivity: TypeAlias = Annotated[str, StringConstraints(pattern='^S[0-9]_[a-z][a-z0-9_]*$')]
+EnumsV1DataSensitivity: TypeAlias = Annotated[str, StringConstraints(pattern='\\AS[0-9]_[a-z][a-z0-9_]*\\Z')]
 
 
 class EnumsV1DecisionOutcome(StrEnum):
@@ -165,6 +168,23 @@ class EnumsV1RetrySafety(StrEnum):
     NATIVE_IDEMPOTENT = 'NATIVE_IDEMPOTENT'
     QUERYABLE_BY_KEY = 'QUERYABLE_BY_KEY'
     NONE = 'NONE'
+
+
+class EnumsV1TransactionClassification(StrEnum):
+    """The derived state classification of a transaction (PERD v1.18 state table): a closed list of twelve. It is not an Execution Receipt state (ExecutionState): EXECUTION_OUTCOME_UNKNOWN is a classification, OUTCOME_UNKNOW... Source: enums.v1.json#$defs/TransactionClassification"""
+
+    SUCCESS_CONFIRMED = 'SUCCESS_CONFIRMED'
+    REJECTED_CONFIRMED = 'REJECTED_CONFIRMED'
+    DEBIT_POSTED_CREDIT_UNCONFIRMED = 'DEBIT_POSTED_CREDIT_UNCONFIRMED'
+    SETTLEMENT_PENDING = 'SETTLEMENT_PENDING'
+    REVERSAL_PENDING = 'REVERSAL_PENDING'
+    REVERSED_CONFIRMED = 'REVERSED_CONFIRMED'
+    POSSIBLE_DUPLICATE = 'POSSIBLE_DUPLICATE'
+    PARTIAL = 'PARTIAL'
+    EXECUTION_OUTCOME_UNKNOWN = 'EXECUTION_OUTCOME_UNKNOWN'
+    CONTRADICTORY_STATE = 'CONTRADICTORY_STATE'
+    EVENT_ORDER_UNCERTAIN = 'EVENT_ORDER_UNCERTAIN'
+    INSUFFICIENT_EVIDENCE = 'INSUFFICIENT_EVIDENCE'
 
 
 class EnumsV1Verdict(StrEnum):

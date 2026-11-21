@@ -167,7 +167,7 @@ func loadKey(identity, path, id string) (Key, error) {
 	if err != nil {
 		return Key{}, fmt.Errorf("%scannot open %q (a symbolic link is refused): %w", errPrefix, filepath.Base(path), err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only: a close error changes nothing
 	info, err := f.Stat()
 	if err != nil {
 		return Key{}, fmt.Errorf("%scannot stat %q: %w", errPrefix, filepath.Base(path), err)
@@ -233,6 +233,25 @@ func (r *Ring) Sign(tag Tag, doc map[string]any) (Signed, error) {
 		return Signed{}, fmt.Errorf("%scanonical document: %w", errPrefix, err)
 	}
 	return r.sign(tag, canon)
+}
+
+// SignRecordEvent signs a Record event body (the event without hash and without sig) for the Record appender (D6, REC-08).
+func (r *Ring) SignRecordEvent(doc map[string]any) (keyID, sigHex string, signedJCS []byte, err error) {
+	s, err := r.Sign(RecordEventTag, doc)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return s.KeyID, s.Value, s.SignedJCS, nil
+}
+
+// SignReceipt is the Controller's port (controller.ReceiptSigner): it signs an Execution Receipt document under the receipt tag and returns
+// the key ID, the signature and the exact bytes signed, which the ledger stores (D8).
+func (r *Ring) SignReceipt(doc map[string]any) (keyID, sigHex string, signedJCS []byte, err error) {
+	s, err := r.Sign(ReceiptTag, doc)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return s.KeyID, s.Value, s.SignedJCS, nil
 }
 
 // SignJCS signs bytes that are already a document, and only if they are exactly canonical: an RFC 8785 object with no repeated

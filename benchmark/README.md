@@ -14,10 +14,13 @@ Generated layer only. `make bench-test` runs every test and `mypy --strict`; `ma
 | `scoring/` | The tiered scorecard and report, a pure function of recorded results | BEN-12 |
 | `oracle_client/` | The runner's one reader of ground truth (mock-case's truth endpoint, bench credential) | BEN-03 |
 | `runner/` | Drives a suite through the public API, applies fault plans, writes results and a run manifest | BEN-03 |
+| `suites/` | One command per named suite (`us`, `chaos`, `evil`, `full`): select, run, score, record the run ID (`make bench-us` and the others) | BEN-29 |
+| `publication/` | The public benchmark format and publication rules, with a check that every external number traces to a run (BEN-31) | BEN-31 |
 | `fixtures/` | The fixture-loader client and the data contract of the Noema-side stand-in for the Tushe-held US-01 and US-06 data (G1 option B; evidence labelled stand-in) | BEN-05 |
 | `replay/` | The replay diff: two runs, same cases, are the Trust decisions and verdicts identical (compares two recorded runs; runs nothing) | BEN-05 |
 | `impact/` | The Operations Model for the IMPACT layer: every parameter ASSUMED until the Founder supplies a sourced value, ranges, the M0 manual baseline (suite definition v1) | BEN-16 |
 | `hallucination/` | The corpus of 200 seeded bad explanations and 50 good controls for the claim validator (B5) | BEN-14 |
+| `qualification/` | Model and speech version qualification records, made from a scorecard with pass^k, and the lookup that refuses an unqualified ID (the model service's configuration check is C2's) | UND-13 |
 | `nightly/` | Files one regression issue per failing case, de-duplicated by case ID | TST-02 |
 | `bakeoff/` | The decision-model bake-off: case set, metrics, runner, comparison | BEN-21 |
 | `evil_provider/` | The adversarial provider, in the bench profile only | SEC-06 |

@@ -1,0 +1,234 @@
+"""BEN-29 (REQ-BEN-004, REQ-TST-005): the named suites are data; selection is a pure function of the suite manifest; an empty cell or a short suite is an error, never a quiet pass.
+
+Written before `select.py` and seen failing. SYNTHETIC. Generated layer only: nothing here reads `benchmark-heldout` (INV-22, REQ-AGT-004)."""
+import json
+import unittest
+from pathlib import Path
+from typing import Any
+
+from benchmark.suites.select import SelectionError, load_families, load_suites, select, selection_digest
+from benchmark.runner.test_suite import suite_dir
+
+Json = dict[str, Any]
+SUITES = Path(__file__).parent / "suites.json"
+
+
+def entry(case_id: str, covers: list[str], category: str = "CLEAN_UNIQUE") -> Json:
+    return {"case_id": case_id, "category": category, "covers": covers, "mutation": None, "base_case_id": None, "sha256": "sha256:" + "a" * 64,
+            "suite_layer": "GENERATED", "version": 1}
+
+
+MANIFEST: Json = {"cases": [
+    entry("BEN-CLEAN-0001", ["US-01", "FAULT:NONE"]),
+    entry("BEN-TMO-0001", ["US-06", "FAULT:TIMEOUT_AFTER_COMMIT"], "TIMEOUT_UNKNOWN"),
+    entry("BEN-INJ-0001", ["US-09", "FAULT:INJECTION_PAYLOAD"], "PROMPT_INJECTION"),
+    entry("BEN-AMB-0001", ["US-02", "FAULT:NONE"], "AMBIGUITY"),
+]}
+FAMILIES: dict[str, list[str]] = {"BEN-CLEAN-0001": ["B1", "B2"], "BEN-TMO-0001": ["B4", "B5"], "BEN-INJ-0001": ["B6"], "BEN-AMB-0001": ["B1"]}
+
+
+class Selection(unittest.TestCase):
+    def test_all_selects_every_case_in_id_order(self) -> None:
+        self.assertEqual(["BEN-AMB-0001", "BEN-CLEAN-0001", "BEN-INJ-0001", "BEN-TMO-0001"], select(MANIFEST, {"select": {"all": True}}, "x"))
+
+    def test_covers_any_matches_a_tag(self) -> None:
+        self.assertEqual(["BEN-CLEAN-0001", "BEN-TMO-0001"], select(MANIFEST, {"select": {"covers_any": ["US-01", "US-06"]}}, "x"))
+
+    def test_a_fault_prefix_selects_injected_faults_and_not_fault_none(self) -> None:
+        got = select(MANIFEST, {"select": {"covers_prefix": "FAULT:", "except_covers": ["FAULT:NONE"]}}, "x")
+        self.assertEqual(["BEN-INJ-0001", "BEN-TMO-0001"], got)
+
+    def test_families_and_categories(self) -> None:
+        self.assertEqual(["BEN-INJ-0001"], select(MANIFEST, {"select": {"families_any": ["B6"]}}, "x", FAMILIES))
+        self.assertEqual(["BEN-AMB-0001"], select(MANIFEST, {"select": {"categories_any": ["AMBIGUITY"]}}, "x"))
+
+    def test_an_empty_cell_is_an_error_naming_the_tag(self) -> None:
+        with self.assertRaises(SelectionError) as ctx:
+            select(MANIFEST, {"select": {"covers_any": ["US-01", "US-02", "US-03"], "each_must_match": ["US-01", "US-03"]}}, "us")
+        self.assertIn("US-03", str(ctx.exception))
+
+    def test_a_short_suite_is_an_error(self) -> None:
+        with self.assertRaises(SelectionError) as ctx:
+            select(MANIFEST, {"select": {"all": True}, "min_cases": 5}, "full")
+        self.assertIn("5", str(ctx.exception))
+
+    def test_a_family_selector_without_the_case_families_is_an_error(self) -> None:
+        with self.assertRaises(SelectionError) as ctx:
+            select(MANIFEST, {"select": {"families_any": ["B6"]}}, "x")
+        self.assertIn("families", str(ctx.exception))
+
+    def test_an_empty_selection_is_an_error(self) -> None:
+        with self.assertRaises(SelectionError):
+            select(MANIFEST, {"select": {"covers_any": ["US-99"]}}, "x")
+
+    def test_an_unknown_selector_key_is_an_error_not_ignored(self) -> None:
+        with self.assertRaises(SelectionError) as ctx:
+            select(MANIFEST, {"select": {"covers_anyy": ["US-01"]}}, "x")
+        self.assertIn("covers_anyy", str(ctx.exception))
+
+    def test_a_selector_with_no_key_is_an_error(self) -> None:
+        with self.assertRaises(SelectionError):
+            select(MANIFEST, {"select": {}}, "x")
+
+    def test_the_digest_depends_on_the_ids_only_and_their_order_is_fixed(self) -> None:
+        ids = select(MANIFEST, {"select": {"all": True}}, "x")
+        self.assertEqual(selection_digest(ids), selection_digest(list(ids)))
+        self.assertNotEqual(selection_digest(ids), selection_digest(ids[:-1]))
+
+
+class NamedSuites(unittest.TestCase):
+    """The suites BEN-29 names, against the real generated suite (seed 20261020)."""
+
+    manifest: Json
+    families: dict[str, list[str]]
+    suites: dict[str, Json]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.manifest = json.loads((suite_dir() / "manifest.json").read_text())
+        cls.families = load_families(suite_dir())
+        cls.suites = load_suites(SUITES)
+
+    def test_the_named_suites_exist(self) -> None:
+        self.assertEqual({"us", "chaos", "evil", "full", "g1", "smoke"}, set(self.suites))
+
+    def test_g1_is_every_case_covering_us_01_or_us_06_and_nothing_else(self) -> None:
+        # BEN-05: the G1 evidence run. All six, mutated included; the open exclusion is named by benchmark/replay, never dropped here.
+        ids = select(self.manifest, self.suites["g1"], "g1")
+        expected = sorted(e["case_id"] for e in self.manifest["cases"] if {"US-01", "US-06"} & set(e["covers"]))
+        self.assertEqual(expected, ids)
+        self.assertIn("BEN-CLEAN-1007", ids)
+        self.assertEqual(6, len(ids))
+
+    def test_us_covers_every_story_from_us_01_to_us_22(self) -> None:
+        ids = select(self.manifest, self.suites["us"], "us")
+        covered = {c for e in self.manifest["cases"] if e["case_id"] in set(ids) for c in e["covers"] if c.startswith("US-")}
+        self.assertEqual({f"US-{n:02d}" for n in range(1, 23)}, covered)
+
+    def test_full_is_the_whole_generated_suite_of_at_least_320_cases(self) -> None:
+        ids = select(self.manifest, self.suites["full"], "full")
+        self.assertEqual(len(self.manifest["cases"]), len(ids))
+        self.assertGreaterEqual(len(ids), 320)
+
+    def test_chaos_selects_only_cases_with_an_injected_fault_and_every_fault_family_is_in_it(self) -> None:
+        ids = set(select(self.manifest, self.suites["chaos"], "chaos"))
+        families = {c for e in self.manifest["cases"] for c in e["covers"] if c.startswith("FAULT:") and c != "FAULT:NONE"}
+        in_chaos = {c for e in self.manifest["cases"] if e["case_id"] in ids for c in e["covers"] if c.startswith("FAULT:")}
+        self.assertTrue(families <= in_chaos)
+        self.assertTrue(all(any(c.startswith("FAULT:") and c != "FAULT:NONE" for c in e["covers"]) for e in self.manifest["cases"] if e["case_id"] in ids))
+
+    def test_evil_is_the_b6_security_family(self) -> None:
+        ids = set(select(self.manifest, self.suites["evil"], "evil", self.families))
+        b6 = {case_id for case_id, families in self.families.items() if "B6" in families}
+        self.assertEqual(b6, ids)
+        self.assertTrue(ids)
+
+
+
+
+class ScoringCommand(unittest.TestCase):
+    def test_every_suite_run_asks_the_scorer_for_the_story_table(self) -> None:
+        """BEN-12 (A300): the by-family G2 table is produced from the same run, never by a second hand-run step."""
+        from benchmark.suites.__main__ import scoring_command
+        self.assertIn("--story-table", scoring_command(Path("s"), Path("r"), "run_x", Path("o")))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class GreedyCover(unittest.TestCase):
+    """TST-02 ("30-case smoke benchmark on every merge"): a smoke suite is the FEWEST cases that still touch the most identifiers, chosen by a deterministic rule from the manifest, not a list typed by
+    hand. `greedy_cover` takes stages of tag prefixes; for each stage in turn it picks the case that adds the most tags of that stage not yet covered, ties broken by the category with the fewest
+    picks so far and then by case id. `FAULT:NONE` never counts. It stops at `n` cases or when nothing adds a tag."""
+
+    SMALL: Json = {"cases": [
+        entry("BEN-A-0001", ["US-01", "FAULT:NONE"], "CLEAN_UNIQUE"),
+        entry("BEN-A-0002", ["US-01", "US-02", "US-03"], "CLEAN_UNIQUE"),
+        entry("BEN-B-0001", ["US-04", "FAULT:LATENCY"], "TIMEOUT_UNKNOWN"),
+        entry("BEN-B-0002", ["US-04", "FAULT:LATENCY", "FAULT:DROP_RESPONSE"], "TIMEOUT_UNKNOWN"),
+        entry("BEN-C-0001", ["US-02", "FAULT:DROP_RESPONSE"], "AMBIGUITY"),
+    ]}
+
+    def suite(self, n: int, stages: list[list[str]], **extra: Any) -> Json:
+        return {"select": {"greedy_cover": {"n": n, "stages": stages}}, "min_cases": 1, **extra}
+
+    def test_the_case_that_adds_the_most_new_tags_of_the_stage_comes_first(self) -> None:
+        ids = select(self.SMALL, self.suite(1, [["US-"]]), "smoke")
+        self.assertEqual(["BEN-A-0002"], ids)
+
+    def test_a_later_stage_adds_what_the_earlier_one_did_not_need(self) -> None:
+        ids = select(self.SMALL, self.suite(3, [["US-"], ["FAULT:"]]), "smoke")
+        # US stage: A-0002 (three new), then B-0001 (US-04; ties with B-0002 on gain, lower id wins). FAULT stage: C-0001 (DROP_RESPONSE; ties with B-0002, but AMBIGUITY has no pick yet).
+        self.assertEqual(["BEN-A-0002", "BEN-B-0001", "BEN-C-0001"], ids)
+        covered = {t for e in self.SMALL["cases"] if e["case_id"] in ids for t in e["covers"]}
+        self.assertTrue({"US-01", "US-02", "US-03", "US-04"} <= covered)
+        self.assertTrue({"FAULT:LATENCY", "FAULT:DROP_RESPONSE"} <= covered)
+
+    def test_fault_none_never_counts_as_a_tag(self) -> None:
+        ids = select(self.SMALL, self.suite(5, [["FAULT:"]]), "smoke")
+        self.assertNotIn("BEN-A-0001", ids)
+
+    def test_it_stops_at_n_and_when_nothing_adds_a_tag(self) -> None:
+        self.assertEqual(2, len(select(self.SMALL, self.suite(2, [["US-"], ["FAULT:"]]), "smoke")))
+        self.assertLessEqual(len(select(self.SMALL, self.suite(5, [["US-"], ["FAULT:"]]), "smoke")), 4)
+
+    def test_ties_go_to_the_category_with_fewest_picks_then_the_lowest_case_id(self) -> None:
+        manifest: Json = {"cases": [entry("BEN-A-0002", ["US-01"], "X"), entry("BEN-A-0001", ["US-02"], "X"), entry("BEN-B-0001", ["US-03"], "Y")]}
+        ids = select(manifest, self.suite(3, [["US-"]]), "smoke")
+        self.assertEqual(["BEN-A-0001", "BEN-A-0002", "BEN-B-0001"], ids)  # all three are needed; the result is sorted
+        self.assertEqual(["BEN-A-0001", "BEN-B-0001"], select(manifest, self.suite(2, [["US-"]]), "smoke"))  # tie on gain: A-0001 (lowest id), then Y has fewest picks
+
+    def test_the_result_is_sorted_and_deterministic_whatever_the_manifest_order(self) -> None:
+        shuffled: Json = {"cases": list(reversed(self.SMALL["cases"]))}
+        a = select(self.SMALL, self.suite(4, [["US-"], ["FAULT:"]]), "smoke")
+        self.assertEqual(a, select(shuffled, self.suite(4, [["US-"], ["FAULT:"]]), "smoke"))
+        self.assertEqual(a, sorted(a))
+
+    def test_a_malformed_rule_is_an_error_never_a_quiet_default(self) -> None:
+        for bad in ({"n": 0, "stages": [["US-"]]}, {"n": "3", "stages": [["US-"]]}, {"n": True, "stages": [["US-"]]}, {"n": 3, "stages": []}, {"n": 3, "stages": [[]]},
+                    {"n": 3, "stages": [["US-"]], "extra": 1}, {"stages": [["US-"]]}, {"n": 3}, "all"):
+            with self.assertRaises(SelectionError, msg=str(bad)):
+                select(self.SMALL, {"select": {"greedy_cover": bad}, "min_cases": 1}, "smoke")
+
+    def test_it_cannot_be_combined_with_another_matcher(self) -> None:
+        with self.assertRaises(SelectionError):
+            select(self.SMALL, {"select": {"greedy_cover": {"n": 2, "stages": [["US-"]]}, "covers_any": ["US-01"]}, "min_cases": 1}, "smoke")
+
+    def test_a_suite_that_falls_below_its_minimum_is_an_error(self) -> None:
+        with self.assertRaises(SelectionError):
+            select(self.SMALL, self.suite(5, [["US-"]], min_cases=30), "smoke")
+
+
+class SmokeSuite(unittest.TestCase):
+    """The real `smoke` suite (seed 20261020): exactly 30 cases, every user story covered, the same ids every time."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from benchmark.generator.generate import generate
+        cls.manifest = generate(20261020).manifest
+        cls.definition = load_suites(SUITES)["smoke"]
+
+    manifest: Json
+    definition: Json
+
+    def test_it_selects_exactly_thirty_cases_and_says_why(self) -> None:
+        ids = select(self.manifest, self.definition, "smoke")
+        self.assertEqual(30, len(ids))
+        self.assertEqual(30, self.definition["min_cases"])
+        self.assertIn("TST-02", self.definition["purpose"])
+
+    def test_every_user_story_has_a_case_in_it(self) -> None:
+        ids = set(select(self.manifest, self.definition, "smoke"))
+        covered = {t for e in self.manifest["cases"] if e["case_id"] in ids for t in e["covers"]}
+        self.assertEqual(set(), {f"US-{n:02d}" for n in range(1, 23)} - covered)
+
+    def test_the_selection_is_the_same_on_every_call(self) -> None:
+        a = select(self.manifest, self.definition, "smoke")
+        self.assertEqual(a, select(self.manifest, self.definition, "smoke"))
+        self.assertEqual(selection_digest(a), selection_digest(select(self.manifest, self.definition, "smoke")))
+
+    def test_it_holds_only_generated_cases(self) -> None:
+        ids = set(select(self.manifest, self.definition, "smoke"))
+        layers = {e["suite_layer"] for e in self.manifest["cases"] if e["case_id"] in ids}
+        self.assertEqual({"GENERATED"}, layers)

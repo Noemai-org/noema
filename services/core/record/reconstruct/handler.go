@@ -2,26 +2,25 @@ package reconstruct
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"time"
 
-	"github.com/Noemai-org/noema/services/core/platform/crypto"
+	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
 // Route is the path of REQ-AUD-003 (PERD 39.4), in net/http pattern form.
 const Route = "GET /v1/reconstructions/{correlation_id}"
 
-// The roles this endpoint serves: ops and audit, as REQ-AUD-003 says ("Ops and audit role only"; Architect decision
-// of 1 Nov 2026, which settles the difference with the PERD 39.4 table's "audit").
-const (
-	RoleAudit = "audit"
-	RoleOps   = "ops"
-)
+// RoleAudit is the one role this endpoint serves: PERD 39.4 says audit, and A110 (DEC-2026-11-08) keeps it so ("ops has no path to them"), which supersedes the
+// Architect decision of 1 Nov 2026 that had served ops too. The handler refuses ops by default, with or without the edge's role gate in front.
+const RoleAudit = "audit"
 
-// staffKinds are the principal kinds (PERD 32.1) that may hold those roles. Customers and approvers never read a
+// staffKinds are the principal kinds (PERD 32.1) that may hold that role. Customers and approvers never read a
 // reconstruction, whatever roles a session carries; a kind not listed here is refused too.
 var staffKinds = map[string]bool{"operator": true, "auditor": true, "regulator": true, "admin": true}
 
@@ -35,7 +34,7 @@ type Caller struct {
 	Roles     []string
 }
 
-// Authorizer authenticates a request. EDG-01 supplies the real one when it wires this handler into cmd/core.
+// Authorizer authenticates a request. SessionAuthorizer is the one the running core uses; DenyAll is the default.
 type Authorizer interface {
 	Authenticate(r *http.Request) (Caller, error)
 }
@@ -43,7 +42,8 @@ type Authorizer interface {
 // ErrUnauthenticated is what DenyAll returns for every request.
 var ErrUnauthenticated = errors.New("reconstruct: no authenticated session")
 
-// DenyAll is the default Authorizer: it refuses every request. Nothing reaches the Record until EDG-01 replaces it.
+// DenyAll is the default Authorizer: it refuses every request. Nothing reaches the Record until the composition root gives the handler a
+// SessionAuthorizer.
 type DenyAll struct{}
 
 // Authenticate refuses.
@@ -61,7 +61,8 @@ type TenantDBs interface {
 	For(tenantID string) (TxBeginner, error)
 }
 
-// Handler serves REQ-AUD-003. It is not wired into cmd/core (EDG-01 does that, approved escalation E2 of REC-03).
+// Handler serves REQ-AUD-003. It is wired into cmd/core by the composition root (EL, EDG-01 slice 3c), behind the session check and the audit-only
+// role gate, with SessionAuthorizer.
 type Handler struct {
 	DBs     TenantDBs  // one pool per tenant; every connection logs in as that tenant's record_read login (DEBT-04)
 	Auth    Authorizer // nil means DenyAll
@@ -86,6 +87,9 @@ const (
 	codeDependency      = "DEPENDENCY_UNAVAILABLE"
 )
 
+// messageUnavailable is the one text of every failure of the Record's dependency: a database that cannot be reached and a tenant with no login answer alike (AGENT-13).
+const messageUnavailable = "The Record is not available."
+
 var retryable = map[string]bool{codeDependency: true}
 
 const headerCorrelation = "Noema-Correlation-Id"
@@ -102,18 +106,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	caller, err := auth.Authenticate(r)
 	if err != nil {
 		h.access(r.Context(), Caller{}, corr, codeUnauthenticated)
-		h.fail(w, http.StatusUnauthorized, codeUnauthenticated, "Authentication is required.", corr)
+		h.fail(w, r, http.StatusUnauthorized, codeUnauthenticated, "Authentication is required.")
 		return
 	}
 	if !mayRead(caller) {
 		// The same code as not found, so a caller cannot learn that a correlation exists (errors.v2.json).
 		h.access(r.Context(), caller, corr, codeNotFound)
-		h.fail(w, http.StatusNotFound, codeNotFound, "Not found.", corr)
+		h.fail(w, r, http.StatusNotFound, codeNotFound, "Not found.")
 		return
 	}
 	if corr == "" {
 		h.access(r.Context(), caller, "", codeInputInvalid)
-		h.fail(w, http.StatusBadRequest, codeInputInvalid, "The correlation ID is not valid.", "")
+		h.fail(w, r, http.StatusBadRequest, codeInputInvalid, "The correlation ID is not valid.")
 		return
 	}
 	timeout := h.Timeout
@@ -123,9 +127,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	db, err := h.DBs.For(caller.TenantID)
-	if err != nil {
-		h.access(ctx, caller, corr, codeSafetyBlock)
-		h.fail(w, http.StatusInternalServerError, codeSafetyBlock, "The Record cannot be read for this tenant.", corr)
+	if err != nil || db == nil {
+		// A served tenant with no Record login is a deployment defect (A434, DEC-2026-11-20-architect-rulings-a358-a453), which /readyz reports. A request for it is the
+		// Record being unavailable: the one fixed text of that failure, never a 401 (the caller is authenticated) and never a raw 500. The error of For is not served.
+		h.access(ctx, caller, corr, codeDependency)
+		h.fail(w, r, http.StatusServiceUnavailable, codeDependency, messageUnavailable)
 		return
 	}
 	body, err := Build(ctx, db, caller.TenantID, corr)
@@ -138,52 +144,63 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(body)
 	case errors.Is(err, ErrIntegrity):
 		h.access(ctx, caller, corr, codeIntegrity)
-		h.fail(w, http.StatusConflict, codeIntegrity, "The Record did not verify, so it is not served.", corr)
+		h.fail(w, r, http.StatusConflict, codeIntegrity, "The Record did not verify, so it is not served.")
 	case errors.Is(err, ErrNotFound):
 		h.access(ctx, caller, corr, codeNotFound)
-		h.fail(w, http.StatusNotFound, codeNotFound, "Not found.", corr)
+		h.fail(w, r, http.StatusNotFound, codeNotFound, "Not found.")
 	case errors.Is(err, ErrUnprojectable):
 		h.access(ctx, caller, corr, codeSafetyBlock)
-		h.fail(w, http.StatusInternalServerError, codeSafetyBlock, "The Record holds an object that cannot be served.", corr)
+		h.fail(w, r, http.StatusInternalServerError, codeSafetyBlock, "The Record holds an object that cannot be served.")
 	default:
 		h.access(ctx, caller, corr, codeDependency)
-		h.fail(w, http.StatusServiceUnavailable, codeDependency, "The Record is not available.", corr)
+		h.fail(w, r, http.StatusServiceUnavailable, codeDependency, messageUnavailable)
 	}
 }
 
-// mayRead: the caller holds the ops or audit role and is a staff principal.
+// mayRead: the caller holds the audit role and is a staff principal. The ops role is never enough (A110).
 func mayRead(c Caller) bool {
 	m := principalRe.FindStringSubmatch(c.Principal)
 	if m == nil || !staffKinds[m[1]] {
 		return false
 	}
 	for _, r := range c.Roles {
-		if r == RoleAudit || r == RoleOps {
+		if r == RoleAudit {
 			return true
 		}
 	}
 	return false
 }
 
-// access writes the RECORD_ACCESSED line (REQ-AUD-003: reads are logged in the access log, not the chain). It carries
-// IDs and codes only, never Record content.
+// access writes the RECORD_ACCESSED line (REQ-AUD-003: reads are logged in the access log, not the chain): one per request that reaches the handler, written once on each
+// path out of ServeHTTP. It carries the tenant, the principal, the role, the correlation read and the outcome code, never Record content. The composition root gives the handler
+// a logger that goes through the redactor.
 func (h *Handler) access(ctx context.Context, c Caller, corr, outcome string) {
 	if h.Log == nil {
 		return
 	}
+	role := ""
+	if len(c.Roles) > 0 {
+		role = c.Roles[0] // a session carries exactly one role
+	}
 	h.Log.LogAttrs(ctx, slog.LevelInfo, "RECORD_ACCESSED", slog.String("tenant_id", c.TenantID), slog.String("principal", c.Principal),
-		slog.String("correlation_id", corr), slog.String("outcome", outcome))
+		slog.String("role", role), slog.String("correlation_id", corr), slog.String("outcome", outcome))
 }
 
-// fail writes the error envelope of errors.v2.json. Every envelope carries a correlation ID: the request's when it was
-// valid, otherwise a fresh one.
-func (h *Handler) fail(w http.ResponseWriter, status int, code, message, corr string) {
-	if corr == "" && h.IDs != nil {
-		if id, err := h.IDs.ID("corr"); err == nil {
-			corr = id
+// fail writes the error envelope of errors.v2.json, byte for byte as the edge's role gate writes its not-found (the generated envelope, one encoder), so that a wrong role, an
+// absent correlation and another tenant's correlation cannot be told apart by their bytes. Its correlation ID is the request's own, the one the edge minted for it (REQ-SEC-003):
+// the correlation the caller asked for is never echoed, because a caller could write a digit run in it. Without the edge in front, a fresh one is made.
+func (h *Handler) fail(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	corr := session.CorrelationFromContext(r.Context())
+	if !correlationRe.MatchString(corr) {
+		corr = ""
+		if h.IDs != nil {
+			if id, err := h.IDs.ID("corr"); err == nil && correlationRe.MatchString(id) {
+				corr = id
+			}
 		}
 	}
-	body, err := crypto.CanonicalJSON(map[string]any{"error": map[string]any{"code": code, "message": message, "retryable": retryable[code], "correlation_id": corr}})
+	env := contracts.ErrorsV2ErrorEnvelope{Error: contracts.ErrorsV2ErrorBody{Code: contracts.ErrorsV2ErrorCode(code), Message: message, Retryable: retryable[code], CorrelationId: contracts.CommonV1CorrelationId(corr)}}
+	body, err := json.Marshal(env)
 	if err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		return
@@ -193,5 +210,5 @@ func (h *Handler) fail(w http.ResponseWriter, status int, code, message, corr st
 		w.Header().Set(headerCorrelation, corr)
 	}
 	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	_, _ = w.Write(append(body, '\n'))
 }

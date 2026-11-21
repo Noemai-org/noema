@@ -12,6 +12,7 @@ include:
   - services/mock-case.yml
   - services/webhook-relay.yml
   - services/standin.yml
+  - services/bench-runner.yml
 
 x-core-networks: &core_networks [edge_net, svc_net, data_net, tushe_net]
 x-model-networks: &model_networks [edge_net, svc_net, provider_egress]
@@ -50,21 +51,37 @@ secrets:
     file: ./secrets/noema_core_password
   temporal_password:
     file: ./secrets/temporal_password
+  # The Decision Grant HMAC keys (SEC-09): two files, so a rotation has two active keys. Compose bind-mounts a file secret and cannot set its mode or owner, and the grant-key loader refuses
+  # a file that is not mode 0400 and owned by its process user, so only the one-shot grant-keys-init step reads these two (as grant.hmac.<version>.key); it copies them into the grant_keys
+  # volume with the right mode and owner. The core never holds the secrets themselves, and no other service holds either (netcheck refuses it, INV-29). SYNTHETIC local values.
+  grant_hmac_key_a:
+    file: ./secrets/grant_hmac_key_a
+  grant_hmac_key_b:
+    file: ./secrets/grant_hmac_key_b
   # The migration login's password (W1 D14a). Mounted into postgres (bootstrap) only; the one-shot migrate step (W4) will be
   # the second and last holder. The core never holds it.
   noema_migrator_password:
     file: ./secrets/noema_migrator_password
   noema_verify_password:
     file: ./secrets/noema_verify_password
+  evidence_verify_password:
+    file: ./secrets/evidence_verify_password
   noema_tenant_login_password:
     file: ./secrets/noema_tenant_login_password
 
 volumes:
   postgres_data: {}
+  # The grant key files the core loads: written once by grant-keys-init at mode 0400 owned by the core's user (SEC-09, INV-29). Only that step writes it; only the core mounts it, read-only.
+  grant_keys: {}
 
 services:
   postgres:
-    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    # PostgreSQL 17.11 with pgsodium (EXE-08 slice B, ruling A2/A16): built from the one pinned Dockerfile (base image by digest, libsodium by SHA-256,
+    # pgsodium by commit id). The directory is still named spike; moving it is a follow-up that also repoints the CI job. init.sh creates the
+    # extension once and disables its event trigger (DEC-2026-11-01 D10a).
+    image: noema-postgres:dev
+    build:
+      context: ../spike/pgsodium
     profiles: *run_profiles
     networks: [data_net]
     environment:
@@ -73,7 +90,7 @@ services:
       # Tenant IDs (ten_...) that get a login per power at first start (DEBT-04 option A). Empty: none.
       NOEMA_TENANTS: ${NOEMA_TENANTS:-}
       NOEMA_EMITTERS: ${NOEMA_EMITTERS:-core-edge}
-    secrets: [postgres_superuser_password, noema_core_password, temporal_password, noema_migrator_password, noema_verify_password, noema_tenant_login_password]
+    secrets: [postgres_superuser_password, noema_core_password, temporal_password, noema_migrator_password, noema_verify_password, evidence_verify_password, noema_tenant_login_password]
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
@@ -114,6 +131,31 @@ services:
       retries: 30
       start_period: 20s
 
+  # One-shot, as root, no network: turns the two grant key secrets into files the core can load (mode 0400, owner 65532, the core image's nonroot user) and checks it by reading each as that user.
+  # It prints file names, never a key. If it fails, the core does not start (service_completed_successfully).
+  grant-keys-init:
+    image: *python_image
+    profiles: *run_profiles
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      GRANT_KEYS_SRC: /run/secrets
+      GRANT_KEYS_OUT: /out
+      GRANT_KEYS_UID: "65532"
+      GRANT_KEYS_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets:
+      - source: grant_hmac_key_a
+        target: grant.hmac.1.key
+      - source: grant_hmac_key_b
+        target: grant.hmac.2.key
+    volumes:
+      - ./grant-keys/init.py:/init/init.py:ro
+      - grant_keys:/out
+
   core:
     image: noema-core:dev
     build:
@@ -121,6 +163,8 @@ services:
     profiles: *run_profiles
     networks: *core_networks
     depends_on:
+      grant-keys-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       temporal:
@@ -132,7 +176,21 @@ services:
       NOEMA_DB_USER: noema_core
       NOEMA_DB_PASSWORD_FILE: /run/secrets/noema_core_password
       NOEMA_TEMPORAL_ADDRESS: temporal:7233
+      # mTLS to the model service (noema#555; PERD 36.1). Names only: the core's client for the model service reads these; its identity is this certificate, signed by the local CA.
+      # The core holds its own client key and the CA certificate and never the model's server key.
+      NOEMA_MODEL_URL: "https://model:8081"
+      NOEMA_MODEL_TLS_CA_FILE: /run/tls/ca.crt
+      NOEMA_MODEL_TLS_CERT_FILE: /run/tls/core-client.crt
+      NOEMA_MODEL_TLS_KEY_FILE: /run/tls/core-client.key
+      # The largest answer the core's client reads from the model service, in bytes: no default in the core (AGENT-16), so it is set here. 65536 is the value the Founders gave on
+      # 15 Nov 2026 (relayed, not yet in a decision record); the core refuses to build its client without it.
+      NOEMA_MODEL_MAX_RESPONSE_BYTES: "65536"
     secrets: [noema_core_password]
+    volumes:
+      - grant_keys:/run/grant-keys:ro
+      - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
+      - ./secrets/tls/core-client.crt:/run/tls/core-client.crt:ro
+      - ./secrets/tls/core-client.key:/run/tls/core-client.key:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/core", "-healthcheck"]
       interval: 3s
@@ -151,8 +209,16 @@ services:
       NOEMA_MODEL_LLM_POOL_SIZE: "16"
       # NOEMA_MODEL_EVIDENCE_POOL_SIZE: "8" is the Architect's initial value for the evidence link. Nothing builds the evidence transport yet, so the
       # service does not read it; it is set here, as an active value, when the evidence link is composed.
+    # The listener requires a client certificate (the image sets uvicorn's --ssl-* options, noema#555). The model holds its server key, the CA certificate and its own health-check client
+    # certificate; it does not hold the core's client key, so the container that serves the route cannot pose as the core.
+    volumes:
+      - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
+      - ./secrets/tls/model.crt:/run/tls/model.crt:ro
+      - ./secrets/tls/model.key:/run/tls/model.key:ro
+      - ./secrets/tls/model-health.crt:/run/tls/model-health.crt:ro
+      - ./secrets/tls/model-health.key:/run/tls/model-health.key:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2).status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import ssl,urllib.request,sys; c=ssl.create_default_context(cafile='/run/tls/ca.crt'); c.load_cert_chain('/run/tls/model-health.crt','/run/tls/model-health.key'); sys.exit(0 if urllib.request.urlopen('https://127.0.0.1:8081/healthz', timeout=2, context=c).status == 200 else 1)"]
       interval: 3s
       timeout: 3s
       retries: 20

@@ -1,0 +1,74 @@
+# compose-scripts (ruling A38, DEBT-16): the shell tests of deploy/compose that need a database run against PostgreSQL 17.11 with pgsodium, the same pinned
+# image as core.yml (built from deploy/spike/pgsodium: init.sh creates the pgsodium extension, EXE-08 D10a, and the stock postgres image does not have it),
+# inside that image (its initdb, pg_ctl and psql), as its unprivileged postgres user. They need no Docker daemon of their own and no secret. The workflow always triggers so its check always reports; the path filter runs inside the job.
+name: compose-scripts
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  compose-scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            if git diff --name-only "$base" HEAD | grep -qE '^(deploy/compose/|services/core/migrations/|\.github/workflows/compose-scripts\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      # The database image: PostgreSQL 17.11 with pgsodium, built from the pinned Dockerfile (base image by digest, libsodium by SHA-256, pgsodium by commit id),
+      # as core.yml does. A stock postgres:17.11 image fails init.sh at CREATE EXTENSION pgsodium.
+      - name: build the PostgreSQL 17.11 + pgsodium image
+        if: steps.changed.outputs.run == 'true'
+        run: docker build -t noema-pg-sig:ci deploy/spike/pgsodium
+      # One step per script, each in the same pinned image, so that the first failure does not hide the next (`!cancelled()` runs a step after a failed one).
+      - name: test_init.sh (PostgreSQL 17.11)
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          docker run --rm --user postgres --entrypoint sh -v "$PWD:/repo:ro" -w /repo \
+            noema-pg-sig:ci -euc '
+            initdb --version | grep -q "(PostgreSQL) 17.11" || { echo "not PostgreSQL 17.11"; initdb --version; exit 1; }
+            sh deploy/compose/postgres/test_init.sh'
+      - name: test_provision_env.sh (PostgreSQL 17.11)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: |
+          docker run --rm --user postgres --entrypoint sh -v "$PWD:/repo:ro" -w /repo \
+            noema-pg-sig:ci -euc '
+            initdb --version | grep -q "(PostgreSQL) 17.11" || { echo "not PostgreSQL 17.11"; initdb --version; exit 1; }
+            sh deploy/compose/postgres/test_provision_env.sh'
+      # secrets_local.sh needs python3, which the PostgreSQL image does not have, and touches no database: it runs on the runner (Founder decision D7).
+      - name: test_secrets_local.sh (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: sh deploy/compose/test_secrets_local.sh
+      # The grant-key init step (SEC-09, INV-29): real files, real modes, run as the runner's own (non-root) user, which is the user the step is told to write for.
+      - name: grant-keys init test (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/grant-keys/test_init.py
+      # The per-tenant Trust login DSN step (A356, INV-29): real files and modes, run as the runner's own user.
+      - name: One tenant list for the secret step and Compose (Codex on noema#790)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/test_bench_tenants.py
+      - name: trust-dsn init test (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/trust-dsn/test_init.py
+      # The private raw-audio store (A451; REQ-VOI-004): real directories and modes as the runner's own user, and the guard that nothing names it in a workflow or a Compose file.
+      - name: audio-store test (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: sh deploy/compose/audio-store/test_store.sh
+      - name: The core image carries the operator commands and the rotation drill job is sealed (SEC-09)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/test_grantdrill_job.py
+      - name: audio-store never leaves the host (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/audio-store/test_never_leaves_the_host.py

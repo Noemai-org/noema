@@ -43,3 +43,36 @@ Moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-stat
 - Open questions (owner): none.
 - Files to read first: `deploy/compose/netcheck/matrix.py` (section 8).
 - Do not touch: other components' matrix rows.
+
+# Session 2026-11-11 · ENV-13
+
+## Session summary
+- What changed (PR links): this file only; no code. The relay host was hardened by the Founder with the reviewed `deploy/relay-host/setup.sh` at `a3a08ff` (merged in noema#189 at 12:54 UTC, 11 Nov). The acceptance evidence is the comment on noema#189 (11 Nov 2026), hostname redacted as `<RELAY_HOSTNAME>`.
+- Why: SR's findings F2 to F4 on #189 (Caddy admin API, public routes, container hardening) and ruling A139.
+- Risks, and how they are contained: Caddy runs as root inside the container under A139, with every capability dropped but `NET_BIND_SERVICE`, `no-new-privileges` and a read-only filesystem (a non-root process cannot gain the port-binding capability under no-new-privileges on the host network). The admin API is off and only `/webhooks` and `/healthz` are proxied.
+- Tests added: none in this change. The observations below were made on the host by the Founder.
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none.
+
+| Check | Result |
+|---|---|
+| Image pinned by digest (`caddy:2.8.4@sha256:226d1f05…`) | PASS |
+| Read-only filesystem | PASS |
+| Capabilities: CapDrop ALL, CapAdd NET_BIND_SERVICE only | PASS |
+| no-new-privileges | PASS |
+| Network | host, as designed |
+| Port 2019 | no listener, PASS |
+| Lightsail firewall: 80 and 443 open, 22 restricted to the authorised address, no rule for 2019 | PASS |
+| `/healthz` | HTTP 200, PASS |
+| Unknown route | HTTP 404, PASS |
+| HTTP to HTTPS | HTTP 308, PASS |
+| Unsigned webhook | HTTP 400 (reached the relay, refused as unsigned), PASS |
+
+Scope: host-level hardening only. **Not claimed:** end-to-end webhook integration, the Tushe signing secret (not issued yet; Tushe generates it, A94), or the G1 gate.
+
+## Pre-work for the next agent
+- Exact next step: when Tushe issues the signing secret, write it to the relay's volume file only (see `deploy/relay-host/README.md`) and test one signed delivery and one replay of the same `webhook-id`.
+- Open questions (owner): the signing secret's format and rotation announcement (Tushe, written reply to item 1 of the address message).
+- Files to read first: `deploy/relay-host/README.md`, `deploy/relay-host/setup.sh`, the evidence comment on noema#189.
+- Do not touch: the real hostname, the server address or any token in any file or issue (DEC-2026-11-05 D5).

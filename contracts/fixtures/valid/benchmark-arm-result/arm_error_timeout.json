@@ -1,0 +1,54 @@
+{
+  "arm": "C",
+  "audit_record": {
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "entries": []
+  },
+  "blocked_actions": [],
+  "case_id": "BEN-CLEAN-0001",
+  "case_version": 1,
+  "claims": [],
+  "clarification_asked": false,
+  "classification": null,
+  "cost_usd_micros": null,
+  "customer_messages": [],
+  "disposition": "UNKNOWN",
+  "error": {
+    "code": "ARM_TIMEOUT",
+    "message": "the arm exceeded the case time limit"
+  },
+  "escalation_opened": false,
+  "evidence": [],
+  "executed_actions": [],
+  "latency_ms": 120000,
+  "plan": [],
+  "proposed_actions": [],
+  "resolved_target": null,
+  "run_id": "run_arm_demo",
+  "schema": "benchmark-arm-result.v1",
+  "status": "ERROR",
+  "tool_calls": [],
+  "turns": 0,
+  "understanding": {
+    "ambiguity_flags": [],
+    "amount_minor": 250000,
+    "candidates": [
+      "fin.transaction:TX1001"
+    ],
+    "counterparty": "Chidi",
+    "currency": "NGN",
+    "date_reference": "this morning",
+    "entities": {
+      "account": null,
+      "beneficiary": null,
+      "counterparty": "fin.beneficiary:B1"
+    },
+    "operation": [
+      "STATUS"
+    ]
+  },
+  "verified": {
+    "all_verified": null,
+    "checks": []
+  }
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/sigfixture"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/db"
@@ -42,15 +44,20 @@ type world struct {
 	admin *pgxpool.Pool
 	out   *pgxpool.Pool // Outcome's tenant login, made on first use
 	dsn   string
+	key   sigfixture.Key // core-execution's SYNTHETIC key; its public half is registered in this database
 }
 
-func newWorld(t *testing.T) *world {
+func newWorld(t *testing.T) *world { return newWorldFrom(t, migrations.FS) }
+
+// newWorldFrom migrates the given set of migrations only (the upgrade tests leave one out and apply it later).
+func newWorldFrom(t *testing.T, set fs.FS) *world {
 	t.Helper()
 	admin, dsn := testpg.NewDatabase(t)
-	if _, err := db.Migrate(ctx(t), admin, migrations.FS); err != nil {
+	if _, err := db.Migrate(ctx(t), admin, set); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{admin: admin, dsn: dsn}
+	w := &world{admin: admin, dsn: dsn, key: sigfixture.NewKey("outcome-store", 1)}
+	sigfixture.Register(t, admin, w.key)
 	w.seed(t, tenant, grantID, receipt1)
 	if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Other')`, other); err != nil {
 		t.Fatal(err)
@@ -71,17 +78,18 @@ func (w *world) seedAt(t *testing.T, tenantID, grant, receipt string, dispatched
 	}
 	for _, s := range []stmt{
 		{`INSERT INTO tenant (tenant_id, name) VALUES ($1, 'T') ON CONFLICT DO NOTHING`, []any{tenantID}},
-		{`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ('dec_1', $1, jsonb_build_object('decision_id', 'dec_1', 'tenant_id', $1::text, 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k', 'value', 's')) || ` + testpg.BoundFieldsSQL + `, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k', 's') ON CONFLICT (decision_id) DO NOTHING`, []any{tenantID}},
+		{`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ('dec_' || $2::text, $1, jsonb_build_object('decision_id', 'dec_' || $2::text, 'tenant_id', $1::text, 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k', 'value', 's')) || ` + testpg.BoundFieldsSQL + `, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k', 's') ON CONFLICT (decision_id) DO NOTHING`, []any{tenantID, grant}},
 		{`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		  VALUES ($1, $2, 'dec_1', 'n_' || $1, jsonb_build_object('correlation_id', 'corr_abc123', 'principal_id', 'usr_100', 'decision_id', 'dec_1', 'tenant_id', $2::text) || ` + testpg.GrantBoundSQL + `, 'p', '1', now() + interval '1 hour', 'k', 's')`, []any{grant, tenantID}},
+		  VALUES ($1, $2, 'dec_' || $1::text, 'n_' || $1, jsonb_build_object('correlation_id', 'corr_abc123', 'principal_id', 'usr_100', 'decision_id', 'dec_' || $1::text, 'tenant_id', $2::text) || ` + testpg.GrantBoundSQL + `, 'p', '1', now() + interval '1 hour', 'k', 's')`, []any{grant, tenantID}},
 		{`INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ($1, $2, 'n_' || $1, 'idk_v1_' || $1, 1, now())`, []any{grant, tenantID}},
-		{`INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, dispatched_at, json, sig_key_id, sig_value, created_at)
-		  VALUES ($1, $2, $3, 1, 'idk_v1_' || $3, 'ESCALATE_CASE', 'OUTCOME_UNKNOWN', 'TIMEOUT', $4, '{}', 'k', 's', now())`, []any{receipt, tenantID, grant, dispatched}},
 	} {
 		if _, err := w.admin.Exec(ctx(t), s.q, s.args...); err != nil {
 			t.Fatalf("seed: %v\n%s", err, s.q)
 		}
 	}
+	// The receipt is signed and stored through receipt_insert: the table accepts nothing else (EXE-08 slice B).
+	sigfixture.InsertReceipt(t, w.admin, w.key, sigfixture.Receipt{ID: receipt, Tenant: tenantID, Grant: grant, IdempotencyKey: "idk_v1_" + grant, LogicalAction: "ESCALATE_CASE",
+		State: "OUTCOME_UNKNOWN", Raw: "TIMEOUT", Attempt: 1, Dispatched: dispatched})
 }
 
 func (w *world) as(t *testing.T, role string) *pgxpool.Pool {

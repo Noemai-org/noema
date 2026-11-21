@@ -21,7 +21,7 @@ class MemoryObservationV2Kind(StrEnum):
 
 
 # MemoryObservationV2ObservationValue: one of several shapes. Source: memory-observation.v2.json#/properties/observation/additionalProperties
-MemoryObservationV2ObservationValue: TypeAlias = Union[Annotated[int, Field(ge=0, le=9007199254740991)], bool, Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')], Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$')]]
+MemoryObservationV2ObservationValue: TypeAlias = Union[Annotated[int, Field(ge=0, le=9007199254740991)], bool, Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')], Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+\\Z')]]
 
 
 class MemoryObservationV2(ContractModel):
@@ -30,12 +30,12 @@ class MemoryObservationV2(ContractModel):
     model_config = ConfigDict(extra="forbid")
     memory_id: CommonV1MemoryId
     kind: MemoryObservationV2Kind
-    subject_ref: Annotated[str, StringConstraints(pattern='^[A-Za-z0-9_.:-]{1,128}$')]
+    subject_ref: Annotated[str, StringConstraints(pattern='\\A[A-Za-z0-9_.:-]{1,128}\\Z')]
     observation: dict[str, MemoryObservationV2ObservationValue]
     source_correlation_id: CommonV1CorrelationId
     observed_at: CommonV1Timestamp
-    recorded_by: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
-    provenance_ref: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9]*(-[A-Z0-9]+)+$')]
+    recorded_by: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
+    provenance_ref: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9]*(-[A-Z0-9]+)+\\Z')]
 
 
 MemoryObservationV2.model_rebuild()
