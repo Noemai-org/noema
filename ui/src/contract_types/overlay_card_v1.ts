@@ -14,12 +14,13 @@ export interface OverlayCardV1ClarificationCard {
   question: string;
   options: OverlayCardV1ClarificationCardOptionsItem[];
   allow_none: true;
+  none_option_id: string;
   expires_at: CommonV1Timestamp;
 }
 
 export function parseOverlayCardV1ClarificationCard(v: unknown, p: string = "$"): OverlayCardV1ClarificationCard {
   const o = obj(v, p);
-  closed(o, ["card_type", "schema_version", "clarification_id", "question", "options", "allow_none", "expires_at"], p);
+  closed(o, ["card_type", "schema_version", "clarification_id", "question", "options", "allow_none", "none_option_id", "expires_at"], p);
   return {
     card_type: lit(req(o, "card_type", p), p + ".card_type", "CLARIFICATION"),
     schema_version: parseCommonV1SchemaVersion(req(o, "schema_version", p), p + ".schema_version"),
@@ -27,6 +28,7 @@ export function parseOverlayCardV1ClarificationCard(v: unknown, p: string = "$")
     question: str(req(o, "question", p), p + ".question", {pattern: PATTERN_0, minLength: 1, maxLength: 300}),
     options: arr(req(o, "options", p), p + ".options", (x, q) => parseOverlayCardV1ClarificationCardOptionsItem(x, q), {minItems: 1, maxItems: 4}),
     allow_none: lit(req(o, "allow_none", p), p + ".allow_none", true),
+    none_option_id: str(req(o, "none_option_id", p), p + ".none_option_id", {pattern: PATTERN_1}),
     expires_at: parseCommonV1Timestamp(req(o, "expires_at", p), p + ".expires_at"),
   };
 }

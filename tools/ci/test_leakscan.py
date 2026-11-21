@@ -29,6 +29,36 @@ def kinds(text: str, **kw) -> list[str]:
     return [f.kind for f in s.scan_text(text, "x.log", **kw)]
 
 
+class NoDigitRule(unittest.TestCase):
+    """The G1 job log is the runner's own output (image versions, byte counts, run ids), so the digit-run rule cannot be applied to it; every other rule still can (SR's condition 2 on noema#730)."""
+
+    def test_digit_runs_are_ignored_and_every_other_rule_still_fires(self):
+        # C1 on noema#730 (P3): the Luhn-valid card rule stays ON in this mode (a run id has 11 digits and cannot be a card of 13 to 19); the generic digit-run rule and the ten-digit account rule are off.
+        runner_noise = "Image: ubuntu-24.04 Version: 20251105.1.0 run 44318438906 pulled 123456789 bytes " + ACCOUNT
+        self.assertEqual(kinds(runner_noise, digits=False), [])
+        self.assertTrue(kinds(runner_noise))  # the default still reports them
+        self.assertEqual(kinds("paid with " + CARD, digits=False), ["card_number"], "a Luhn-valid card number is still found")
+        self.assertEqual(kinds("run 44318438906 then " + CARD, digits=False), ["card_number"])
+        self.assertIn("named_secret_value", kinds(NAMED, digits=False))
+        self.assertIn("bearer_token", kinds(BEARER, digits=False))
+        self.assertIn("jwt", kinds("token " + JWT, digits=False))
+        self.assertIn("canary", kinds("x CANARY-abc y", canaries=("CANARY-abc",), digits=False))
+
+    def test_the_command_line_flag_turns_off_only_the_digit_rule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            noise, leak = Path(tmp) / "noise.log", Path(tmp) / "leak.log"
+            noise.write_text("Version: 20251105.1.0 run 44318438906\n", encoding="utf-8")
+            leak.write_text(NAMED + "\n", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(s.main([str(noise)]), 1)
+                self.assertEqual(s.main(["--no-digit-rule", str(noise)]), 0)
+                self.assertEqual(s.main(["--no-digit-rule", str(leak)]), 1)
+            card = Path(tmp) / "card.log"
+            card.write_text("paid with " + CARD + "\n", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(s.main(["--no-digit-rule", str(card)]), 1)
+
+
 class DigitRuns(unittest.TestCase):
     def test_a_planted_account_number_in_a_log_line_is_caught(self):
         self.assertEqual(kinds(f'{{"msg":"transfer","account":"{ACCOUNT}"}}'), ["account_number"])

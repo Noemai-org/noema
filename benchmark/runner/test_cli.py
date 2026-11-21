@@ -57,6 +57,23 @@ class Cli(unittest.TestCase):
             self.assertEqual(manifest["status"], "NOT_RUN")
             self.assertEqual(manifest["counts"]["total"], 320)
 
+    def test_a_real_run_through_the_command_writes_the_request_record_and_the_reconstructions_file(self) -> None:
+        """EL's read of noema#821 (A-order of 20 Nov): the command built `PublicApi` with no recorder, so a real run never wrote `requests.jsonl`, and noema#730's full mode ended NOT RUN. A run that
+        does not reach a case (here: no fixture loader) still writes both files, empty: a present file with no line is a run with no request, a missing file is a run that did not record."""
+        with tempfile.TemporaryDirectory() as d:
+            cred = Path(d) / "bench.cred"
+            cred.write_text("c" * 40)
+            log = Path(d) / "m.log"
+            log.write_text("")
+            out = Path(d) / "o"
+            code, _ = run("--suite", str(suite_dir()), "--out", str(out), "--api-url", "http://127.0.0.1:9", "--bench-url", "http://127.0.0.1:9",
+                          "--bench-credential-file", str(cred), "--mock-case-log", str(log), "--model-writer", "MODEL", "--tokens-dir", d,
+                          "--declare-no-monetary-route", "mock-case only: no monetary route exists")
+            self.assertEqual(3, code)
+            self.assertTrue((out / "requests.jsonl").is_file())
+            self.assertEqual("", (out / "requests.jsonl").read_text(encoding="utf-8"))
+            self.assertEqual({}, json.loads((out / "reconstructions.json").read_text(encoding="utf-8")))
+
     def test_every_missing_counter_source_is_named_in_the_reason(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             code, out = run("--suite", str(suite_dir()), "--out", str(Path(d) / "o"), "--tokens-dir", d)

@@ -82,6 +82,11 @@ func (s *Server) putPlan(w http.ResponseWriter, r *http.Request) {
 		controlJSON(w, 422, map[string]any{"error": map[string]any{"code": "INVALID_FAULT_PLAN", "message": err.Error()}})
 		return
 	}
+	generation, err := newGeneration() // before anything changes: a plan that cannot be loaded whole is refused (A480, noema#786)
+	if err != nil {
+		controlJSON(w, 500, map[string]any{"error": map[string]any{"code": "NO_RANDOMNESS", "message": err.Error()}})
+		return
+	}
 	s.clock.mu.Lock()
 	if c.Start != nil {
 		s.clock.sim = clock.NewSimulated(*c.Start)
@@ -92,7 +97,7 @@ func (s *Server) putPlan(w http.ResponseWriter, r *http.Request) {
 	s.engine.Load(c)
 	s.clock.mu.Unlock()
 	s.trace.reset()
-	s.reqlog.reset()
+	s.reqlog.reset(generation)
 	s.held.reset()
 	s.stale.reset()
 	controlJSON(w, 200, s.planBody())
@@ -101,20 +106,29 @@ func (s *Server) putPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getPlan(w http.ResponseWriter, _ *http.Request) { controlJSON(w, 200, s.planBody()) }
 
 func (s *Server) deletePlan(w http.ResponseWriter, _ *http.Request) {
-	s.clearRun()
+	if err := s.clearRun(); err != nil {
+		controlJSON(w, 500, map[string]any{"error": map[string]any{"code": "NO_RANDOMNESS", "message": err.Error()}})
+		return
+	}
 	controlJSON(w, 200, s.planBody())
 }
 
-// clearRun forgets the plan, its counters, the trace, remembered responses and withheld events, and goes back to the wall clock.
-func (s *Server) clearRun() {
+// clearRun forgets the plan, its counters, the trace, remembered responses and withheld events, and goes back to the wall clock. It returns errNoRandomness, with nothing changed, when the
+// new request log generation cannot be made.
+func (s *Server) clearRun() error {
+	generation, err := newGeneration()
+	if err != nil {
+		return err
+	}
 	s.clock.mu.Lock()
 	s.clock.sim, s.clock.clk = nil, clock.System{}
 	s.engine.Load(nil)
 	s.clock.mu.Unlock()
 	s.trace.reset()
-	s.reqlog.reset()
+	s.reqlog.reset(generation)
 	s.held.reset()
 	s.stale.reset()
+	return nil
 }
 
 func (s *Server) getTrace(w http.ResponseWriter, _ *http.Request) {
@@ -226,6 +240,9 @@ func (s *Server) mapNumbers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) reset(w http.ResponseWriter, _ *http.Request) {
-	s.clearRun()
+	if err := s.clearRun(); err != nil {
+		controlJSON(w, 500, map[string]any{"error": map[string]any{"code": "NO_RANDOMNESS", "message": err.Error()}})
+		return
+	}
 	controlJSON(w, 200, map[string]any{"status": "reset"})
 }

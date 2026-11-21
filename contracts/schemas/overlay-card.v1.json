@@ -61,6 +61,11 @@
           "type": "boolean",
           "const": true
         },
+        "none_option_id": {
+          "description": "A275: the ID of the 'None of these' choice, minted by core, unique per clarification and never equal to an option_id of the same clarification (not expressible in JSON Schema; tools/contracts/validate.py checks it). The UI submits it as option_id (PERD section 39.2) and never invents a sentinel. Same form as an option_id of this card, so it carries no more than four digits in all.",
+          "type": "string",
+          "pattern": "^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$"
+        },
         "expires_at": {
           "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
         }
@@ -72,6 +77,7 @@
         "question",
         "options",
         "allow_none",
+        "none_option_id",
         "expires_at"
       ],
       "additionalProperties": false

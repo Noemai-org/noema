@@ -22,5 +22,6 @@
     }
   ],
   "allow_none": false,
+  "none_option_id": "opt_none",
   "expires_at": "2026-11-13T15:00:00Z"
 }
