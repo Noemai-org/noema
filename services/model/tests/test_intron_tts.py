@@ -297,3 +297,27 @@ def test_each_piece_is_answered_by_its_own_chunk_in_order() -> None:
     server = Server()
     chunks = speak(server, LONG)
     assert len(chunks) >= 2 and [c.sequence for c in chunks] == list(range(len(chunks)))  # type: ignore[attr-defined]
+
+
+# ---- the page and its own example disagree on the spelling of the status field: both are accepted, a conflict is refused (Intron streaming text-to-speech page, read 21 Nov 2026) -----
+
+
+@pytest.mark.parametrize("status", ["READY", "PROCESSING"])
+def test_the_status_field_is_accepted_under_either_spelling(status: str) -> None:
+    from noema_model.providers.speech.intron_tts_wire import parse_server_message
+
+    for key in ("processing_staus", "processing_status"):
+        document = json.loads(audio_reply(0, status))
+        document[key] = document.pop("processing_staus")
+        message = parse_server_message(json.dumps(document))
+        assert message.ready is (status == "READY") and message.chunk_id == 0
+
+
+def test_two_spellings_that_disagree_are_malformed() -> None:
+    from noema_model.providers.speech.intron_tts_wire import parse_server_message
+
+    document = json.loads(audio_reply(0, "READY"))
+    document["processing_status"] = "PROCESSING"
+    with pytest.raises(ProviderError) as caught:
+        parse_server_message(json.dumps(document))
+    assert caught.value.kind is ProviderFailure.MALFORMED
