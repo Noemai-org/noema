@@ -72,3 +72,18 @@ test("no module of the build reaches the approver entry point, directly or throu
     assert.deepEqual(graph.computed, [], `${m} imports a module by a computed name, which this test cannot follow`);
   }
 });
+
+// EL's independent read on noema#798: the route pins the request id with \Acfr_...\z (a trailing newline never matches); a ^...$ pattern in another language would let one through. The UI parser and
+// its comparison must refuse every trailing or leading line break and control character too, whether it sits in the path id, in the body, or in both.
+test("a path id or a body request id with a trailing or leading line break is refused, whatever the other side says", () => {
+  const parse = forPath();
+  const body = valid(validFiles()[0]);
+  for (const tail of ["\n", "\r\n", "\r", "\u0085", " ", " ", "\0", "\v", "\f", " ", "\t"]) {
+    const label = JSON.stringify(tail);
+    assert.throws(() => parse(body.request_id + tail, body), ContractError, `path id with trailing ${label} was accepted`);
+    assert.throws(() => parse(tail + body.request_id, body), ContractError, `path id with leading ${label} was accepted`);
+    const dirty = { ...body, request_id: body.request_id + tail };
+    assert.throws(() => parse(dirty.request_id, dirty), ContractError, `a body request id with trailing ${label} was accepted, even with the same path id`);
+    assert.throws(() => parse(body.request_id, dirty), ContractError, `a body request id with trailing ${label} was accepted for the clean path id`);
+  }
+});
