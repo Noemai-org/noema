@@ -72,3 +72,6 @@ Exit 0 done or already done; 1 refused (nothing changed); 2 usage; 3 could not r
 - Open questions (owner): the DSN login of the one-shot, owner of `key_register` or the superuser (IL, OQ-09); other signing identities (Architect, question 5 above).
 - Files to read first: `services/core/cmd/tenantinit/README.md`, `deploy/compose/postgres/create-tenants.sh`, `deploy/compose/postgres/test_provision_env.sh`.
 - Do not touch: `services/core/migrations/`, `deploy/compose/` (IL's).
+
+## Addendum 2026-11-21 (SR on noema#852: a planted private seed)
+- Added `TestAPlantedPrivateSeedIsNeverStoredNorSentToTheDatabase` (`secrets_test.go`): the type that carries a key to the database (`registeredKey`) has only `version` and `public`; after a run no table of the public schema holds the planted seed in hex, base64 or raw bytes (a bytea shows as hex in the row text), with a positive control that the scan finds a planted copy; the output case is the existing `TestNoSecretReachesTheOutputInAnyOutcome`. One hand mutant killed and restored: `public` set to the seed read from the key file (the database then holds it, and the registered key is not the public half). The test asserts what is stored, not the driver's wire parameters; the only value sent as a key is `registeredKey.public`.
