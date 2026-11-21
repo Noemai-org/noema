@@ -10,6 +10,7 @@ import { parseMessageRequestV1 } from "../build/js/contract_types/customer.js";
 // Local contract server, not the core. All identifiers, tokens and clock values are SYNTHETIC.
 const bearer = "synthetic-session";
 const conversation = "inv_SyntheticA";
+const cardRequestId = "7c1d4e52-9b3a-4f60-8e17-2a5c6d0b9f34";
 
 test("REQ-UI-002: bearer tokens are never sent to a non-loopback HTTP origin", () => {
   assert.equal(isSecureTarget(new URL("http://example.invalid")), false);
@@ -53,7 +54,7 @@ test("REQ-UI-002 US-02: a clarification submits the bound card and selected serv
     response.writeHead(202, { "content-type": "application/json" });
     response.end(JSON.stringify({ state: "working" }));
   }, async (baseUrl) => {
-    const result = await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: card.options[0].option_id });
+    const result = await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: card.options[0].option_id, requestId: cardRequestId });
     assert.equal(result, "accepted");
   });
   assert.equal(seen.path, `/v1/conversations/${conversation}/messages`);
@@ -108,10 +109,11 @@ test("REQ-UI-002: unbound options and expired cards do not make requests", async
   const card = await currentCard("clarification_four_options");
   let calls = 0;
   await withServer((request, response) => { calls++; response.writeHead(202); response.end(); }, async (baseUrl) => {
-    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: "opt_unknown" }), "unavailable");
-    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2000-01-01T00:00:00Z" }, optionId: card.options[0].option_id }), "expired");
-    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-99-99T00:00:00Z" }, optionId: card.options[0].option_id }), "unavailable");
-    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-02-31T00:00:00Z" }, optionId: card.options[0].option_id }), "unavailable");
+    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: "opt_unknown", requestId: cardRequestId }), "unavailable");
+    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: card.options[0].option_id, requestId: "invalid" }), "unavailable");
+    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2000-01-01T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "expired");
+    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-99-99T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "unavailable");
+    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-02-31T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "unavailable");
   });
   assert.equal(calls, 0);
 });
