@@ -15,6 +15,10 @@
 // passes it. The POLICY_PUBLISHED event carries the same hash as document_hash, written in the same transaction (ruling on noema#771, INTERIM: relayed by the Founder in session,
 // not yet committed, AGENTS section 2.3). The documents themselves are not stored (DEBT-23).
 //
+// The publisher is the authenticated database role (ruling A474, INV-12): Request has no publisher member, the INSERT fills published_by from session_user in the statement itself, and RETURNING
+// gives the same value to the event's actor (admin:<role>), so the row and the event cannot differ. The role is not in the payload: the Record's payload guard (A184) refuses a string with a run of
+// more than four digits, and a login's name can hold one. A login whose name is no valid actor form cannot publish: the append refuses and the transaction keeps nothing.
+//
 // The active version of a policy_id is the highest one published for it, returned as policy_id@version, the form a Decision Grant binds
 // (decision-grant.v1 policy_version). A policy with no publication has no active version and the result is "".
 //

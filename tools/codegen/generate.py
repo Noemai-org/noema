@@ -95,12 +95,14 @@ def render_all(schemas: dict[str, dict]) -> dict[str, str]:
 
 
 def render_ts(schemas: dict[str, dict], every: dict[str, ir.Built]) -> dict[str, str]:
-    """The UI's TypeScript: the roots of ts.json and every contract they refer to, each with its parsers, a runtime and one index (entry point) per audience: `customer`, `operator` and
-    `benchmark` (the aggregate scorecard view of the benchmark UI, A250; noema#677). The benchmark list is its own: operator.ts holds the customer and operator roots and never the benchmark one."""
+    """The UI's TypeScript: the roots of ts.json and every contract they refer to, each with its parsers, a runtime and one index (entry point) per audience: `customer`, `operator`,
+    `benchmark` (the aggregate scorecard view of the benchmark UI, A250; noema#677) and `approver` (the approver's answer body, confirmation-answer.v1; noema#760). The benchmark and approver
+    lists are their own: operator.ts holds the customer and operator roots and never the benchmark or the approver one."""
     cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
     customer, operator, benchmark = list(cfg["customer"]), list(cfg["operator"]), list(cfg.get("benchmark", []))
+    approver = list(cfg.get("approver", []))
     roots = customer + [r for r in operator if r not in customer]
-    emitted = roots + [r for r in benchmark if r not in roots]
+    emitted = roots + [r for r in benchmark + approver if r not in roots]
     for r in emitted:
         if r not in every:
             raise ir.GenerationError(f"tools/codegen/ts.json names {r}, which is not a contract")
@@ -124,6 +126,8 @@ def render_ts(schemas: dict[str, dict], every: dict[str, ir.Built]) -> dict[str,
     files[f"{TS_DIR}/operator.ts"] = t.render_index(roots)
     if benchmark:
         files[f"{TS_DIR}/benchmark.ts"] = t.render_index(benchmark)
+    if approver:
+        files[f"{TS_DIR}/approver.ts"] = t.render_index(approver)
     return files
 
 
