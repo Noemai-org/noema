@@ -401,7 +401,7 @@ func savedRawRef(t *testing.T, w *world) string {
 
 func TestTheSavedIntentCarriesTheRecordedInputsObjectRefWhateverTheModelWrote(t *testing.T) {
 	for name, model := range map[string]any{
-		"the unset marker": "unset", "a plausible ref of another input": "req_01J9X3ZZZZZZZZZZZZZZZZZZZZ", "an old-style ref": "raw_01J9X3", "empty": "", "not a string": 7, "null": nil,
+		"the unset marker": "unset", "a plausible ref of another input": "req_01J9X3ZZZZZZZZZZZZZZZZZZZZ", "an old-style ref": "raw_01J9X3", "empty": "",
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, proposal(func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = model }))
@@ -475,6 +475,60 @@ func TestPropertyNoModelRawRefSurvives(t *testing.T) {
 		}
 		if got := savedRawRef(t, w); got != rawRef {
 			rt.Fatalf("saved raw_ref %q for model value %q, want %q", got, model, rawRef)
+		}
+	})
+}
+
+// UND-17 review fix (Security Reviewer on noema#837): a compiled intent whose `source` is missing or not an object, or whose `raw_ref` is not a string, is REFUSED: the core
+// does not pass through what the model wrote. Nothing is recorded as a gate refusal, nothing is saved. (A219, interim, relayed, not yet committed; INV-02, AGENT-09.)
+func TestACompiledIntentWithoutAUsableSourceIsRefusedAndNothingIsSaved(t *testing.T) {
+	for name, mutate := range map[string]func(m map[string]any){
+		"source missing":    func(m map[string]any) { delete(m, "source") },
+		"source null":       func(m map[string]any) { m["source"] = nil },
+		"source an array":   func(m map[string]any) { m["source"] = []any{"raw_ref", rawRef} },
+		"source a string":   func(m map[string]any) { m["source"] = "req_01J9X3A1B2C3D4E5F6G7H8J9K0" },
+		"source a number":   func(m map[string]any) { m["source"] = 7 },
+		"raw_ref a number":  func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = 7 },
+		"raw_ref null":      func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = nil },
+		"raw_ref an object": func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = map[string]any{"a": 1} },
+		"raw_ref an array":  func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = []any{rawRef} },
+		"raw_ref a boolean": func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, proposal(mutate))
+			_, err := w.in.Interpret(context.Background(), input())
+			if !errors.Is(err, interpreter.ErrCompile) {
+				t.Fatalf("err %v, want ErrCompile", err)
+			}
+			if len(w.save.saved) != 0 || len(w.rec.rejected) != 0 || len(w.rec.overrides) != 0 {
+				t.Fatalf("saved %d, rejected %d, overrides %d: want nothing", len(w.save.saved), len(w.rec.rejected), len(w.rec.overrides))
+			}
+		})
+	}
+}
+
+// Property: whatever members the model puts in `source`, the only one the core changes is raw_ref; every other member is stored as compiled.
+func TestPropertyOnlyRawRefOfSourceIsTheCoresToWrite(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		extra := rapid.StringMatching(`[a-z_]{1,12}`).Filter(func(k string) bool { return k != "raw_ref" }).Draw(rt, "key")
+		val := rapid.String().Draw(rt, "value")
+		model := rapid.String().Draw(rt, "model")
+		w := newWorld(t, proposal(func(m map[string]any) {
+			src := m["source"].(map[string]any)
+			src[extra], src["raw_ref"] = val, model
+		}))
+		_, err := w.in.Interpret(context.Background(), input())
+		if err != nil {
+			return // the gate may refuse an unknown member; nothing is then saved
+		}
+		var doc struct {
+			Source map[string]any `json:"source"`
+		}
+		if err := json.Unmarshal(w.save.saved[0].JSON, &doc); err != nil {
+			rt.Fatal(err)
+		}
+		if doc.Source["raw_ref"] != rawRef || doc.Source[extra] != val {
+			rt.Fatalf("source %v: raw_ref must be the core's and %q stored as compiled", doc.Source, extra)
 		}
 	})
 }
