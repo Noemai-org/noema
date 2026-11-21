@@ -134,11 +134,15 @@ test("REQ-VOI-004: a required host recording limit stops the microphone", async 
     try {
       const { startPcmCapture } = await import(url);
       globalThis.limitAbort = new AbortController();
-      globalThis.limitStop = await startPcmCapture(() => {}, globalThis.limitAbort.signal, () => {}, 1000);
+      globalThis.limitedFrames = 0;
+      globalThis.limitStop = await startPcmCapture(() => { globalThis.limitedFrames++; }, globalThis.limitAbort.signal, () => {}, 1000);
     } finally { URL.revokeObjectURL(url); }
   }, source);
   try {
     await expect.poll(() => page.evaluate(() => globalThis.limitedTracks.every((track) => track.readyState === "ended")), { timeout: 3500 }).toBe(true);
+    const count = await page.evaluate(() => globalThis.limitedFrames);
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => globalThis.limitedFrames)).toBe(count);
   } finally {
     await page.evaluate(async () => { globalThis.limitAbort.abort(); await globalThis.limitStop(); });
   }

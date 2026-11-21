@@ -71,6 +71,10 @@ export async function startPcmCapture(
     muted.gain.value = 0;
     processor.onaudioprocess = (event) => {
       if (stopped || signal.aborted) return;
+      if (performance.now() - startedAt >= maxRecordingMs) {
+        void stop().then(reportFailure, reportFailure);
+        return;
+      }
       try {
         if (event.inputBuffer.numberOfChannels !== 1) throw new Error("Invalid audio channels.");
         for (const frame of encodePcm16Frames(event.inputBuffer.getChannelData(0))) {
