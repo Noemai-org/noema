@@ -205,6 +205,8 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                 continue
             if collisions:
                 problems.append(f"valid/{name}/{path.name}: none_option_id equals an option_id: {collisions}")
+            if name == "conversation-response" and conversation_response_mismatches(load_strict(path)):
+                problems.append(f"valid/{name}/{path.name}: members name different investigations: {conversation_response_mismatches(load_strict(path))}")
             for error in errors[:3]:
                 problems.append(f"valid/{name}/{path.name}: rejected at {'/'.join(map(str, error.absolute_path)) or '(root)'}: {error.message[:120]}")
         expectations_path = invalid_dir / "expectations.json"
@@ -230,6 +232,13 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                     problems.append(f"invalid/{name}/{path.name}: must be well formed and rejected only for its none_option_id, but the schema rejects it: {shape[0].message[:100]}")
                 elif not none_option_collisions(load_strict(path)):
                     problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected (its none_option_id equals no option_id)")
+                continue
+            if expected == "conversation_id_mismatch":
+                shape = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
+                if shape:
+                    problems.append(f"invalid/{name}/{path.name}: must be well formed and rejected only for its cross-member relation, but the schema rejects it: {shape[0].message[:100]}")
+                elif not conversation_response_mismatches(load_strict(path)):
+                    problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected (its members name one investigation)")
                 continue
             try:
                 errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
@@ -282,6 +291,11 @@ def none_option_collisions(doc) -> list[str]:
 
     visit(doc)
     return found
+
+
+def conversation_response_mismatches(doc) -> list[str]:
+    """SCAFFOLD (A479): names only, no behaviour yet."""
+    return []
 
 
 def keywords(error) -> set[str]:

@@ -47,6 +47,28 @@ func (c *capture) Write(b []byte) (int, error) { return c.body.Write(b) }
 // startConversation wraps the gateway's handler. The capture starts from a copy of the response's headers: the gateway reads the request's correlation ID from them, and the error body, the header and the logs must agree. On 200 and 202 it replaces the body with the A234 answer; any other status, header and body pass through unchanged. If the
 // gateway's answer cannot be read, or its correlation ID is not one the core minted, the answer is an error and never a guess.
 func startConversation(inner http.Handler) http.Handler {
+	return startConversationWith(inner, conversationAnswer)
+}
+
+// answerFunc derives the answer of a conversation start from the correlation ID the gateway minted.
+type answerFunc func(correlationID string) (map[string]any, error)
+
+// conversationAnswer is the answer of A234: the five members, all derived from the one correlation ID.
+func conversationAnswer(correlationID string) (map[string]any, error) {
+	id, err := investigationIDOf(correlationID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"investigation_id": id, "conversation_ref": id, "state": publicStageUnderstanding,
+		"stream_url": "/v1/conversations/" + id + "/events", "correlation_id": correlationID,
+	}, nil
+}
+
+// checkAnswer is the writer's own check of the relations the schema cannot state (A479; the validator's check is tools/contracts/validate.py). SCAFFOLD: names only, no behaviour yet.
+func checkAnswer(map[string]any) error { return nil }
+
+func startConversationWith(inner http.Handler, derive answerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c := &capture{header: w.Header().Clone(), status: http.StatusOK}
 		inner.ServeHTTP(c, r)
@@ -61,19 +83,19 @@ func startConversation(inner http.Handler) http.Handler {
 		var got struct {
 			CorrelationID string `json:"correlation_id"`
 		}
-		var id string
+		var answer map[string]any
 		err := json.Unmarshal(c.body.Bytes(), &got)
 		if err == nil {
-			id, err = investigationIDOf(got.CorrelationID)
+			answer, err = derive(got.CorrelationID)
+		}
+		if err == nil {
+			err = checkAnswer(answer)
 		}
 		if err != nil {
 			failStart(w, r)
 			return
 		}
-		body, err := crypto.CanonicalJSON(map[string]any{
-			"investigation_id": id, "conversation_ref": id, "state": publicStageUnderstanding,
-			"stream_url": "/v1/conversations/" + id + "/events", "correlation_id": got.CorrelationID,
-		})
+		body, err := crypto.CanonicalJSON(answer)
 		if err != nil {
 			failStart(w, r)
 			return

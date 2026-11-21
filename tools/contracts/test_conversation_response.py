@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "codegen"))
 from anchors import fully_anchored  # noqa: E402
-from validate import load_schemas, make_registry, validator_for  # noqa: E402
+from validate import FIXTURES, conversation_response_mismatches, load_schemas, load_strict, make_registry, validator_for  # noqa: E402
 
 SCHEMAS = load_schemas()
 REGISTRY = make_registry(SCHEMAS)
@@ -102,6 +102,55 @@ class CrossMemberRelations(unittest.TestCase):
         self.assertEqual(doc["investigation_id"], doc["conversation_ref"])
         self.assertEqual(doc["stream_url"], f"/v1/conversations/{doc['investigation_id']}/events")
         self.assertEqual(doc["correlation_id"], f"corr_{ulid}")
+
+
+class RelationCheck(unittest.TestCase):
+    """The relations a schema cannot state, checked by `validate.py` (`conversation_response_mismatches`; A479, the follow-up of noema#815): investigation_id equals conversation_ref;
+    stream_url is `/v1/conversations/<investigation_id>/events`; correlation_id is `corr_` and the ULID of investigation_id. Each is held by its own test, so a mutant that drops one
+    check fails exactly its test. The core's writer refuses the same answers (`cmd/core/conversations_relations_test.go`) and reads the same fixtures. All values are SYNTHETIC."""
+
+    OTHER = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+
+    def test_the_consistent_answer_has_no_mismatch(self):
+        self.assertEqual(conversation_response_mismatches(good()), [])
+
+    def test_a_conversation_ref_that_is_not_the_investigation_id_is_a_mismatch(self):
+        doc = good(conversation_ref=f"inv_{self.OTHER}")
+        self.assertTrue(ok(doc))
+        self.assertEqual(conversation_response_mismatches(doc), ["conversation_ref"])
+
+    def test_a_stream_url_that_names_another_investigation_is_a_mismatch(self):
+        doc = good(stream_url=f"/v1/conversations/inv_{self.OTHER}/events")
+        self.assertTrue(ok(doc))
+        self.assertEqual(conversation_response_mismatches(doc), ["stream_url"])
+
+    def test_a_correlation_id_of_another_ulid_is_a_mismatch(self):
+        doc = good(correlation_id=f"corr_{self.OTHER}")
+        self.assertTrue(ok(doc))
+        self.assertEqual(conversation_response_mismatches(doc), ["correlation_id"])
+
+    def test_an_investigation_id_that_differs_from_the_three_others_names_all_three(self):
+        doc = good(investigation_id=f"inv_{self.OTHER}")
+        self.assertTrue(ok(doc))
+        self.assertEqual(conversation_response_mismatches(doc), ["conversation_ref", "stream_url", "correlation_id"])
+
+    def test_a_document_that_is_not_an_object_or_lacks_a_member_is_refused_not_crashed(self):
+        for bad in (None, [], "x", 5, {}, {"investigation_id": f"inv_{ULID}"}, good(stream_url=None), good(investigation_id=5)):
+            with self.subTest(repr(bad)):
+                self.assertNotEqual(conversation_response_mismatches(bad), [])
+
+    def test_the_fixtures_hold_the_relations(self):
+        for path in sorted((FIXTURES / "valid" / "conversation-response").glob("*.json")):
+            with self.subTest(path.name):
+                self.assertEqual(conversation_response_mismatches(load_strict(path)), [])
+        expectations = load_strict(FIXTURES / "invalid" / "conversation-response" / "expectations.json")
+        named = sorted(name for name, why in expectations.items() if why == "conversation_id_mismatch")
+        self.assertEqual(len(named), 4, named)
+        for name in named:
+            doc = load_strict(FIXTURES / "invalid" / "conversation-response" / name)
+            with self.subTest(name):
+                self.assertTrue(ok(doc), "a relation fixture must be well formed: the schema alone accepts it")
+                self.assertNotEqual(conversation_response_mismatches(doc), [])
 
 
 class State(unittest.TestCase):
