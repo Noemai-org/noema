@@ -36,14 +36,20 @@ func TestPublishesThePackPolicyVersionAndActiveReadsItBack(t *testing.T) {
 	if err := w.admin.QueryRow(ctx(t), `SELECT event_type, written_by, actor, object_ref, payload::text, correlation_id FROM record_event WHERE tenant_id = $1`, tenantA).Scan(&typ, &by, &actor, &ref, &payload, &corr); err != nil {
 		t.Fatal(err)
 	}
-	if typ != "POLICY_PUBLISHED" || by != "core-trust" || actor != "admin:adm_synth01" || ref != "pol_fin_pol_3_1" || corr != o.rep.CorrelationID {
-		t.Fatalf("event %s by %s actor %s ref %s correlation %s", typ, by, actor, ref, corr)
+	// INV-12, A474: the publisher is the authenticated database role of the Trust login, on the row and as the event's actor; no argument names it
+	role := w.sessionUser(w.trustA)
+	if typ != "POLICY_PUBLISHED" || by != "core-trust" || actor != "admin:"+role || ref != "pol_fin_pol_3_1" || corr != o.rep.CorrelationID {
+		t.Fatalf("event %s by %s actor %s ref %s correlation %s, want actor admin:%s", typ, by, actor, ref, corr, role)
+	}
+	var rowBy string
+	if err := w.admin.QueryRow(ctx(t), `SELECT published_by FROM policy_publication WHERE tenant_id = $1`, tenantA).Scan(&rowBy); err != nil || rowBy != role {
+		t.Fatalf("row published_by %q (%v), want the authenticated role %q", rowBy, err, role)
 	}
 	// ruling on noema#771, interim (relayed by the Founder in session, not yet committed): the event carries the hash of the document, the one the log line and the row hold
 	if o.rep.DocumentHash == "" || w.storedDocumentHash("3.1") != o.rep.DocumentHash {
 		t.Fatalf("reported hash %q, stored %q", o.rep.DocumentHash, w.storedDocumentHash("3.1"))
 	}
-	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"published_by": "adm_synth01"`, `"document_hash": "` + o.rep.DocumentHash + `"`} {
+	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"document_hash": "` + o.rep.DocumentHash + `"`} {
 		if !strings.Contains(payload, want) {
 			t.Errorf("payload %s lacks %s", payload, want)
 		}
@@ -178,6 +184,34 @@ func TestTheDocumentNamesThePolicyAndNoFlagDoes(t *testing.T) {
 	w.nothingWritten()
 }
 
+// INV-12, A474: there is no --published-by flag, because identity comes only from the authenticated session. Passing it, in either spelling and with either one or two dashes, is a usage
+// refusal (exit 2) with the fixed usage line, which does not mention the flag, never echoes the value, and writes nothing and prints no result line.
+func TestThePublishedByFlagIsRefusedAndItsValueIsNeverEchoed(t *testing.T) {
+	w := newWorld(t)
+	login := w.login("trust-a", w.trustA)
+	const probe = "adm_probe_zq7"
+	for _, extra := range [][]string{{"--published-by", probe}, {"--published-by=" + probe}, {"-published-by", probe}, {"-published-by=" + probe}, {"--published-by", ""}} {
+		o := w.run(append(w.args(tenantA, login, packRoot), extra...)...)
+		if o.code != 2 || o.out != "" {
+			t.Errorf("%v: exit %d, stdout %q; want 2 and no result line", extra, o.code, o.out)
+		}
+		if want := "policypublish: " + usage + "\n"; o.err != want {
+			t.Errorf("%v: stderr %q, want the fixed usage line %q", extra, o.err, want)
+		}
+		if strings.Contains(o.err+o.out, probe) || strings.Contains(o.err, "published") {
+			t.Errorf("%v: the refusal echoes the flag or its value: %q", extra, o.err)
+		}
+	}
+	w.nothingWritten()
+}
+
+// A474: the usage line says what the command takes, and no flag for the publisher is among it.
+func TestTheUsageLineHasNoPublisherFlag(t *testing.T) {
+	if strings.Contains(usage, "published") {
+		t.Fatalf("the usage line names a publisher flag: %q", usage)
+	}
+}
+
 func TestAMissingOrMalformedArgumentIsAUsageError(t *testing.T) {
 	w := newWorld(t)
 	login := w.login("trust-a", w.trustA)
@@ -227,17 +261,12 @@ func TestAnInvalidPolicyDocumentIsRefusedBeforeAnyWrite(t *testing.T) {
 	w.nothingWritten()
 }
 
-// The publication store's patterns are not the command's to restate: a version or a publisher it refuses is refused with its own reason, and nothing is written.
+// The publication store's patterns are not the command's to restate: a version it refuses is refused with its own reason, and nothing is written.
 func TestARequestOutsideThePublicationStoresPatternsIsRefused(t *testing.T) {
 	w := newWorld(t)
 	login := w.login("trust-a", w.trustA)
 	if o := w.run(w.args(tenantA, login, variantPack(t, withVersion("3.1.0")))...); o.code != 1 || o.rep.Reason != "invalid_request" {
 		t.Errorf("version 3.1.0: exit %d, report %+v; want 1, invalid_request", o.code, o.rep)
-	}
-	args := w.args(tenantA, login, packRoot)
-	args[len(args)-1] = "ADMIN"
-	if o := w.run(args...); o.code != 1 || o.rep.Reason != "invalid_request" {
-		t.Errorf("publisher ADMIN: exit %d, report %+v; want 1, invalid_request", o.code, o.rep)
 	}
 	w.nothingWritten()
 }

@@ -60,6 +60,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `clarification.v1.json` | §43.2 | §22.1 (REQ-AMB-004) | REQ-AMB-004, REQ-UI-002 | At most 4 options, no label with 5 or more consecutive digits, at most 2 rounds |
 | `clarification-answer.v1.json` | §43.2 | §22.1 (REQ-AMB-005) | REQ-AMB-005 | Base fields, `clarification_id` and `answers` (slot name to a typed slot value); only slots the clarification requested (DEC-2026-10-18) |
 | `message-request.v1.json` | §14, INV-12 | §39.2 (REQ-API-001, REQ-INP-003, REQ-AMB-005) | REQ-API-001, REQ-INP-001, REQ-INP-003, REQ-AMB-005, REQ-UI-002 | The body of a customer's message, first or follow-up: `request_id` (the client's UUID), `text` (1 to 2,000), `locale_hint`, `option_id` (the overlay card's shape; "None of these" is the core-minted `none_option_id`, ruling A275) and `clarification_id` (required with `option_id`); no identity member (INV-12); closed. Interim safer readings of what PERD 39.2 leaves open (text or option, not both; free text may answer) are in the schema description. New file, AGENT-15 migration note: additive |
+| `conversation-response.v1.json` | §14, INV-12 | §39.2 (REQ-API-001, REQ-UI-001) | REQ-API-001, REQ-UI-001, REQ-SEC-003 | The success answer of `POST /v1/conversations` (ruling A234, interim): `investigation_id` and `conversation_ref` (`inv_` and a ULID, one value), `state` (the constant `understanding`), `stream_url` (`/v1/conversations/inv_<ULID>/events`) and `correlation_id` (`corr_` and a ULID); closed, all required; every ID has a letter in it (no digit-run ID, AGENT-13); under 512 bytes against the UI limit of 65,536 (A446). New file, AGENT-15 migration note: additive |
 
 `common.v1.json` gains one ID type per PERD §32.3 prefix (`IntentId`, `DecisionId`, `GrantId`, and so on), `IntentRef`, `ResourceRef`, `Ratio` and `PositiveInt`, so C-4 to C-6 add no change to it.
 
@@ -129,6 +130,8 @@ Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14
 **Migration note (AGENT-15).** `pack.v1.json` gains four optional properties: `action_graph_files`, `routing_allowlist`, `evidence_descriptors` and `predicate_variables`. No existing property changes and no document valid before is invalid now, so the file stays `v1`. packcheck requires `evidence_descriptors` and `predicate_variables` when a pack holds any predicate.
 
 **Migration note (AGENT-15), clarification.** `clarification.v1.json` gains an optional `mode` (`OPTIONS` default, `ATTRIBUTE`) and an `attribute` that ATTRIBUTE mode requires (DEC-2026-10-20 D4). Existing fields are unchanged and every earlier document stays valid, so the file stays `v1`.
+
+**Migration note (AGENT-15), clarification, 18 Nov 2026 (A275).** `clarification.v1.json` and the clarification card of `overlay-card.v1.json` gain a required `none_option_id`, the core-minted ID of the "None of these" choice, which the UI submits as `option_id`. A minor change in place before any consumer: a document without it no longer validates. See `contracts/README.md`.
 
 ## T4 · Benchmark and comparison-arm contracts (session C)
 

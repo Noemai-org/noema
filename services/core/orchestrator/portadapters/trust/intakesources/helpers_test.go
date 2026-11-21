@@ -40,7 +40,9 @@ const resolvedSlots = `{"subject_resource":{"type":"Resource","status":"RESOLVED
 type world struct {
 	admin *pgxpool.Pool
 	trust map[string]*pgxpool.Pool
-	calls int // how many times a login was asked for
+	// evidence is each tenant's own Evidence Layer login, which writes the items and payloads of a sealed snapshot (lists_helpers_test.go).
+	evidence map[string]*pgxpool.Pool
+	calls    int // how many times a login was asked for
 }
 
 func newWorld(t *testing.T) *world {
@@ -49,12 +51,13 @@ func newWorld(t *testing.T) *world {
 	if _, err := db.Migrate(ctx(t), admin, migrations.FS); err != nil {
 		t.Fatal(err)
 	}
-	w := &world{admin: admin, trust: map[string]*pgxpool.Pool{}}
+	w := &world{admin: admin, trust: map[string]*pgxpool.Pool{}, evidence: map[string]*pgxpool.Pool{}}
 	for _, id := range []string{tenantA, tenantB} {
 		if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic')`, id); err != nil {
 			t.Fatal(err)
 		}
 		w.trust[id] = testpg.TenantLogin(t, admin, dsn, "trust_rw", id)
+		w.evidence[id] = testpg.TenantLogin(t, admin, dsn, "evidence_rw", id)
 	}
 	return w
 }
