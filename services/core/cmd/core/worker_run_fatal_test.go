@@ -12,20 +12,20 @@ import (
 	"github.com/Noemai-org/noema/services/core/workflows"
 )
 
-type fatalConn struct {
+type runFatalConn struct {
 	fakeConn
 	f *fatalState
 }
 
-func (c *fatalConn) Fatal() <-chan error { return c.f.Fatal() }
-func (c *fatalConn) Ready() bool         { return c.f.Ready() }
+func (c *runFatalConn) Fatal() <-chan error { return c.f.Fatal() }
+func (c *runFatalConn) Ready() bool         { return c.f.Ready() }
 
 func startedWithFatal(t *testing.T) (*RunningWorker, *fatalState) {
 	t.Helper()
 	var log []string
 	f := newFatalState()
 	dial := func(_ context.Context, _ *WorkerConfig) (Connection, error) {
-		return &fatalConn{fakeConn: fakeConn{log: &log}, f: f}, nil
+		return &runFatalConn{fakeConn: fakeConn{log: &log}, f: f}, nil
 	}
 	rw, err := startWorker(deadlineCtx(), cfgFor(), dial, &workflows.EscalateActivities{})
 	if err != nil {

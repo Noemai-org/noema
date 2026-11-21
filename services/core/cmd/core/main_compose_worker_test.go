@@ -63,7 +63,7 @@ func mcEnvOf(e envMap) Env { return Env{Getenv: e.get, ReadFile: os.ReadFile, Re
 
 func TestMainStartsTheConfiguredWorkerOnTheConfiguredQueueAndStopsItOnce(t *testing.T) {
 	var log []string
-	rw, err := buildWorker(t.Context(), mcEnvOf(mcWorkerEnv()), mcWorkerDeps(&log, nil, true))
+	rw, err := buildComposedWorker(t.Context(), mcEnvOf(mcWorkerEnv()), mcWorkerDeps(&log, nil, true))
 	if err != nil || rw == nil {
 		t.Fatalf("worker %v, error %v", rw, err)
 	}
@@ -76,7 +76,7 @@ func TestMainStartsTheConfiguredWorkerOnTheConfiguredQueueAndStopsItOnce(t *test
 
 func TestWithNoTemporalSettingThereIsNoWorkerAndNoDial(t *testing.T) {
 	var log []string
-	rw, err := buildWorker(t.Context(), mcEnvOf(envMap{}), mcWorkerDeps(&log, nil, true))
+	rw, err := buildComposedWorker(t.Context(), mcEnvOf(envMap{}), mcWorkerDeps(&log, nil, true))
 	if err != nil || rw != nil || len(log) != 0 {
 		t.Fatalf("worker %v, error %v, events %v; want nothing", rw, err, log)
 	}
@@ -88,11 +88,11 @@ func TestAConfiguredWorkerThatCannotStartIsAnErrorAndDialsNothing(t *testing.T) 
 	var log []string
 	bad := mcWorkerEnv()
 	bad[EnvTemporalActivityTimeout] = "0"
-	if rw, err := buildWorker(t.Context(), mcEnvOf(bad), mcWorkerDeps(&log, nil, true)); rw != nil || err == nil || !strings.Contains(err.Error(), EnvTemporalActivityTimeout) || len(log) != 0 {
+	if rw, err := buildComposedWorker(t.Context(), mcEnvOf(bad), mcWorkerDeps(&log, nil, true)); rw != nil || err == nil || !strings.Contains(err.Error(), EnvTemporalActivityTimeout) || len(log) != 0 {
 		t.Errorf("bad setting: worker %v, error %v, events %v; want an error naming %s", rw, err, log, EnvTemporalActivityTimeout)
 	}
 	log = nil
-	rw, err := buildWorker(t.Context(), mcEnvOf(mcWorkerEnv()), mcWorkerDeps(&log, errors.New("synthetic start failure"), true))
+	rw, err := buildComposedWorker(t.Context(), mcEnvOf(mcWorkerEnv()), mcWorkerDeps(&log, errors.New("synthetic start failure"), true))
 	if rw != nil || !errors.Is(err, ErrWorkerNotStarted) || log[len(log)-1] != "close" {
 		t.Errorf("start failure: worker %v, error %v, events %v; want ErrWorkerNotStarted and the connection closed", rw, err, log)
 	}

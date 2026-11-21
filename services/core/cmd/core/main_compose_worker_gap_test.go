@@ -53,7 +53,7 @@ func TestAMissingWorkerSettingIsAGapNamedByReadyzAndNotFatal(t *testing.T) {
 		e := mcWorkerEnv()
 		delete(e, drop)
 		var log []string
-		rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
+		rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
 		if rw != nil || err != nil || len(log) != 0 {
 			t.Errorf("missing %s: worker %v, error %v, events %v; want no worker, no error, no dial", drop, rw, err, log)
 		}
@@ -111,7 +111,7 @@ func TestAPresentButInvalidWorkerSettingIsFatalEvenWithAMissingOne(t *testing.T)
 	for _, c := range cases {
 		e := envMap{EnvTemporalAddress: "temporal.synthetic:7233", c.name: c.value}
 		var log []string
-		rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
+		rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
 		if rw != nil || err == nil || !strings.Contains(err.Error(), c.name) || strings.Contains(err.Error(), c.value) || len(log) != 0 {
 			t.Errorf("%s=%q with the others missing: worker %v, error %v, events %v; want a fatal error naming the setting without its value", c.name, c.value, rw, err, log)
 		}
@@ -128,7 +128,7 @@ func TestAnActivityTimeoutNotAboveTheRunTimeoutIsRefused(t *testing.T) {
 		e := mcWorkerEnv()
 		e[EnvTemporalActivityTimeout], e[EnvInvestigationRunTimeout] = c.act, c.run
 		var log []string
-		rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
+		rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
 		if c.refused {
 			if rw != nil || err == nil || !strings.Contains(err.Error(), EnvTemporalActivityTimeout) || !strings.Contains(err.Error(), EnvInvestigationRunTimeout) || strings.Contains(err.Error(), c.act+" ") || len(log) != 0 {
 				t.Errorf("activity %s, run %s: worker %v, error %v, events %v; want a refusal naming both settings and no dial", c.act, c.run, rw, err, log)
@@ -143,11 +143,11 @@ func TestAnActivityTimeoutNotAboveTheRunTimeoutIsRefused(t *testing.T) {
 	}
 	// The refusal holds when the worker is otherwise incomplete: both values are known.
 	e := envMap{EnvTemporalActivityTimeout: "10", EnvInvestigationRunTimeout: "20"}
-	if rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(new([]string), nil, true)); rw != nil || err == nil {
+	if rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(new([]string), nil, true)); rw != nil || err == nil {
 		t.Errorf("incomplete worker, activity 10, run 20: worker %v, error %v; want a refusal", rw, err)
 	}
 	// The run timeout alone asks for no worker and no check.
-	if rw, err := buildWorker(t.Context(), mcEnvOf(envMap{EnvInvestigationRunTimeout: "20"}), mcWorkerDeps(new([]string), nil, true)); rw != nil || err != nil {
+	if rw, err := buildComposedWorker(t.Context(), mcEnvOf(envMap{EnvInvestigationRunTimeout: "20"}), mcWorkerDeps(new([]string), nil, true)); rw != nil || err != nil {
 		t.Errorf("run timeout alone: worker %v, error %v; want a gap, not an error", rw, err)
 	}
 }
@@ -158,14 +158,14 @@ func TestTheStartDeadlineIsARequiredSettingOfAConfiguredWorker(t *testing.T) {
 		e := mcWorkerEnv()
 		e[EnvInvestigationStartTimeout] = bad
 		var log []string
-		rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
+		rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
 		if rw != nil || err == nil || !strings.Contains(err.Error(), EnvInvestigationStartTimeout) || strings.Contains(err.Error(), bad) || len(log) != 0 {
 			t.Errorf("value %q: worker %v, error %v, events %v; want an error naming %s without the value, and no dial", bad, rw, err, log, EnvInvestigationStartTimeout)
 		}
 	}
 	for _, e := range []envMap{{}, {EnvTemporalAddress: "temporal.synthetic:7233"}} {
 		var log []string
-		if rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true)); rw != nil || err != nil {
+		if rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true)); rw != nil || err != nil {
 			t.Errorf("env %v: worker %v, error %v; want no worker and no error", e, rw, err)
 		}
 	}
@@ -182,7 +182,7 @@ func TestTheStartDeadlineBoundsTheDial(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		rw, err := buildWorker(t.Context(), mcEnvOf(e), d)
+		rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), d)
 		if rw != nil {
 			rw.Stop()
 		}
@@ -226,7 +226,7 @@ func TestEachWorkerSettingBeyondTheAddressAloneIsAnIncompleteWorkerGap(t *testin
 	for _, n := range []string{EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA, EnvInvestigationStartTimeout} {
 		e := envMap{EnvTemporalAddress: "temporal.synthetic:7233", n: full[n]}
 		var log []string
-		rw, err := buildWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
+		rw, err := buildComposedWorker(t.Context(), mcEnvOf(e), mcWorkerDeps(&log, nil, true))
 		if rw != nil || err != nil || len(log) != 0 {
 			t.Errorf("%s with the address: worker %v, error %v, events %v; want a gap, no error, no dial", n, rw, err, log)
 		}

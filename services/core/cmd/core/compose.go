@@ -432,7 +432,7 @@ func checkWorkerSettings(env Env) error {
 // buildWorker starts the Temporal worker through startWorker. A worker setting that is missing (A486) or whose activities are not built (noema#812) is a gap, not an error: there is no
 // worker, /readyz names it, and the process starts. A present value that is invalid, or an activity timeout not above the run timeout, is an error that names the settings and never a
 // value (A469, A477); one that was asked to start and cannot is an error and the process does not run without it (A442).
-func buildWorker(ctx context.Context, env Env, d composeDeps) (*RunningWorker, error) {
+func buildComposedWorker(ctx context.Context, env Env, d composeDeps) (*RunningWorker, error) {
 	if err := checkWorkerSettings(env); err != nil {
 		return nil, err
 	}
@@ -516,7 +516,7 @@ func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSourc
 	if err != nil {
 		return p, err
 	}
-	rw, err := buildWorker(ctx, env, d)
+	rw, err := buildComposedWorker(ctx, env, d)
 	if err != nil {
 		closeComponents()
 		return p, err
