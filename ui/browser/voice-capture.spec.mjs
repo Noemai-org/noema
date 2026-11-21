@@ -118,3 +118,28 @@ test("REQ-VOI-001: an ended microphone track stops capture and reports failure",
   }, source);
   expect(result).toBe("ended");
 });
+
+test("REQ-VOI-004: a required host recording limit stops the microphone", async ({ page, context }) => {
+  await context.grantPermissions(["microphone"], { origin });
+  await page.goto(origin);
+  const source = readFileSync("build/js/pcm-capture.js", "utf8");
+  await page.evaluate(async (sourceText) => {
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      const stream = await original(constraints);
+      globalThis.limitedTracks = stream.getTracks();
+      return stream;
+    };
+    const url = URL.createObjectURL(new Blob([sourceText], { type: "text/javascript" }));
+    try {
+      const { startPcmCapture } = await import(url);
+      globalThis.limitAbort = new AbortController();
+      globalThis.limitStop = await startPcmCapture(() => {}, globalThis.limitAbort.signal, () => {}, 100);
+    } finally { URL.revokeObjectURL(url); }
+  }, source);
+  try {
+    await expect.poll(() => page.evaluate(() => globalThis.limitedTracks.every((track) => track.readyState === "ended")), { timeout: 1000 }).toBe(true);
+  } finally {
+    await page.evaluate(async () => { globalThis.limitAbort.abort(); await globalThis.limitStop(); });
+  }
+});
