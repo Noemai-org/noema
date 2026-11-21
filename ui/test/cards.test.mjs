@@ -32,6 +32,8 @@ test("REQ-UI-002 US-18: confirmation shows the supplied action, masked target an
   assert.match(html, /accept/i);
   assert.match(html, /decline/i);
   assert.ok(!html.includes(card.confirmation_request_id));
+  // PERD v1.25 §40.1 allows policy version on tap, not on initial render.
+  assert.ok(!html.includes(card.policy_version));
 });
 
 test("REQ-UI-002: expired cards disable their controls and explain the change", async () => {

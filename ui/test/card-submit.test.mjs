@@ -86,6 +86,24 @@ test("REQ-UI-002 US-18: a confirmation submits the bound server ID and an allowe
   assert.equal(seen.body.response, "DECLINE");
 });
 
+test("A491: clarification retries reuse the card's request ID", async () => {
+  const card = await currentCard("clarification_four_options");
+  const requestId = crypto.randomUUID();
+  const bodies = [];
+  await withServer(async (request, response) => {
+    bodies.push(await bodyOf(request));
+    response.writeHead(202).end();
+  }, async (baseUrl) => {
+    const input = { baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: card.options[0].option_id, requestId };
+    assert.equal(await submitClarification(input), "accepted");
+    assert.equal(await submitClarification(input), "accepted");
+  });
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0].request_id, requestId);
+  assert.equal(bodies[1].request_id, requestId);
+  assert.doesNotThrow(() => parseMessageRequestV1(bodies[0]));
+});
+
 test("REQ-UI-002: unbound options and expired cards do not make requests", async () => {
   const card = await currentCard("clarification_four_options");
   let calls = 0;
