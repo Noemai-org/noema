@@ -50,7 +50,7 @@ func routeScope() *scopeStub {
 }
 
 func routeReq() trustport.RouteRequest {
-	return trustport.RouteRequest{TenantID: "ten_1", CorrelationID: "corr_1", CaseID: "cas_1", VersionToken: "v1", OwnerQueue: "queue_1", CreateReceiptID: "rcp_1", CapabilityID: routeCap}
+	return trustport.RouteRequest{TenantID: "ten_1", CorrelationID: "corr_1", CaseID: "cas_1", OwnerQueue: "queue_1", CapabilityID: routeCap}
 }
 
 func decider(s *stepSpy, sc *scopeStub) trustport.RouteDecider {
