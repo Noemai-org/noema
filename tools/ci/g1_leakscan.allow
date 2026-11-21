@@ -11,3 +11,4 @@
 ^- provider cost: [0-9]{1,9} millionths of a US dollar in total; ([0-9]{1,9} per correct outcome \(rounded down\)|no correct outcome to divide by)$
 ^- latency, [A-Za-z0-9_. -]+ \(n=[0-9]{1,6}\): P50 [0-9]{1,9} ms, P95 [0-9]{1,9} ms, P99 [0-9]{1,9} ms$
 ^- turns to resolution \(customer turns, cases auto-resolved correctly\): n = [0-9]{1,6}; mean [0-9]{1,3}\.[0-9]{1,6}, median [0-9]{1,6}, 90th percentile [0-9]{1,6}, maximum [0-9]{1,6}$
+^noema-casegen [0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} seed [0-9]{1,9}: [0-9]{1,6} cases written to [-A-Za-z0-9_./:\\]+ \(manifest sha256:[0-9a-f]{64}\)$

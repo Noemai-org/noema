@@ -1,0 +1,9 @@
+{
+  "surfaces": [
+    {"name": "core-logs", "kind": "logs", "scope": "*", "scope_field": "tenant_id", "paths": ["selftest/logs"]},
+    {"name": "core-traces", "kind": "traces", "scope": "*", "scope_field": "tenant_id", "paths": ["selftest/traces"]},
+    {"name": "api-alpha-customer", "kind": "api", "scope": "usr_alpha1", "paths": ["selftest/api"]},
+    {"name": "explanations-alpha", "kind": "explanations", "scope": "ten_alpha", "paths": ["selftest/explanations"]},
+    {"name": "record-beta", "kind": "record", "scope": "ten_beta", "paths": ["selftest/record"]}
+  ]
+}

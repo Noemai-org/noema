@@ -41,10 +41,10 @@ class ScorecardViewV1Latency(ContractModel):
     """ScorecardViewV1Latency Source: scorecard-view.v1.json#$defs/Latency"""
 
     model_config = ConfigDict(extra="forbid")
-    n: Annotated[int, Field(ge=0)]
-    p50_ms: Annotated[int, Field(ge=0)] | None
-    p95_ms: Annotated[int, Field(ge=0)] | None
-    p99_ms: Annotated[int, Field(ge=0)] | None
+    n: Annotated[int, Field(ge=0, le=9007199254740991)]
+    p50_ms: Annotated[int, Field(ge=0, le=9007199254740991)] | None
+    p95_ms: Annotated[int, Field(ge=0, le=9007199254740991)] | None
+    p99_ms: Annotated[int, Field(ge=0, le=9007199254740991)] | None
 
 
 class ScorecardViewV1PassKOption2(ContractModel):
@@ -79,8 +79,8 @@ class ScorecardViewV1Slice(ContractModel):
     """ScorecardViewV1Slice Source: scorecard-view.v1.json#$defs/Slice"""
 
     model_config = ConfigDict(extra="forbid")
-    n: Annotated[int, Field(ge=0)]
-    gate_trips: Annotated[int, Field(ge=0)]
+    n: Annotated[int, Field(ge=0, le=9007199254740991)]
+    gate_trips: Annotated[int, Field(ge=0, le=9007199254740991)]
     correct: ScorecardViewV1Rate
 
 
@@ -88,10 +88,10 @@ class ScorecardViewV1Tier0SeverityCounts(ContractModel):
     """Failed cases by `severity_if_failed`. Source: scorecard-view.v1.json#$defs/Tier0/properties/severity_counts"""
 
     model_config = ConfigDict(extra="forbid")
-    s0_: Annotated[int, Field(ge=0)] = Field(alias='S0')
-    s1_: Annotated[int, Field(ge=0)] = Field(alias='S1')
-    s2_: Annotated[int, Field(ge=0)] = Field(alias='S2')
-    s3_: Annotated[int, Field(ge=0)] = Field(alias='S3')
+    s0_: Annotated[int, Field(ge=0, le=9007199254740991)] = Field(alias='S0')
+    s1_: Annotated[int, Field(ge=0, le=9007199254740991)] = Field(alias='S1')
+    s2_: Annotated[int, Field(ge=0, le=9007199254740991)] = Field(alias='S2')
+    s3_: Annotated[int, Field(ge=0, le=9007199254740991)] = Field(alias='S3')
 
 
 class ScorecardViewV1Tier2(ContractModel):
@@ -108,8 +108,8 @@ class ScorecardViewV1Tier3(ContractModel):
     """ScorecardViewV1Tier3 Source: scorecard-view.v1.json#$defs/Tier3"""
 
     model_config = ConfigDict(extra="forbid")
-    cost_usd_micros_total: Annotated[int, Field(ge=0)] | None
-    cost_usd_micros_per_correct_outcome: Annotated[int, Field(ge=0)] | None
+    cost_usd_micros_total: Annotated[int, Field(ge=0, le=9007199254740991)] | None
+    cost_usd_micros_per_correct_outcome: Annotated[int, Field(ge=0, le=9007199254740991)] | None
     latency: ScorecardViewV1Latency
     latency_by_path: dict[str, ScorecardViewV1Latency]
 
@@ -120,9 +120,9 @@ class ScorecardViewV1TurnsToResolution(ContractModel):
     model_config = ConfigDict(extra="forbid")
     n: Annotated[int, Field(ge=0, le=9007199254740991)]
     mean: Annotated[int | float, Field(ge=0)] | None
-    median: Annotated[int, Field(ge=0)] | None
-    p90: Annotated[int, Field(ge=0)] | None
-    max: Annotated[int, Field(ge=0)] | None
+    median: Annotated[int, Field(ge=0, le=9007199254740991)] | None
+    p90: Annotated[int, Field(ge=0, le=9007199254740991)] | None
+    max: Annotated[int, Field(ge=0, le=9007199254740991)] | None
 
 
 class ScorecardViewV1IncompleteCounts(ContractModel):

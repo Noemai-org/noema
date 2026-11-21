@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/session"
@@ -14,6 +15,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/redaction"
 	"github.com/Noemai-org/noema/services/core/record/admission"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
@@ -21,7 +23,7 @@ import (
 
 // compose.go is the composition root of the G1 slice (EDG-01 slice 3c). It is the only place that plugs the components other tasks build into the orchestrator,
 // and the only file that does: the people who build a component give a constructor, and the Engineering Lead plugs it in here (the Architect's order of 11 Nov).
-// It holds no product logic. A component that is missing means no composition and a /readyz that names it, so the process never serves half a slice.
+// It holds no product logic. A component that is missing means no composition and a /readyz that names every one that is, so the process never serves half a slice.
 
 // Components is everything the slice needs. Each field is built by another task and handed in:
 //   - Ports.Interpreter: the model service client (UND), behind the input gateway;
@@ -40,6 +42,9 @@ type Components struct {
 	Gateway *inputgateway.Gateway
 	// Investigations reads the caller's own investigation (the read-only store method of A243); GET /v1/investigations/{id} is mounted only with it.
 	Investigations InvestigationReader
+	// ServedTenants is every tenant this deployment serves, as the session settings name them (NOEMA_SESSION_TENANTS). It is not a component: the Record reader is checked against
+	// it, and a served tenant with no Record login makes /readyz name "record logins" (A434).
+	ServedTenants []string
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
 }
@@ -56,8 +61,9 @@ type App struct {
 	Runner *orchestrator.Runner
 }
 
-// rolesOpsAndAudit may read a reconstruction (REQ-AUD-003; ruling A20: audit reads only through the tenant-bound Record read functions).
-var rolesOpsAndAudit = []session.Role{session.RoleOps, session.RoleAudit}
+// rolesAudit may read a reconstruction: audit only (PERD 39.4; A110, DEC-2026-11-08: "ops has no path to them"; ruling A20: audit reads only through the tenant-bound Record
+// read functions). Widening it needs a decision record that names the class and the tenant rule.
+var rolesAudit = []session.Role{session.RoleAudit}
 
 // apiRoutes is the route table of the public API: each route with the roles that may call it. A route exists only when the component behind it does.
 func apiRoutes(c Components, ids session.IDs) []edge.Route {
@@ -71,7 +77,7 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,
-			Roles:   rolesOpsAndAudit,
+			Roles:   rolesAudit,
 			Handler: &reconstruct.Handler{DBs: c.Records, Auth: reconstruct.SessionAuthorizer{}, IDs: ids, Log: c.AccessLog},
 		})
 	}
@@ -97,35 +103,68 @@ func buildAPI(c Components, e Env, clk clock.Clock, ids session.IDs) (http.Handl
 	return h, nil
 }
 
-// missing names the first absent component, or "" when none is.
-func missing(c Components, api http.Handler) string {
-	switch {
-	case c.Ports.Interpreter == nil:
-		return "interpreter"
-	case c.Ports.Evidence == nil:
-		return "evidence"
-	case c.Ports.Trust == nil:
-		return "trust"
-	case c.Ports.Explainer == nil:
-		return "explainer"
-	case c.Ports.Recorder == nil:
-		return "recorder"
-	case c.Ports.Admissions == nil:
-		return "admissions"
-	case c.Investigations == nil:
-		return "investigations"
-	case api == nil:
-		return "edge chain"
-	case c.Records == nil:
-		return "record reader"
+// missing names every component the composition does not have, in the one order of the table below (the ports first, then the rest), or nil when none is missing. It is the
+// only place that says what a complete slice is: compose refuses and /readyz is not green exactly when it returns a name, and every field of Components has a line here (a
+// test fails for a field without one). A component is one line, so a lane that plugs in a new adapter adds one.
+func missing(c Components, api http.Handler) []string {
+	parts := []struct {
+		name  string
+		built bool
+	}{
+		{"interpreter", c.Ports.Interpreter != nil},
+		{"evidence", c.Ports.Evidence != nil},
+		{"trust", c.Ports.Trust != nil},
+		{"explainer", c.Ports.Explainer != nil},
+		{"recorder", c.Ports.Recorder != nil},
+		{"admissions", c.Ports.Admissions != nil},
+		{"investigations", c.Investigations != nil},
+		{"edge chain", api != nil},
+		{"record reader", c.Records != nil},
+		{"record logins", recordLoginsPresent(c)},
+		{"input gateway", c.Gateway != nil},
 	}
-	return ""
+	var names []string
+	for _, p := range parts {
+		if !p.built {
+			names = append(names, p.name)
+		}
+	}
+	return names
+}
+
+// recordLoginsPresent is false when the deployment serves a tenant that the Record reader has no login for (A434, DEC-2026-11-20-architect-rulings-a358-a453: a deployment defect,
+// so /readyz is not green). It asks the reader what the reconstruction handler asks it, For, so the two cannot disagree; For dials nothing. With no reader there is nothing to
+// check here: "record reader" names that. Nothing about the tenant is returned: the name is fixed.
+func recordLoginsPresent(c Components) bool {
+	if c.Records == nil {
+		return true
+	}
+	for _, tenant := range c.ServedTenants {
+		if db, err := c.Records.For(tenant); err != nil || db == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// servedTenants is the tenants the session settings name, split as edge.Load splits them. Unset means none are served.
+func servedTenants(env Env) []string {
+	v := env.Getenv(edge.EnvTenants)
+	if v == "" {
+		return nil
+	}
+	return strings.Split(v, ",")
+}
+
+// notConfigured is the sentence of a refusal and of /readyz for the names missing returned: the names and nothing else, never a setting's value, a path or a driver's text.
+func notConfigured(names []string) string {
+	return "not configured: " + strings.Join(names, ", ")
 }
 
 // compose builds the runner from the real transition table, or refuses when a component is missing.
 func compose(c Components, api http.Handler) (*App, error) {
-	if name := missing(c, api); name != "" {
-		return nil, fmt.Errorf("compose: %s is not configured", name)
+	if names := missing(c, api); len(names) > 0 {
+		return nil, fmt.Errorf("compose: %s", notConfigured(names))
 	}
 	tab, err := orchestrator.LoadTable()
 	if err != nil {
@@ -138,14 +177,23 @@ func compose(c Components, api http.Handler) (*App, error) {
 	return &App{Runner: r}, nil
 }
 
-// composeReadiness is the /readyz check for a composition: ready only when compose would succeed, and otherwise it says which component is missing.
+// composeReadiness is the /readyz check for a composition: ready only when compose would succeed, and otherwise it names every component that is missing.
 func composeReadiness(c Components, api http.Handler) readiness {
 	return func() (bool, string) {
-		if name := missing(c, api); name != "" {
-			return false, name + " is not configured"
+		if names := missing(c, api); len(names) > 0 {
+			return false, notConfigured(names)
 		}
 		return true, ""
 	}
+}
+
+// redactedLog is the access log: the process logger behind the mandatory redactor (REQ-SEC-003, AGENT-13, ruling A154), so that a RECORD_ACCESSED line never carries a digit run of
+// more than four, whatever a caller wrote in the correlation it asked for. A nil logger stays nil: a Record reader with no access log is a startup error (buildAPI).
+func redactedLog(l *slog.Logger) *slog.Logger {
+	if l == nil {
+		return nil
+	}
+	return slog.New(redaction.New().Handler(l.Handler()))
 }
 
 // buildComponents builds what main composes, in one place, and returns it with one function that closes every pool opened (safe to call more than once, and returned with an error
@@ -170,7 +218,7 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		return Components{}, closeAll, err
 	}
 	closers = append(closers, closeRecorder)
-	c := Components{Records: records, AccessLog: logger}
+	c := Components{Records: records, ServedTenants: servedTenants(env), AccessLog: redactedLog(logger)}
 	if records != nil {
 		c.Ports.Admissions = admissionsport.Port{Reader: &admission.Reader{DBs: records}}
 	}

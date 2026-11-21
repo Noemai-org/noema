@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "found": [
+    "You asked about 20,000,000 naira.",
+    "Your card ending 4821 was used."
+  ],
+  "not_known": [],
+  "done": {
+    "summary": "I opened a case with the payments team.",
+    "verified": true
+  },
+  "advice": {
+    "do": [],
+    "do_not": [
+      "Do not send the money again yet."
+    ]
+  },
+  "next": {
+    "what": "The payments team will contact you"
+  },
+  "case_ref_masked": "CMP-…0001"
+}

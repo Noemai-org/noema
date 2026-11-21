@@ -57,6 +57,14 @@ class PackV1UnderstandingStateFlags(ContractModel):
     too_many_candidates_: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] = Field(alias='TOO_MANY_CANDIDATES')
 
 
+class PackV1CaseReasonsItem(ContractModel):
+    """PackV1CaseReasonsItem Source: pack.v1.json#/properties/case_reasons/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    code: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
+    label: Annotated[str, StringConstraints(min_length=1)] | None = Field(default=None)
+
+
 class PackV1Policy(ContractModel):
     """PackV1Policy Source: pack.v1.json#/properties/policy"""
 
@@ -106,6 +114,7 @@ class PackV1(ContractModel):
     policy: PackV1Policy
     clocks: list[ClockV1]
     reason_catalogue: list[ReasonCatalogueEntryV1]
+    case_reasons: Annotated[list[PackV1CaseReasonsItem], Field(min_length=1)] | None = Field(default=None)
     action_graph_files: list[Annotated[str, StringConstraints(pattern='\\A[a-z0-9_]+(/[a-z0-9_]+)*\\.json\\Z')]] | None = Field(default=None)
     routing_allowlist: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]], Field(min_length=1)] | None = Field(default=None)
     evidence_descriptors: list[EvidenceDescriptorV1] | None = Field(default=None)
@@ -119,5 +128,6 @@ PackV1UnderstandingProposableFlagsItem.model_rebuild()
 PackV1UnderstandingRanking.model_rebuild()
 PackV1UnderstandingRankingWeights.model_rebuild()
 PackV1UnderstandingStateFlags.model_rebuild()
+PackV1CaseReasonsItem.model_rebuild()
 PackV1Policy.model_rebuild()
 PackV1.model_rebuild()

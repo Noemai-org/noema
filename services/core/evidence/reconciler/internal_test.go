@@ -35,7 +35,7 @@ func internal(t *testing.T, p Payloads) *Reconciler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := mapping.Parse(mraw, rs, []string{"fin.src.core_ledger", "fin.src.switch", "fin.src.destination"}, "fin.map.v1@1", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	m, err := mapping.Parse(mraw, rs, []string{"fin.src.core_ledger", "fin.src.switch", "fin.src.destination", "fin.src.case_system"}, "fin.map.v1@2", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(dir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Fatal(err)
 	}

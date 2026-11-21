@@ -70,7 +70,7 @@ var stepOutcomes = map[GateStep][]Outcome{
 	T10Reconciliation:    {Escalate},
 	T11Policy:            {Reject, Escalate, Confirm, Wait},
 	T12Clocks:            {Escalate},
-	T13Confirmation:      {Confirm},
+	T13Confirmation:      {Confirm, Reject}, // Reject: a DECLINE closes the decision as REJECT DECLINED_BY_APPROVER (SoT 43.2a)
 	T14Plan:              {},
 	T15DecisionRecorded:  {Allow},
 }
