@@ -105,6 +105,10 @@ func (u UnresolvedIntent) Clarify(q Clarification, reasons ...ReasonCode) (Decis
 	if len(reasons) == 0 {
 		return Decision{}, ErrNoReason
 	}
+	q, err := sealNone(q, NoneOptionID) // the none id is the core's own: a value a caller set is replaced, and a question without one is never emitted
+	if err != nil {
+		return Decision{}, err
+	}
 	d, err := build(Clarify, u.version, Authority{Technical: Pass, Policy: NotEvaluated, Business: NotEvaluated}, reasons)
 	d.clarification = &q
 	return d, err

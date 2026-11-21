@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,6 +49,13 @@ type Ledger struct {
 	// RollbackTimeout bounds the rollback of a failed transaction after the caller's context has ended (ruling A24). It comes from configuration and
 	// has no default: a Ledger without one refuses to start a transaction.
 	RollbackTimeout time.Duration
+	// SerializationAttempts is the total number of attempts Spend makes when the database refuses a transaction with a serialization failure (SQLSTATE 40001),
+	// the first included (noema#714, Architect rulings A317 to A328, relayed). It comes from the environment setting named by EnvSerializationAttempts and has no default
+	// (AGENT-16): a Ledger without a value of at least one refuses to spend.
+	SerializationAttempts int
+	// Log receives the one line of fixed text that Spend writes when the spend lock could not be released cleanly (noema#748, Architect ruling A348 as refined, relayed,
+	// interim). Optional: nil logs nothing. The composition root passes a logger that runs through the mandatory redactor (platform/redaction, PERD 44.2).
+	Log *slog.Logger
 	// Boundary is called at each boundary inside a transaction (see Point). Production leaves it nil; the crash harness returns ErrCrash.
 	Boundary func(Point) error
 }
@@ -57,7 +65,15 @@ var (
 	_ controller.GrantSource = (*Ledger)(nil)
 )
 
-var errNoRollbackBound = errors.New(errPrefix + "RollbackTimeout is required: a rollback after a cancelled context must be bounded")
+// SpendLockNamespace and SpendLockName(tenant) are the two texts whose hashtext values are the two keys of the advisory lock that serialises the spends of one tenant. The
+// two-key form of PostgreSQL's advisory locks is a key space of its own: no lock of the one-key form, which every other advisory lock of the system uses, can ever be the same
+// lock. Within the two-key form the first key names this use, so no other use can be the same lock unless it picked the same text.
+const SpendLockNamespace = "noema:spend-lock"
+
+// SpendLockName is the second text: one per tenant, so that the spends of two tenants never wait for each other.
+func SpendLockName(tenantID string) string { return "noema:spend:" + tenantID }
+
+var errNoRollbackBound = newFixed("RollbackTimeout is required: a rollback after a cancelled context must be bounded")
 
 // rolledBack is what rollbackBounded needs of a transaction.
 type rolledBack interface {
@@ -73,22 +89,34 @@ func rollbackBounded(ctx context.Context, tx rolledBack, bound time.Duration) {
 	_ = tx.Rollback(rctx)
 }
 
+var errNoDeadline = newFixed("the context needs a deadline")
+
 func needDeadline(ctx context.Context) error {
 	if _, ok := ctx.Deadline(); !ok {
-		return errors.New(errPrefix + "the context needs a deadline")
+		return errNoDeadline
 	}
 	return nil
 }
 
+// txStarter is what inTxOn needs to begin a transaction: a pool, or one connection taken from it.
+type txStarter interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+}
+
 // inTx runs fn in a transaction at the given isolation level. fn returning a nil error commits; any error rolls back.
 func (l *Ledger) inTx(ctx context.Context, level pgx.TxIsoLevel, fn func(pgx.Tx) error) error {
+	return l.inTxOn(ctx, l.Pool, level, fn)
+}
+
+// inTxOn is inTx on a given pool or connection.
+func (l *Ledger) inTxOn(ctx context.Context, from txStarter, level pgx.TxIsoLevel, fn func(pgx.Tx) error) error {
 	if err := needDeadline(ctx); err != nil {
 		return err
 	}
 	if l.RollbackTimeout <= 0 {
 		return errNoRollbackBound
 	}
-	tx, err := l.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: level})
+	tx, err := from.BeginTx(ctx, pgx.TxOptions{IsoLevel: level})
 	if err != nil {
 		return fmt.Errorf("%sbegin: %w", errPrefix, err)
 	}

@@ -98,7 +98,7 @@ func (w *wireWorld) settings(t *testing.T) envMap {
 	for tenant, p := range w.orch {
 		writeDSN(t, o.dsn, tenant, p)
 	}
-	return envMap{EnvRecordReadDSNDir: recDir, EnvOrchestratorDSNDir: o.dsn, EnvOrchestratorKeyDir: o.keys, EnvOrchestratorKeyMaxActive: "2"}
+	return envMap{EnvRecordReadDSNDir: recDir, EnvOrchestratorDSNDir: o.dsn, EnvOrchestratorKeyDir: o.keys, EnvOrchestratorKeyMaxActive: "2", EnvReadTimeoutMS: "2000"}
 }
 
 func writeDSN(t *testing.T, dir, tenant string, p *pgxpool.Pool) {
@@ -123,7 +123,10 @@ func (w *wireWorld) reader(t *testing.T) (InvestigationReader, func()) {
 	if err != nil || rec == nil {
 		t.Fatalf("recorder %v, %v", rec, err)
 	}
-	r := newInvestigationReader(rec)
+	r, err := buildInvestigationReader(env, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return r, func() { closeRec(); closeRecords() }
 }
 
@@ -306,7 +309,7 @@ func TestTheProductionBuildAnswers503WhenTheDatabaseCannotBeReached(t *testing.T
 	}
 }
 
-// The route table of the production build: which routes exist, for which roles. The reconstruction route is mounted for ops and audit only; the investigation route for
+// The route table of the production build: which routes exist, for which roles. The reconstruction route is mounted for audit only (A110); the investigation route for
 // customers only. POST /v1/conversations is NOT mounted: its Input Gateway has no production constructor in the composition root yet (status/STM-01-wire-investigations.md).
 func TestTheProductionRouteTableAndWhoMayCallEachRoute(t *testing.T) {
 	w := newWireWorld(t)
@@ -332,30 +335,29 @@ func TestTheProductionRouteTableAndWhoMayCallEachRoute(t *testing.T) {
 			recon = r
 		}
 	}
-	if len(recon) != 2 || recon[0] != session.RoleOps || recon[1] != session.RoleAudit {
-		t.Errorf("the reconstruction route is for %v; want ops and audit only", recon)
+	if len(recon) != 1 || recon[0] != session.RoleAudit {
+		t.Errorf("the reconstruction route is for %v; want audit only", recon)
 	}
 	if c.Gateway != nil {
 		t.Error("a Gateway in the production build: the route of POST /v1/conversations would be mounted by something that is not built")
 	}
 }
 
-// REQ-AUD-003: through the production build, ops and audit reach the reconstruction handler (it answers as itself: tenant C has no Record reader login, so it refuses with
-// its own error and not the role gate's not found), and a customer and an approver never do.
-func TestTheReconstructionRouteIsReachedByOpsAndAuditAndNoOneElseInTheProductionBuild(t *testing.T) {
+// REQ-AUD-003, A110, A370 as relayed, A434: through the production build, audit reaches the reconstruction handler (it answers as itself: tenant C has no Record reader login, so it
+// answers 503 DEPENDENCY_UNAVAILABLE and not the role gate's not found), and ops, a customer and an approver never do: each gets the role gate's not-found shape.
+func TestTheReconstructionRouteIsReachedByAuditAndNoOneElseInTheProductionBuild(t *testing.T) {
 	w := newWireWorld(t)
 	iss := edgetest.NewIssuer(t)
 	_, h, closer := w.prod(t, iss)
 	defer closer()
 	const path = "/v1/reconstructions/corr_ABC123"
-	for _, role := range []session.Role{session.RoleOps, session.RoleAudit} {
-		rec := call(h, path, bearerAs(iss, role, "ten_cc", "prn_9"))
-		if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") {
-			t.Errorf("%s: %d %s; want the handler's own answer", role, rec.Code, rec.Body.String())
-		}
+	rec := call(h, path, bearerAs(iss, session.RoleAudit, "ten_cc", "prn_9"))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "DEPENDENCY_UNAVAILABLE") {
+		t.Errorf("audit: %d %s; want the handler's own answer, 503 DEPENDENCY_UNAVAILABLE (A434)", rec.Code, rec.Body.String())
 	}
-	for _, role := range []session.Role{session.RoleCustomer, session.RoleApprover} {
-		if rec := call(h, path, bearerAs(iss, role, "ten_cc", "prn_9")); rec.Code != http.StatusNotFound {
+	for _, role := range []session.Role{session.RoleOps, session.RoleCustomer, session.RoleApprover} {
+		rec := call(h, path, bearerAs(iss, role, "ten_cc", "prn_9"))
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "NOT_FOUND_OR_NOT_AUTHORIZED") {
 			t.Errorf("%s: %d %s; want the role gate's 404", role, rec.Code, rec.Body.String())
 		}
 	}

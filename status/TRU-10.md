@@ -56,3 +56,16 @@ A write outside the escalation plan can no longer be recorded with grants throug
 ## Pre-work for the next agent
 - Exact next step: the Architect rules on the complaint write and the escalation-plan designation; then the production adapter and the composition-root wiring (EL).
 - Do not touch: migration 0012.
+
+# Session 2026-11-21 · TRU-10 (merge of main; a conflict with the production adapter)
+
+## Session summary
+- What changed (PR links): noema#733: main merged into the branch. One textual conflict (`trust/recorder/doc.go`): main's new confirmation paragraphs are kept, and this PR's three-rule disposition paragraph replaces main's older two-rule one. Tests that main added since this branch (`confirmation_state_test.go`, `confirmrequest_test.go`) counted every `decision_record` row and so counted the seeded disposition: they now use `recordsQ`, and the tenant-B ALLOW in `TestTheConfirmationStateKeyIsPerTenant` names tenant B's own ESCALATE disposition; the "ALLOW with a request" case names the seeded one so the request, not the missing disposition, is what is refused. Test-only; no production code changed by the merge. `go test ./trust/recorder/` passes.
+- Why: the PR was dirty against main.
+- Risks, and how they are contained: **a conflict with the production Recorder adapter (CONFLICT block on the PR).** When this PR was written no production caller of `Writer.Write` existed. `orchestrator/portadapters/trust.RecorderAdapter` (merged since) records the intake's ALLOW with steps and names no disposition, so the rule now refuses the adapter's main path: seven tests of that package fail with "a decision that issues grants must name its escalation disposition" (`TestRecordWritesTheDecisionTheGrantsAndTheirEventsTogether` and six more). I did not give those tests a disposition: that would pass them while the production path stays refused.
+- Tests added / regression cases / debt: none new this session.
+- Conflicts raised: yes (above). Also not from this PR: `cmd/core` tests do not build on main (`fatalConn` is declared in `wire_worker_ports_test.go` and `worker_run_fatal_test.go`).
+
+## Pre-work for the next agent
+- Exact next step: the Architect rules whether the intake's ALLOW with steps needs a disposition (A319's wording is for the per-step "action decision" of an escalation), or the rule is limited to the escalation's action decisions; then the adapter tests and this rule agree.
+- Do not touch: `orchestrator/portadapters/trust/recorder_test.go` to name a disposition before that ruling.

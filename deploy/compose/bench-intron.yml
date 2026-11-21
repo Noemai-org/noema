@@ -1,0 +1,19 @@
+# Optional bench overlay (A377 to A379; noema#689, the key reader): the Intron key file for the model service, so the key can go live the day Intron sends it.
+# NOT in the default bench stack. `make bench-up` adds it only when NOEMA_BENCH_INTRON_KEY_FILE names the host file; without it the model has no mount and INTRON_API_KEY_FILE is unset, so the Intron
+# provider is simply not registered and voice degrades to text (A179). Never a placeholder file: a dummy would be read, refused at call time and look like a broken provider.
+#
+# The key comes ONLY from a file mount (A249), never from an environment variable, into the model service and nothing else; the bench Environment writes the file at run time and nothing in the
+# repository holds a value. The file must be a regular file (not a link), mode 0600 or 0400, owned by the user the bench model runs as (bench-model.yml runs the model as the invoking user, ${NOEMA_BENCH_UID}:${NOEMA_BENCH_GID}, so that user; uid 10001 is the image's own user and applies only where bench-model.yml is not used), one printable token of at most
+# 512 bytes: the reader refuses anything else at call time and its errors carry neither the key nor the path. The mount is read-only. Egress is the one row of deploy/compose/README.md (the model on
+# provider_egress to Intron's inference host). Raw audio never goes through this file or this repository: it lives only in the bench Environment's private store (REQ-VOI-004).
+services:
+  model:
+    environment:
+      INTRON_API_KEY_FILE: /run/intron/key
+    volumes:
+      - type: bind
+        source: ${NOEMA_BENCH_INTRON_KEY_FILE:?the host path of the Intron key file}
+        target: /run/intron/key
+        read_only: true
+        bind:
+          create_host_path: false  # a typo in the host path must stop the stack, not create an empty directory at the key path (the reader would refuse it at every call and voice would degrade to text with no sign)
