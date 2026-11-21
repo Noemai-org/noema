@@ -19,14 +19,46 @@ def _calls_named(tree: ast.AST, owner: str, name: str) -> list[ast.Call]:
             and isinstance(n.func.value, ast.Name) and n.func.value.id == owner]
 
 
-def pipeline_fan_out() -> int:
-    """The most calls the pipeline has in flight at once: the width of the one `asyncio.gather` in `run_pipeline`, or the tasks it creates, whichever is larger."""
-    module = ast.parse(RUN_PY.read_text(encoding="utf-8"))
+def fan_out_of(source: str) -> int:
+    """The most calls the pipeline has in flight at once: the width of the widest `asyncio.gather` in `run_pipeline`, or the tasks it creates, whichever is larger. A gather with a starred argument has no
+    readable width and a pipeline with no gather has none to read: both are refused, so a new shape is taught on purpose."""
+    module = ast.parse(source)
     (run_pipeline,) = [n for n in module.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_pipeline"]
     gathers = _calls_named(run_pipeline, "asyncio", "gather")
-    if len(gathers) != 1 or any(isinstance(a, ast.Starred) for a in gathers[0].args):
-        raise AssertionError("run_pipeline must have exactly one asyncio.gather with listed awaitables, or this test must be taught the new shape")
-    return max(len(gathers[0].args), len(_calls_named(run_pipeline, "asyncio", "create_task")))
+    if not gathers or any(isinstance(a, ast.Starred) for g in gathers for a in g.args):
+        raise AssertionError("run_pipeline must have at least one asyncio.gather and every one with listed awaitables, or this test must be taught the new shape")
+    return max(max(len(g.args) for g in gathers), len(_calls_named(run_pipeline, "asyncio", "create_task")))
+
+
+def pipeline_fan_out() -> int:
+    return fan_out_of(RUN_PY.read_text(encoding="utf-8"))
+
+
+SYNTHETIC_FIVE_AND_ONE = """
+async def run_pipeline():
+    gathered = await asyncio.gather(a(), b(), c(), d(), e())
+    screening = asyncio.create_task(f())
+    screened = (await asyncio.gather(screening, return_exceptions=True))[0]
+"""
+
+
+class FanOutReading(unittest.TestCase):
+    """noema#792 added a second `asyncio.gather` to `run_pipeline` (the candidates' screening, one awaitable), which the reader rejected, so main's benchmark job went red. The fan-out is the WIDEST
+    gather, not the only one; a gather with a starred argument has no readable width and is still refused, and a pipeline with no gather is refused."""
+
+    def test_the_widest_gather_is_the_fan_out_when_a_later_gather_is_narrower(self) -> None:
+        self.assertEqual(fan_out_of(SYNTHETIC_FIVE_AND_ONE), 5)
+
+    def test_a_gather_with_a_starred_argument_is_refused(self) -> None:
+        with self.assertRaises(AssertionError):
+            fan_out_of("async def run_pipeline():\n    await asyncio.gather(*tasks)\n")
+
+    def test_a_pipeline_with_no_gather_is_refused(self) -> None:
+        with self.assertRaises(AssertionError):
+            fan_out_of("async def run_pipeline():\n    await a()\n")
+
+    def test_created_tasks_count_when_they_outnumber_every_gather(self) -> None:
+        self.assertEqual(fan_out_of("async def run_pipeline():\n    await asyncio.gather(a())\n    x = asyncio.create_task(b())\n    y = asyncio.create_task(c())\n"), 2)
 
 
 class PoolCoversFanOut(unittest.TestCase):

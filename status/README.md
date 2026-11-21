@@ -15,6 +15,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 - `REC-03.md` (Core Engineer 1, 1 Nov 2026): the reconstruction endpoint, its session and its messages.
 - One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
+- `CON-minors-a275-a272.md` (Core Engineer 1, 18 Nov 2026): the two minor in-place contract changes of A275 (`none_option_id`) and A272 (`reconstruction.v3` classification), with their migration notes.
 - `TRU-07-maker-checker-role.md` (19 Nov 2026): `trust/confirm` makes MAKER_CHECKER eligible only for a second principal who holds the approver role (`confirm.ApproverRole`); fail-closed edges, tests, mutants and what the confirmation route's adapter must pass in `ApproverRoles`.
 - `EXE-RETRY-714.md` (Core Engineer 1, 18 Nov 2026): the bounded retry of a spend on a serialization failure (noema#714), its setting `NOEMA_DB_SERIALIZATION_ATTEMPTS`, its session and open questions.
 - `STM-01-writes-adapter.md` (19 Nov 2026): the `Writes` adapter of the Trust intake (T3: the kill switch composed with a pack write rule, fail closed); the pack rule is not built because the pack has no field for it; what is needed.

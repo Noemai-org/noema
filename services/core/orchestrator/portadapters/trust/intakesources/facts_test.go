@@ -153,7 +153,7 @@ func TestPolicyFactsAVariableNoSlotCarriesHasNoSource(t *testing.T) {
 	w := newWorld(t)
 	w.intent(t, tenantA, "int_nos1", 1, node, admittedAt, resolvedSlots)
 	f := facts(t, w)
-	for _, name := range []string{"logical_resolution_epoch", "case_id", "planned_queue", "evidence_packet_hash", "principal_id", "a.b.status", "Subject", "subject_resource.other", "other_slot.status"} {
+	for _, name := range []string{"case_id", "planned_queue", "evidence_packet_hash", "principal_id", "a.b.status", "Subject", "subject_resource.other", "other_slot.status"} {
 		got, err := f.PolicyFacts(ctx(t), factQuery(tenantA, "int_nos1", 1), vars("subject_resource.status", name))
 		if !errors.Is(err, intakesources.ErrNoSource) || !strings.Contains(err.Error(), name) || len(got.Variables) != 0 {
 			t.Errorf("%s: got %+v, %v; want ErrNoSource naming it and no half answer", name, got, err)

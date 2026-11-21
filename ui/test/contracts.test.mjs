@@ -14,7 +14,13 @@ const FIXTURES = fileURLToPath(new URL("../../contracts/fixtures/", import.meta.
 // Every invalid fixture of a contract the UI reads is refused by its generated parser: shape, bounds and the conditional rules (prefixItems, allOf with if/then/else, not,
 // anyOf, contains), which the emitter compiles into checks (tools/codegen/ts.py; noema#682). The one exception is a fixture a browser cannot see:
 //   record-event.v3 seq_is_a_float: JSON.parse reads 1.0 as 1, so no parser in a browser sees the float; the core and the validator refuse it.
-const NOT_VISIBLE_TO_JSON_PARSE = new Set(["record-event.v3/seq_is_a_float.json"]);
+//   clarification.v1 and overlay-card.v1 none_option_id_equals_an_option_id: a rule across two members that JSON Schema cannot say (tools/contracts/validate.py holds it as
+//   `none_option_collisions`, and the core refuses it in trust/decide); a generated parser holds only schema keywords, so the UI does not (A275, noema#736).
+const NOT_VISIBLE_TO_JSON_PARSE = new Set([
+  "record-event.v3/seq_is_a_float.json",
+  "clarification/none_option_id_equals_an_option_id.json",
+  "overlay-card/none_option_id_equals_an_option_id.json",
+]);
 
 // The fixture folder of a contract: <name> for v1, <name>.v<major> for a later major (tools/contracts/validate.py).
 const folder = (name) => name.replace(/\.v1$/, "");
@@ -47,6 +53,21 @@ for (const name of names) {
     }
   });
 }
+
+// A275 (REQ-UI-002, REQ-AMB-004): the core mints the id of "None of these" and the UI submits it as option_id. The card carries it, the parser refuses a card without it or with a
+// value that is not an option-ID form (lower case, digits and underscore, 1 to 32, and no more than four digits in all), so the UI never invents a sentinel. All data is SYNTHETIC.
+test("a clarification card carries the core-minted id of None of these, on the card and in the stream", () => {
+  const card = JSON.parse(readFileSync(join(FIXTURES, "valid", "overlay-card", "clarification_four_options.json"), "utf8"));
+  const event = JSON.parse(readFileSync(join(FIXTURES, "valid", "sse-event", "clarification.json"), "utf8"));
+  assert.equal(CUSTOMER_PARSERS["overlay-card.v1"](card).none_option_id, card.none_option_id);
+  assert.equal(CUSTOMER_PARSERS["sse-event.v1"](event).card.none_option_id, event.card.none_option_id);
+  const without = (c) => { const { none_option_id: _omitted, ...rest } = c; return rest; };
+  assert.throws(() => CUSTOMER_PARSERS["overlay-card.v1"](without(card)), ContractError);
+  assert.throws(() => CUSTOMER_PARSERS["sse-event.v1"]({ ...event, card: without(event.card) }), ContractError);
+  for (const bad of ["None Of These", "none of these", "n".repeat(33), "", "none_12345", 5, null]) {
+    assert.throws(() => CUSTOMER_PARSERS["overlay-card.v1"]({ ...card, none_option_id: bad }), ContractError, String(bad));
+  }
+});
 
 test("a pattern is the whole string: a trailing newline is refused", () => {
   assert.throws(() => str("clr_AB\n", "$", { pattern: /^clr_[0-9A-Za-z]{2,32}$/u }), ContractError);

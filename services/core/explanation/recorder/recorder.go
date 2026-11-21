@@ -67,7 +67,7 @@ func (r *Recorder) AppendExplanation(ctx context.Context, s explanation.Subject,
 		return fmt.Errorf("%sbegin: %w", prefix, err)
 	}
 	if _, err := r.Appender.Append(ctx, tx, ev); err != nil {
-		rb, stop := context.WithTimeout(context.Background(), r.Timeout)
+		rb, stop := context.WithTimeout(context.WithoutCancel(ctx), r.Timeout)
 		defer stop()
 		_ = tx.Rollback(rb)
 		return err

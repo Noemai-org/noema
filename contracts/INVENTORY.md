@@ -130,6 +130,8 @@ Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14
 
 **Migration note (AGENT-15), clarification.** `clarification.v1.json` gains an optional `mode` (`OPTIONS` default, `ATTRIBUTE`) and an `attribute` that ATTRIBUTE mode requires (DEC-2026-10-20 D4). Existing fields are unchanged and every earlier document stays valid, so the file stays `v1`.
 
+**Migration note (AGENT-15), clarification, 18 Nov 2026 (A275).** `clarification.v1.json` and the clarification card of `overlay-card.v1.json` gain a required `none_option_id`, the core-minted ID of the "None of these" choice, which the UI submits as `option_id`. A minor change in place before any consumer: a document without it no longer validates. See `contracts/README.md`.
+
 ## T4 · Benchmark and comparison-arm contracts (session C)
 
 | Schema | SoT | PERD | Requirements | Notes |
