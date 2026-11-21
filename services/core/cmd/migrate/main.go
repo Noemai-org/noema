@@ -19,7 +19,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -195,20 +194,6 @@ func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 		return finish(stateError{kind: errMigration, state: sqlState(err)})
 	}
 	return finish(nil)
-}
-
-// readDSN reads the DSN from its file: a regular file (not a link, not a directory), not empty, not larger than maxDSNBytes. No error carries the DSN or any part of it.
-func readDSN(path string) (string, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes {
-		return "", errDSNFile
-	}
-	raw, err := os.ReadFile(path)
-	dsn := strings.TrimSpace(string(raw))
-	if err != nil || dsn == "" {
-		return "", errDSNFile
-	}
-	return dsn, nil
 }
 
 // checkDir refuses a path that is not a directory, and a directory with no .sql file: a mount that is wrong must not look like a database that is up to date.
