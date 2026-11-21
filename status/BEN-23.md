@@ -47,3 +47,14 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: none for this plan; the run waits on the SoT edit adopting A179, the qualified model ids, the adapter, Intron's capacity answer and the cost ceiling and key (section 6).
 
+# Session 2026-11-21 · BEN-23 · A503, A476 and row 12
+
+## Session summary
+- A503: row 2's US-06 expected events start with the ESCALATE disposition decision, then the action decisions that reference it (`disposition_decision_id`), all before the grant.
+- A476: `after_replay` is a re-read; row 2 requires it to equal the read after the recovery; the package text says re-read, not replay, and INV-21 is not claimed.
+- Row 12 is computed from a stamped artifact file list (`--artifact-files`) and the leak scan.
+- Tests: 17 new (red first); 14 mutations, each caught.
+
+## Pre-work for the next agent
+- IL writes the stamped artifact file list in the workflow; C1 confirms `disposition_decision_id` in the reconstruction facts.
+

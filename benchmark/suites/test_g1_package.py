@@ -59,6 +59,12 @@ KINDS = "canary, account_number, card_number, named_secret_value, jwt, bearer_to
 LEAK_OK = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned 12 files, 340 lines\n"
 
 
+FILES_OK = STAMP_LINE + "requests.jsonl\nreconstructions.json\nstamp.json\nnegative-probes.json\nmock-case-writes.json\ncorrelations.json\nscorecard-a.json\nscorecard-b.json\nreplay.json\ncheck-runs.json\nleak-scan.txt\nG1-EVIDENCE-PACKAGE.md\n"
+
+
+LEAK_BIG = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned 100 files, 340 lines\n"
+
+
 def corr_of(case_id: str) -> str:
     return CORRELATIONS.get(case_id, "corr_" + case_id.lower())
 
@@ -81,12 +87,19 @@ def section(kind: str, *facts: Json) -> Json:
     return {"kind": kind, "items": [{"record_event_id": "recev_1", "object_ref": "o", "basis": "RULE", "facts": f} for f in facts]}
 
 
-US06_EVENTS = ["DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
+US06_EVENTS = ["DECISION_MADE", "DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
 
 
-def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED", corr: str = "corr_tmo", tenant: str = "ten_alpha") -> Json:
+DISPOSITION = {"decision_outcome": "ESCALATE", "decision_id": "dec_1"}
+ACTION_DECISION = {"decision_outcome": "ALLOW", "decision_id": "dec_2", "disposition_decision_id": "dec_1"}
+
+
+def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED", corr: str = "corr_tmo", tenant: str = "ten_alpha",
+            decisions: list[Json] | None = None) -> Json:
+    """A503 (PERD 23.1): the ESCALATE disposition decision comes first, then the action decision that references it."""
     return {"tenant_id": tenant, "correlation_id": corr, "events": [event(n, k) for n, k in enumerate(kinds or US06_EVENTS, start=1)],
-            "sections": [section("DECISION", {"decision_outcome": "ALLOW"}), section("ACTION", {"execution_state": state}), section("VERIFICATION", {"verdict": verdict})]}
+            "sections": [section("DECISION", *(decisions if decisions is not None else [DISPOSITION, ACTION_DECISION])), section("ACTION", {"execution_state": state}),
+                         section("VERIFICATION", {"verdict": verdict})]}
 
 
 def recon01(kinds: list[str] | None = None, outcome: str = "ALLOW", corr: str = "corr_clean", tenant: str = "ten_alpha") -> Json:
@@ -105,7 +118,7 @@ def wrap(kind: str, value: Any) -> Any:
 
 def art(**over: Any) -> Json:
     base: Json = {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), "reconstructions": recons(), "mock_case_writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0},
-                  "correlations": {**{c: corr_of(c) for c in SIX}, **CORRELATIONS}, "run_stamp": dict(STAMP)}
+                  "correlations": {**{c: corr_of(c) for c in SIX}, **CORRELATIONS}, "run_stamp": dict(STAMP), "artifact_files": FILES_OK}
     base.update(over)
     base["reconstructions"] = wrap("cases", base["reconstructions"])
     base["mock_case_writes"] = wrap("writes", base["mock_case_writes"])
@@ -635,6 +648,122 @@ class Stamps(unittest.TestCase):
         text = make(i)
         for n in (2, 8, 9):
             self.assertIn("**NOT MET**", row(text, n), n)
+
+
+class DispositionOrder(unittest.TestCase):
+    """A503 (docs#222; PERD 23.1, REQ-TRU-010): an ESCALATE disposition is its own Trust decision, recorded first (no steps, no grant); each escalation write step is its own action decision that
+    references it. The expected Record events of US-06 therefore start with the disposition decision. The reference must be SHOWN in the reconstruction: a reconstruction that does not carry
+    `disposition_decision_id` cannot meet row 2 (C1 confirms the contract carries it)."""
+
+    def problem(self, **kw: Any) -> str:
+        return row(make(artifacts=art(reconstructions={"BEN-TMO-0001": {ph: recon06(**kw) for ph in ("initial", "after_recovery", "after_replay")}, "BEN-CLEAN-0001": {"initial": recon01()}})), 2)
+
+    def test_the_disposition_first_then_the_action_decision_that_references_it_is_met(self) -> None:
+        self.assertIn("**MET**", self.problem())
+
+    def test_a_first_decision_that_is_not_the_escalate_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[{"decision_outcome": "ALLOW", "decision_id": "dec_1"}, ACTION_DECISION]))
+
+    def test_the_action_decisions_before_the_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[ACTION_DECISION, DISPOSITION]))
+
+    def test_no_action_decision_after_the_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION], kinds=[k for k in US06_EVENTS if k != "DECISION_MADE"] + ["DECISION_MADE"]))
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION]))
+
+    def test_an_action_decision_that_does_not_reference_the_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, {"decision_outcome": "ALLOW", "decision_id": "dec_2"}]))
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, {**ACTION_DECISION, "disposition_decision_id": "dec_9"}]))
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, ACTION_DECISION, {"decision_outcome": "ALLOW", "decision_id": "dec_3"}]))
+
+    def test_a_disposition_without_an_id_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[{"decision_outcome": "ESCALATE"}, {**ACTION_DECISION, "disposition_decision_id": ""}]))
+
+    def test_the_decision_events_must_precede_the_grant(self) -> None:
+        late = ["DECISION_MADE", "GRANT_ISSUED", "DECISION_MADE", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
+        self.assertIn("**NOT MET**", self.problem(kinds=late))
+
+    def test_a_missing_disposition_in_a_later_phase_is_caught_in_that_phase(self) -> None:
+        phases = {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06(decisions=[ACTION_DECISION])}
+        self.assertIn("**NOT MET**", row(make(artifacts=art(reconstructions={"BEN-TMO-0001": phases, "BEN-CLEAN-0001": {"initial": recon01()}})), 2))
+
+
+class RereadNotReplay(unittest.TestCase):
+    """A476 (rulings of 20 Nov): `after_replay` is a SECOND READ of the same audit-only route, a re-read and not a replay; its document must equal the first read's, and the package never claims deterministic replay (INV-21) from this evidence."""
+
+    def test_a_second_read_that_differs_from_the_first_is_not_met_even_with_equal_counts(self) -> None:
+        changed = recon06()
+        changed["sections"][0]["items"][1]["facts"] = {**ACTION_DECISION, "reason_codes": ["X"]}
+        phases = {"initial": recon06(), "after_recovery": recon06(), "after_replay": changed}
+        text = make(artifacts=art(reconstructions={"BEN-TMO-0001": phases, "BEN-CLEAN-0001": {"initial": recon01()}}))
+        self.assertIn("**NOT MET**", row(text, 2))
+        self.assertIn("re-read", row(text, 2))
+
+    def test_key_order_is_not_a_difference(self) -> None:
+        reordered = {k: recon06()[k] for k in reversed(list(recon06()))}
+        phases = {"initial": recon06(), "after_recovery": recon06(), "after_replay": reordered}
+        self.assertIn("**MET**", row(make(artifacts=art(reconstructions={"BEN-TMO-0001": phases, "BEN-CLEAN-0001": {"initial": recon01()}})), 2))
+
+    def test_the_package_text_says_after_replay_means_a_re_read_and_claims_no_deterministic_replay(self) -> None:
+        text = make()
+        line = next(x for x in text.splitlines() if "after_replay" in x)
+        self.assertIn("re-read", line)
+        self.assertIn("not a replay", line)
+        self.assertIn("INV-21", line)
+        self.assertIn("not claimed", line)
+
+
+class RowTwelve(unittest.TestCase):
+    """Row 12 (No secret or key in any artifact or summary) is computed from the run's artifact file list and the leak scan, not attested: the list is stamped, no listed file is named like a secret or
+    a key, and the leak scan is clean AND scanned at least every listed file."""
+
+    def row12(self, **over: Any) -> str:
+        """The default scan read 100 files, so a test of one rule is never failed by the coverage rule instead of its own."""
+        return row(make(artifacts=art(**{"leak_scan": LEAK_BIG, **over})), 12)
+
+    def test_a_stamped_list_of_plain_files_and_a_clean_scan_that_covered_them_is_met(self) -> None:
+        self.assertIn("**MET**", self.row12())
+
+    def test_no_file_list_is_not_met(self) -> None:
+        base = art()
+        del base["artifact_files"]
+        self.assertIn("**NOT MET**", row(make(artifacts=base), 12))
+        for text in ("", "\n", STAMP_LINE, 7, None):
+            self.assertIn("**NOT MET**", self.row12(artifact_files=text), repr(text))
+
+    def test_a_list_for_another_dispatch_or_run_or_without_a_stamp_line_is_not_met(self) -> None:
+        for first in (f"stamp: {'b' * 40} {RUN}\n", f"stamp: {SHA} other-run\n", "requests.jsonl\n"):
+            self.assertIn("**NOT MET**", self.row12(artifact_files=first + "requests.jsonl\n"), first)
+
+    def test_a_file_named_like_a_secret_or_a_key_is_not_met(self) -> None:
+        for name in ("idp.key", "server.pem", "id_ed25519", "bundle.p12", ".env", "tokens/usr_synth009", "credentials.json", "audit.token", "app-secret.txt", "dir/private.key", "key.pfx"):
+            self.assertIn("**NOT MET**", self.row12(artifact_files=FILES_OK + name + "\n"), name)
+
+    def test_an_absolute_or_escaping_path_is_not_met(self) -> None:
+        for name in ("/etc/hosts", "../outside.txt", "a/../../b.txt", "C:/x.txt"):
+            self.assertIn("**NOT MET**", self.row12(artifact_files=FILES_OK + name + "\n"), name)
+
+    def test_a_scan_that_read_fewer_files_than_were_listed_is_not_met(self) -> None:
+        listed = FILES_OK.count("\n") - 1
+        few = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned {listed - 1} files, 340 lines\n"
+        self.assertIn("**NOT MET**", self.row12(leak_scan=few))
+        enough = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned {listed} files, 340 lines\n"
+        self.assertIn("**MET**", self.row12(leak_scan=enough))
+
+    def test_a_failing_leak_scan_is_not_met_for_row_12_too(self) -> None:
+        self.assertIn("**NOT MET**", self.row12(leak_scan=STAMP_LINE + "leakscan FAIL: 1 finding\n"))
+        self.assertIn("**NOT MET**", self.row12(leak_scan=LEAK_BIG + "leakscan FAIL: 1 finding\n"))  # a failure line beside an OK line is still a failure
+
+    def test_a_list_with_a_blank_or_repeated_line_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.row12(artifact_files=FILES_OK + "\nextra.txt\n"))
+        self.assertIn("**NOT MET**", self.row12(artifact_files=FILES_OK + "requests.jsonl\n"))
+
+    def test_the_row_no_longer_takes_an_attested_link(self) -> None:
+        i = inputs()
+        i["rows"] = {**i["rows"], "12": {"link": "https://x.example/1", "read_by_bo": True}}
+        base = art()
+        del base["artifact_files"]
+        self.assertIn("**NOT MET**", row(make(i, artifacts=base), 12))
 
 
 class Whole(unittest.TestCase):
