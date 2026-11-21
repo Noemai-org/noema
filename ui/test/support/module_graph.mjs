@@ -2,9 +2,19 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, posix, sep } from "node:path";
 
-// The module specifiers of one built JS source, and how many import() calls take an argument that is not a string literal (those cannot be followed).
+// The module specifiers of one built JS source, and how many import() calls take an argument that is not a plain string literal (those cannot be followed, so a caller fails closed on them).
+// Followed: `from "x"` (static imports and re-exports, over any number of lines), a bare side-effect `import "x"`, and a dynamic `import("x")` with a literal in any quote. Comments and strings
+// are not stripped: a specifier named in a comment counts as an import, which can only make a test stricter, never let an import through.
+const FROM = /\bfrom\s*(["'`])([^"'`\n]+)\1/g;
+const BARE = /\bimport\s*(["'`])([^"'`\n]+)\1/g;
+const DYNAMIC_LITERAL = /\bimport\s*\(\s*(["'`])([^"'`$\n]+)\1\s*[,)]/g;
+const DYNAMIC_ANY = /\bimport\s*\(/g;
+
 export function specifiersOf(source) {
-  return { specifiers: [...source.matchAll(/from "([^"]+)"/g)].map((m) => m[1]), computed: 0 };
+  const specifiers = [];
+  for (const re of [FROM, BARE, DYNAMIC_LITERAL]) for (const m of source.matchAll(re)) specifiers.push(m[2]);
+  const literal = [...source.matchAll(DYNAMIC_LITERAL)].length;
+  return { specifiers, computed: Math.max(0, [...source.matchAll(DYNAMIC_ANY)].length - literal) };
 }
 
 // The modules reachable from the entries through relative imports. `read(path)` gives a module's source, or null when it is not there. Paths are posix and relative to the build root.
