@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { dirReader, modulesOf, reach } from "./support/module_graph.mjs";
 import { ContractError, PARSERS as CUSTOMER_PARSERS } from "../build/js/contract_types/customer.js";
 
 const FIXTURES = fileURLToPath(new URL("../../contracts/fixtures/", import.meta.url));
@@ -65,20 +66,9 @@ test("no module of the build reaches the approver entry point, directly or throu
   const modules = readdirSync(BUILD).filter((f) => f.endsWith(".js"));
   assert.ok(modules.includes("main.js") && modules.includes("overlay.js"), "the scan sees the pages");
   assert.ok(modules.includes("confirmation.js"), "the scan sees the answer helper (ui/src/confirmation.ts)");
-  const reach = (file) => {
-    const seen = new Set();
-    const todo = [file];
-    while (todo.length) {
-      const f = todo.pop();
-      if (seen.has(f)) continue;
-      seen.add(f);
-      const path = join(BUILD, f);
-      if (!existsSync(path)) continue;
-      for (const m of readFileSync(path, "utf8").matchAll(/from "\.\/([a-z0-9_/]+\.js)"/g)) todo.push(m[1]);
-    }
-    return seen;
-  };
-  for (const m of modules) {
-    for (const r of reach(m)) assert.ok(!r.endsWith("approver.js"), `${m} reaches ${r}`);
+  for (const m of modulesOf(BUILD).filter((f) => f !== "contract_types/approver.js")) {
+    const graph = reach(dirReader(BUILD), [m]);
+    for (const r of graph.reached) assert.ok(!r.endsWith("approver.js"), `${m} reaches ${r}`);
+    assert.deepEqual(graph.computed, [], `${m} imports a module by a computed name, which this test cannot follow`);
   }
 });

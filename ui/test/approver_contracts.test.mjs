@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { dirReader, reach } from "./support/module_graph.mjs";
 import { ContractError as CustomerContractError, PARSERS as CUSTOMER_PARSERS } from "../build/js/contract_types/customer.js";
 import { PARSERS as OPERATOR_PARSERS } from "../build/js/contract_types/operator.js";
 import { PARSERS as BENCHMARK_PARSERS } from "../build/js/contract_types/benchmark.js";
@@ -25,17 +26,9 @@ const parseAnswer = (v) => entry().PARSERS["confirmation-answer.v1"](v);
 const valid = (f) => JSON.parse(readFileSync(join(VALID, f), "utf8"));
 const validFiles = () => readdirSync(VALID).filter((f) => f.endsWith(".json"));
 
-// The modules a built module imports, directly or through another, as names with the extension; `dir` is the folder of the entry.
-function closure(entryFile, dir = TYPES) {
-  const seen = new Set();
-  const todo = [entryFile];
-  while (todo.length) {
-    const f = todo.pop();
-    if (seen.has(f)) continue;
-    seen.add(f);
-    for (const m of readFileSync(join(dir, f), "utf8").matchAll(/from "\.\/([a-z0-9_]+\.js)"/g)) todo.push(m[1]);
-  }
-  return seen;
+// The contract modules a built contract module imports, directly or through another, as names with the extension.
+function closure(entryFile) {
+  return new Set([...reach(dirReader(BUILD), [`contract_types/${entryFile}`]).reached].map((f) => f.replace(/^contract_types\//, "")));
 }
 
 test("the approver entry point parses confirmation-answer.v1 and no other contract", () => {
@@ -102,9 +95,9 @@ test("no module outside contract_types reaches the approver entry point, and the
   const pages = readdirSync(BUILD).filter((f) => f.endsWith(".js"));
   assert.ok(pages.includes("main.js") && pages.includes("overlay.js"), "the scan sees the pages");
   for (const p of pages.filter((f) => !APPROVER_PAGES.includes(f))) {
-    for (const m of readFileSync(join(BUILD, p), "utf8").matchAll(/from "\.\/contract_types\/([a-z0-9_]+\.js)"/g)) {
-      for (const r of closure(m[1])) assert.ok(r !== "approver.js", `${p} reaches ${r}`);
-    }
+    const graph = reach(dirReader(BUILD), [p]);
+    assert.ok(!graph.reached.has("contract_types/approver.js"), `${p} reaches the approver entry point`);
+    assert.deepEqual(graph.computed, [], `${p} imports a module by a computed name, which this test cannot follow`);
   }
   for (const f of readdirSync(fileURLToPath(new URL("../dist/", import.meta.url)), { recursive: true })) {
     assert.ok(!/approver/i.test(f), `dist/${f}`);
