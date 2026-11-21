@@ -39,3 +39,28 @@ for (const mismatch of ["conversation", "stream", "correlation"]) {
     assert.equal(polls, 0);
   });
 }
+
+test("A479: a consistent core response can poll its exact investigation", async () => {
+  const body = await fixture("conversation-response/accepted");
+  const terminal = await fixture("investigation-response/completed_with_answer");
+  const request = await fixture("message-request/start_text");
+  const seen = [];
+  const paths = [];
+  await runServer((req, res) => {
+    paths.push(`${req.method} ${req.url}`);
+    res.writeHead(req.method === "POST" ? 202 : 200, { "content-type": "application/json" }).end(JSON.stringify(req.method === "POST" ? body : terminal));
+  }, async (baseUrl) => {
+    assert.equal(await startConversationAndPoll({ baseUrl, sessionToken: "synthetic-session", request, maxPollingMs: 1000, onState: (state) => seen.push(state) }), undefined);
+  });
+  assert.deepEqual(paths, ["POST /v1/conversations", `GET /v1/investigations/${body.investigation_id}`]);
+  assert.deepEqual(seen, [terminal]);
+});
+
+test("A479: missing host polling duration sends no request", async () => {
+  const request = await fixture("message-request/start_text");
+  let requests = 0;
+  await runServer((_req, res) => { requests++; res.writeHead(500).end(); }, async (baseUrl) => {
+    assert.equal(await startConversationAndPoll({ baseUrl, sessionToken: "synthetic-session", request, onState: () => assert.fail("no state") }), "Connection lost.");
+  });
+  assert.equal(requests, 0);
+});
