@@ -30,9 +30,13 @@ type RouteScopes interface {
 	ScopeFor(ctx context.Context, tenantID, correlationID string) (RouteScope, error)
 }
 
-// RouteRequest has the same fields, in the same order, as the worker's RouteDecision (cmd/core), so that the composition converts one into the other.
+// RouteRequest is what the worker asks the route step with (A504, interim): the identity of the ask (tenant, correlation, capability) and the two parameters of the step, CaseID and
+// OwnerQueue, both bound inside the route step's parameter hash (the pack's graph: case_id is a fact, owner_queue a policy param). VersionToken is not here: Execution reads it fresh at
+// dispatch. CreateReceiptID is not here: the case ID comes from the verified create outcome. Another field, if one is ever needed, goes inside the hash with a test, never outside it.
+// OwnerQueue is the queue the worker planned; it is not a fact for Trust, whose queue is the winning PERMIT rule's param, and a dispatch to another queue is refused by the Controller's
+// params binding. The composition (cmd/core) converts the worker's RouteDecision into this field by field.
 type RouteRequest struct {
-	TenantID, CorrelationID, CaseID, VersionToken, OwnerQueue, CreateReceiptID, CapabilityID string
+	TenantID, CorrelationID, CaseID, OwnerQueue, CapabilityID string
 }
 
 // RouteResult has the same fields, in the same order, as the worker's RouteDecisionResult.
