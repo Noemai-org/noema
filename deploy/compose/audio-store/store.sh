@@ -54,6 +54,7 @@ esac
 case "$dir" in
   *//*) fail "the store path must be a plain path (no empty part)" ;;
 esac
+while [ "$dir" != "/" ] && [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done  # a trailing slash is the same store (Codex P2 on noema#871)
 repo="$(cd "$(dirname "$0")/../../.." && pwd -P)"
 case "$dir/" in
   "$repo"/*) fail "the store must not be inside this repository" ;;
@@ -124,6 +125,14 @@ case "$cmd" in
     esac
     [ -d "$(dirname "$rlog")" ] || fail "the folder of the removal log does not exist"
     [ ! -L "$rlog" ] || fail "the removal log must not be a symbolic link"
+    # The textual checks above are not enough: the log's FOLDER may be a link into the store or into the speaker's folder, and then the log would be made there and deleted with the recordings. Resolve
+    # the folder, the store and the speaker's folder, and refuse a log that lies in any of them or in the repository (Codex P2 on noema#871).
+    rdir="$(cd "$(dirname "$rlog")" && pwd -P)" || fail "the folder of the removal log cannot be resolved"
+    sreal="$(cd "$dir" && pwd -P)" || fail "the store cannot be resolved"
+    case "$rdir/" in
+      "$sreal"/*) fail "the removal log must not be inside the store (its folder resolves into it)" ;;
+      "$repo"/*) fail "the removal log must not be inside this repository (its folder resolves into it)" ;;
+    esac
     if [ -e "$rlog" ]; then
       [ -f "$rlog" ] || fail "the removal log is not a regular file"
       [ "$(stat -c %u "$rlog")" = "$(id -u)" ] || fail "the removal log is not owned by the account that runs this"

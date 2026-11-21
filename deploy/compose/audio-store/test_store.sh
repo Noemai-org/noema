@@ -114,6 +114,18 @@ for badlog in "relative.log" "$work/a b.log" "$work/x;y.log" "$good/inside.log" 
   [ -e "$good/spk_ff/s1/a.wav" ] || fail "a removal with the bad log '$badlog' deleted something"
 done
 [ ! -e "$repo/removal-test.log" ] || { rm -f "$repo/removal-test.log"; fail "a log was made inside the repository"; }
+# Codex P2 on noema#871: the checks above are on TEXT; a log whose FOLDER is a link into the speaker's folder or into the store would be created there and deleted with the recordings, so the
+# log's folder is resolved first. A store path that ends in a slash must not hide a log directly inside the store either.
+ln -s "$good/spk_ff" "$work/alias_speaker"; ln -s "$good" "$work/alias_store"
+for badlog in "$work/alias_speaker/removals.log" "$work/alias_store/removals.log" "$work/alias_store/spk_ff/removals.log"; do
+  out="$(remove_with spk_ff "$badlog")" && fail "remove ran with the aliased log '$badlog'"
+  [ -e "$good/spk_ff/s1/a.wav" ] || fail "a removal with the aliased log '$badlog' deleted something"
+  [ ! -e "$good/spk_ff/removals.log" ] && [ ! -e "$good/removals.log" ] || fail "a log was made inside the store through '$badlog'"
+done
+out="$(NOEMA_AUDIO_STORE_DIR="$good/" NOEMA_AUDIO_RETENTION_DAYS=30 NOEMA_AUDIO_REMOVAL_LOG="$good/inside2.log" sh "$store" remove spk_ff 2>&1)" && fail "remove ran with a store path that ends in a slash and a log inside the store"
+[ -e "$good/spk_ff/s1/a.wav" ] && [ ! -e "$good/inside2.log" ] || fail "the trailing-slash store hid a log inside the store"
+out="$(NOEMA_AUDIO_STORE_DIR="$good/" NOEMA_AUDIO_RETENTION_DAYS=30 NOEMA_AUDIO_REMOVAL_LOG="$work/slash.log" sh "$store" remove spk_ff 2>&1)" || fail "a store path that ends in a slash was refused for a good log: $out"
+[ ! -e "$good/spk_ff" ] || fail "the trailing-slash store removal did not remove the folder"
 
 # scan: the plan's "no object without a speaker_ref": counts only, exit 1 if any object is outside <speaker_ref>/, never a name or a content.
 out="$(env_run "$good" 30 scan)" || fail "scan failed on a store with every object under a speaker: $out"
