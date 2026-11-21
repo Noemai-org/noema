@@ -13,6 +13,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
+	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
 	"github.com/Noemai-org/noema/services/core/orchestrator/recovery"
 )
 
@@ -27,6 +28,7 @@ const (
 	decisionID = "dec_AA11"
 	grantID    = "grt_AA11"
 	intentRef  = "int_AA11"
+	authnRef   = "ses_0123456789abcdef0123456789abcdef" // SYNTHETIC
 )
 
 var errCrash = errors.New("synthetic crash point: the process died here")
@@ -34,6 +36,7 @@ var errCrash = errors.New("synthetic crash point: the process died here")
 // row is the stored investigation plus what Trust recorded for it.
 type row struct {
 	tenant, principal, corr, recev string
+	role, authn                    string // the stored principal_role and authn_ref; both empty is a legacy row (NULL columns)
 	inv                            orchestrator.Investigation
 	decision                       orchestrator.Decision
 }
@@ -55,8 +58,10 @@ type world struct {
 	sessions                   map[string][]orchestrator.Session
 	turns                      []orchestrator.Turn
 	readerCalls                []readerCall
-	batchIgnored               bool // the reader returns more than the limit it was given
-	staleRead                  bool // the reader returns a version older than the row's: another process moved the row after the list was read
+	batchIgnored               bool     // the reader returns more than the limit it was given
+	sessionErr                 error    // what SessionOf answers while set
+	sessionTenants             []string // the tenant of every SessionOf call
+	staleRead                  bool     // the reader returns a version older than the row's: another process moved the row after the list was read
 }
 
 type readerCall struct {
@@ -67,7 +72,7 @@ type readerCall struct {
 
 func newWorld() *world {
 	w := &world{rows: map[string]*row{}, spent: map[string]bool{}, sessions: map[string][]orchestrator.Session{}, verdicts: []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictACHIEVED}}
-	w.rows[invID] = &row{tenant: tenantA, principal: principal, corr: corrID, recev: recevID, inv: orchestrator.Investigation{ID: invID, State: "RECEIVED"}}
+	w.rows[invID] = &row{tenant: tenantA, principal: principal, role: "customer", authn: authnRef, corr: corrID, recev: recevID, inv: orchestrator.Investigation{ID: invID, State: "RECEIVED"}}
 	return w
 }
 
@@ -183,6 +188,25 @@ func (w *world) Bound(_ context.Context, s orchestrator.Session, _ orchestrator.
 	return nil
 }
 
+// SessionOf is the stored-session port over the store (investigations.Store.SessionOf): the tenant is the caller's session's, another tenant's row is not found, and a row
+// with no role or no authn reference is ErrNoRecordedSession.
+func (w *world) SessionOf(_ context.Context, s orchestrator.Session, id string) (investigations.RecordedSession, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.sessionTenants = append(w.sessionTenants, s.TenantID)
+	if w.sessionErr != nil {
+		return investigations.RecordedSession{}, w.sessionErr
+	}
+	r, ok := w.rows[id]
+	if !ok || r.tenant != s.TenantID {
+		return investigations.RecordedSession{}, investigations.ErrNoInvestigation
+	}
+	if r.role == "" || r.authn == "" {
+		return investigations.RecordedSession{}, investigations.ErrNoRecordedSession
+	}
+	return investigations.RecordedSession{PrincipalID: r.principal, PrincipalRole: r.role, AuthnRef: r.authn}, nil
+}
+
 // Idle is the reader port over the store: every investigation of the tenant that is not in a state without exits. The double ignores the idle age (the database's
 // clock decides it in production) and records what it was asked.
 func (w *world) Idle(_ context.Context, tenant string, idleMS int64, limit int) ([]recovery.Candidate, error) {
@@ -246,7 +270,7 @@ func (w *world) counts() (decide, execute, verify int) {
 // activity builds the recovery activity over a recovery runner whose executor is x.
 func (w *world) activity(t *testing.T, x orchestrator.Executor) *recovery.Activity {
 	t.Helper()
-	a, err := recovery.New(recovery.Config{IdleMS: 60000, Batch: 10, RunTimeoutMS: 30000}, w, w, w, w.runner(t, x))
+	a, err := recovery.New(recovery.Config{IdleMS: 60000, Batch: 10, RunTimeoutMS: 30000}, w, w, w, w, w.runner(t, x))
 	if err != nil {
 		t.Fatal(err)
 	}
