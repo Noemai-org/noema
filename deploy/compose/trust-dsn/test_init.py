@@ -109,6 +109,70 @@ class InitTrustDsn(unittest.TestCase):
                     if p.is_dir():
                         p.rmdir()
 
+    # A506 (interim, from the code): four DSN directories, one file per tenant named by the tenant id, each holding a different login: `trust_rw__<t>`, `orchestrator_rw__<t>` and `record_read__<t>`
+    # (the shared tenant login password) and `record_emitter__<t>__core-edge` (its own per-login secret, emitter_logins/<t>__core-edge). One job per output directory.
+    EDGE_PASSWORD = "e9d8c7b6a5f4e3d2c1b0a9f8"  # SYNTHETIC
+
+    def jobs_env(self) -> dict[str, str]:
+        emitters = Path(self.tmp.name) / "emitters"
+        emitters.mkdir(exist_ok=True)
+        for t in ("ten_aa", "ten_bb"):
+            (emitters / f"{t}__core-edge").write_text(self.EDGE_PASSWORD + "\n", encoding="utf-8")
+        dirs = {n: Path(self.tmp.name) / n for n in ("trust", "orch", "rr", "edge")}
+        for d in dirs.values():
+            d.mkdir(exist_ok=True)
+        self.dirs = dirs
+        return {"TRUST_DSN_EMITTERS": str(emitters), "TRUST_DSN_JOBS": f"trust_rw:{dirs['trust']} orchestrator_rw:{dirs['orch']} record_read:{dirs['rr']} edge:{dirs['edge']}"}
+
+    def test_four_directories_each_with_its_own_login_and_password(self) -> None:
+        env = self.jobs_env()
+        r = run(self.src, self.out, **env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        want = {"trust": "trust_rw__{t}:" + PASSWORD, "orch": "orchestrator_rw__{t}:" + PASSWORD, "rr": "record_read__{t}:" + PASSWORD, "edge": "record_emitter__{t}__core-edge:" + self.EDGE_PASSWORD}
+        for key, login in want.items():
+            self.assertEqual(sorted(p.name for p in self.dirs[key].iterdir()), ["ten_aa", "ten_bb"], key)
+            for t in ("ten_aa", "ten_bb"):
+                f = self.dirs[key] / t
+                self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o400, (key, t))
+                self.assertEqual(f.read_text(encoding="utf-8").strip(), "postgres://" + login.format(t=t) + "@postgres:5432/noema", (key, t))
+        self.assertNotIn(PASSWORD, r.stdout + r.stderr)
+        self.assertNotIn(self.EDGE_PASSWORD, r.stdout + r.stderr)
+
+    def test_each_tenants_file_names_only_that_tenant_in_every_directory(self) -> None:
+        env = self.jobs_env()
+        self.assertEqual(run(self.src, self.out, **env).returncode, 0)
+        for key, d in self.dirs.items():
+            self.assertNotIn("ten_bb", (d / "ten_aa").read_text(encoding="utf-8"), key)
+
+    def test_a_missing_per_login_secret_stops_everything_and_leaves_no_file_in_any_directory(self) -> None:
+        env = self.jobs_env()
+        (Path(env["TRUST_DSN_EMITTERS"]) / "ten_bb__core-edge").unlink()
+        r = run(self.src, self.out, **env)
+        self.assertNotEqual(r.returncode, 0)
+        for key, d in self.dirs.items():
+            self.assertEqual(list(d.iterdir()), [], f"{key}: a file was left behind")
+        self.assertNotIn(PASSWORD, r.stdout + r.stderr)
+
+    def test_a_bad_job_is_refused_before_anything_is_written(self) -> None:
+        env = self.jobs_env()
+        good = env["TRUST_DSN_JOBS"]
+        for bad in ("", "trust_rw", "root:/x", f"trust_rw:{self.dirs['trust']} trust_rw:{self.dirs['orch']}", f"trust_rw:{self.dirs['trust']} orchestrator_rw:{self.dirs['trust']}", "trust_rw:relative/dir", good + " extra"):
+            with self.subTest(bad):
+                r = run(self.src, self.out, **dict(env, TRUST_DSN_JOBS=bad))
+                self.assertNotEqual(r.returncode, 0, bad)
+                for d in self.dirs.values():
+                    self.assertEqual(list(d.iterdir()), [])
+
+    def test_a_per_login_secret_that_could_change_the_dsn_is_refused(self) -> None:
+        env = self.jobs_env()
+        for bad in ("short", "has space0000000000", "a/b" + "0" * 20, "p@ss" + "0" * 20):
+            with self.subTest(bad):
+                (Path(env["TRUST_DSN_EMITTERS"]) / "ten_aa__core-edge").write_text(bad + "\n", encoding="utf-8")
+                r = run(self.src, self.out, **env)
+                self.assertNotEqual(r.returncode, 0)
+                for d in self.dirs.values():
+                    self.assertEqual(list(d.iterdir()), [])
+
     def test_a_password_that_could_change_the_dsn_is_refused(self) -> None:
         # A DSN is a URL: a password with a separator would change what it means. The generated secrets are hexadecimal; anything outside letters, digits, dot, tilde, dash and underscore is refused.
         for bad in ("", "short", "has space0000000000", "a/b" + "0" * 20, "p@ss" + "0" * 20, "a:b" + "0" * 20, "a?b" + "0" * 20, "a%b" + "0" * 20, "a#b" + "0" * 20):

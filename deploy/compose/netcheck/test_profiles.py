@@ -75,6 +75,16 @@ class LiveFindings(unittest.TestCase):
             self.assertEqual(profiles.BENCH_CORE_SETTINGS.get(name), value, name)
         self.assertEqual(profiles.settings_order_problems(profiles.BENCH_CORE_SETTINGS), [])
 
+    # A506 (interim): the rows the final composition reads, each checked by value; the grant lifetime must not exceed the record lifetime (EL's loader refuses it if it does).
+    def test_the_a506_rows_are_in_the_table_and_the_lifetimes_are_ordered(self) -> None:
+        want = {'NOEMA_RECORD_READ_DSN_DIR': '/run/record-read-dsn', 'NOEMA_ORCHESTRATOR_DSN_DIR': '/run/orchestrator-dsn', 'NOEMA_EDGE_DSN_DIR': '/run/edge-dsn', 'NOEMA_ORCHESTRATOR_KEY_DIR': '/run/orchestrator-keys', 'NOEMA_EDGE_KEY_DIR': '/run/edge-keys', 'NOEMA_INPUT_HASH_KEY_FILE': '/run/input-hash/key', 'NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE': '2', 'NOEMA_TEMPORAL_NAMESPACE': 'default', 'NOEMA_TEMPORAL_TASK_QUEUE': 'noema-investigations', 'NOEMA_TEMPORAL_TLS_CA_FILE': '/run/tls/ca.crt', 'NOEMA_TRUST_ESCALATION_GRAPH': 'fin.graph.escalate', 'NOEMA_TRUST_GRANT_LIFETIME_MS': '600000', 'NOEMA_TRUST_RECORD_LIFETIME_MS': '600000', 'NOEMA_TRUST_TX_TIMEOUT_MS': '10000'}
+        for name, value in want.items():
+            self.assertEqual(profiles.BENCH_CORE_SETTINGS.get(name), value, name)
+        self.assertEqual(profiles.settings_order_problems(profiles.BENCH_CORE_SETTINGS), [])
+        for grant, record in (("600001", "600000"), ("x", "600000"), ("600000", "")):
+            bad = dict(profiles.BENCH_CORE_SETTINGS, NOEMA_TRUST_GRANT_LIFETIME_MS=grant, NOEMA_TRUST_RECORD_LIFETIME_MS=record)
+            self.assertTrue(profiles.settings_order_problems(bad), (grant, record))
+
     def test_a_table_that_breaks_an_ordering_is_found(self) -> None:
         table = dict(profiles.BENCH_CORE_SETTINGS)
         for name, value in (("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS", "180000"), ("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS", "100000"), ("NOEMA_STM_RECOVERY_IDLE_MS", "180000"), ("NOEMA_STM_RECOVERY_IDLE_MS", "1"),
