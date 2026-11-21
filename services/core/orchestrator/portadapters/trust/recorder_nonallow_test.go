@@ -53,7 +53,7 @@ func rnaRequest(t *testing.T, outcome string, withRequest bool) intake.RecordReq
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := intake.RecordRequest{TenantID: recTenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_88213", IntentID: "int_01J9X3", IntentHash: recHash(1), IntentVersion: 2,
+	r := intake.RecordRequest{TenantID: recTenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_88213", IntentID: "int_01J9X3", IntentHash: recHash(10), IntentVersion: 2,
 		Decision: d, Evaluated: b.Sealed(), BasisDigest: digest}
 	if withRequest {
 		composite, err := d.Basis().CompositePolicyVersion()
