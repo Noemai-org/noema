@@ -27,6 +27,7 @@ import scopescan  # noqa: E402
 
 LEAK_METRIC = "noema_leak_scan_findings_total"
 PROBE_KINDS = ("canary", "account_number", "card_number", "named_secret_value", "jwt", "bearer_token")
+PROBE_SURFACE_KINDS = ("api", "explanations", "logs", "record", "traces")  # SEC-07: the five surfaces; a kind that is not configured cannot report zero (Codex P2 on noema#813)
 
 
 class NotRun(Exception):
@@ -98,6 +99,10 @@ def run(args: argparse.Namespace) -> int:
     except scopescan.InputError as exc:
         print(f"sec07 FAIL: {exc}")
         return 2
+    absent = [k for k in PROBE_SURFACE_KINDS if not any(s.kind == k for s in surfaces)]
+    if absent:
+        print("sec07 FAIL: the surfaces file configures no surface of kind " + ", ".join(absent) + ": a kind that is not scanned cannot report zero")
+        return 2
     for s in surfaces:
         for p in s.paths:
             if _inside(args.workdir, Path(p)):
@@ -129,9 +134,12 @@ def run(args: argparse.Namespace) -> int:
     per_surface: dict[str, int] = {}
     leaks = 0
     files = lines = 0
+    unread: list[str] = []
     for s in surfaces:
         found, f, n = leakscan.scan_paths(s.paths, canaries=(), allow=allow)
         files, lines = files + f, lines + n
+        if f == 0 or n == 0:
+            unread.append(f"{s.name} ({s.kind})")
         per_surface[s.kind] = per_surface.get(s.kind, 0) + len(found)
         leaks += len(found)
         for item in found:
@@ -145,6 +153,9 @@ def run(args: argparse.Namespace) -> int:
         print("sec07 FAIL: " + str(d))
     if files == 0 or lines == 0 or f2 == 0:
         print("NOT RUN: the scan looked at nothing; that is never a pass")
+        return 3
+    if unread:
+        print("NOT RUN: a configured surface was absent or empty, so its counter would be a zero that proves nothing: " + "; ".join(unread))
         return 3
     args.metric.write_text(render_metrics(per_surface, disclosures), encoding="utf-8")
     if leaks or disclosures:

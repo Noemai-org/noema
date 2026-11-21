@@ -130,6 +130,9 @@ type RecordRequest struct {
 	// recompute the binding of that confirmation. It is NOT the grant's evidence_set_hash (the snapshot's set hash, which the adapter takes from the snapshot): the grant never carries
 	// it. Empty for an ALLOW that follows no confirmation and for every other decision.
 	ConfirmationBindingEvidenceHash string
+	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on (A470); optional, and empty for every other decision. The Recorder's writer
+	// shape-checks it and refuses any other outcome that names one.
+	DeclinedRequestID string
 	// ConfirmationRequest is set only on a CONFIRM decision that creates the confirmation request (T13, Pending with a NewRequest): the eight bound values, the approver
 	// requirement, the requester and the expiry. The Recorder mints the request ID and computes the binding hash itself (SoT 43.2a); a CONFIRM that names an already open
 	// request carries none, and so does every other decision.
@@ -164,6 +167,10 @@ type RecordResult struct {
 
 // Recorder answers T15. The composition implements Record with recorder.Writer inside one transaction it owns and commits, so the intake never touches the database
 // and the Decision Record, the grants and their events appear together or not at all (PERD 32.4, EC-E16). A returned error means nothing was written.
+//
+// The port is documented for every outcome (A456, A470): the decision ID comes back for every recorded outcome. A plan hash and steps are required only for ALLOW; a non-ALLOW with no
+// steps and no plan hash is recorded as it is, and a grant on a non-ALLOW is refused before any transaction. A REJECT, CONFIRM or UNKNOWN never carries a grant. A REJECT DECLINED_BY_APPROVER
+// may name the declined request in DeclinedRequestID.
 type Recorder interface {
 	Record(ctx context.Context, r RecordRequest) (RecordResult, error)
 }
