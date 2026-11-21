@@ -68,6 +68,7 @@ var Types = map[string]func() any{
 	"confirmation-event.v1":                                 func() any { return new(ConfirmationEventV1) },
 	"confirmation-request.v1":                               func() any { return new(ConfirmationRequestV1) },
 	"context-snapshot.v1":                                   func() any { return new(ContextSnapshotV1) },
+	"conversation-response.v1":                              func() any { return new(ConversationResponseV1) },
 	"customer-answer.v1":                                    func() any { return new(CustomerAnswerV1) },
 	"decision-grant.v1":                                     func() any { return new(DecisionGrantV1) },
 	"decision-record.v1":                                    func() any { return new(DecisionRecordV1) },

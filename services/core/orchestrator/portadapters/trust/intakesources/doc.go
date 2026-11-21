@@ -1,11 +1,10 @@
-// Package intakesources holds the production readers behind three consumer-side ports of the Trust intake's adapters (trust/intakeadapters, noema#747): the FactSource the policy
-// conditions read, the Admissions port that gives the admission time of an intent version, and the at-risk fraction the Clocks adapter takes, which is the pack's clock_at_risk_remaining_bp read through platform/trustlimits (its one source: rulings A447 and A416). The Anchors port
-// has no reader here: its data source does not exist yet (status/TRU-02-factsource.md).
+// Package intakesources holds the production readers behind four consumer-side ports of the Trust intake's adapters (trust/intakeadapters, noema#747): the FactSource the policy
+// conditions read (the stored intent's slots and logical resolution epoch, and the case and complaint lists of the sealed snapshot), the Admissions port that gives the admission time of an intent version, the at-risk fraction the Clocks adapter takes, which is the pack's clock_at_risk_remaining_bp read through platform/trustlimits (its one source: rulings A447 and A416), and the Anchors port, read from the sealed snapshot's complaint list (A345 S3, A438). The readers of the sealed snapshot's items and of a stored payload, each as the tenant's own login, are here too.
 //
-// Implements: REQ-TRU-004, REQ-TRU-005, REQ-TRU-006, REQ-TRU-007 (production sources of T11 and T12), REQ-SEC-004 (each read is the tenant's own Trust login); A306, A345 (interim, relayed; S4 corrected by A447); INV-09, INV-11, INV-12, INV-14, INV-16, INV-19; AGENT-13, AGENT-16.
+// Implements: REQ-TRU-004, REQ-TRU-005, REQ-TRU-006, REQ-TRU-007 (production sources of T11 and T12), REQ-SEC-004 (each read is the tenant's own Trust login), REQ-CTX-004 (the snapshot is exactly what was sealed); A306, A345 S1 and S3, A438, A461 (interim; S4 corrected by A447); INV-09, INV-11, INV-12, INV-14, INV-16, INV-17, INV-19; AGENT-13, AGENT-16.
 //
-// May import: the standard library, pgx, internal/contracts, internal/predicate, platform/trustlimits, record/chain, trust/clocks, trust/decide, trust/intake, trust/intakeadapters.
+// May import: the standard library, pgx, internal/contracts, internal/predicate, evidence/layer and evidence/payloadread (the verified payload read), evidence/snapshot (the set hash), platform/trustlimits, record/chain, trust/clocks, trust/decide, trust/intake, trust/intakeadapters. The evidence mapping is reached only through the ListMapper port.
 //
 // Must never: write, read with a login that is not the tenant's own Trust login (there is no fallback to another tenant's), give a fact it did not read (an absence is never a
-// negative fact: INV-19), read a setting for a limit or default one, hold an industry term (INV-14), print a row, an ID, a tenant or a driver's error text in an error (AGENT-13), or read a clock.
+// negative fact: INV-19: an empty list is "no such row" only from a KNOWN item whose list is marked complete), name a source, an entity, a scope or an anchor event of a pack (the composition passes them), read a setting for a limit or default one, hold an industry term (INV-14), print a row, an ID, a tenant or a driver's error text in an error (AGENT-13), or read a clock.
 package intakesources

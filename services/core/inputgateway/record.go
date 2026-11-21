@@ -42,7 +42,7 @@ func (r *RecordRecorder) append(ctx context.Context, ev chain.Event) (chain.Stor
 	}
 	st, err := r.Appender.Append(ctx, tx, ev)
 	if err != nil {
-		rb, stop := context.WithTimeout(context.Background(), r.Timeout)
+		rb, stop := context.WithTimeout(context.WithoutCancel(ctx), r.Timeout)
 		defer stop()
 		_ = tx.Rollback(rb)
 		return chain.Stored{}, err

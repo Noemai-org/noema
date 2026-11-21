@@ -15,6 +15,7 @@
     }
   ],
   "allow_none": true,
+  "none_option_id": "opt_none",
   "expires_at": "2026-10-01T09:57:04Z",
   "round": 1,
   "mode": "OPTIONS"
