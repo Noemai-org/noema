@@ -13,6 +13,15 @@ class ProviderUnavailable(Exception):
     """No provider gave a usable reply: every one errored, timed out, or answered in a form the schema gate refused (REQ-INT-002; DEC-2026-10-21)."""
 
 
+class ScreenNotRun(ProviderUnavailable):
+    """The injection screen of a turn did not run (A437). To every caller this is a ProviderUnavailable, and the public answer is the same one; the class is internal, for the
+    service's own accounting."""
+
+    def __init__(self, stages: tuple[str, ...] = ()) -> None:
+        super().__init__()
+        self.stages = stages
+
+
 class InputInvalid(Exception):
     """The request cannot be compiled: the caller's bug or a pack this service does not hold. Nothing was sent to any provider."""
 
