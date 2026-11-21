@@ -196,7 +196,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, e := range batch.Events {
 			frame, err := h.frame(e, last)
 			if err != nil {
-			_ = out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)) // the stream ends either way
+				_ = out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)) // the stream ends either way
 				return
 			}
 			if out.write(frame) != nil {
@@ -250,28 +250,33 @@ func (h *Handler) payload(e Event) (name string, raw []byte, err error) {
 	var back any
 	if e.Progress != nil {
 		set++
-		e.Progress.Event, e.Progress.SchemaVersion = "progress", SchemaVersion
-		name, v, back = "progress", e.Progress, new(contracts.SseEventV1Progress)
+		c := *e.Progress // a copy: the Feed keeps its payload, which the route never writes to
+		c.Event, c.SchemaVersion = "progress", SchemaVersion
+		name, v, back = "progress", &c, new(contracts.SseEventV1Progress)
 	}
 	if e.Clarification != nil {
 		set++
-		e.Clarification.Event, e.Clarification.SchemaVersion = "clarification", SchemaVersion
-		name, v, back = "clarification", e.Clarification, new(contracts.SseEventV1Clarification)
+		c := *e.Clarification // a copy: the Feed keeps its payload, which the route never writes to
+		c.Event, c.SchemaVersion = "clarification", SchemaVersion
+		name, v, back = "clarification", &c, new(contracts.SseEventV1Clarification)
 	}
 	if e.Confirmation != nil {
 		set++
-		e.Confirmation.Event, e.Confirmation.SchemaVersion = "confirmation", SchemaVersion
-		name, v, back = "confirmation", e.Confirmation, new(contracts.SseEventV1Confirmation)
+		c := *e.Confirmation // a copy: the Feed keeps its payload, which the route never writes to
+		c.Event, c.SchemaVersion = "confirmation", SchemaVersion
+		name, v, back = "confirmation", &c, new(contracts.SseEventV1Confirmation)
 	}
 	if e.Answer != nil {
 		set++
-		e.Answer.Event, e.Answer.SchemaVersion = "answer", SchemaVersion
-		name, v, back = "answer", e.Answer, new(contracts.SseEventV1Answer)
+		c := *e.Answer // a copy: the Feed keeps its payload, which the route never writes to
+		c.Event, c.SchemaVersion = "answer", SchemaVersion
+		name, v, back = "answer", &c, new(contracts.SseEventV1Answer)
 	}
 	if e.Error != nil {
 		set++
-		e.Error.Event, e.Error.SchemaVersion = "error", SchemaVersion
-		name, v, back = "error", e.Error, new(contracts.SseEventV1Error)
+		c := *e.Error // a copy: the Feed keeps its payload, which the route never writes to
+		c.Event, c.SchemaVersion = "error", SchemaVersion
+		name, v, back = "error", &c, new(contracts.SseEventV1Error)
 	}
 	if set != 1 {
 		return "", nil, errors.New("kind")
