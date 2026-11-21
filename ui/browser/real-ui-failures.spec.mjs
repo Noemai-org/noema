@@ -28,7 +28,7 @@ for (const scenario of ["unavailable", "malformed", "disconnect", "oversized", "
       // The create-conversation route is not yet mounted; Send stays disabled.
       await page.evaluate(async (baseUrl) => {
         const client = await import("/app.js");
-        client.configureOverlay({ baseUrl, sessionToken: "synthetic-session", investigationId: "inv_SyntheticA", maxResponseBytes: 65536 });
+        client.configureOverlay({ baseUrl, sessionToken: "synthetic-session", investigationId: "inv_SyntheticA", maxResponseBytes: 65536, maxPollingMs: 15000 });
       }, server.origin);
       // The approved retry sequence alone takes seven seconds.
       await expect(page.getByRole("status")).toContainText(/connection lost/i, { timeout: 20000 });

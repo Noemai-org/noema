@@ -43,7 +43,7 @@ test('REQ-UI-001: a host-supplied investigation displays only the core answer', 
     await page.goto(baseUrl);
     await page.evaluate(async (baseUrl) => {
       const client = await import('/app.js');
-      client.configureOverlay({ baseUrl, sessionToken: 'synthetic-session', investigationId: 'inv_SyntheticA', maxResponseBytes: 16384 });
+      client.configureOverlay({ baseUrl, sessionToken: 'synthetic-session', investigationId: 'inv_SyntheticA', maxResponseBytes: 16384, maxPollingMs: 15000 });
     }, baseUrl);
     await expect(page.getByRole('region', { name: 'Answer' })).toContainText('I opened a case with the payments team.');
     await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
