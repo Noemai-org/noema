@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/layer"
+	"github.com/Noemai-org/noema/services/core/evidence/reconciler"
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -47,29 +49,40 @@ type SourceProfiles interface {
 	SourceRules(ctx context.Context, tenantID, intentNode string) (SourceRules, error)
 }
 
+// ItemFacts gives the mapped, normalized facts of one evidence item, as the tenant: the facts the decision rests on (A365 refined). evidence/reconciler.Reconciler is the real one, so
+// the mapping is the Reconciler's own and there is no second one.
+type ItemFacts interface {
+	Facts(ctx context.Context, tenantID string, it layer.Item) ([]snapshot.Fact, error)
+}
+
+var _ ItemFacts = (*reconciler.Reconciler)(nil)
+
 // Evidence implements intake.Evidence: the T9 read of the Trust intake. It reports the freshness and the fact status of the items of a sealed snapshot as the Decision Record
-// keeps them, from what was sealed and verified, never from a payload and never from what a caller supplied (REQ-TRU-001, REQ-CTX-003, REQ-CTX-004).
+// keeps them, from what was sealed and verified, never from what a caller supplied (REQ-TRU-001, REQ-CTX-003, REQ-CTX-004). The freshness and the status are the stored columns; the
+// snapshot's own set hash is given as it is stored (EvidenceSetHash); the value the confirmation binds, given separately (ConfirmationBindingEvidenceHash, A435), is the digest of the
+// facts the mapping gives from the stored payloads (the facts source) with the items' statuses.
 type Evidence struct {
 	snapshots SnapshotReader
 	profiles  SourceProfiles
 	clock     clock.Clock
+	facts     ItemFacts
 }
 
 var _ intake.Evidence = Evidence{}
 
-// NewEvidence builds the adapter. A missing reader, profile source or clock is ErrConfig.
-func NewEvidence(snapshots SnapshotReader, profiles SourceProfiles, clk clock.Clock) (Evidence, error) {
-	if snapshots == nil || profiles == nil || clk == nil {
+// NewEvidence builds the adapter. A missing reader, profile source, clock or facts source is ErrConfig.
+func NewEvidence(snapshots SnapshotReader, profiles SourceProfiles, clk clock.Clock, facts ItemFacts) (Evidence, error) {
+	if snapshots == nil || profiles == nil || clk == nil || facts == nil {
 		return Evidence{}, ErrConfig
 	}
-	return Evidence{snapshots: snapshots, profiles: profiles, clock: clk}, nil
+	return Evidence{snapshots: snapshots, profiles: profiles, clock: clk, facts: facts}, nil
 }
 
 var snapshotIDRe = regexp.MustCompile(`\Aevs_[0-9A-Za-z]{2,32}\z`) // the shape migration 0020 gives context_snapshot.snapshot_id
 
 // SnapshotFreshness reads the sealed snapshot as the tenant, verifies it, and reports each item. On any error the answer is empty: T9 has nothing to decide on and ends UNKNOWN.
 func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID string) (intake.SnapshotEvidence, error) {
-	if e.snapshots == nil || e.profiles == nil || e.clock == nil {
+	if e.snapshots == nil || e.profiles == nil || e.clock == nil || e.facts == nil {
 		return intake.SnapshotEvidence{}, ErrConfig
 	}
 	if !chain.ValidTenantID(tenantID) {
@@ -107,7 +120,11 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 	if err := usable(rules); err != nil {
 		return intake.SnapshotEvidence{}, err
 	}
-	out := intake.SnapshotEvidence{IntentID: s.Intent.IntentID, IntentVersion: s.Intent.Version, Items: make([]intake.SourceItem, len(ordered))}
+	content, err := e.contentHash(ctx, tenantID, ordered)
+	if err != nil {
+		return intake.SnapshotEvidence{}, err
+	}
+	out := intake.SnapshotEvidence{IntentID: s.Intent.IntentID, IntentVersion: s.Intent.Version, EvidenceSetHash: s.EvidenceSetHash, ConfirmationBindingEvidenceHash: content, Items: make([]intake.SourceItem, len(ordered))}
 	present := make(map[string]bool, len(ordered))
 	for i, it := range ordered {
 		limit, by := it.SLASeconds, decide.LimitBySource
@@ -124,6 +141,41 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 		}
 	}
 	return out, nil
+}
+
+// contentHash is the evidence value the confirmation binds (A365 refined, A435): the content hash of the items' (source, source record ID, facts digest, status), where an item's facts
+// digest is the digest of its MAPPED, NORMALIZED facts, which the facts source (the Reconciler) reads from the stored payload and maps with the evidence mapping the Reconciler
+// classifies with, and its status is the item's fact status as sealed and as the Reconciler gives it to the item's rows. A re-read of unchanged facts gives the same value under new
+// evidence IDs and whatever differs in the raw payload (a volatile or unmapped field); a changed mapped fact or status gives another. It is given as ConfirmationBindingEvidenceHash
+// and only the binding uses it: the snapshot's own set hash (over the evidence IDs), verified by intact, is given unchanged as EvidenceSetHash, and the Decision Record and the grant
+// keep that one.
+//
+// Fail closed (INV-19, REQ-NFR-002): an item with no source record ID, whose payload cannot be read or is not the sealed one, that the mapping cannot use, or whose facts cannot be
+// digested makes the snapshot unusable as evidence. The cause stays reachable behind the fixed text. No payload is read before every item has a record ID.
+func (e Evidence) contentHash(ctx context.Context, tenantID string, items []SealedItem) (string, error) {
+	for _, it := range items {
+		if it.SourceRecordID == "" {
+			return "", notIntact()
+		}
+	}
+	in := make([]snapshot.ContentItem, len(items))
+	for i, it := range items {
+		facts, err := e.facts.Facts(ctx, tenantID, layer.Item{EvidenceID: it.EvidenceID, PayloadRef: it.PayloadRef, PayloadHash: it.PayloadHash, Status: contracts.EnumsV1FactStatus(it.Status),
+			Source: it.Source, ReadAt: it.ReadAt, EffectiveAt: it.EffectiveAt})
+		if err != nil {
+			return "", wrapped(ErrSnapshotNotIntact, err)
+		}
+		digest, err := snapshot.FactsDigest(facts)
+		if err != nil {
+			return "", wrapped(ErrSnapshotNotIntact, err)
+		}
+		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, FactsDigest: digest, Status: it.Status}
+	}
+	h, err := snapshot.ContentHash(in)
+	if err != nil {
+		return "", wrapped(ErrSnapshotNotIntact, err)
+	}
+	return h, nil
 }
 
 func notIntact() error { return wrapped(ErrSnapshotNotIntact, nil) }

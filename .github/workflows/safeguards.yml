@@ -80,12 +80,18 @@ jobs:
       - name: Workflow-permission check tests
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_workflow_permissions.py
+      - name: SEC-07 scanners (cross-scope, planted leaks on every surface, the nightly driver)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_scopescan.py && python3 -I tools/ci/test_sec07_nightly.py
       - name: G1 leak scan with a planted canary (noema#436, criterion 8)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_g1_leakscan.py
       - name: Compile-acceptance workflow guard (noema#546)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_bench_live_compile.py
+      - name: The Terra harness is not selectable from any benchmark workflow (A362, A374)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_no_terra_in_bench_workflows.py
       - name: Administrator credential absent from workflows (SEC-02)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/check_no_admin_in_workflows.py

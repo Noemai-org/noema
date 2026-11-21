@@ -54,7 +54,7 @@ func pgCause(t *testing.T, err error, code string) {
 }
 
 func request() policystore.Request {
-	return policystore.Request{TenantID: tenantA, CorrelationID: "corr_pub0001", PolicyID: "fin.pol", Version: "3.1", PublishedBy: "adm_synth01"}
+	return policystore.Request{TenantID: tenantA, CorrelationID: "corr_pub0001", PolicyID: "fin.pol", Version: "3.1", DocumentHash: testDocHash}
 }
 
 type leakySigner struct{}
@@ -234,8 +234,8 @@ func TestEveryErrorOfTheReadsHasAFixedPublicTextAndKeepsItsCause(t *testing.T) {
 	// The remaining sites cannot be reached by closing, refusing or terminating a connection: the query is accepted and the failure is in the result. They are provoked on a real
 	// connection all the same: a pool of the tenant's real Trust login whose search_path puts a test-owned view named policy_publication before the table, so the unchanged query
 	// runs on the real server and the real driver and the failure is a value the destination cannot take, or an error the server raises while the rows are read.
-	const nullVersion = `SELECT 'ten_aa'::text AS tenant_id, 'fin.pol'::text AS policy_id, NULL::text AS version, ARRAY[1] AS version_key, now() AS published_at`
-	const divides = `SELECT 'ten_aa'::text AS tenant_id, 'fin.pol'::text AS policy_id, (CASE WHEN n = 2 THEN 1 / (n - 2) ELSE n END)::text AS version, ARRAY[n] AS version_key, now() AS published_at FROM generate_series(1, 3) AS n`
+	const nullVersion = `SELECT 'ten_aa'::text AS tenant_id, 'fin.pol'::text AS policy_id, NULL::text AS version, ARRAY[1] AS version_key, now() AS published_at, NULL::text AS document_hash`
+	const divides = `SELECT 'ten_aa'::text AS tenant_id, 'fin.pol'::text AS policy_id, (CASE WHEN n = 2 THEN 1 / (n - 2) ELSE n END)::text AS version, ARRAY[n] AS version_key, now() AS published_at, NULL::text AS document_hash FROM generate_series(1, 3) AS n`
 	t.Run("Active: a row cannot be scanned: the server's version is NULL", func(t *testing.T) {
 		w := newWorld(t)
 		err := reads["Active"](w.shadowedPublications(t, nullVersion))

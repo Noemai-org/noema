@@ -16,8 +16,8 @@ import (
 // RECEIVED at version 0 as a new row, so any other state is a move of one version.
 func (w *storeWorld) seedRow(t *testing.T, tenant, inv, ref, state, principal string) {
 	t.Helper()
-	if _, err := w.admin.Exec(ctx(t), `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref)
-		VALUES ($1, $2, $3, 'corr_AA11', 'RECEIVED', 0, $4)`, tenant, inv, ref, principal); err != nil {
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref)
+		VALUES ($1, $2, $3, 'corr_AA11', 'RECEIVED', 0, $4, 'customer', 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`, tenant, inv, ref, principal); err != nil {
 		t.Fatal(err)
 	}
 	if state == "RECEIVED" {

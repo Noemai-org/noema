@@ -12,6 +12,7 @@ provider is a Founder decision at pilot readiness (OD-P-88), and would be a new 
 The source must support weak references (see `AudioSource`); one that does not is refused with `TypeError` and still closed.
 """
 
+import builtins
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -28,12 +29,20 @@ class DegradeResult:
     offer_text: bool  # True whenever there is no utterance: the person is offered text, never a guess
     failure: ProviderFailure | None  # why there is no utterance (REJECTED when the provider was skipped); None on success
     skipped: bool = False  # True when the provider was not called at all: it is not qualified, or its data terms are not confirmed
+    error_type: str | None = None  # the class name (never the message) of an unexpected error that was turned into this fallback; None for a typed provider failure
 
 
 def eligible(provider: SpeechProvider) -> bool:
     """May this provider hear the audio? Qualified, and its data terms confirmed (REQ-INT-006, PERD R-18). An unverified or refused term is never a yes."""
     capabilities = provider.capabilities
     return capabilities.qualified is True and capabilities.retention_terms is Support.YES
+
+
+def _error_category(error: Exception) -> str:
+    """The name of the error's class if it is exactly a builtin exception class, else the fixed category UnexpectedError. A class can be made at run time with any name (text, digits), so a
+    name from outside the interpreter is never passed on (Codex P2 on #805, AGENT-13)."""
+    cls = type(error)
+    return cls.__name__ if cls.__module__ == "builtins" and getattr(builtins, cls.__name__, None) is cls else "UnexpectedError"
 
 
 async def transcribe_or_text(
@@ -60,4 +69,8 @@ async def transcribe_or_text(
         )
     except ProviderError as error:
         return DegradeResult(None, True, error.kind)
+    except TypeError:
+        raise  # the caller broke the contract (a source that cannot be weakly referenced): a programming error that must be seen, not degraded
+    except Exception as error:  # noqa: BLE001 - an unexpected error must not take the person's answer with it: the text is offered, the class name is kept for the caller to record, the message never (AGENT-13)
+        return DegradeResult(None, True, ProviderFailure.UNAVAILABLE, error_type=_error_category(error))
     return DegradeResult(utterance, False, None)

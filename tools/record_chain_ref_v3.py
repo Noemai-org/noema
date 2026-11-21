@@ -131,6 +131,9 @@ def record_event_fixtures() -> tuple[dict[str, dict], dict[str, dict], dict[str,
     valid["principal_id_64_characters"] = one(actor="operator:" + "a" * 64)
     valid["payload_with_integers"] = one(payload={"n": [0, 1, -7, 9007199254740991, -9007199254740991]})
     valid["security_event"] = one("core-execution", event_type="SECURITY_EVENT", kind="IDEMPOTENCY_COLLISION", object_ref="grt_0001")
+    # PERD 32.2 (A114): kinds of SECURITY_EVENT, not event types. REQ-EXE-008: a clear is by a person on the control plane (C-ADMIN); a refused clear is written for an authenticated caller.
+    valid["security_event_kill_switch_cleared"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEARED", object_ref="ten_demo", actor="admin:usr_synth_014")
+    valid["security_event_kill_switch_clear_refused"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEAR_REFUSED", object_ref="ten_demo")
     valid["security_event_confirmation_refused"] = one("core-edge", event_type="SECURITY_EVENT", kind="CONFIRMATION_REFUSED", object_ref="cnf_0001",
                                                        actor="customer:usr_synth_014")
     for reason in VOID_REASONS:
@@ -233,6 +236,18 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
                     item["facts"].update(facts)
         return doc
 
+    # A272 (v3 only): the `classification` fact of an OBSERVED_STATE item is one of the twelve of enums.v1 TransactionClassification (OD-P-10), not any upper-case word; an Execution
+    # Receipt state such as OUTCOME_UNKNOWN is refused. Built from the converted full write case, so the chain stays valid.
+    def with_classification(value: str) -> dict:
+        doc = copy.deepcopy(base)
+        for section in doc["sections"]:
+            if section["kind"] == "OBSERVED_STATE":
+                section["items"] = [{"record_event_id": "recev_1002", "object_ref": "cns_7A", "basis": "EVIDENCE", "facts": {"classification": value}}]
+        return doc
+
+    valid["observed_state_with_a_classification"] = with_classification("EXECUTION_OUTCOME_UNKNOWN")
+    invalid["classification_is_a_receipt_state"] = with_classification("OUTCOME_UNKNOWN")
+    expect["classification_is_a_receipt_state.json"] = "enum"
     valid["id_fact_with_five_digits_in_a_row"] = with_fact(object_id="obj_01HX12345ABCDEFGHJKMNPQRST")  # a minted <prefix>_<ULID> is served as written (A193)
     invalid["text_fact_with_five_joined_digits"] = with_fact(text="the amount 12 345 was held")
     invalid["reason_codes_item_with_five_joined_digits"] = with_fact(reason_codes=["STATE_KNOWN", "ACCOUNT_1234-5678"])

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/db"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
+	"github.com/Noemai-org/noema/services/core/trust/policy"
 	"github.com/Noemai-org/noema/services/core/trust/policystore"
 )
 
@@ -95,12 +97,66 @@ func book(t testing.TB, packs ...[]byte) *PolicyBook {
 	if err != nil {
 		t.Fatalf("LoadPolicyBook: %v", err)
 	}
+	for _, raw := range packs {
+		if version, hash, ok := tryPackPolicyHash(raw); ok {
+			packHashes.Store(version, hash)
+		}
+	}
 	return b
 }
 
+// packHashes is the document hash of each policy version of the packs a test loaded, worked out here from the pack's own bytes, so that a publication made by the helpers below
+// rests on the document the pack carries (A413). It is a test fixture and never read by the code under test.
+var packHashes sync.Map
+
+// packPolicyHash is the version of the pack's policy and its document hash, computed independently of the loader.
+func packPolicyHash(t testing.TB, raw []byte) (version, hash string) {
+	t.Helper()
+	version, hash, ok := tryPackPolicyHash(raw)
+	if !ok {
+		t.Fatal("the pack's policy has no document hash")
+	}
+	return version, hash
+}
+
+// tryPackPolicyHash is false for a policy that has no single reading or is not made of integers (a document policypublish refuses and no row can rest on).
+func tryPackPolicyHash(raw []byte) (version, hash string, ok bool) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return "", "", false
+	}
+	var head struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(top["policy"], &head); err != nil {
+		return "", "", false
+	}
+	h, err := policy.DocumentHash(top["policy"])
+	if err != nil {
+		return "", "", false
+	}
+	return head.Version, h, true
+}
+
+// documentHashOf is the hash the helpers publish a version with: the hash of the document of that version in the packs loaded so far, or a hash that matches nothing.
+func documentHashOf(version string) string {
+	if h, ok := packHashes.Load(version); ok {
+		return h.(string)
+	}
+	return "sha256:00000000000000000000000000000000000000000000000000000000000000aa"
+}
+
 type world struct {
-	admin  *pgxpool.Pool
-	logins map[string]*pgxpool.Pool
+	admin   *pgxpool.Pool
+	logins  map[string]*pgxpool.Pool
+	pending []pendingPublication // publications a test asked for, written when the first read needs them (see flush)
+	t       *testing.T
+	named   map[string]bool // tenant@version of a publication whose hash a test named (publishHashed): align leaves it alone
+}
+
+type pendingPublication struct {
+	tenant, version string
+	at              int64
 }
 
 func newWorld(t *testing.T) *world {
@@ -121,6 +177,7 @@ func newWorld(t *testing.T) *world {
 
 // For is the tenant's own Trust login.
 func (w *world) For(tenantID string) (policystore.Querier, error) {
+	w.flush()
 	p, ok := w.logins[tenantID]
 	if !ok {
 		return nil, errors.New("no login for this tenant")
@@ -131,14 +188,55 @@ func (w *world) For(tenantID string) (policystore.Querier, error) {
 // publish writes a publication with a time of its own as the tenant's Trust login; the guard still decides who may write and which version is higher.
 func (w *world) publish(t *testing.T, tenant, version string, at int64) {
 	t.Helper()
-	if err := w.tryPublish(tenant, version, at); err != nil {
+	w.t = t
+	w.pending = append(w.pending, pendingPublication{tenant, version, at})
+}
+
+// flush writes the pending publications in the order they were asked for, each with the document hash of its version in the packs the test has loaded by now (a test publishes
+// first and loads its packs after, so the hash is read when the first read needs the rows, not when the test asks for them).
+func (w *world) flush() {
+	pending := w.pending
+	w.pending = nil
+	for _, p := range pending {
+		if err := w.tryPublishHashed(p.tenant, p.version, p.at, documentHashOf(p.version)); err != nil {
+			w.t.Fatalf("publish %s@%s: %v", policyID, p.version, err)
+		}
+	}
+}
+
+// publishHashed writes a publication with the hash a test names (nil is a NULL hash: the guard is switched off for that one insert, as the administrator, the way a row from
+// before migration 0035 exists).
+func (w *world) publishHashed(t *testing.T, tenant, version string, at int64, hash *string) {
+	t.Helper()
+	w.t = t
+	w.flush()
+	if w.named == nil {
+		w.named = map[string]bool{}
+	}
+	w.named[tenant+"@"+version] = true
+	if hash == nil {
+		if _, err := w.admin.Exec(context.Background(), `ALTER TABLE policy_publication DISABLE TRIGGER policy_publication_guard_document_hash`); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := w.admin.Exec(context.Background(), `ALTER TABLE policy_publication ENABLE TRIGGER policy_publication_guard_document_hash`); err != nil {
+				t.Fatal(err)
+			}
+		}()
+		if _, err := w.logins[tenant].Exec(context.Background(), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at)
+			VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', to_timestamp($4))`, tenant, policyID, version, at); err != nil {
+			t.Fatalf("publish %s@%s with no hash: %v", policyID, version, err)
+		}
+		return
+	}
+	if err := w.tryPublishHashed(tenant, version, at, *hash); err != nil {
 		t.Fatalf("publish %s@%s: %v", policyID, version, err)
 	}
 }
 
-func (w *world) tryPublish(tenant, version string, at int64) error {
-	_, err := w.logins[tenant].Exec(context.Background(), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at)
-		VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', to_timestamp($4))`, tenant, policyID, version, at)
+func (w *world) tryPublishHashed(tenant, version string, at int64, hash string) error {
+	_, err := w.logins[tenant].Exec(context.Background(), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at, document_hash)
+		VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01', to_timestamp($4), $5)`, tenant, policyID, version, at, hash)
 	return err
 }
 
@@ -203,6 +301,9 @@ func (f *facts) PolicyFacts(_ context.Context, q intake.PolicyQuery, need FactNe
 
 func (w *world) policies(t *testing.T, b *PolicyBook, a Admissions, f FactSource) *Policies {
 	t.Helper()
+	w.t = t
+	w.flush()
+	w.align()
 	p, err := NewPolicies(PoliciesConfig{Book: b, Publications: StorePublications{DBs: w}, Admissions: a, Facts: f})
 	if err != nil {
 		t.Fatalf("NewPolicies: %v", err)
@@ -212,4 +313,42 @@ func (w *world) policies(t *testing.T, b *PolicyBook, a Admissions, f FactSource
 
 func query(capability string, now int64) intake.PolicyQuery {
 	return intake.PolicyQuery{TenantID: tenantA, IntentID: "int_aa1", IntentVersion: 1, IntentNode: node, CapabilityID: capability, SnapshotID: "snap_1", Now: now}
+}
+
+// align gives each publication whose hash no test named the hash of the document its version has in the packs loaded last. Many tests publish one row and then try several packs of
+// that version (a rule edited, a wait changed): the row stands for "published with the document under test". Rows are insert-only, so the fixture rewrites the hash as the
+// administrator with the table's triggers off, and puts them back on. A test that wants a row with another hash, or none, names it with publishHashed and align leaves it.
+func (w *world) align() {
+	rows, err := w.admin.Query(context.Background(), `SELECT tenant_id, version FROM policy_publication`)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	type key struct{ tenant, version string }
+	var keys []key
+	for rows.Next() {
+		var k key
+		if err := rows.Scan(&k.tenant, &k.version); err != nil {
+			w.t.Fatal(err)
+		}
+		keys = append(keys, k)
+	}
+	rows.Close()
+	if _, err := w.admin.Exec(context.Background(), `ALTER TABLE policy_publication DISABLE TRIGGER USER`); err != nil {
+		w.t.Fatal(err)
+	}
+	defer func() {
+		if _, err := w.admin.Exec(context.Background(), `ALTER TABLE policy_publication ENABLE TRIGGER USER`); err != nil {
+			w.t.Fatal(err)
+		}
+	}()
+	for _, k := range keys {
+		if w.named[k.tenant+"@"+k.version] {
+			continue
+		}
+		if h, ok := packHashes.Load(k.version); ok {
+			if _, err := w.admin.Exec(context.Background(), `UPDATE policy_publication SET document_hash = $1 WHERE tenant_id = $2 AND version = $3`, h.(string), k.tenant, k.version); err != nil {
+				w.t.Fatal(err)
+			}
+		}
+	}
 }
