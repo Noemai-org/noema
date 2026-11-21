@@ -31,7 +31,7 @@ export async function startPcmCapture(
   maxRecordingMs: number,
 ): Promise<() => Promise<void>> {
   if (signal.aborted || !Number.isSafeInteger(maxRecordingMs) || maxRecordingMs <= 0 || maxRecordingMs > 2_147_483_647) throw new Error("Voice is unavailable.");
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const reportFailure = onFailure ?? (() => {});
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 }, video: false });
   let context: AudioContext | undefined;
@@ -58,7 +58,7 @@ export async function startPcmCapture(
   const abort = () => { void stop().catch(reportFailure); };
   try {
     if (signal.aborted) { await stop(); return stop; }
-    const remaining = maxRecordingMs - (Date.now() - startedAt);
+    const remaining = maxRecordingMs - (performance.now() - startedAt);
     if (remaining <= 0) { await stop(); throw new Error("Voice is unavailable."); }
     timer = setTimeout(() => { void stop().then(reportFailure, reportFailure); }, remaining);
     context = new AudioContext({ sampleRate: 16000 });
