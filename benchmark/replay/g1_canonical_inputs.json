@@ -1,0 +1,82 @@
+{
+  "cases": [
+    {
+      "canonical_input": {
+        "channel": "text",
+        "correlation_id": "corr_mtlbpfywnwtyyvpprrxg",
+        "mode": "MODE_1",
+        "principal_ref": "usr_synth009",
+        "received_at": "2026-11-16T12:30:00Z",
+        "request_id": "47c32861-3bd0-4125-a45e-a71ee3b1c49a",
+        "schema_version": "2.0",
+        "session_id": "ses_synthetic",
+        "tenant_id": "ten_synthetic",
+        "text": "Wetin happen to the N2,500 wey I send Chidi dis morning?"
+      },
+      "case_id": "BEN-CLEAN-0001"
+    },
+    {
+      "canonical_input": {
+        "channel": "text",
+        "correlation_id": "corr_rxvklthcmddisoscnctu",
+        "mode": "MODE_1",
+        "principal_ref": "usr_synth037",
+        "received_at": "2026-11-16T12:30:00Z",
+        "request_id": "faaa94f9-5315-4926-bc96-b60482774e9d",
+        "schema_version": "2.0",
+        "session_id": "ses_synthetic",
+        "tenant_id": "ten_synthetic",
+        "text": "Where is the 20k I sent to Ibrahim this morning?"
+      },
+      "case_id": "BEN-CLEAN-0014"
+    },
+    {
+      "canonical_input": {
+        "channel": "text",
+        "correlation_id": "corr_uufzievrsfzuuoesebma",
+        "mode": "MODE_1",
+        "principal_ref": "usr_synth117",
+        "received_at": "2026-11-16T12:30:00Z",
+        "request_id": "040165f3-cef6-4618-8d5e-92c3d8910d35",
+        "schema_version": "2.0",
+        "session_id": "ses_synthetic",
+        "tenant_id": "ten_synthetic",
+        "text": "Abeg where is the 30k wey I send Amina dis morning?"
+      },
+      "case_id": "BEN-CLEAN-0027"
+    },
+    {
+      "canonical_input": {
+        "channel": "text",
+        "correlation_id": "corr_qhkvualjzgnndvvhunvh",
+        "mode": "MODE_1",
+        "principal_ref": "usr_synth049",
+        "received_at": "2026-11-16T12:30:00Z",
+        "request_id": "22e5c140-753f-4f76-962b-17de641131ed",
+        "schema_version": "2.0",
+        "session_id": "ses_synthetic",
+        "tenant_id": "ten_synthetic",
+        "text": "Wetin happen to the 10k wey I send Bola dis morning?"
+      },
+      "case_id": "BEN-TMO-0001"
+    },
+    {
+      "canonical_input": {
+        "channel": "text",
+        "correlation_id": "corr_cdtevnbeyxhpkownqchq",
+        "mode": "MODE_1",
+        "principal_ref": "usr_synth002",
+        "received_at": "2026-11-16T12:30:00Z",
+        "request_id": "f54e8b4f-1e97-45e5-ab70-0a3ff88b70e1",
+        "schema_version": "2.0",
+        "session_id": "ses_synthetic",
+        "tenant_id": "ten_synthetic",
+        "text": "Where is the N50,000 I sent to Bola this morning?"
+      },
+      "case_id": "BEN-TMO-0018"
+    }
+  ],
+  "inputs_sha256": "sha256:874b2289874ded40d780ce28e96669ed15aa145f39d13356b6df4b74dabfcf26",
+  "label": "SYNTHETIC canonical inputs: what the core's Interpreter port builds for the five inputs of the G1 inputs file (A460); regenerate with the generator named in the interpreter package's README",
+  "pack_ref": "fin@1.0.0"
+}

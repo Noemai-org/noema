@@ -14,8 +14,9 @@ from typing import Any, Protocol
 
 from benchmark.bakeoff.budget import BudgetGuard
 from benchmark.compile_acceptance.golden import GOLDEN, Golden
+from benchmark.compile_acceptance.record_only import DEFAULT_PATH, RecordOnlyInput, RecordOnlyRefused, load_inputs
 from benchmark.compile_acceptance.recording import LABEL, Recorder
-from benchmark.compile_acceptance.runner import CompileFailed, run_cases, write_run_record
+from benchmark.compile_acceptance.runner import CompileFailed, RunResult, run_cases, write_run_record
 
 KEY_VARIABLE = "OPENAI_API_KEY"
 _PACK_REF = re.compile(r"[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+")
@@ -26,6 +27,7 @@ NOT_RUN = 3  # the documented exit for "no key, or no provider call was made" (A
 
 class Backend(Protocol):
     async def compile_one(self, g: Golden) -> Mapping[str, Any]: ...
+    async def record_one(self, inp: RecordOnlyInput) -> Mapping[str, Any]: ...
     def calls(self) -> int: ...
     def pin(self) -> dict[str, Any]: ...
     def dry_costs(self) -> list[tuple[str, int]]: ...
@@ -57,6 +59,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--prior-spent-micros", required=True, type=_prior, help="spending already made against the same cap by earlier runs")
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--run-id", required=True, type=_pattern(_RUN_ID))
+    p.add_argument("--record-only-inputs", type=Path, default=DEFAULT_PATH, help="BO's g1_inputs.json: five inputs recorded after the goldens, with no expectation (A361, A372); g1_canonical_inputs.json (the Interpreter port's canonical inputs, pinned to it) must sit beside it (A460)")
+    p.add_argument("--skip-record-only", action="store_true", help="run the goldens only (tests and the dry run of the goldens)")
     p.add_argument("--harness-config", default="benchmark/decisions/harness-gpt-6-luna.json", help="the frozen harness configuration whose single provider is asked (the model, its rate card and its token ceiling are the file's)")
     return p
 
@@ -71,6 +75,13 @@ def main(argv: list[str], environ: Mapping[str, str], factory: Factory | None = 
     if "benchmark-heldout" in " ".join(argv) or any("benchmark-heldout" in v for v in environ.values()):
         sys.stderr.write("refused: nothing here reads benchmark-heldout\n")
         return 2
+    inputs: tuple[RecordOnlyInput, ...] = ()
+    if not args.skip_record_only:
+        try:
+            inputs = load_inputs(args.record_only_inputs)
+        except RecordOnlyRefused as err:  # before anything is built or written: a run whose inputs are not proven does not start (fail closed)
+            sys.stderr.write(f"refused: the record-only inputs file is not usable ({err.code})\n")
+            return 2
     if not args.dry_run and not environ.get(KEY_VARIABLE, "").strip():
         sys.stderr.write(f"not run: no access: {KEY_VARIABLE} is not set in the environment\n")
         return NOT_RUN
@@ -80,21 +91,33 @@ def main(argv: list[str], environ: Mapping[str, str], factory: Factory | None = 
     backend = (factory or default_factory)(args.dry_run, environ, guard, recorder, args)
     recorder.model_id = str(backend.pin().get("pinned_model_id", "unpinned"))
     if args.dry_run:
-        return _dry(backend, limit, args.prior_spent_micros)
-    result = asyncio.run(run_cases(GOLDEN, backend.compile_one, guard, recorder, calls=backend.calls))
+        return _dry(backend, limit, args.prior_spent_micros, inputs)
+    result = asyncio.run(run_cases(GOLDEN, backend.compile_one, guard, recorder, calls=backend.calls, record_only=inputs, record_one=backend.record_one))
     recorder.write_manifest(backend.pin())
     write_run_record(args.out, args.run_id, result, {"hard_stop_micros": limit, "prior_spent_micros": args.prior_spent_micros})
     lines = [LABEL, *(f"{c.case_id} {c.status}" + (f": {'; '.join(c.problems)}" if c.problems else "") for c in result.cases),
-             f"exit code {result.exit_code}; provider calls {result.calls}; stopped {result.stopped}", f"spent_micros_total={result.spent_micros}"]
+             *record_only_lines(result), f"exit code {result.exit_code}; provider calls {result.calls}; stopped {result.stopped}", f"spent_micros_total={result.spent_micros}"]
     sys.stdout.write("\n".join(lines) + "\n")
     return result.exit_code
 
 
-def _dry(backend: Backend, limit: int, prior: int) -> int:
+def record_only_lines(result: RunResult) -> list[str]:
+    """The pass is named apart from the goldens, and says it is recorded, not judged (A361, A372)."""
+    if not result.record_only:
+        return []
+    return [f"record-only: {len(result.record_only)} (recorded, not judged: no expectation)", *(f"{r.case_id} {r.status}" + (f": {r.detail}" if r.detail else "") for r in result.record_only)]
+
+
+def _dry(backend: Backend, limit: int, prior: int, inputs: tuple[RecordOnlyInput, ...] = ()) -> int:
     async def go() -> None:
         for g in GOLDEN:
             try:
                 await backend.compile_one(g)
+            except CompileFailed:
+                pass
+        for inp in inputs:
+            try:
+                await backend.record_one(inp)
             except CompileFailed:
                 pass
     asyncio.run(go())
