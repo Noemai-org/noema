@@ -13,7 +13,7 @@ import (
 func openClarification() decide.Open {
 	return decide.Open{ID: "clr_1", CandidateSetVersion: 2, ExpiresAt: 1000, Round: 1,
 		Options:    []decide.Option{{ID: "opt_1", CandidateID: "t1"}, {ID: "opt_2", CandidateID: "t2"}, {ID: "opt_3", CandidateID: "t3"}},
-		Candidates: []string{"t1", "t2", "t3"}}
+		Candidates: []string{"t1", "t2", "t3"}, NoneOptionID: "opt_none"}
 }
 
 func TestBindRejectsStaleOrForeignAnswers(t *testing.T) {
