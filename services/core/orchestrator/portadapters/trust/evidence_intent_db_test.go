@@ -41,9 +41,9 @@ func (w *evdPG) intentOf(t *testing.T, tenant, corr, intentID string, version in
 // sealedItems writes the three usual items for tenant A and seals them, as evdCase does without its intents.
 func (w *evdPG) sealedItems(t *testing.T, tenant string) {
 	t.Helper()
-	items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
-	for _, it := range items {
-		w.item(t, tenant, it, 600)
+	var items []trustport.SealedItem
+	for i, src := range []string{evdLedger, evdSwitch, evdSettle} {
+		items = append(items, w.item(t, tenant, evdItem(i+1, src), 600, evdPayload(src, 0)))
 	}
 	w.seal(t, tenant, evdSnap, items)
 }
@@ -81,7 +81,7 @@ func TestEvidenceDBTheLaterOfTwoIntentsOfOneCorrelationIsAttributed(t *testing.T
 
 	// Through the adapter: the version is the later one, and the profile of the later node is the one asked, once.
 	profiles := evdRules()
-	a, err := trustport.NewEvidence(w.reader(t), profiles, clock.NewManual(evdNow))
+	a, err := trustport.NewEvidence(w.reader(t), profiles, clock.NewManual(evdNow), w.facts(t, evdPools(w.trust)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestEvidenceDBACorrelationWithNoIntentIsNotAttributedToAnotherOnes(t *testi
 	if err != nil || got.Intent != (trustport.SealedIntent{}) {
 		t.Errorf("the reader's intent = %+v, %v; want the zero intent", got.Intent, err)
 	}
-	a, err := trustport.NewEvidence(w.reader(t), evdRules(), clock.NewManual(evdNow))
+	a, err := trustport.NewEvidence(w.reader(t), evdRules(), clock.NewManual(evdNow), w.facts(t, evdPools(w.trust)))
 	if err != nil {
 		t.Fatal(err)
 	}

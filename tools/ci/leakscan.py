@@ -122,8 +122,10 @@ def _secret_findings(line: str, number: int, path: str):
         yield Finding(path, number, "named_secret_value", len(value), _fp(value))
 
 
-def scan_text(text: str, path: str, canaries=(), allow=()) -> list[Finding]:
-    """Scan one text. `allow` is a sequence of compiled regular expressions (digit-run rule only)."""
+def scan_text(text: str, path: str, canaries=(), allow=(), digits=True) -> list[Finding]:
+    """Scan one text. `allow` is a sequence of compiled regular expressions (digit-run rule only). `digits=False` turns off the generic digit-run rule and the ten-digit account rule and nothing
+    else: it is for output the scanner cannot own (the runner's own job log: image versions, run ids, byte counts). The secret, named-secret, canary and Luhn-valid card-number rules still apply
+    (a run id has 11 digits and cannot be a card number of 13 to 19)."""
     found: list[Finding] = []
     for number, line in enumerate(text.splitlines(), 1):
         for canary in canaries:
@@ -131,7 +133,7 @@ def scan_text(text: str, path: str, canaries=(), allow=()) -> list[Finding]:
                 found.append(Finding(path, number, "canary", len(canary), _fp(canary)))
         found.extend(_secret_findings(line, number, path))
         if not any(a.search(line) for a in allow):
-            found.extend(_digit_findings(line, number, path))
+            found.extend(f for f in _digit_findings(line, number, path) if digits or f.kind == "card_number")
     return found
 
 
@@ -177,7 +179,7 @@ def _decode(data: bytes) -> str | None:
         return None
 
 
-def scan_paths(paths, canaries=(), allow=()):
+def scan_paths(paths, canaries=(), allow=(), digits=True):
     """Returns (findings, files scanned, lines scanned)."""
     found: list[Finding] = []
     n_files = n_lines = 0
@@ -194,7 +196,7 @@ def scan_paths(paths, canaries=(), allow=()):
                 continue
             n_files += 1
             n_lines += len(text.splitlines())
-            found.extend(scan_text(text, str(f), canaries, allow))
+            found.extend(scan_text(text, str(f), canaries, allow, digits))
     return found, n_files, n_lines
 
 
@@ -211,6 +213,7 @@ def main(argv=None) -> int:
     ap.add_argument("paths", nargs="+")
     ap.add_argument("--canary", help="file with one seeded canary value per line")
     ap.add_argument("--allow", help="file with one regular expression per line (digit-run rule only)")
+    ap.add_argument("--no-digit-rule", action="store_true", help="turn off the generic digit-run and the ten-digit account rules only (for the runner's own job log); every other rule stays, the Luhn card-number rule included")
     args = ap.parse_args(argv)
     for p in args.paths:
         if not Path(p).exists() and not Path(p).is_symlink():
@@ -242,7 +245,7 @@ def main(argv=None) -> int:
                 return 2
             compiled.append(rx)
         allow = tuple(compiled)
-    found, n_files, n_lines = scan_paths(args.paths, canaries, allow)
+    found, n_files, n_lines = scan_paths(args.paths, canaries, allow, not args.no_digit_rule)
     for item in found:
         print("leakscan FAIL: " + str(item))
     if found:
