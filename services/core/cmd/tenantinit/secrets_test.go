@@ -34,10 +34,9 @@ func (w *world) forbidden(t *testing.T) []string {
 func TestNoSecretReachesTheOutputInAnyOutcome(t *testing.T) { // AGENT-13, A347, REQ-SEC-005
 	w := newWorld(t)
 	scenarios := map[string]func() result{
-		"success":             func() result { return w.run(w.args("2", tenantA+"=Synthetic Bank A")...) },
-		"the same again":      func() result { return w.run(w.args("2", tenantA+"=Synthetic Bank A")...) },
-		"a name that differs": func() result { return w.run(w.args("2", tenantA+"=Different Name")...) },
-		"a bad command line":  func() result { return w.run(w.args("2", "ten_a=Name")...) },
+		"success":            func() result { return w.run(w.args("2")...) },
+		"the same again":     func() result { return w.run(w.args("2")...) },
+		"a bad command line": func() result { return w.run(append(w.args("2"), "--tenant", "ten_aa=Name")...) },
 	}
 	for name, f := range scenarios {
 		r := f()
@@ -46,7 +45,7 @@ func TestNoSecretReachesTheOutputInAnyOutcome(t *testing.T) { // AGENT-13, A347,
 	// A different public key under a registered version.
 	w2 := newWorld(t)
 	w2.registerKey(1, ed25519.NewKeyFromSeed(seedFor("a foreign key")).Public().(ed25519.PublicKey))
-	r := w2.run(w2.args("1", tenantA+"=Synthetic Bank A")...)
+	r := w2.run(w2.args("1")...)
 	if r.code != exitRefused {
 		t.Fatalf("code %d, want 1", r.code)
 	}
@@ -61,7 +60,7 @@ func TestADatabaseThatCannotBeReachedIsReportedInFixedWords(t *testing.T) { // A
 	}
 	u.Path = "/no_such_database_synthetic"
 	w.dsnPath = w.dsnFile("missing-db", u.String())
-	r := w.run(w.args("1", tenantA+"=Synthetic Bank A")...)
+	r := w.run(w.args("1")...)
 	if r.code != exitFailure || r.out != "" || !strings.HasPrefix(r.err, "tenantinit: the database cannot be reached") || strings.Count(r.err, "\n") != 1 {
 		t.Fatalf("code %d, stdout %q, stderr %q; want 3, nothing and one line starting %q", r.code, r.out, r.err, "tenantinit: the database cannot be reached")
 	}
@@ -90,7 +89,7 @@ func TestADSNFileThatCannotBeUsedIsReportedInFixedWords(t *testing.T) { // AGENT
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {
-			a := w.args("1", tenantA+"=Synthetic Bank A")
+			a := w.args("1")
 			a[1] = path
 			r := w.run(a...)
 			if r.code != exitFailure || r.out != "" || r.err != textDSNUnusable+"\n" {
@@ -104,7 +103,7 @@ func TestADSNFileThatCannotBeUsedIsReportedInFixedWords(t *testing.T) { // AGENT
 
 func TestARunOpensOneConnection(t *testing.T) { // the run holds one connection
 	w := newWorld(t)
-	if r := w.run(w.args("1", tenantA+"=Synthetic Bank A")...); r.code != exitDone {
+	if r := w.run(w.args("1")...); r.code != exitDone {
 		t.Fatalf("code %d, stderr %q", r.code, r.err)
 	}
 	if w.dials != 1 {

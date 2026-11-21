@@ -15,12 +15,12 @@ import (
 func TestAKeyIsRegisteredOnceAndTwice(t *testing.T) { // REQ-SEC-005
 	w := newWorld(t)
 	pub := ed25519.PublicKey(w.key(1, "tenantinit key one"))
-	a := w.args("1", tenantA+"=Synthetic Bank A")
-	if r := w.run(a...); r.code != exitDone || r.out != outLine(1, 0, 1, 0) {
+	a := w.args("1")
+	if r := w.run(a...); r.code != exitDone || r.out != outLine(1, 0) {
 		t.Fatalf("first run: code %d, stdout %q, stderr %q", r.code, r.out, r.err)
 	}
-	if r := w.run(a...); r.code != exitDone || r.out != outLine(0, 1, 0, 1) || r.err != "" {
-		t.Fatalf("second run: code %d, stdout %q, stderr %q; want 0, %q and nothing", r.code, r.out, r.err, outLine(0, 1, 0, 1))
+	if r := w.run(a...); r.code != exitDone || r.out != outLine(0, 1) || r.err != "" {
+		t.Fatalf("second run: code %d, stdout %q, stderr %q; want 0, %q and nothing", r.code, r.out, r.err, outLine(0, 1))
 	}
 	keys := w.keys()
 	row, ok := keys["core-trust.ed25519.1"]
@@ -31,7 +31,7 @@ func TestAKeyIsRegisteredOnceAndTwice(t *testing.T) { // REQ-SEC-005
 
 func TestTheRegisteredPublicKeyVerifiesASignatureOfTheFilesKey(t *testing.T) { // REQ-SEC-005, REQ-AUD-006: the stored key is the public half of the private file
 	w := newWorld(t)
-	if r := w.run(w.args("1", tenantA+"=Synthetic Bank A")...); r.code != exitDone {
+	if r := w.run(w.args("1")...); r.code != exitDone {
 		t.Fatalf("code %d, stderr %q", r.code, r.err)
 	}
 	stored := ed25519.PublicKey(w.keys()["core-trust.ed25519.1"].public)
@@ -50,16 +50,13 @@ func TestTheSameVersionWithAnotherPublicKeyIsRefusedAndTheTableIsUnchanged(t *te
 	w := newWorld(t)
 	foreign := ed25519.NewKeyFromSeed(seedFor("a foreign key")).Public().(ed25519.PublicKey)
 	w.registerKey(1, foreign)
-	r := w.run(w.args("1", tenantA+"=Synthetic Bank A")...)
+	r := w.run(w.args("1")...)
 	if r.code != exitRefused || r.out != "" || r.err != textKeyDiffers+"\n" {
 		t.Fatalf("code %d, stdout %q, stderr %q; want 1, nothing and %q", r.code, r.out, r.err, textKeyDiffers+"\n")
 	}
 	keys := w.keys()
 	if len(keys) != 1 || !bytes.Equal(keys["core-trust.ed25519.1"].public, foreign) || keys["core-trust.ed25519.1"].status != "ACTIVE" {
 		t.Fatalf("signing_key rows %+v, want the foreign key unchanged and alone", keys)
-	}
-	if n := len(w.tenants()); n != 0 {
-		t.Fatalf("%d tenant rows kept after a refusal, want none (one transaction)", n)
 	}
 }
 
@@ -69,27 +66,24 @@ func TestAKeyThatIsRegisteredButNoLongerActiveIsRefused(t *testing.T) { // REQ-S
 	if _, err := w.admin.Exec(ctx(t), `SELECT key_retire('core-trust.ed25519.1')`); err != nil {
 		t.Fatal(err)
 	}
-	r := w.run(w.args("1", tenantA+"=Synthetic Bank A")...)
+	r := w.run(w.args("1")...)
 	if r.code != exitRefused || r.out != "" || r.err != textKeyNotActive+"\n" {
 		t.Fatalf("code %d, stdout %q, stderr %q; want 1, nothing and %q", r.code, r.out, r.err, textKeyNotActive+"\n")
-	}
-	if n := len(w.tenants()); n != 0 {
-		t.Fatalf("%d tenant rows kept after a refusal, want none", n)
 	}
 }
 
 func TestARotationRegistersBothKeysAndASecondRunRegistersNone(t *testing.T) { // REQ-SEC-005: the rotation overlap, the keys in version order
 	w := newWorld(t)
 	p1, p2 := ed25519.PublicKey(w.key(1, "tenantinit key one")), ed25519.PublicKey(w.key(2, "tenantinit key two"))
-	a := w.args("2", tenantA+"=Synthetic Bank A")
-	if r := w.run(a...); r.code != exitDone || r.out != outLine(1, 0, 2, 0) {
+	a := w.args("2")
+	if r := w.run(a...); r.code != exitDone || r.out != outLine(2, 0) {
 		t.Fatalf("first run: code %d, stdout %q, stderr %q", r.code, r.out, r.err)
 	}
 	keys := w.keys()
 	if len(keys) != 2 || !bytes.Equal(keys["core-trust.ed25519.1"].public, p1) || !bytes.Equal(keys["core-trust.ed25519.2"].public, p2) {
 		t.Fatalf("signing_key rows %+v, want both public keys", keys)
 	}
-	if r := w.run(a...); r.code != exitDone || r.out != outLine(0, 1, 0, 2) {
+	if r := w.run(a...); r.code != exitDone || r.out != outLine(0, 2) {
 		t.Fatalf("second run: code %d, stdout %q, stderr %q", r.code, r.out, r.err)
 	}
 }
@@ -98,9 +92,9 @@ func TestOneRegisteredKeyAndOneNewKeyCountSeparately(t *testing.T) { // REQ-SEC-
 	w := newWorld(t)
 	w.registerKey(1, ed25519.NewKeyFromSeed(seedFor("tenantinit key one")).Public().(ed25519.PublicKey))
 	w.key(2, "tenantinit key two")
-	r := w.run(w.args("2", tenantA+"=Synthetic Bank A")...)
-	if r.code != exitDone || r.out != outLine(1, 0, 1, 1) {
-		t.Fatalf("code %d, stdout %q, stderr %q; want 0 and %q", r.code, r.out, r.err, outLine(1, 0, 1, 1))
+	r := w.run(w.args("2")...)
+	if r.code != exitDone || r.out != outLine(1, 1) {
+		t.Fatalf("code %d, stdout %q, stderr %q; want 0 and %q", r.code, r.out, r.err, outLine(1, 1))
 	}
 }
 
@@ -108,7 +102,7 @@ func TestAThirdActiveKeyIsRefusedByTheDatabaseAndEverythingIsRolledBack(t *testi
 	w := newWorld(t)
 	w.key(2, "tenantinit key two")
 	w.key(3, "tenantinit key three")
-	r := w.run(w.args("3", tenantA+"=Synthetic Bank A")...)
+	r := w.run(w.args("3")...)
 	if r.code != exitRefused || r.out != "" || r.err != textKeyRefused+"\n" {
 		t.Fatalf("code %d, stdout %q, stderr %q; want 1, nothing and %q", r.code, r.out, r.err, textKeyRefused+"\n")
 	}
@@ -118,12 +112,9 @@ func TestAThirdActiveKeyIsRefusedByTheDatabaseAndEverythingIsRolledBack(t *testi
 func TestAKeyOlderThanARegisteredOneIsRefused(t *testing.T) { // REQ-SEC-005: a version is newer than every registered one
 	w := newWorld(t)
 	w.registerKey(2, ed25519.NewKeyFromSeed(seedFor("tenantinit key two")).Public().(ed25519.PublicKey))
-	r := w.run(w.args("1", tenantA+"=Synthetic Bank A")...) // the directory holds version 1 only
+	r := w.run(w.args("1")...) // the directory holds version 1 only
 	if r.code != exitRefused || r.err != textKeyRefused+"\n" || r.out != "" {
 		t.Fatalf("code %d, stdout %q, stderr %q; want 1, nothing and %q", r.code, r.out, r.err, textKeyRefused+"\n")
-	}
-	if n := len(w.tenants()); n != 0 {
-		t.Fatalf("%d tenant rows kept after a refusal, want none", n)
 	}
 }
 
@@ -177,7 +168,7 @@ func TestAKeyFileTheLoaderRefusesRegistersNothing(t *testing.T) { // REQ-SEC-005
 			if name == "more keys than the overlap" {
 				overlap = "1"
 			}
-			r := w.run(w.args(overlap, tenantA+"=Synthetic Bank A")...)
+			r := w.run(w.args(overlap)...)
 			if r.code != exitFailure || r.out != "" || r.err != textKeysUnusable+"\n" {
 				t.Fatalf("code %d, stdout %q, stderr %q; want 3, nothing and %q", r.code, r.out, r.err, textKeysUnusable+"\n")
 			}
@@ -204,7 +195,7 @@ func TestAnEmptyOrMissingKeyDirectoryRegistersNothing(t *testing.T) { // REQ-SEC
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
 			w.keyDir = dir(t)
-			r := w.run(w.args("1", tenantA+"=Synthetic Bank A")...)
+			r := w.run(w.args("1")...)
 			if r.code != exitFailure || r.out != "" || r.err != textKeysUnusable+"\n" {
 				t.Fatalf("code %d, stdout %q, stderr %q; want 3, nothing and %q", r.code, r.out, r.err, textKeysUnusable+"\n")
 			}

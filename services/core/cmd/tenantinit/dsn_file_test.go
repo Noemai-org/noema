@@ -21,7 +21,7 @@ func TestADSNFileWithGroupOrOtherBitsIsRefused(t *testing.T) {
 		if err := os.Chmod(p, mode); err != nil {
 			t.Fatal(err)
 		}
-		a := w.args("1", tenantA+"=Synthetic Bank A")
+		a := w.args("1")
 		a[1] = p
 		r := w.run(a...)
 		if r.code != exitFailure || r.out != "" || r.err != textDSNUnusable+"\n" {

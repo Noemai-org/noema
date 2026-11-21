@@ -1,7 +1,8 @@
 package main
 
-// TRU-02 (ruling A484): the world the tests of the tenantinit command share: a throwaway PostgreSQL database with the real migrations, the operator's superuser login (the only
-// role that can create a tenant row or call key_register; migration 0030 and 0013), a key directory with one SYNTHETIC core-trust key, and the command's own run function.
+// TRU-02 (rulings A484, A489): the world the tests of the tenantinit command share: a throwaway PostgreSQL database with the real migrations, the operator's superuser login (an owner of
+// key_register, migration 0013), a key directory with one SYNTHETIC core-trust key, and the command's own run function. The command registers keys only: tenant rows have one creator,
+// create-tenants.sh (A353, A489), so the tests assert that no tenant row is created or touched.
 // All data is SYNTHETIC (AGENT-25). The password in the DSN file is a SYNTHETIC marker: the test cluster authenticates by trust, so any value connects, and the tests look for it in the output.
 
 import (
@@ -36,14 +37,13 @@ const (
 	// markerPassword is the SYNTHETIC password written into the DSN file. No output may carry it.
 	markerPassword = "synthetic-marker-synthetic-marker"
 
-	usageLine = "tenantinit: usage: tenantinit --dsn-file FILE --key-dir DIR --key-max-active N --tenant ten_ID=NAME [--tenant ten_ID=NAME ...]"
+	usageLine = "tenantinit: usage: tenantinit --dsn-file FILE --key-dir DIR --key-max-active N"
 
 	// The fixed public texts. A cause is kept in the error value for errors.Is and is never printed.
-	textNameDiffers  = "tenantinit: a tenant with this ID already exists under another name; nothing was changed"
 	textKeyDiffers   = "tenantinit: a different public key is already registered under this key version; nothing was changed"
 	textKeyNotActive = "tenantinit: a key of this version is registered but is no longer active; nothing was changed"
 	textKeyRefused   = "tenantinit: the database refused to register a key (a version that is not newer than the registered ones, or too many active keys); nothing was changed"
-	textLoginDenied  = "tenantinit: the login may not create tenants or register keys (only the operator's superuser does); nothing was changed"
+	textLoginDenied  = "tenantinit: the login may not register keys (only the owner of key_register and the operator's superuser may); nothing was changed"
 	textKeysUnusable = "tenantinit: the signing keys cannot be loaded; nothing was changed"
 	textDSNUnusable  = "tenantinit: the DSN file cannot be used"
 	textFailed       = "tenantinit: the initialisation could not be completed; nothing was changed"
@@ -151,18 +151,14 @@ func (w *world) run(args ...string) result {
 	return result{code: code, out: out.String(), err: errw.String()}
 }
 
-// args is a valid command line: the operator's DSN file, the key directory, the overlap and the tenants given as ID=NAME.
-func (w *world) args(maxActive string, tenants ...string) []string {
-	a := []string{"--dsn-file", w.dsnPath, "--key-dir", w.keyDir, "--key-max-active", maxActive}
-	for _, tn := range tenants {
-		a = append(a, "--tenant", tn)
-	}
-	return a
+// args is a valid command line: the operator's DSN file, the key directory and the overlap.
+func (w *world) args(maxActive string) []string {
+	return []string{"--dsn-file", w.dsnPath, "--key-dir", w.keyDir, "--key-max-active", maxActive}
 }
 
 // outLine is the one line of output a successful run prints.
-func outLine(tenantsCreated, tenantsExisting, keysRegistered, keysExisting int) string {
-	return fmt.Sprintf(`{"tenants_created":%d,"tenants_existing":%d,"keys_registered":%d,"keys_existing":%d}`+"\n", tenantsCreated, tenantsExisting, keysRegistered, keysExisting)
+func outLine(keysRegistered, keysExisting int) string {
+	return fmt.Sprintf(`{"keys_registered":%d,"keys_existing":%d}`+"\n", keysRegistered, keysExisting)
 }
 
 func (w *world) count(query string, args ...any) int {
