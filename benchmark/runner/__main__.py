@@ -60,7 +60,7 @@ def only_ids(only: list[str] | None, only_file: Path | None) -> set[str] | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="benchmark.runner", description=__doc__)
+    p = argparse.ArgumentParser(prog="benchmark.runner", description=__doc__, allow_abbrev=False)
     p.add_argument("--suite", type=Path, required=True, help="a suite root written by `python -m benchmark.generator generate`")
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--run-id", default="run")

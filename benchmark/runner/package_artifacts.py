@@ -170,7 +170,7 @@ def _write(path: Path, doc: Json) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="python -m benchmark.runner.package_artifacts", description=__doc__)
+    p = argparse.ArgumentParser(prog="python -m benchmark.runner.package_artifacts", description=__doc__, allow_abbrev=False)
     p.add_argument("--run", type=Path, required=True)
     p.add_argument("--sha", required=True)
     p.add_argument("--run-id", required=True)
