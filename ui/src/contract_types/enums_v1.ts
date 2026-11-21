@@ -17,6 +17,13 @@ export function parseEnumsV1ApproverRequirementOption1(v: unknown, p: string = "
   return oneOfLit(v, p, ["SELF", "MAKER_CHECKER"] as const);
 }
 
+/** EnumsV1ConfirmationResponse, generated from enums.v1.json#$defs/ConfirmationResponse. An approver's response. ACCEPT leads to a fresh Trust evaluation, never straight to a grant. */
+export type EnumsV1ConfirmationResponse = "ACCEPT" | "DECLINE";
+
+export function parseEnumsV1ConfirmationResponse(v: unknown, p: string = "$"): EnumsV1ConfirmationResponse {
+  return oneOfLit(v, p, ["ACCEPT", "DECLINE"] as const);
+}
+
 /** EnumsV1DecisionOutcome, generated from enums.v1.json#$defs/DecisionOutcome. Decision Record outcome: exactly one per decision (SoT §13.1). A Decision Grant is issued only on ALLOW. */
 export type EnumsV1DecisionOutcome = "ALLOW" | "CLARIFY" | "CONFIRM" | "WAIT" | "ESCALATE" | "REJECT" | "UNKNOWN";
 

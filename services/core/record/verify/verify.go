@@ -234,7 +234,10 @@ func (v *Verifier) check(ctx context.Context, tenantID string) (*Finding, int64,
 	return f, checked, err
 }
 
-// checkHead compares the stored chain head with the newest event. With no events the head must be at the genesis.
+// checkHead compares the stored chain head with the newest event. With no events the head must be at the genesis, or absent: the head row is made by the
+// tenant's first append (record_lock_head_t), so a tenant that has never written has neither a head nor an event, and that is not a break (noema#687, finding 1;
+// a break would turn its kill switch on). A missing head row while any event exists is still HEAD_MISMATCH. What this cannot tell from an unused tenant is a Record
+// whose every event and head row were deleted by someone past the immutability trigger: that is the case the anchors close (REC-07), as for a rewritten head.
 func checkHead(ctx context.Context, tx pgx.Tx, tenantID string, events int64) (*Finding, error) {
 	var headSeq int64
 	var headHash string
@@ -243,6 +246,9 @@ func checkHead(ctx context.Context, tx pgx.Tx, tenantID string, events int64) (*
 		return &Finding{TenantID: tenantID, Seq: headSeq, Kind: BreakHeadMismatch, Detail: detail}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
+		if events == 0 {
+			return nil, nil
+		}
 		return mismatch("the chain head row is missing"), nil
 	}
 	if err != nil {

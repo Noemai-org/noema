@@ -43,9 +43,9 @@ func TestPublishedIsEveryVersionOldestFirstAsNumbersWithItsTimeInWholeSeconds(t 
 	w.publishAt(t, w.trustA, tenantA, "fin.pol", "1.10", "2026-11-02 10:00:00.100+00")
 	w.publishAt(t, w.trustA, tenantA, "fin.pol", "2.0", "2026-11-03 10:00:59.999+00")
 	want := []policystore.Publication{
-		{Version: "1.9", PublishedAt: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC).Unix()},
-		{Version: "1.10", PublishedAt: time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC).Unix()},
-		{Version: "2.0", PublishedAt: time.Date(2026, 11, 3, 10, 0, 59, 0, time.UTC).Unix()},
+		{Version: "1.9", PublishedAt: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC).Unix(), DocumentHash: testDocHash},
+		{Version: "1.10", PublishedAt: time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC).Unix(), DocumentHash: testDocHash},
+		{Version: "2.0", PublishedAt: time.Date(2026, 11, 3, 10, 0, 59, 0, time.UTC).Unix(), DocumentHash: testDocHash},
 	}
 	if got := published(t, w.trustA, tenantA, "fin.pol"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("published %v, want %v", got, want)
@@ -132,5 +132,26 @@ func TestPublishedAQueryThatCannotStartIsAnErrorAndNeverAnEmptyList(t *testing.T
 	w.trustA.Close()
 	if got, err := policystore.Published(ctx(t), w.trustA, tenantA, "fin.pol"); err == nil {
 		t.Fatalf("a closed pool read %v and no error", got)
+	}
+}
+
+// A413, INV-09, INV-21: Published carries the document hash each row was published with, and an empty hash for a row that has none (a row from before migration 0035, NULL), so the
+// loader of the pack can tell a document that drifted from one that was never hashed. The NULL row is made by switching the hash guard off for the fixture, as the administrator.
+func TestPublishedCarriesTheDocumentHashOfEachRowAndNothingForANullOne(t *testing.T) {
+	w := newWorld(t)
+	w.publishAt(t, w.trustA, tenantA, "fin.pol", "3.1", "2026-11-01 10:00:00+00")
+	if _, err := w.admin.Exec(ctx(t), `ALTER TABLE policy_publication DISABLE TRIGGER policy_publication_guard_document_hash`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.trustA.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, published_at)
+		VALUES ($1, 'fin.pol', '3.2', policy_version_key('3.2'), 'adm_synth01', '2026-11-02 10:00:00+00'::timestamptz)`, tenantA); err != nil {
+		t.Fatalf("a publication with no hash, guard off: %v", err)
+	}
+	if _, err := w.admin.Exec(ctx(t), `ALTER TABLE policy_publication ENABLE TRIGGER policy_publication_guard_document_hash`); err != nil {
+		t.Fatal(err)
+	}
+	got := published(t, w.trustA, tenantA, "fin.pol")
+	if len(got) != 2 || got[0].DocumentHash != testDocHash || got[1].DocumentHash != "" {
+		t.Fatalf("published %+v, want the row's hash first and an empty one for the NULL row", got)
 	}
 }
