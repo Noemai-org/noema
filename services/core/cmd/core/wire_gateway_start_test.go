@@ -40,16 +40,17 @@ type fakeStarter struct {
 	err     error
 	calls   int
 	hadDL   bool
+	authn   string
 	sess    orchestrator.Session
 	req     investigations.StartRequest
 }
 
-func (f *fakeStarter) Start(ctx context.Context, s orchestrator.Session, r investigations.StartRequest) (orchestrator.Investigation, bool, error) {
+func (f *fakeStarter) Start(ctx context.Context, s orchestrator.Session, authnRef string, r investigations.StartRequest) (orchestrator.Investigation, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	_, f.hadDL = ctx.Deadline()
-	f.sess, f.req = s, r
+	f.sess, f.req, f.authn = s, r, authnRef
 	if f.err != nil {
 		return orchestrator.Investigation{}, false, f.err
 	}
@@ -129,6 +130,10 @@ func newStarter(t *testing.T, c startConfig, st *fakeStarter, r *fakeRunner, f *
 	s, err := newTurnStarter(t.Context(), c, fakeStores{by: map[string]*fakeStarter{tenA: st}}, r, f.report)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The tests do not run the edge: the seam gives the synthetic authentication reference of a verified session of the turn's own tenant and principal.
+	s.authn = func(_ context.Context, _, _ string) (string, bool) {
+		return "ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true
 	}
 	t.Cleanup(s.Shutdown)
 	return s
@@ -538,6 +543,9 @@ func TestARunIsNotCancelledWithTheStartersContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.authn = func(_ context.Context, _, _ string) (string, bool) {
+		return "ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true
+	}
 	cancel()
 	if err := s.Start(context.Background(), turnOf(tenA, corrA, "recev_AAA1")); err != nil {
 		t.Fatal(err)
@@ -576,5 +584,26 @@ func TestATurnOfAPrincipalThatIsNotACustomerIsRefusedBeforeAnythingIsAsked(t *te
 		if st.calls != 0 || r.count() != 0 {
 			t.Errorf("kind %q: the store was asked %d times and %d runs happened", kind, st.calls, r.count())
 		}
+	}
+}
+
+// INV-12, A441 (interim, relayed): the Start records the authentication reference of the VERIFIED session of the request, passes it to the store, and refuses (nothing stored, nothing run)
+// a request that has no verified session of the turn's own tenant and principal.
+func TestStartPassesTheVerifiedSessionsAuthnRefAndRefusesARequestWithoutOne(t *testing.T) {
+	st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
+	s := newStarter(t, cfg(1, 2), st, r, f)
+	if err := s.Start(t.Context(), turnOf(tenA, "corr_01ARZ3NDEKTSV4RRFFQ69G5FA1", "recev_AA1")); err != nil {
+		t.Fatal(err)
+	}
+	if st.authn != "ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Errorf("the store was given authn_ref %q, want the verified session's", st.authn)
+	}
+	s2 := newStarter(t, cfg(1, 2), &fakeStarter{created: true}, &fakeRunner{}, &failures{})
+	s2.authn = sessionAuthnRef // production: a plain context has no verified session
+	st2 := &fakeStarter{created: true}
+	s2.stores = fakeStores{by: map[string]*fakeStarter{tenA: st2}}
+	err := s2.Start(t.Context(), turnOf(tenA, "corr_01ARZ3NDEKTSV4RRFFQ69G5FA2", "recev_AA2"))
+	if !errors.Is(err, ErrStartTurn) || st2.calls != 0 {
+		t.Errorf("a request with no verified session: error %v, store calls %d; want ErrStartTurn and no call", err, st2.calls)
 	}
 }

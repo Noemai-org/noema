@@ -57,7 +57,7 @@ type turnRunner interface {
 
 // investigationStarter is the investigation store of one tenant (investigations.Store).
 type investigationStarter interface {
-	Start(ctx context.Context, sess orchestrator.Session, r investigations.StartRequest) (orchestrator.Investigation, bool, error)
+	Start(ctx context.Context, sess orchestrator.Session, authnRef string, r investigations.StartRequest) (orchestrator.Investigation, bool, error)
 }
 
 // startStores gives the starter of one tenant, or an error: never another tenant's (INV-12).
@@ -143,6 +143,9 @@ type turnStarter struct {
 	runner turnRunner
 	failed func(investigationID string, err error)
 	base   context.Context
+	// authn gives the authentication reference of the VERIFIED session of this request, or false: the investigation row records it (A441, INV-12). It is a seam for the tests; the
+	// production one reads the edge session of the request context and requires it to be the turn's own tenant and principal.
+	authn func(ctx context.Context, tenantID, principalID string) (string, bool)
 
 	mu       sync.Mutex
 	closed   bool
@@ -160,12 +163,22 @@ func newTurnStarter(ctx context.Context, cfg startConfig, stores startStores, ru
 	case cfg.Workers < 1 || cfg.Queue < 1 || cfg.Run <= 0 || cfg.Start <= 0:
 		return nil, errors.New("cmd/core: the investigation starter needs its four settings")
 	}
-	s := &turnStarter{cfg: cfg, stores: stores, runner: runner, failed: failed, base: context.WithoutCancel(ctx), queue: make(chan startJob, cfg.Queue), inflight: map[string]struct{}{}}
+	s := &turnStarter{cfg: cfg, stores: stores, runner: runner, failed: failed, base: context.WithoutCancel(ctx), authn: sessionAuthnRef, queue: make(chan startJob, cfg.Queue), inflight: map[string]struct{}{}}
 	for i := 0; i < cfg.Workers; i++ {
 		s.wg.Add(1)
 		go s.work()
 	}
 	return s, nil
+}
+
+// sessionAuthnRef is the production source of the authentication reference: the principal the edge verified for this request (session.FromContext), only if it is the turn's own tenant
+// and principal and carries a reference. A request with no verified session, or one that names another tenant or principal, gives none, and the Start refuses (INV-12, fail closed).
+func sessionAuthnRef(ctx context.Context, tenantID, principalID string) (string, bool) {
+	p, ok := session.FromContext(ctx)
+	if !ok || p.Tenant != tenantID || p.ID != principalID || p.AuthnRef == "" {
+		return "", false
+	}
+	return p.AuthnRef, true
 }
 
 func (s *turnStarter) work() {
@@ -206,6 +219,10 @@ func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
 	if s.isClosed() {
 		return ErrStartClosed
 	}
+	authnRef, ok := s.authn(ctx, t.TenantID, t.PrincipalID)
+	if !ok {
+		return fmt.Errorf("%w: the request carries no verified session of this tenant and principal", ErrStartTurn)
+	}
 	store, err := s.stores.StarterFor(t.TenantID)
 	if err != nil {
 		return err
@@ -213,7 +230,7 @@ func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
 	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.PrincipalID, Role: string(session.RoleCustomer)}
 	sctx, cancel := context.WithTimeout(ctx, s.cfg.Start)
 	defer cancel()
-	inv, _, err := store.Start(sctx, sess, investigations.StartRequest{InvestigationID: invID, CorrelationID: t.CorrelationID, InputReceivedRef: t.Input.EventID})
+	inv, _, err := store.Start(sctx, sess, authnRef, investigations.StartRequest{InvestigationID: invID, CorrelationID: t.CorrelationID, InputReceivedRef: t.Input.EventID})
 	if err != nil {
 		return fmt.Errorf("cmd/core: the investigation cannot be started: %w", err)
 	}
