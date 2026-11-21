@@ -41,15 +41,16 @@ type fakeStarter struct {
 	calls   int
 	hadDL   bool
 	sess    orchestrator.Session
+	authn   string
 	req     investigations.StartRequest
 }
 
-func (f *fakeStarter) Start(ctx context.Context, s orchestrator.Session, r investigations.StartRequest) (orchestrator.Investigation, bool, error) {
+func (f *fakeStarter) Start(ctx context.Context, s orchestrator.Session, authnRef string, r investigations.StartRequest) (orchestrator.Investigation, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	_, f.hadDL = ctx.Deadline()
-	f.sess, f.req = s, r
+	f.sess, f.authn, f.req = s, authnRef, r
 	if f.err != nil {
 		return orchestrator.Investigation{}, false, f.err
 	}
@@ -155,6 +156,10 @@ func TestAnAdmittedTurnRunsOnceAsTheIdentitysSession(t *testing.T) {
 	}
 	if st.req.InvestigationID != invA || st.req.CorrelationID != corrA || st.req.InputReceivedRef != "recev_AAA1" {
 		t.Fatalf("start request = %+v", st.req)
+	}
+	// A441, INV-12: the store is given the authenticated session's reference (the identity's SessionID), the one the edge's middleware produced.
+	if st.authn != tn.SessionID || st.authn == "" {
+		t.Fatalf("authn reference = %q, want the identity's session %q", st.authn, tn.SessionID)
 	}
 	if len(f.errs) != 0 {
 		t.Fatalf("unexpected failure %v", f.errs)
