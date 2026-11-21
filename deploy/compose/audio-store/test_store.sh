@@ -67,21 +67,53 @@ echo "$out" | grep -Eq 'purged 2 files' || fail "purge did not report 2 files: $
 [ -e "$work/outside.wav" ] || fail "purge followed a link out of the store"
 rm -f "$good/spk_aa/linked.wav"
 
-# remove <speaker_ref>: a withdrawn speaker's whole folder, by reference; refuses a reference that is not plain; prints a count, never a name.
+# remove <speaker_ref>: a withdrawn speaker's whole folder, by reference; refuses a reference that is not plain; prints a count, never a name. SR on noema#819: a removal leaves a trace, one
+# count-only line (date and count, never the reference) in a log that only this account can read, so the 7-day promise can be shown. The log is required for `remove` and a removal that cannot be
+# logged is refused with nothing deleted.
+rlog="$work/removals.log"
+remove_with() { # reference [log setting]; the log setting defaults to $rlog, "-" means unset
+  if [ "${2-}" = "-" ]; then
+    env -u NOEMA_AUDIO_REMOVAL_LOG NOEMA_AUDIO_STORE_DIR="$good" NOEMA_AUDIO_RETENTION_DAYS=30 sh "$store" remove "$1" 2>&1
+  else
+    NOEMA_AUDIO_STORE_DIR="$good" NOEMA_AUDIO_RETENTION_DAYS=30 NOEMA_AUDIO_REMOVAL_LOG="${2-$rlog}" sh "$store" remove "$1" 2>&1
+  fi
+}
 mkdir -p "$good/spk_cc/s9" "$good/spk_dd/s9"; printf synthetic > "$good/spk_cc/s9/x.wav"; printf synthetic > "$good/spk_dd/s9/y.wav"
 for bad in "" "../spk_dd" "spk_dd/s9" "spk dd" "." ".." "/etc" "spk_dd/"; do
-  out="$(NOEMA_AUDIO_STORE_DIR="$good" NOEMA_AUDIO_RETENTION_DAYS=30 sh "$store" remove "$bad" 2>&1)" && fail "remove ran with the reference '$bad'"
+  out="$(remove_with "$bad")" && fail "remove ran with the reference '$bad'"
 done
 [ -e "$good/spk_dd/s9/y.wav" ] || fail "a refused remove deleted something"
-out="$(NOEMA_AUDIO_STORE_DIR="$good" NOEMA_AUDIO_RETENTION_DAYS=30 sh "$store" remove spk_cc 2>&1)" || fail "remove failed: $out"
+out="$(remove_with spk_dd -)" && fail "remove ran with no removal log setting"
+[ -e "$good/spk_dd/s9/y.wav" ] || fail "a removal with no log deleted something"
+[ ! -e "$rlog" ] || fail "a log was made by a refused removal"
+out="$(remove_with spk_cc)" || fail "remove failed: $out"
 case "$out" in *spk_cc*|*x.wav*) fail "remove printed a name: $out" ;; esac
 echo "$out" | grep -Eq 'removed 1 files' || fail "remove did not report 1 file: $out"
 [ ! -e "$good/spk_cc" ] || fail "the speaker folder was kept"
 [ -e "$good/spk_dd/s9/y.wav" ] || fail "another speaker's folder was removed"
-out="$(NOEMA_AUDIO_STORE_DIR="$good" NOEMA_AUDIO_RETENTION_DAYS=30 sh "$store" remove spk_zz 2>&1)" && fail "remove of an absent speaker reported success"
+out="$(remove_with spk_zz)" && fail "remove of an absent speaker reported success"
 ln -s "$work/real" "$good/spk_link"
-out="$(NOEMA_AUDIO_STORE_DIR="$good" NOEMA_AUDIO_RETENTION_DAYS=30 sh "$store" remove spk_link 2>&1)" && fail "remove followed a link"
+out="$(remove_with spk_link)" && fail "remove followed a link"
 rm "$good/spk_link"
+# the trace: one line per removal, date and count only, in a file at mode 0600, appended to (never rewritten)
+[ -f "$rlog" ] && [ ! -L "$rlog" ] || fail "the removal log was not made"
+[ "$(stat -c %a "$rlog")" = "600" ] || fail "the removal log is not mode 600"
+[ "$(wc -l < "$rlog" | tr -d ' ')" = "1" ] || fail "the removal log does not hold one line after one removal"
+grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z removal 1 files$' "$rlog" || fail "the removal log line is not 'date removal N files'"
+case "$(cat "$rlog")" in *spk_*|*cc*|*x.wav*) fail "the removal log names a speaker or a file" ;; esac
+mkdir -p "$good/spk_ee/s1"; printf synthetic > "$good/spk_ee/s1/a.wav"; printf synthetic > "$good/spk_ee/s1/b.wav"
+out="$(remove_with spk_ee)" || fail "a second removal failed: $out"
+[ "$(wc -l < "$rlog" | tr -d ' ')" = "2" ] || fail "the second removal did not append a line"
+grep -Eq ' removal 2 files$' "$rlog" || fail "the second line does not say 2 files"
+# a log that cannot be trusted refuses the removal with nothing deleted: a relative path, a hostile character, inside the store, inside the repository, a link, a loose mode, no parent
+mkdir -p "$good/spk_ff/s1"; printf synthetic > "$good/spk_ff/s1/a.wav"
+printf '' > "$work/loose.log"; chmod 644 "$work/loose.log"
+ln -s "$rlog" "$work/linked.log"
+for badlog in "relative.log" "$work/a b.log" "$work/x;y.log" "$good/inside.log" "$repo/removal-test.log" "$work/linked.log" "$work/loose.log" "$work/nodir/removals.log" "$work/../removals.log"; do
+  out="$(remove_with spk_ff "$badlog")" && fail "remove ran with the log '$badlog'"
+  [ -e "$good/spk_ff/s1/a.wav" ] || fail "a removal with the bad log '$badlog' deleted something"
+done
+[ ! -e "$repo/removal-test.log" ] || { rm -f "$repo/removal-test.log"; fail "a log was made inside the repository"; }
 
 # scan: the plan's "no object without a speaker_ref": counts only, exit 1 if any object is outside <speaker_ref>/, never a name or a content.
 out="$(env_run "$good" 30 scan)" || fail "scan failed on a store with every object under a speaker: $out"
