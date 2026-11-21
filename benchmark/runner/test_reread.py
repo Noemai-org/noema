@@ -1,8 +1,7 @@
 """BEN-05 / A476 (rulings of 20 Nov): the `after_recovery` and `after_replay` phases of `reconstructions.json`. Written before `reread.py` was changed and seen failing. SYNTHETIC.
 
-A476: `after_recovery` is read after a core container restart and a wait for /readyz 200, through the audit-only route (noema#783) as the AUDIT principal the stack's tenant init seeds, with its credential
-file. `after_replay` is a SECOND READ of the same route and its bytes must equal the first: it is a re-read, not a replay, and nothing here claims deterministic replay (INV-21). The restart is an
-infrastructure step of the workflow (IL's). Until the seeded principal and its credential file exist the phase is NOT RUN (exit 3), never faked with a generated principal."""
+A476: `after_recovery` is read after a core container restart and a wait for /readyz 200, through the audit-only route (noema#783) as an AUDIT principal of the runner's own from the run's IdP session provider (A502). `after_replay` is a SECOND READ of the same route and its bytes must equal the first: it is a re-read, not a replay, and nothing here claims deterministic replay (INV-21). The restart is an
+infrastructure step of the workflow (IL's). Without the IdP settings the phase is NOT RUN (exit 3), never faked."""
 import json
 import shutil
 import tempfile
@@ -17,7 +16,19 @@ from benchmark.runner.testdata import ADMIN_TOKEN, CORRELATION, FakeNoema, Scrip
 
 Json = dict[str, Any]
 BODY: Json = {"tenant_id": "ten_alpha", "correlation_id": CORRELATION, "events": [{"seq": 1}], "sections": []}
-TOKEN = ADMIN_TOKEN
+
+
+class Sessions:
+    """A476/A502: the re-read takes an audit session for a principal of the runner's own (`usr_` and letters, as the evidence probes) from the same provider the run uses."""
+
+    def __init__(self, refuse_after: int | None = None) -> None:
+        self.asked: list[tuple[str, tuple[str, ...]]] = []
+        self.refuse_after = refuse_after
+
+    def token_for(self, principal_id: str, roles: list[str]) -> str:
+        self.asked.append((principal_id, tuple(roles)))
+        return "not-a-session" if self.refuse_after is not None and len(self.asked) > self.refuse_after else ADMIN_TOKEN
+
 FIRST_LINE = '{"case_id":"BEN-A-0001","correlation_id":"%s","kind":"case","method":"POST","path":"/v1/conversations","status":200}\n' % CORRELATION
 
 
@@ -59,7 +70,7 @@ class Phases(unittest.TestCase):
     def test_after_recovery_reads_every_case_with_the_seeded_audit_credential_and_adds_the_phase(self) -> None:
         with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp)
-            mismatched = reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
+            mismatched = reread(run, "after_recovery", PublicApi(fake.url), Sessions())
             reads = [x for x in fake.requests if x[1].startswith("/v1/reconstructions/")]
         self.assertEqual([], mismatched)
         self.assertEqual(["initial", "after_recovery"], list(doc(run)["BEN-A-0001"]))
@@ -67,12 +78,36 @@ class Phases(unittest.TestCase):
         self.assertEqual(2, len(reads))
         self.assertTrue(all(x[2] == f"Bearer {ADMIN_TOKEN}" for x in reads))
 
+    def test_each_read_asks_the_provider_for_an_audit_session_of_a_principal_of_its_own(self) -> None:
+        """A502: `token_for(probe_principal(), ["audit"])`, the provider the run uses; no principal is read from a file and none is a case principal."""
+        with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
+            run = run_dir(tmp)
+            sessions = Sessions()
+            reread(run, "after_recovery", PublicApi(fake.url), sessions)
+        self.assertEqual(2, len(sessions.asked))
+        self.assertEqual(2, len({p for p, _ in sessions.asked}))
+        for principal, roles in sessions.asked:
+            self.assertEqual(("audit",), roles)
+            self.assertRegex(principal, r"^usr_[a-z]{20}$")
+
+    def test_the_reads_made_before_a_later_read_fails_are_still_recorded_and_the_phase_is_not_written(self) -> None:
+        """Codex P2 on bdc78977: the core logged RECORD_ACCESSED for the reads that succeeded, so the request record keeps them."""
+        with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
+            run = run_dir(tmp)
+            before = (run / "reconstructions.json").read_bytes()
+            with self.assertRaises(HttpError):
+                reread(run, "after_recovery", PublicApi(fake.url), Sessions(refuse_after=1))
+        got = requests_of(run)
+        self.assertEqual([("BEN-A-0001", 200), ("BEN-B-0001", 401)], [(x["case_id"], x["status"]) for x in got[1:]])  # the served read and the refused one, as the API records every answer
+        self.assertTrue(all(x["kind"] == "reconstruction" for x in got[1:]))
+        self.assertEqual(before, (run / "reconstructions.json").read_bytes())
+
     def test_the_reads_are_added_to_the_request_record_and_the_earlier_lines_are_kept(self) -> None:
         """Codex P2: each re-read writes a RECORD_ACCESSED line in the core, so requests.jsonl must carry it: case, correlation, route template, status, kind reconstruction."""
         with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp)
-            reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
-            reread(run, "after_replay", PublicApi(fake.url), TOKEN)
+            reread(run, "after_recovery", PublicApi(fake.url), Sessions())
+            reread(run, "after_replay", PublicApi(fake.url), Sessions())
         got = requests_of(run)
         self.assertEqual(json.loads(FIRST_LINE), got[0])
         added = got[1:]
@@ -84,8 +119,8 @@ class Phases(unittest.TestCase):
     def test_after_replay_is_a_second_read_and_the_bytes_must_equal_the_first(self) -> None:
         with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp)
-            reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
-            mismatched = reread(run, "after_replay", PublicApi(fake.url), TOKEN)
+            reread(run, "after_recovery", PublicApi(fake.url), Sessions())
+            mismatched = reread(run, "after_replay", PublicApi(fake.url), Sessions())
         self.assertEqual([], mismatched)
         self.assertEqual(["initial", "after_recovery", "after_replay"], list(doc(run)["BEN-A-0001"]))
         self.assertEqual(doc(run)["BEN-A-0001"]["after_recovery"], doc(run)["BEN-A-0001"]["after_replay"])
@@ -96,7 +131,7 @@ class Phases(unittest.TestCase):
         with FakeNoema(Script(reconstruction=other)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp, {"BEN-A-0001": {"initial": BODY, "after_recovery": BODY}})
             before = (run / "reconstructions.json").read_bytes()
-            mismatched = reread(run, "after_replay", PublicApi(fake.url), TOKEN)
+            mismatched = reread(run, "after_replay", PublicApi(fake.url), Sessions())
         self.assertEqual(["BEN-A-0001"], mismatched)
         self.assertEqual(before, (run / "reconstructions.json").read_bytes())
         self.assertEqual(2, len(requests_of(run)))
@@ -105,35 +140,35 @@ class Phases(unittest.TestCase):
         reordered = {k: BODY[k] for k in reversed(list(BODY))}
         with FakeNoema(Script(reconstruction=reordered)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp, {"BEN-A-0001": {"initial": BODY, "after_recovery": BODY}})
-            self.assertEqual([], reread(run, "after_replay", PublicApi(fake.url), TOKEN))
+            self.assertEqual([], reread(run, "after_replay", PublicApi(fake.url), Sessions()))
 
     def test_a_phase_needs_the_phase_before_it_and_is_read_once(self) -> None:
         with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp)
             with self.assertRaises(ValueError):
-                reread(run, "after_replay", PublicApi(fake.url), TOKEN)
+                reread(run, "after_replay", PublicApi(fake.url), Sessions())
             self.assertEqual(["initial"], list(doc(run)["BEN-A-0001"]))
-            reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
+            reread(run, "after_recovery", PublicApi(fake.url), Sessions())
             with self.assertRaises(ValueError):
-                reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
+                reread(run, "after_recovery", PublicApi(fake.url), Sessions())
 
     def test_an_unknown_phase_a_stamped_or_unreadable_file_or_a_missing_correlation_is_an_error_and_nothing_is_written(self) -> None:
         with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp)
             before = snapshot(run)
             with self.assertRaises(ValueError):
-                reread(run, "after_nothing", PublicApi(fake.url), TOKEN)
+                reread(run, "after_nothing", PublicApi(fake.url), Sessions())
             (run / "reconstructions.json").write_text(json.dumps({"stamp": {"sha": "a" * 40, "run_id": "r"}, "cases": {}}), encoding="utf-8")
             with self.assertRaises(ValueError):
-                reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
+                reread(run, "after_recovery", PublicApi(fake.url), Sessions())
             for text in ("[]", "null", "not json"):
                 (run / "reconstructions.json").write_text(text, encoding="utf-8")
                 with self.assertRaises(ValueError, msg=text):
-                    reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
+                    reread(run, "after_recovery", PublicApi(fake.url), Sessions())
             (run / "reconstructions.json").write_bytes(before[0])
             (run / "correlations.json").write_text(json.dumps({"BEN-A-0001": CORRELATION}), encoding="utf-8")
             with self.assertRaises(ValueError):
-                reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
+                reread(run, "after_recovery", PublicApi(fake.url), Sessions())
             self.assertEqual(before, snapshot(run))
 
     def test_one_refused_read_fails_the_whole_phase_and_writes_nothing(self) -> None:
@@ -141,15 +176,15 @@ class Phases(unittest.TestCase):
             run = run_dir(tmp)
             before = snapshot(run)
             with self.assertRaises(HttpError):
-                reread(run, "after_recovery", PublicApi(fake.url), "not-a-session")
-            self.assertEqual(before, snapshot(run))
+                reread(run, "after_recovery", PublicApi(fake.url), Sessions(refuse_after=0))
+            self.assertEqual(before[0], snapshot(run)[0])
 
     def test_a_missing_request_record_is_an_error_before_any_read(self) -> None:
         with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
             run = run_dir(tmp)
             (run / "requests.jsonl").unlink()
             with self.assertRaises(ValueError):
-                reread(run, "after_recovery", PublicApi(fake.url), TOKEN)
+                reread(run, "after_recovery", PublicApi(fake.url), Sessions())
             self.assertEqual([], [x for x in fake.requests if x[1].startswith("/v1/reconstructions/")])
 
 
@@ -172,51 +207,40 @@ class Ready(unittest.TestCase):
                 wait_ready(lambda s=status: s, timeout_s=3, poll_s=1, sleep=lambda x: None, now=lambda: next(ticks))  # type: ignore[misc]
 
 
+IDP = ["--idp-key", "k", "--idp-binary", "b", "--idp-kid", "kid", "--idp-audience", "core", "--tenant-id", "ten_alpha"]
+
+
 class Cli(unittest.TestCase):
-    def test_without_the_seeded_audit_credential_the_phase_is_not_run_and_nothing_is_written_or_generated(self) -> None:
-        """Codex P1 (A476): the re-read uses the audit principal the stack's tenant init seeds and its credential file. Until that exists the phase is NOT RUN, never faked with a generated principal."""
+    def base(self, run: Path, *more: str) -> list[str]:
+        return ["--run", str(run), "--phase", "after_recovery", "--api-url", "http://127.0.0.1:9", *more]
+
+    def test_without_the_idp_settings_the_phase_is_not_run_and_nothing_is_written(self) -> None:
+        """A502: the re-read uses the same IdP session provider and five flags as the run (the stack's bench-tokens runner-args file supplies them). Without them it is NOT RUN, never faked."""
         with Tmp(self) as tmp:
             run = run_dir(tmp)
             before = snapshot(run)
-            base = ["--run", str(run), "--phase", "after_recovery", "--api-url", "http://127.0.0.1:9"]
-            self.assertEqual(NOT_RUN, main(base))
-            self.assertEqual(NOT_RUN, main([*base, "--audit-credential-file", str(Path(tmp) / "absent")]))
-            (Path(tmp) / "empty").write_text("\n", encoding="utf-8")
-            self.assertEqual(NOT_RUN, main([*base, "--audit-credential-file", str(Path(tmp) / "empty")]))
+            self.assertEqual(NOT_RUN, main(self.base(run)))
             self.assertEqual(before, snapshot(run))
 
-    def test_with_the_credential_file_the_phase_runs_as_that_session(self) -> None:
-        with FakeNoema(Script(reconstruction=BODY)) as fake, Tmp(self) as tmp:
+    def test_a_partial_set_of_idp_flags_is_refused_and_the_credential_file_flag_is_gone(self) -> None:
+        with Tmp(self) as tmp:
             run = run_dir(tmp)
-            cred = Path(tmp) / "audit.token"
-            cred.write_text(ADMIN_TOKEN + "\n", encoding="utf-8")
-            code = main(["--run", str(run), "--phase", "after_recovery", "--api-url", fake.url, "--audit-credential-file", str(cred)])
-            reads = [x for x in fake.requests if x[1].startswith("/v1/reconstructions/")]
-        self.assertEqual(0, code)
-        self.assertEqual(2, len(reads))
-        self.assertTrue(all(x[2] == f"Bearer {ADMIN_TOKEN}" for x in reads))
-
-    def test_a_mismatch_exits_one_and_writes_no_phase(self) -> None:
-        other = {**BODY, "events": []}
-        with FakeNoema(Script(reconstruction=other)) as fake, Tmp(self) as tmp:
-            run = run_dir(tmp, {"BEN-A-0001": {"initial": BODY, "after_recovery": BODY}})
-            cred = Path(tmp) / "audit.token"
-            cred.write_text(ADMIN_TOKEN, encoding="utf-8")
-            before = (run / "reconstructions.json").read_bytes()
-            code = main(["--run", str(run), "--phase", "after_replay", "--api-url", fake.url, "--audit-credential-file", str(cred)])
-            self.assertEqual(1, code)
-            self.assertEqual(before, (run / "reconstructions.json").read_bytes())
+            before = snapshot(run)
+            for drop in range(5):
+                flags = [x for i, pair in enumerate(zip(IDP[::2], IDP[1::2])) if i != drop for x in pair]
+                self.assertEqual(2, main(self.base(run, *flags)), msg=str(drop))
+            with self.assertRaises(SystemExit):
+                main(self.base(run, "--audit-credential-file", "x"))
+            self.assertEqual(before, snapshot(run))
 
     def test_bad_arguments_or_an_unreadable_run_exit_two_and_write_nothing(self) -> None:
         with Tmp(self) as tmp:
             run = run_dir(tmp)
-            cred = Path(tmp) / "audit.token"
-            cred.write_text("t", encoding="utf-8")
             before = snapshot(run)
             url = "http://127.0.0.1:9"
-            self.assertEqual(2, main(["--run", str(run), "--phase", "after_nothing", "--api-url", url, "--audit-credential-file", str(cred)]))
-            self.assertEqual(2, main(["--run", str(Path(tmp) / "absent"), "--phase", "after_recovery", "--api-url", url, "--audit-credential-file", str(cred)]))
-            self.assertEqual(2, main(["--run", str(run), "--phase", "after_recovery", "--api-url", url, "--audit-credential-file", str(cred), "--readyz-url", url + "/readyz"]))
+            self.assertEqual(2, main(["--run", str(run), "--phase", "after_nothing", "--api-url", url, *IDP]))
+            self.assertEqual(2, main(["--run", str(Path(tmp) / "absent"), "--phase", "after_recovery", "--api-url", url, *IDP]))
+            self.assertEqual(2, main(["--run", str(run), "--phase", "after_recovery", "--api-url", url, *IDP, "--readyz-url", url + "/readyz"]))
             self.assertEqual(before, snapshot(run))
 
 
@@ -227,7 +251,7 @@ class Abbreviations(unittest.TestCase):
         with Tmp(self) as tmp:
             run = run_dir(tmp)
             with self.assertRaises(SystemExit) as raised:
-                main(["--run", str(run), "--phase", "after_recovery", "--api-url", "http://127.0.0.1:9", "--audit-credential-f", tmp])
+                main(["--run", str(run), "--phase", "after_recovery", "--api-url", "http://127.0.0.1:9", "--idp-k", "k"])
             self.assertEqual(2, raised.exception.code)
 
 
