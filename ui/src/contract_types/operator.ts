@@ -2,6 +2,7 @@
 export { ContractError } from "./_runtime.js";
 import { parseClarificationV1 } from "./clarification_v1.js";
 import { parseConfirmationRequestV1 } from "./confirmation_request_v1.js";
+import { parseConversationResponseV1 } from "./conversation_response_v1.js";
 import { parseCustomerAnswerV1 } from "./customer_answer_v1.js";
 import { parseErrorsV2 } from "./errors_v2.js";
 import { parseErrorsV3 } from "./errors_v3.js";
@@ -17,6 +18,7 @@ import { parseSseEventV1 } from "./sse_event_v1.js";
 export const PARSERS: Record<string, (v: unknown) => unknown> = {
   "clarification.v1": parseClarificationV1,
   "confirmation-request.v1": parseConfirmationRequestV1,
+  "conversation-response.v1": parseConversationResponseV1,
   "customer-answer.v1": parseCustomerAnswerV1,
   "errors.v2": parseErrorsV2,
   "errors.v3": parseErrorsV3,
@@ -30,6 +32,7 @@ export const PARSERS: Record<string, (v: unknown) => unknown> = {
 };
 export * from "./clarification_v1.js";
 export * from "./confirmation_request_v1.js";
+export * from "./conversation_response_v1.js";
 export * from "./customer_answer_v1.js";
 export * from "./errors_v2.js";
 export * from "./errors_v3.js";
