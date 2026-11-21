@@ -34,11 +34,9 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
-	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/platform/packload"
-	"github.com/Noemai-org/noema/services/core/record/admission"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile/mapping"
 	"github.com/Noemai-org/noema/services/core/understanding"
 	"github.com/Noemai-org/noema/services/core/understanding/interpreter"
@@ -251,6 +249,13 @@ func undFakeRecorder(t *testing.T, tenants ...string) *orchestratorRecorder {
 	}
 	t.Cleanup(closer)
 	return rec
+}
+
+// undTurnAdmissions confirms the one INPUT_RECEIVED these tests name, for the session that asks, with the minted input id it carries (A184, A219).
+type undTurnAdmissions struct{}
+
+func (undTurnAdmissions) Lookup(_ context.Context, s orchestrator.Session, _ string) (orchestrator.Admission, error) {
+	return orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: s.TenantID, PrincipalID: s.PrincipalID, CorrelationID: undCorr, RequestID: undRequestID, ObjectRef: "req_01ARZ3NDEKTSV4RRFFQ69G5FAV"}, nil
 }
 
 // undAdmissions answers no lookup: the builder tests never run a turn.
@@ -565,7 +570,7 @@ func newUndWorld(t *testing.T, more envMap) *undWorld {
 	rec, closeRec, err := buildRecorder(t.Context(), env, clk, ids.New(clk, nil), records)
 	must(t, err)
 	t.Cleanup(func() { closeRec(); closeRecords() })
-	parts, err := buildUnderstanding(env, clk, rec, admissionsport.Port{Reader: &admission.Reader{DBs: records}})
+	parts, err := buildUnderstanding(env, clk, rec, undTurnAdmissions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +583,7 @@ func newUndWorld(t *testing.T, more envMap) *undWorld {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		probe.in, probe.err = probe.port.Interpret(ctx, s, orchestrator.Turn{InvestigationID: "inv_01ARZ3NDEKTSV4RRFFQ69G5FAA", CorrelationID: undCorr, Text: undText, RequestID: undRequestID})
+		probe.in, probe.err = probe.port.Interpret(ctx, s, orchestrator.Turn{InvestigationID: "inv_01ARZ3NDEKTSV4RRFFQ69G5FAA", CorrelationID: undCorr, Text: undText, RequestID: undRequestID, InputReceivedRef: "recev_01ARZ3NDEKTSV4RRFFQ69G5FAV"})
 		probe.ctxErr = ctx.Err()
 		rw.WriteHeader(http.StatusNoContent)
 	})}
