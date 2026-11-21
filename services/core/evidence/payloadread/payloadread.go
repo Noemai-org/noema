@@ -22,7 +22,11 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 )
@@ -44,8 +48,45 @@ var (
 
 var hashRe = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
 
-// Reader verifies each payload it reads against the item's hash. Payloads has no default: a Reader without one refuses every call.
-type Reader struct{ Payloads PayloadReader }
+// ErrScreenRefused means the injection screen was refused (A372, interim, relayed, not yet committed): it is missing, it failed, it ran out of time, it panicked, or it answered outside its
+// contract. The payload is then not admitted: no text and no partial object is returned. It is never "the screen passed".
+var ErrScreenRefused = errors.New("payloadread: the injection screen was refused")
+
+// Screen is the consumer-defined view of injection.Screener (REQ-CTX-007, SoT 29).
+type Screen interface {
+	Screen(ctx context.Context, sub injection.Subject, fields map[string]string) (injection.Result, error)
+}
+
+// CorrelationOf gives the correlation chain the screen's event goes on. An empty answer refuses the read: a flag that cannot be put on the Record must not pass unseen.
+type CorrelationOf func(ctx context.Context) string
+
+// Flag is what the Alert gets for a payload that was flagged and whose event the Record refused: names only (tenant, evidence id, field names and pattern ids), never a value.
+type Flag struct {
+	TenantID   string
+	EvidenceID string
+	Findings   []injection.Finding
+}
+
+// Alert is the operational alert seam for a flagged payload whose Record event failed. It never blocks the read.
+type Alert interface {
+	ScreenFlagged(ctx context.Context, f Flag)
+}
+
+// Reader verifies each payload it reads against the item's hash, then screens its text. Payloads, Screen and Correlation have no default: a Reader without one refuses every call.
+type Reader struct {
+	Payloads    PayloadReader
+	Screen      Screen
+	Correlation CorrelationOf
+	Alert       Alert
+}
+
+// NewReader builds a Reader. Every argument is required.
+func NewReader(p PayloadReader, s Screen, c CorrelationOf, a Alert) (Reader, error) {
+	if p == nil || s == nil || c == nil || a == nil {
+		return Reader{}, ErrUnusable
+	}
+	return Reader{Payloads: p, Screen: s, Correlation: c, Alert: a}, nil
+}
 
 // Payload returns the object of the item's stored payload, only when its canonical hash is the item's PayloadHash. The tenant is the caller's, never the item's or the payload's. On any error
 // the object is nil.
@@ -72,7 +113,104 @@ func (r Reader) Payload(ctx context.Context, tenantID string, it layer.Item) (ma
 	if "sha256:"+hex.EncodeToString(sum[:]) != it.PayloadHash {
 		return nil, ErrHashMismatch
 	}
+	if err := r.screen(ctx, tenantID, it.EvidenceID, obj); err != nil {
+		return nil, err
+	}
 	return obj, nil
+}
+
+// screen runs the injection screen on the payload's text. Every way it can be refused is ErrScreenRefused (A372); a flag is advisory (SoT 29).
+func (r Reader) screen(ctx context.Context, tenantID, evidenceID string, obj map[string]any) (err error) {
+	if r.Screen == nil || r.Correlation == nil || r.Alert == nil {
+		return ErrScreenRefused
+	}
+	corr := r.Correlation(ctx)
+	if corr == "" {
+		return ErrScreenRefused
+	}
+	fields := textFields(obj)
+	defer func() {
+		if recover() != nil { // the panic value may hold payload text: it is dropped
+			err = ErrScreenRefused
+		}
+	}()
+	res, serr := r.Screen.Screen(ctx, injection.Subject{TenantID: tenantID, CorrelationID: corr, ObjectRef: evidenceID}, fields)
+	recordFailed := errors.Is(serr, injection.ErrRecord)
+	if (serr != nil && !recordFailed) || ctx.Err() != nil || !inContract(res, fields) || (recordFailed && len(res.Findings) == 0) {
+		return ErrScreenRefused
+	}
+	if recordFailed {
+		r.raise(ctx, Flag{TenantID: tenantID, EvidenceID: evidenceID, Findings: res.Findings})
+	}
+	return nil
+}
+
+// raise calls the alert. An alert that panics never blocks a flagged read.
+func (r Reader) raise(ctx context.Context, f Flag) {
+	defer func() { _ = recover() }()
+	r.Alert.ScreenFlagged(ctx, f)
+}
+
+// inContract says whether every finding names a field that was screened and a pattern.
+func inContract(res injection.Result, fields map[string]string) bool {
+	for _, f := range res.Findings {
+		if _, ok := fields[f.Field]; !ok || f.PatternID == "" {
+			return false
+		}
+	}
+	return true
+}
+
+var nameCleanRe = regexp.MustCompile(`[^a-z0-9_]+`)
+
+// textFields gives every string of the payload under a name the Record accepts (^[a-z][a-z0-9_.]{0,63}$): "p", then the lower-cased keys with other characters changed to "_" and array
+// positions, joined by ".". The walk is in sorted key order, so the same payload gives the same names; a name that is taken gets a number.
+func textFields(obj map[string]any) map[string]string {
+	out := map[string]string{}
+	var walk func(path string, v any)
+	add := func(path, s string) {
+		name := path
+		if len(name) > 64 {
+			name = name[:64]
+		}
+		for n := 2; ; n++ {
+			if _, taken := out[name]; !taken {
+				break
+			}
+			suffix := "_" + strconv.Itoa(n)
+			base := path
+			if len(base)+len(suffix) > 64 {
+				base = base[:64-len(suffix)]
+			}
+			name = base + suffix
+		}
+		out[name] = s
+	}
+	walk = func(path string, v any) {
+		switch x := v.(type) {
+		case string:
+			add(path, x)
+		case map[string]any:
+			keys := make([]string, 0, len(x))
+			for k := range x {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				seg := strings.Trim(nameCleanRe.ReplaceAllString(strings.ToLower(k), "_"), "_")
+				if seg == "" {
+					seg = "k"
+				}
+				walk(path+"."+seg, x[k])
+			}
+		case []any:
+			for i, e := range x {
+				walk(path+"."+strconv.Itoa(i), e)
+			}
+		}
+	}
+	walk("p", obj)
+	return out
 }
 
 // decode reads exactly one JSON object, with numbers kept as text (json.Number) so none is rounded, and nothing after it.
