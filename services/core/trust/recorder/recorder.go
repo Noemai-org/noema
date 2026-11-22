@@ -48,6 +48,9 @@ var (
 	// ErrConfirmationNotValid is returned when the confirmation an ALLOW names does not exist for the tenant, has expired by the database's clock, or was given for another action than
 	// the one the ALLOW's step carries (the eight values of SoT 43.2a). The caller cannot tell which: the three are one answer, so no outward answer tells an attacker which.
 	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
+	// ErrDeclinedRequestNotValid is returned when the declined request a REJECT DECLINED_BY_APPROVER names is not a confirmation request of this tenant and of this decision's intent (A507).
+	// The caller cannot tell which: an absent request, another tenant's and another intent's are one answer. SCAFFOLD: the variable only, nothing returns it yet.
+	ErrDeclinedRequestNotValid = errors.New(errPrefix + "the declined request is not valid for this decision")
 	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
 	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
 	// ErrWritesDisabled is returned when the tenant's kill switch is on and the decision would issue grants (REQ-EXE-008, REQ-OPS-002; the contract's WRITES_DISABLED, errors.v3).
