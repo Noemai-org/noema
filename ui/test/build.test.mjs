@@ -19,3 +19,8 @@ test("REQ-UI-001: built shell declares a restrictive content security policy", a
   }
   assert.doesNotMatch(match[1], /unsafe-inline|unsafe-eval|\*/u);
 });
+
+test("REQ-UI-001: UI server sends frame-ancestors as an HTTP CSP header", async () => {
+  const config = await readFile(new URL("../nginx.conf", import.meta.url), "utf8");
+  assert.match(config, /add_header\s+Content-Security-Policy\s+"frame-ancestors 'none'"\s+always\s*;/u);
+});
