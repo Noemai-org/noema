@@ -83,7 +83,7 @@ func escalateDisposition(t *testing.T, n byte) intake.RecordRequest {
 // The real path: the disposition is recorded first through the adapter and the real Writer, which returns its decision ID; an action decision that names it is stored with the link,
 // and the chain verifies (A503: no INSERT, no seeded row).
 func TestAnActionDecisionIsStoredWithTheDispositionRecordedFirstThroughTheAdapter(t *testing.T) {
-	w := newRecWorld(t)
+	w := newRecWorldWith(t, recorder.NewEscalationSet(recCap))
 	disp, err := w.a.Record(recCtx(t), escalateDisposition(t, 30))
 	if err != nil || disp.DecisionID == "" || len(disp.GrantIDs) != 0 {
 		t.Fatalf("the disposition: %+v, %v; want a decision ID and no grant", disp, err)

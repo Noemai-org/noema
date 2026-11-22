@@ -224,7 +224,7 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	}
 	return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), PolicyID: f.PolicyID,
 		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, Steps: steps,
-		ConfirmationRequest: newRequest(r.ConfirmationRequest)}, nil
+		ConfirmationRequest: newRequest(r.ConfirmationRequest), DispositionDecisionID: r.DispositionDecisionID}, nil
 }
 
 // outcomeShape is A456 (interim, relayed, not yet committed): the port serves every outcome. An ALLOW names its plan hash (a read has no steps but has its plan and its hash, A205
