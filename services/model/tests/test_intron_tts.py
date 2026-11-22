@@ -321,3 +321,16 @@ def test_two_spellings_that_disagree_are_malformed() -> None:
     with pytest.raises(ProviderError) as caught:
         parse_server_message(json.dumps(document))
     assert caught.value.kind is ProviderFailure.MALFORMED
+
+
+@pytest.mark.parametrize("key", ["processing_staus", "processing_status"])
+@pytest.mark.parametrize("value", [[], {}, ["READY"], {"a": 1}, 1, None, True])
+def test_a_status_that_is_not_a_string_is_malformed_and_never_an_unexpected_error(key: str, value: object) -> None:  # Codex P2 on noema#864 at 546c7ace
+    from noema_model.providers.speech.intron_tts_wire import parse_server_message
+
+    document = json.loads(audio_reply(0, "READY"))
+    del document["processing_staus"]
+    document[key] = value
+    with pytest.raises(ProviderError) as caught:
+        parse_server_message(json.dumps(document))
+    assert caught.value.kind is ProviderFailure.MALFORMED
