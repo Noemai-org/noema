@@ -5,7 +5,7 @@
 // It does no I/O of its own: rows come through the Reader port (Postgres, in the tenant's own login) and everything else through the orchestrator's ports, so a workflow
 // that calls it as an activity does no I/O in workflow code (INV-30).
 //
-// May import: the standard library and orchestrator. Must never: touch Temporal or the database, dispatch a grant, take a value from a request, or decide an outcome
+// May import: the standard library, orchestrator, orchestrator/investigations (its stored-session types only) and edge/session (the role mapping). Must never: touch Temporal or the database, dispatch a grant, take a value from a request, or decide an outcome
 // (the Verifier does).
 package recovery
 
@@ -51,7 +51,13 @@ type Report struct {
 }
 
 // TotalNoRecordedSession is the number of rows without a recorded session over a startup pass's reports.
-func TotalNoRecordedSession(map[string]Report) int { return 0 }
+func TotalNoRecordedSession(reports map[string]Report) int {
+	n := 0
+	for _, r := range reports {
+		n += r.NoRecordedSession
+	}
+	return n
+}
 
 // Candidate is what the Reader returns for one idle, non-terminal investigation: the stored row and the decision Trust recorded for it. None of it comes from a request.
 type Candidate struct {
@@ -119,7 +125,14 @@ func (a *Activity) Recover(ctx context.Context, tenantID string) (Report, error)
 	}
 	var rep Report
 	for _, c := range cands {
-		rep.Items = append(rep.Items, Item{InvestigationID: c.Investigation.ID, Outcome: a.one(ctx, tenantID, c)})
+		o := a.one(ctx, tenantID, c)
+		rep.Items = append(rep.Items, Item{InvestigationID: c.Investigation.ID, Outcome: o})
+		switch o {
+		case NoRecordedSession:
+			rep.NoRecordedSession++
+		case Refused:
+			rep.Refused++
+		}
 	}
 	return rep, nil
 }
@@ -159,7 +172,17 @@ func (a *Activity) one(ctx context.Context, tenantID string, c Candidate) Outcom
 	if c.TenantID != tenantID {
 		return Refused
 	}
-	s, err := NewRecoverySession(c, investigations.RecordedSession{})
+	// The stored session is read for the pass's tenant; the caller's role never selects the row. A row with none is never resumed and never given a role (A490).
+	rs, err := a.sessions.SessionOf(ctx, orchestrator.Session{TenantID: c.TenantID, PrincipalID: c.PrincipalRef}, c.Investigation.ID)
+	switch {
+	case errors.Is(err, investigations.ErrNoRecordedSession):
+		return NoRecordedSession
+	case errors.Is(err, investigations.ErrNoInvestigation):
+		return Refused
+	case err != nil:
+		return Failed
+	}
+	s, err := NewRecoverySession(c, rs)
 	if err != nil {
 		return Refused
 	}
