@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator"
+	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
 )
 
 // Outcome is what one pass did with one investigation.
@@ -33,6 +34,8 @@ const (
 	Failed Outcome = "FAILED"
 	// Refused: the row is not this tenant's or is malformed; no port was called for it.
 	Refused Outcome = "REFUSED"
+	// NoRecordedSession: the row holds no principal role and authn reference (a row from before migration 0036). It is never resumed and never given a role (A490).
+	NoRecordedSession Outcome = "NO_RECORDED_SESSION"
 )
 
 // Item is the result for one investigation; Report is one pass for one tenant.
@@ -41,8 +44,14 @@ type Item struct {
 	Outcome         Outcome
 }
 
-// Report lists what one pass did, in the order it did it.
-type Report struct{ Items []Item }
+// Report lists what one pass did, in the order it did it. NoRecordedSession and Refused count the rows that were not resumed for those reasons, so they stay visible (A490).
+type Report struct {
+	Items                      []Item
+	NoRecordedSession, Refused int
+}
+
+// TotalNoRecordedSession is the number of rows without a recorded session over a startup pass's reports.
+func TotalNoRecordedSession(map[string]Report) int { return 0 }
 
 // Candidate is what the Reader returns for one idle, non-terminal investigation: the stored row and the decision Trust recorded for it. None of it comes from a request.
 type Candidate struct {
@@ -57,6 +66,11 @@ type Reader interface {
 	Idle(ctx context.Context, tenantID string, idleMS int64, limit int) ([]Candidate, error)
 }
 
+// SessionReader is the store's SessionOf (investigations.Store): the principal, role and authn reference the row holds, for the caller's tenant.
+type SessionReader interface {
+	SessionOf(ctx context.Context, sess orchestrator.Session, investigationID string) (investigations.RecordedSession, error)
+}
+
 // Resumer is the write runner's ResumeWrite.
 type Resumer interface {
 	ResumeWrite(ctx context.Context, s orchestrator.Session, t orchestrator.Turn, inv orchestrator.Investigation, d orchestrator.Decision) (orchestrator.Result, error)
@@ -66,6 +80,7 @@ type Resumer interface {
 type Activity struct {
 	cfg      Config
 	reader   Reader
+	sessions SessionReader
 	journal  orchestrator.Journal
 	admit    orchestrator.Admissions
 	resumer  Resumer
@@ -74,14 +89,14 @@ type Activity struct {
 }
 
 // New refuses a missing port or a Config with a zero field. The Resumer's executor should be NoDispatch: recovery never dispatches.
-func New(cfg Config, r Reader, j orchestrator.Journal, a orchestrator.Admissions, x Resumer) (*Activity, error) {
-	if r == nil || j == nil || a == nil || x == nil {
+func New(cfg Config, r Reader, ss SessionReader, j orchestrator.Journal, a orchestrator.Admissions, x Resumer) (*Activity, error) {
+	if r == nil || ss == nil || j == nil || a == nil || x == nil {
 		return nil, errors.New("recovery: the activity is not fully wired")
 	}
 	if cfg.IdleMS < 1 || cfg.Batch < 1 || cfg.check() != nil {
 		return nil, fmt.Errorf("recovery: the idle age, the batch and the run timeout must be set, and %s must exceed %s", EnvIdleMS, EnvRunTimeoutMS)
 	}
-	return &Activity{cfg: cfg, reader: r, journal: j, admit: a, resumer: x, inflight: map[string]struct{}{}}, nil
+	return &Activity{cfg: cfg, reader: r, sessions: ss, journal: j, admit: a, resumer: x, inflight: map[string]struct{}{}}, nil
 }
 
 var tenantRe = regexp.MustCompile(`\Aten_[0-9A-Za-z]{2,32}\z`)
@@ -144,7 +159,7 @@ func (a *Activity) one(ctx context.Context, tenantID string, c Candidate) Outcom
 	if c.TenantID != tenantID {
 		return Refused
 	}
-	s, err := NewRecoverySession(c)
+	s, err := NewRecoverySession(c, investigations.RecordedSession{})
 	if err != nil {
 		return Refused
 	}
