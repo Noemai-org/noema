@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
-SETTINGS = ("NOEMA_AUDIO_STORE_DIR", "NOEMA_AUDIO_RETENTION_DAYS")
+SETTINGS = ("NOEMA_AUDIO_STORE_DIR", "NOEMA_AUDIO_RETENTION_DAYS", "NOEMA_AUDIO_REMOVAL_LOG")
 AUDIO_FILE = re.compile(r"(?i)\.(wav|flac|mp3|ogg|opus|m4a|aac|webm)\b|\baudio\b|\brecordings?\b")
 
 
@@ -75,6 +75,8 @@ class AudioNeverLeavesTheHost(unittest.TestCase):
 
     def test_the_readme_states_who_reads_it_and_that_nothing_is_uploaded(self) -> None:
         text = (HERE / "README.md").read_text(encoding="utf-8")
+        for fragment in ("NOEMA_AUDIO_REMOVAL_LOG", "removal log"):
+            self.assertIn(fragment, text, fragment)
         for fragment in ("0700", "never uploaded", "REQ-VOI-004", "Founders", "voice runner", "ANALYSIS", "90 days after analysis", "remove <speaker_ref>", "without a speaker_ref", "Encryption at rest"):
             self.assertIn(fragment, text, fragment)
 

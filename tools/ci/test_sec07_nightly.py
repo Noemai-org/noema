@@ -156,6 +156,23 @@ class Scan(Run):
         self.assertEqual(code, 3, out)
         self.assertFalse(self.metric.exists())
 
+    def test_one_empty_surface_among_non_empty_ones_is_not_run_and_writes_no_metric(self) -> None:
+        # Codex P2 on noema#813: the totals were non-zero, so an empty or absent export of ONE surface passed with a zero counter that proved nothing.
+        (self.paths["explanations"] / "out.jsonl").write_text("", encoding="utf-8")
+        code, out = self.go()
+        self.assertEqual(code, 3, out)
+        self.assertIn("explanations-surface (explanations)", out)
+        self.assertFalse(self.metric.exists())
+
+    def test_each_surface_kind_must_be_configured(self) -> None:
+        surfaces = json.loads((self.dir / "surfaces.json").read_text(encoding="utf-8"))
+        surfaces["surfaces"] = [s for s in surfaces["surfaces"] if s["kind"] != "traces"]
+        (self.dir / "surfaces.json").write_text(json.dumps(surfaces), encoding="utf-8")
+        code, out = self.go()
+        self.assertEqual(code, 2, out)
+        self.assertIn("traces", out)
+        self.assertFalse(self.metric.exists())
+
     def test_a_missing_surface_path_is_bad_input_not_a_pass(self) -> None:
         (self.paths["traces"] / "out.jsonl").unlink()
         self.paths["traces"].rmdir()
