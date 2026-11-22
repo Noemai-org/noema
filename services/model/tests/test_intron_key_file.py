@@ -133,3 +133,32 @@ def test_a_file_owned_by_someone_else_than_the_effective_user_is_refused(tmp_pat
 def test_a_file_owned_by_the_effective_user_is_accepted(tmp_path: Path) -> None:
     path = write(tmp_path, SYNTHETIC)
     assert key_reader({ENV_KEY_FILE: str(path)})() == SYNTHETIC
+
+
+# ---- the credential Intron issued is 654 bytes: the ceiling was my own wrong assumption, not a rule of the vendor -----------------------------------------------------------------
+
+
+def jwt_like(length: int) -> str:
+    """A SYNTHETIC token of the shape of a long credential (base64url characters and dots) of exactly `length` characters."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    body = "".join(alphabet[(i * 7 + 3) % len(alphabet)] for i in range(length))
+    return body[:40] + "." + body[41:length - 40] + "." + body[length - 39:]
+
+
+@pytest.mark.parametrize("length", [513, 654, 1024, 4096])
+def test_a_key_longer_than_512_bytes_up_to_the_ceiling_is_accepted(tmp_path: Path, length: int) -> None:
+    token = jwt_like(length)
+    assert len(token) == length
+    path = tmp_path / "intron_api_key"
+    path.write_text(token + "\n")
+    path.chmod(0o600)
+    assert key_reader({ENV_KEY_FILE: str(path)})() == token
+
+
+def test_a_file_beyond_the_ceiling_is_still_refused_without_echoing_it(tmp_path: Path) -> None:
+    path = tmp_path / "intron_api_key"
+    path.write_text("a" * 4097)
+    path.chmod(0o600)
+    with pytest.raises(KeyFileError) as caught:
+        key_reader({ENV_KEY_FILE: str(path)})()
+    assert "a" * 20 not in str(caught.value)
