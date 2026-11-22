@@ -37,3 +37,17 @@ State: built locally on `prep/tru10-linkage` (two commits, not pushed, no PR). O
 - Open questions (owner): the three above (Architect).
 - Files to read first: `services/core/trust/recorder/recorder.go` (`check`, `requireEscalationDisposition`), `escalation_link_test.go`, `services/core/migrations/0012_decision_record.sql`.
 - Do not touch: `Write`'s order (Record first on a miss; nothing appended on a hit); migration 0012.
+
+# Session 2026-11-22 05:10 WAT · TRU-10 (C1, US-06: disposition_decision_id in the DECISION facts of reconstruction.v3; A503)
+
+## Session summary
+- What changed (PR links): the Writer names the disposition in the DECISION_MADE payload (`disposition_decision_id`) when the decision names one; the reconstruction projector serves it as a DECISION fact (`record/reconstruct/project.go`: the allowed fact and its `dec_` shape); `reconstruction.v3.json` types it as a `common.v1` DecisionId in the DECISION facts (optional; v1 and v2 are not edited). Additive minor change in place of v3 (AGENT-15), migration note in `contracts/README.md`; the generated TypeScript type is regenerated; the v3 fixtures are generated (`tools/record_chain_ref_v3.py`), so the two new cases are in that script, not hand-written.
+- Why: BO's US-06 expectations list the disposition decision first and then the action decision that links it; before this the link was only a column of the decision table, not in the Record events or the reconstruction.
+- Risks, and how they are contained: a decision that names no disposition has no new member (tested); `disposition_decision_id` of another shape is refused by the schema fixture and masked by the projector like any `_id` of another shape; no migration.
+- Tests added (REQ-TRU-010, REQ-AUD-003; INV-25, US-06): `trust/recorder/decision_made_disposition_test.go`; `record/reconstruct` `TestTheDecisionFactsNameTheDispositionTheDecisionLinks` (disposition first, then the action decision linking it); `tools/contracts/test_reconstruction_disposition.py`; the valid fixture `decision_with_its_disposition` and the invalid `disposition_decision_id_not_a_decision_id` (`pattern`).
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: BO's US-06 expected events can list `disposition_decision_id` on the action decision's DECISION item; EL's escalation path (noema#733's branch) records the disposition first.
+- Files to read first: `trust/recorder/recorder.go` (DECISION_MADE payload), `record/reconstruct/project.go`, `contracts/README.md` (the A503 note).
+- Do not touch: `reconstruction.v1.json` and `reconstruction.v2.json` (pinned by a test).
