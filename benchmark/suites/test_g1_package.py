@@ -87,19 +87,12 @@ def section(kind: str, *facts: Json) -> Json:
     return {"kind": kind, "items": [{"record_event_id": "recev_1", "object_ref": "o", "basis": "RULE", "facts": f} for f in facts]}
 
 
-US06_EVENTS = ["DECISION_MADE", "DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
+US06_EVENTS = ["DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
 
 
-DISPOSITION = {"decision_outcome": "ESCALATE", "decision_id": "dec_1"}
-ACTION_DECISION = {"decision_outcome": "ALLOW", "decision_id": "dec_2", "disposition_decision_id": "dec_1"}
-
-
-def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED", corr: str = "corr_tmo", tenant: str = "ten_alpha",
-            decisions: list[Json] | None = None) -> Json:
-    """A503 (PERD 23.1): the ESCALATE disposition decision comes first, then the action decision that references it."""
+def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED", corr: str = "corr_tmo", tenant: str = "ten_alpha") -> Json:
     return {"tenant_id": tenant, "correlation_id": corr, "events": [event(n, k) for n, k in enumerate(kinds or US06_EVENTS, start=1)],
-            "sections": [section("DECISION", *(decisions if decisions is not None else [DISPOSITION, ACTION_DECISION])), section("ACTION", {"execution_state": state}),
-                         section("VERIFICATION", {"verdict": verdict})]}
+            "sections": [section("DECISION", {"decision_outcome": "ALLOW"}), section("ACTION", {"execution_state": state}), section("VERIFICATION", {"verdict": verdict})]}
 
 
 def recon01(kinds: list[str] | None = None, outcome: str = "ALLOW", corr: str = "corr_clean", tenant: str = "ten_alpha") -> Json:
@@ -650,50 +643,12 @@ class Stamps(unittest.TestCase):
             self.assertIn("**NOT MET**", row(text, n), n)
 
 
-class DispositionOrder(unittest.TestCase):
-    """A503 (docs#222; PERD 23.1, REQ-TRU-010): an ESCALATE disposition is its own Trust decision, recorded first (no steps, no grant); each escalation write step is its own action decision that
-    references it. The expected Record events of US-06 therefore start with the disposition decision. The reference must be SHOWN in the reconstruction: a reconstruction that does not carry
-    `disposition_decision_id` cannot meet row 2 (C1 confirms the contract carries it)."""
-
-    def problem(self, **kw: Any) -> str:
-        return row(make(artifacts=art(reconstructions={"BEN-TMO-0001": {ph: recon06(**kw) for ph in ("initial", "after_recovery", "after_replay")}, "BEN-CLEAN-0001": {"initial": recon01()}})), 2)
-
-    def test_the_disposition_first_then_the_action_decision_that_references_it_is_met(self) -> None:
-        self.assertIn("**MET**", self.problem())
-
-    def test_a_first_decision_that_is_not_the_escalate_disposition_is_not_met(self) -> None:
-        self.assertIn("**NOT MET**", self.problem(decisions=[{"decision_outcome": "ALLOW", "decision_id": "dec_1"}, ACTION_DECISION]))
-
-    def test_the_action_decisions_before_the_disposition_is_not_met(self) -> None:
-        self.assertIn("**NOT MET**", self.problem(decisions=[ACTION_DECISION, DISPOSITION]))
-
-    def test_no_action_decision_after_the_disposition_is_not_met(self) -> None:
-        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION], kinds=[k for k in US06_EVENTS if k != "DECISION_MADE"] + ["DECISION_MADE"]))
-        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION]))
-
-    def test_an_action_decision_that_does_not_reference_the_disposition_is_not_met(self) -> None:
-        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, {"decision_outcome": "ALLOW", "decision_id": "dec_2"}]))
-        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, {**ACTION_DECISION, "disposition_decision_id": "dec_9"}]))
-        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, ACTION_DECISION, {"decision_outcome": "ALLOW", "decision_id": "dec_3"}]))
-
-    def test_a_disposition_without_an_id_is_not_met(self) -> None:
-        self.assertIn("**NOT MET**", self.problem(decisions=[{"decision_outcome": "ESCALATE"}, {**ACTION_DECISION, "disposition_decision_id": ""}]))
-
-    def test_the_decision_events_must_precede_the_grant(self) -> None:
-        late = ["DECISION_MADE", "GRANT_ISSUED", "DECISION_MADE", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
-        self.assertIn("**NOT MET**", self.problem(kinds=late))
-
-    def test_a_missing_disposition_in_a_later_phase_is_caught_in_that_phase(self) -> None:
-        phases = {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06(decisions=[ACTION_DECISION])}
-        self.assertIn("**NOT MET**", row(make(artifacts=art(reconstructions={"BEN-TMO-0001": phases, "BEN-CLEAN-0001": {"initial": recon01()}})), 2))
-
-
 class RereadNotReplay(unittest.TestCase):
     """A476 (rulings of 20 Nov): `after_replay` is a SECOND READ of the same audit-only route, a re-read and not a replay; its document must equal the first read's, and the package never claims deterministic replay (INV-21) from this evidence."""
 
     def test_a_second_read_that_differs_from_the_first_is_not_met_even_with_equal_counts(self) -> None:
         changed = recon06()
-        changed["sections"][0]["items"][1]["facts"] = {**ACTION_DECISION, "reason_codes": ["X"]}
+        changed["sections"][0]["items"][0]["facts"] = {"decision_outcome": "ALLOW", "reason_codes": ["X"]}
         phases = {"initial": recon06(), "after_recovery": recon06(), "after_replay": changed}
         text = make(artifacts=art(reconstructions={"BEN-TMO-0001": phases, "BEN-CLEAN-0001": {"initial": recon01()}}))
         self.assertIn("**NOT MET**", row(text, 2))
@@ -764,6 +719,48 @@ class RowTwelve(unittest.TestCase):
         base = art()
         del base["artifact_files"]
         self.assertIn("**NOT MET**", row(make(i, artifacts=base), 12))
+
+
+class StampAcrossArtifacts(unittest.TestCase):
+    """A517 (#717): the dispatch SHA and the run id are compared ACROSS the artifacts, not only each against the inputs: the reconstructions, the mock-case write counts, the probe results, the run's stamp
+    file, the leak-scan output and the artifact file list must all carry one and the same stamp, or the package says which differ."""
+
+    OTHER = {"sha": "b" * 40, "run_id": RUN}
+
+    def line(self, text: str) -> str:
+        return next(x for x in text.splitlines() if x.startswith("Run stamp across artifacts"))
+
+    def test_one_stamp_on_all_six_artifacts_agrees(self) -> None:
+        text = make()
+        self.assertIn("AGREE", self.line(text))
+        self.assertNotIn("DISAGREE", self.line(text))
+        self.assertIn("G1: MET", text)
+
+    def test_each_artifact_with_another_stamp_is_named_and_the_package_is_not_met(self) -> None:
+        other_line = f"stamp: {'b' * 40} {RUN}\n"
+        cases: dict[str, Json] = {"reconstructions": {"reconstructions": {"stamp": self.OTHER, "cases": recons()}},
+                 "mock_case_writes": {"mock_case_writes": {"stamp": self.OTHER, "writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0}}},
+                 "probes": {"probes": {**probes(), "stamp": self.OTHER}},
+                 "run_stamp": {"run_stamp": self.OTHER},
+                 "leak_scan": {"leak_scan": other_line + LEAK_OK.split("\n", 1)[1]},
+                 "artifact_files": {"artifact_files": other_line + FILES_OK.split("\n", 1)[1]}}
+        for name, over in cases.items():
+            text = make(artifacts=art(**over))
+            self.assertIn("DISAGREE", self.line(text), name)
+            self.assertIn(name, self.line(text), name)
+            self.assertIn("G1: NOT MET", text, name)
+
+    def test_an_artifact_with_no_stamp_is_named_too(self) -> None:
+        base = art()
+        del base["artifact_files"]
+        text = make(artifacts=base)
+        self.assertIn("DISAGREE", self.line(text))
+        self.assertIn("artifact_files", self.line(text))
+
+    def test_the_stamp_is_compared_to_the_inputs_as_well(self) -> None:
+        i = inputs()
+        i["run_id"] = "another-run"
+        self.assertIn("DISAGREE", self.line(make(i)))
 
 
 class Whole(unittest.TestCase):

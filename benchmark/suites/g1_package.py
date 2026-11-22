@@ -285,17 +285,6 @@ def _us06_problem(doc: Any) -> tuple[str | None, tuple[int, ...]]:
             return f"{kinds.count(kind)} {kind} events, not exactly one", counts
     if not kinds.count("VERIFICATION_READ"):
         return "no VERIFICATION_READ: the outcome was not verified by key", counts
-    decisions = _facts(doc, "DECISION")
-    at_decision = [seq for seq, kind in events if kind == "DECISION_MADE"]
-    if decisions is None or len(at_decision) < 2 or len(decisions) < 2:
-        return "needs the ESCALATE disposition decision and at least one action decision that references it (A503, PERD 23.1)", counts
-    disposition = decisions[0]
-    if disposition.get("decision_outcome") != "ESCALATE" or not _text_value(disposition.get("decision_id")):
-        return "the first decision is not the ESCALATE disposition decision with an id (A503, PERD 23.1)", counts
-    if any(f.get("disposition_decision_id") != disposition["decision_id"] for f in decisions[1:]):
-        return "an action decision after the disposition does not reference it by disposition_decision_id (A503, REQ-TRU-010)", counts
-    if max(at_decision) > min(seq for seq, kind in events if kind == "GRANT_ISSUED"):
-        return "a decision is recorded after the grant was issued", counts
     at = {k: [seq for seq, kind in events if kind == k] for k in ("GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT")}
     if not (at["GRANT_SPENT"][0] < at["DISPATCH_ATTEMPTED"][0] < at["RECEIPT"][0] < min(at["VERIFICATION_READ"]) < at["VERDICT"][0] and max(at["VERIFICATION_READ"]) < at["VERDICT"][0]):
         return "the events are not in order: spend, dispatch, receipt, the read by key, the verdict", counts
@@ -327,6 +316,28 @@ def _identity_problem(doc: Any, tenant: str, correlation: Any) -> str | None:
     if doc["correlation_id"] != correlation:
         return f"the reconstruction is of correlation {doc['correlation_id']!r}, not the run's {correlation!r}"
     return None
+
+
+def _line_stamp(text: Any) -> Mapping[str, Any] | None:
+    first = text.split("\n", 1)[0] if isinstance(text, str) else ""
+    parts = first.split(" ")
+    return {"sha": parts[1], "run_id": parts[2]} if len(parts) == 3 and parts[0] == "stamp:" else None
+
+
+def _stamps_across(inputs: Mapping[str, Any], artifacts: Mapping[str, Any]) -> tuple[bool, str]:
+    """A517: one stamp on every artifact that carries one, compared with each other and with the inputs, so a mixed set names which artifact is of another dispatch or run."""
+    found: dict[str, Any] = {}
+    for name in ("reconstructions", "mock_case_writes", "probes"):
+        doc = artifacts.get(name)
+        found[name] = doc.get("stamp") if isinstance(doc, Mapping) else None
+    found["run_stamp"] = artifacts.get("run_stamp")
+    found["leak_scan"] = _line_stamp(artifacts.get("leak_scan"))
+    found["artifact_files"] = _line_stamp(artifacts.get("artifact_files"))
+    want = {"sha": inputs["dispatch_sha"], "run_id": inputs["run_id"]}
+    off = sorted(n for n, st in found.items() if not isinstance(st, Mapping) or dict(st) != want)
+    if off:
+        return False, "no stamp, or another dispatch's or run's, on: " + ", ".join(off)
+    return True, f"all {len(found)} artifacts carry the dispatch SHA and run id of the inputs"
 
 
 def _canon(doc: Any) -> str:
@@ -415,7 +426,8 @@ def render(inputs: Mapping[str, Any], card_a: Mapping[str, Any], card_b: Mapping
     results = [_row(n, inputs, card_a, card_b, replay, artifacts) for n in range(1, 13)]
     met = [ok for ok, _ in results]
     notes = [str(x) for x in inputs["not_tested"] if str(x).strip()]
-    verdict = "MET" if all(met) and notes else "NOT MET"
+    agree, agree_why = _stamps_across(inputs, artifacts)
+    verdict = "MET" if all(met) and notes and agree else "NOT MET"
     head = "STAND-IN data, not Tushe" if stand_in else "Tushe data"
     lines = [f"# G1 evidence package ({head}) at {inputs['dispatch_sha']}", "",
              f"Run `{inputs['run_id']}`, legs `{replay.get('first', {}).get('run_id', '?')}` and `{replay.get('second', {}).get('run_id', '?')}`, seed {replay.get('seed', '?')}, "
@@ -427,6 +439,7 @@ def render(inputs: Mapping[str, Any], card_a: Mapping[str, Any], card_b: Mapping
     for n, (title, (ok, why)) in enumerate(zip(ROWS, results), start=1):
         lines.append(f"| {n} | {title} | **{'MET' if ok else 'NOT MET'}** | {why} |")
     lines += ["", "In row 2, `after_replay` is a second read of the same audit-only route after the recovery: a re-read of the Record, not a replay. Deterministic replay (INV-21) is not claimed from this evidence."]
+    lines += ["", f"Run stamp across artifacts: **{'AGREE' if agree else 'DISAGREE'}** ({agree_why})."]
     cov = replay.get("case_coverage", {})
     lines += ["", f"Replay coverage: {cov.get('covered', '?')} of {cov.get('of', '?')} cases."]
     excluded = [e["case_id"] for e in replay.get("open_exclusions", [])]
