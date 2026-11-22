@@ -248,6 +248,18 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
     valid["observed_state_with_a_classification"] = with_classification("EXECUTION_OUTCOME_UNKNOWN")
     invalid["classification_is_a_receipt_state"] = with_classification("OUTCOME_UNKNOWN")
     expect["classification_is_a_receipt_state.json"] = "enum"
+    # A503 (interim; US-06): a DECISION item may carry `disposition_decision_id`, the ESCALATE disposition an escalation action decision links, typed as a DecisionId. Built from the
+    # converted full write case, so the chain stays valid.
+    def with_disposition(value: str) -> dict:
+        doc = copy.deepcopy(base)
+        for section in doc["sections"]:
+            if section["kind"] == "DECISION":
+                section["items"][0]["facts"]["disposition_decision_id"] = value
+        return doc
+
+    valid["decision_with_its_disposition"] = with_disposition("dec_4B1")
+    invalid["disposition_decision_id_not_a_decision_id"] = with_disposition("int_8R4")
+    expect["disposition_decision_id_not_a_decision_id.json"] = "pattern"
     valid["id_fact_with_five_digits_in_a_row"] = with_fact(object_id="obj_01HX12345ABCDEFGHJKMNPQRST")  # a minted <prefix>_<ULID> is served as written (A193)
     invalid["text_fact_with_five_joined_digits"] = with_fact(text="the amount 12 345 was held")
     invalid["reason_codes_item_with_five_joined_digits"] = with_fact(reason_codes=["STATE_KNOWN", "ACCOUNT_1234-5678"])

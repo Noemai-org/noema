@@ -436,6 +436,9 @@
                             "type": "string"
                           },
                           "maxItems": 50
+                        },
+                        "disposition_decision_id": {
+                          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/DecisionId"
                         }
                       },
                       "required": [
