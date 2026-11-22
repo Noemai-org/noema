@@ -149,7 +149,10 @@ def parse_server_message(raw: str) -> TtsMessage:
         return TtsMessage(kind, chunk_id)
     if kind == "FETCH_AUDIO_CHUNK":
         chunk_id = document.get("chunk_id")
-        spellings = {document[key] for key in ("processing_staus", "processing_status") if key in document}  # the page's example spells it `processing_staus`, its prose `processing_status`: both are accepted
+        supplied = [document[key] for key in ("processing_staus", "processing_status") if key in document]
+        if not all(isinstance(value, str) for value in supplied):
+            raise _malformed()  # an array, an object, a number: never put into a set (Codex P2 on #864)
+        spellings = set(supplied)  # the page's example spells it `processing_staus`, its prose `processing_status`: both are accepted
         if len(spellings) != 1:
             raise _malformed()  # absent, or the two spellings disagree
         status = next(iter(spellings))
