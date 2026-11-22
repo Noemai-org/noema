@@ -16,10 +16,17 @@ const FIXTURES = fileURLToPath(new URL("../../contracts/fixtures/", import.meta.
 //   record-event.v3 seq_is_a_float: JSON.parse reads 1.0 as 1, so no parser in a browser sees the float; the core and the validator refuse it.
 //   clarification.v1 and overlay-card.v1 none_option_id_equals_an_option_id: a rule across two members that JSON Schema cannot say (tools/contracts/validate.py holds it as
 //   `none_option_collisions`, and the core refuses it in trust/decide); a generated parser holds only schema keywords, so the UI does not (A275, noema#736).
+//   conversation-response.v1 conversation_ref_other_investigation, stream_url_other_investigation, correlation_id_other_ulid and investigation_id_other_than_the_rest: the relations
+//   between the answer's members (conversation_ref is investigation_id, stream_url is its events route, correlation_id is corr_ and its ULID), which JSON Schema cannot say
+//   (A479; tools/contracts/validate.py holds them and the core's writer refuses them, noema#873). The UI's own refusal before it polls is FE's follow-up of A479, with its own test.
 const NOT_VISIBLE_TO_JSON_PARSE = new Set([
   "record-event.v3/seq_is_a_float.json",
   "clarification/none_option_id_equals_an_option_id.json",
   "overlay-card/none_option_id_equals_an_option_id.json",
+  "conversation-response/conversation_ref_other_investigation.json",
+  "conversation-response/stream_url_other_investigation.json",
+  "conversation-response/correlation_id_other_ulid.json",
+  "conversation-response/investigation_id_other_than_the_rest.json",
 ]);
 
 // The fixture folder of a contract: <name> for v1, <name>.v<major> for a later major (tools/contracts/validate.py).
