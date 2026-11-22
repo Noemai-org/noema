@@ -290,3 +290,116 @@ def test_the_shipped_settings_file_loads_and_holds_the_values_of_a380() -> None:
     assert (loaded.stt_final_s, loaded.response_s, loaded.tts_first_s, loaded.session_s) == (20.0, 1.0, 10.0, 40.0)
     assert (loaded.read_s, loaded.close_s, loaded.hold_s, loaded.concurrency, loaded.min_pause_s, loaded.budget_minutes) == (2.0, 1.0, 5.0, 1, 2.0, 20.0)
     assert bounds == (5.0, 15.0) and (loaded.connections_per_minute, loaded.connections_per_session) == (3, 2) and wire.ping_interval_s is None
+
+
+# ---- an item whose audio is outside the bounds is skipped and counted, never sent, and the run goes on ---------------------------------------------------------------------------
+
+
+class ShortThenLongTts(Tts):
+    """The first generation is 3 seconds (below the bounds), the rest 6 seconds."""
+
+    def __init__(self, clock: Clock) -> None:
+        super().__init__(clock)
+        self.generations = 0
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text == "send ten thousand naira":
+            self.generations += 1
+            seconds = 3 if self.generations == 1 else 6
+            self.requests.append(request.text)
+            yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000 * seconds)
+        else:
+            async for chunk in super().synthesize(request):
+                yield chunk
+
+
+@POSIX
+def test_an_item_whose_generated_audio_is_outside_the_bounds_is_skipped_and_counted_and_the_next_item_still_runs(tmp_path: Path) -> None:
+    root, store = make_store(tmp_path)
+    clock, pauses = Clock(), []  # type: ignore[var-annotated]
+    stt, tts = Stt(clock, []), ShortThenLongTts(clock)
+    report = run(asyncio.wait_for(run_baseline(items=[synthetic("u1"), synthetic("u2")], stt=stt, tts=tts, settings=settings(), bounds_s=(5.0, 15.0), store=store, clock_ms=clock, wall=wall,
+                                               sleep=lambda s: fake_sleep(pauses, s), tts_model_version="v1", answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))
+    assert report["skipped_out_of_bounds"] == 1 and stt.calls == 1 and report["sessions"] == {"total": 1, "complete": 1, "incomplete": 0}
+
+
+# ---- --check-key (A487): one connection, no audio, prints only accepted, rejected or inconclusive ---------------------------------------------------------------------------------
+
+
+class Greeter:
+    """A scripted connection: replies with `reply` on the first receive. Records what was sent (it must be nothing) and that it was closed."""
+
+    def __init__(self, reply: str | None) -> None:
+        self.reply, self.sent, self.closed = reply, [], False  # type: ignore[var-annotated]
+
+    async def send(self, message: str) -> None:
+        self.sent.append(message)
+
+    async def recv(self) -> str:
+        if self.reply is None:
+            raise ConnectionError("dropped")
+        return self.reply
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def check_key(tmp_path: Path, reply: str | None, capsys: pytest.CaptureFixture[str], environ: dict[str, str] | None = None) -> tuple[int, str, Greeter, list[tuple[str, dict[str, str]]]]:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    greeter, seen = Greeter(reply), []  # type: ignore[var-annotated]
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            seen.append((url, dict(headers)))
+            return greeter  # type: ignore[return-value]
+
+        return connect
+
+    argv = ["--check-key", f"--settings={write_json(tmp_path / 'settings.json', SETTINGS_FILE)}", "--base-url=wss://example.invalid"]
+    code = main(argv, environ if environ is not None else {"INTRON_API_KEY_FILE": str(key)}, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    out = capsys.readouterr()
+    return code, out.out + out.err, greeter, seen
+
+
+def test_a_key_the_vendor_accepts_prints_accepted_sends_no_audio_and_leaves_no_key_in_the_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, text, greeter, seen = check_key(tmp_path, json.dumps({"message_type": "SESSION_CREATED", "session_id": "s", "credit_balance": 10}), capsys)
+    assert code == 0 and text.strip() == "accepted" and greeter.sent == [] and greeter.closed and KEY not in text
+    assert seen[0][1] == {"Authorization": f"Bearer {KEY}"} and seen[0][0].startswith("wss://example.invalid/")
+
+
+def test_a_key_the_vendor_refuses_prints_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, text, greeter, _ = check_key(tmp_path, json.dumps({"message_type": "AUTHENTICATION_ERROR", "message": "permission denied"}), capsys)
+    assert code == 1 and text.strip() == "rejected" and greeter.sent == [] and greeter.closed and KEY not in text
+
+
+@pytest.mark.parametrize("reply", [None, "not json", json.dumps({"message_type": "QUOTA_EXCEEDED"}), json.dumps({"message_type": "SOMETHING_NEW"})])
+def test_anything_else_is_inconclusive_never_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str], reply: str | None) -> None:
+    code, text, greeter, _ = check_key(tmp_path, reply, capsys)
+    assert code == 1 and text.strip() == "inconclusive" and greeter.sent == [] and KEY not in text
+
+
+def test_check_key_without_the_key_file_refuses_before_any_connection(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, text, greeter, seen = check_key(tmp_path, "{}", capsys, environ={})
+    assert code == 2 and seen == [] and greeter.sent == [] and KEY not in text
+
+
+# ---- the proposed manifest and voices files -------------------------------------------------------------------------------------------------------------------------------------
+
+
+def test_the_proposed_manifest_loads_fits_the_budget_and_covers_the_five_locales() -> None:
+    from noema_model.voice.baseline import plan_budget
+    from noema_model.voice.baseline_run import _load_voices
+
+    bench = Path(__file__).resolve().parents[1] / "bench"
+    items = load_manifest(bench / "manifest.proposed.json")
+    voices = _load_voices(bench / "voices.proposed.json")
+    assert {i.locale for i in items} == {Locale.EN_NG, Locale.PCM, Locale.YO, Locale.HA, Locale.IG} and set(voices) == {i.locale for i in items}
+    assert all(i.origin is AudioOrigin.SYNTHETIC and i.script for i in items)  # proposed: synthetic only, no team recording is named here
+    assert 5.0 <= min(i.audio_s for i in items) and max(i.audio_s for i in items) <= 15.0
+    plan = plan_budget(items, budget_minutes=20.0)
+    assert plan.dropped == () and plan.total_s <= 20 * 60 * 0.6  # leaves room: at most 60 percent of the 20 audio-minutes, the rest for recordings and reruns
+    assert voices[Locale.PCM].language == "pcm" and voices[Locale.PCM].accent == "pidgin" and voices[Locale.EN_NG].language == "en" and voices[Locale.EN_NG].accent == "yoruba"
+    for locale in (Locale.YO, Locale.HA, Locale.IG):
+        assert voices[locale].language == locale.value
