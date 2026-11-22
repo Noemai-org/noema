@@ -96,6 +96,17 @@ class CrossMemberRelations(unittest.TestCase):
         self.assertTrue(ok(doc), "the schema now states a cross-member relation: update the README and the consumer checks")
         self.assertNotEqual(doc["investigation_id"], doc["conversation_ref"])
 
+    def test_every_relation_fixture_is_listed_where_the_ui_parser_cannot_see_it(self):
+        """The fixtures of a relation across members (expectation `conversation_id_mismatch`) are refused by `validate.py` and by the core's writer, and cannot be refused by a generated
+        parser (A479). The UI's contract test runs every invalid fixture through its parser and lists the ones a parser cannot see in NOT_VISIBLE_TO_JSON_PARSE: a relation fixture added
+        without that line turns the `ui` job red, which is what broke `main` when noema#873 added four of them."""
+        expectations = json.loads((FIXTURES / "invalid" / "conversation-response" / "expectations.json").read_text(encoding="utf-8"))
+        relation = sorted(name for name, why in expectations.items() if why == "conversation_id_mismatch")
+        self.assertTrue(relation, "no relation fixture: this test has nothing to hold")
+        ui = (Path(__file__).resolve().parents[2] / "ui" / "test" / "contracts.test.mjs").read_text(encoding="utf-8")
+        for name in relation:
+            self.assertIn(f'"conversation-response/{name}"', ui, f"{name} is a relation fixture but is not in NOT_VISIBLE_TO_JSON_PARSE of ui/test/contracts.test.mjs")
+
     def test_the_consistent_answer_satisfies_the_three_consumer_checks(self):
         doc = good()
         ulid = doc["investigation_id"].removeprefix("inv_")
