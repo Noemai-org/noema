@@ -10,7 +10,7 @@ import stat
 from collections.abc import Callable, Mapping
 
 ENV_KEY_FILE = "INTRON_API_KEY_FILE"
-MAX_KEY_BYTES = 512  # a ceiling on what is read, so a wrong file (a log, a binary) is refused instead of loaded; Intron's keys are far shorter
+MAX_KEY_BYTES = 4096  # a ceiling on what is read, so a wrong file (a log, a binary) is refused instead of loaded. It is NOT a rule of the vendor: the credential Intron issued is 654 bytes, which the first ceiling (512, my assumption that keys are short) refused
 _FORBIDDEN_MODE = stat.S_IRWXG | stat.S_IRWXO | stat.S_IXUSR
 
 
