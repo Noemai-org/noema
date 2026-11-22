@@ -15,6 +15,11 @@ const js = (await build({ stdin: { contents: `
   const root = createRoot(document.getElementById('app'));
   window.events = [];
   window.showClarification = card => root.render(createElement(ClarificationCard, { card, onChoice: (...args) => window.events.push(args) }));
+  window.showRetryCard = card => root.render(createElement(ClarificationCard, { card, onChoice: async (...args) => {
+    window.events.push(args);
+    const response = await fetch('/retry-submit', { method: 'POST' });
+    return response.ok ? 'accepted' : 'unavailable';
+  } }));
   window.showConfirmation = card => root.render(createElement(ConfirmationCard, { card, onResponse: (...args) => window.events.push(args) }));
 `, resolveDir: process.cwd(), loader: "js" }, bundle: true, format: "iife", platform: "browser", write: false, define: { "process.env.NODE_ENV": '"production"' } })).outputFiles[0].text;
 
@@ -32,13 +37,14 @@ const test = base.extend({ page: async ({ page }, use) => {
     expect(values.flatMap(scanVisibleText)).toEqual([]);
   }
 } });
-let server, origin;
+let server, origin, attempts = 0;
 test.beforeAll(async () => {
   const address = Object.values(networkInterfaces()).flat().find((x) => x?.internal && x.family === "IPv4")?.address;
   if (!address) throw new Error("Local test interface unavailable");
   server = createServer((req, res) => {
     if (req.url === "/") res.writeHead(200, { "content-type": "text/html" }).end('<!doctype html><div id="app"></div><script src="/cards.js"></script>');
     else if (req.url === "/cards.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);
+    else if (req.url === "/retry-submit") res.writeHead(++attempts === 1 ? 503 : 202).end();
     else res.writeHead(404).end();
   });
   server.listen(0, address);
@@ -50,6 +56,28 @@ test.afterAll(async () => { server?.closeAllConnections(); if (server) await new
 async function card(name) {
   return { ...JSON.parse(await readFile(`../contracts/fixtures/valid/overlay-card/${name}.json`, "utf8")), expires_at: "2099-01-01T00:00:00Z" };
 }
+
+test("A491: retry after a real HTTP failure reuses the same request id", async ({ page }) => {
+  attempts = 0;
+  const value = await card("clarification_four_options");
+  await page.goto(origin);
+  await page.evaluate((input) => window.showRetryCard(input), value);
+  await page.getByRole("button", { name: value.options[0].label }).click();
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => page.evaluate(() => window.events.length)).toBe(2);
+  const events = await page.evaluate(() => window.events);
+  expect(events[1]).toEqual(events[0]);
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+});
+
+test("A275: none of these sends the id from the card", async ({ page }) => {
+  const value = await card("clarification_four_options");
+  await page.goto(origin);
+  await page.evaluate((input) => window.showClarification(input), value);
+  await page.getByRole("button", { name: "None of these" }).click();
+  const events = await page.evaluate(() => window.events);
+  expect(events[0][1]).toBe(value.none_option_id);
+});
 
 test("A491: clarification locks on first click and preserves its request identity", async ({ page }) => {
   const value = await card("clarification_four_options");

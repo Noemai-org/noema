@@ -30,7 +30,7 @@ function useExpired(expiresAt: string, now: number | undefined): boolean {
 interface ClarificationProps {
   card: OverlayCardV1ClarificationCard;
   now?: number;
-  onChoice?: (clarificationId: string, optionId: string, requestId: string) => void;
+  onChoice?: (clarificationId: string, optionId: string, requestId: string) => void | "accepted" | "expired" | "unavailable" | Promise<void | "accepted" | "expired" | "unavailable">;
 }
 
 export function ClarificationCard(props: Omit<ClarificationProps, "card"> & { card: unknown }) {
@@ -46,14 +46,31 @@ export function ClarificationCard(props: Omit<ClarificationProps, "card"> & { ca
 function ClarificationView({ card, now, onChoice }: ClarificationProps) {
   const expired = useExpired(card.expires_at, now);
   const lock = useRef(false);
+  const inFlight = useRef(false);
+  const selection = useRef<{ optionId: string; requestId: string } | null>(null);
   const [locked, setLocked] = useState(false);
+  const [retry, setRetry] = useState(false);
   const current = () => !expired && cardExpiry(card.expires_at, now ?? clock()) === "active";
+  const submit = async () => {
+    if (!onChoice || !selection.current || !current() || inFlight.current) return;
+    inFlight.current = true;
+    setRetry(false);
+    try {
+      const result = await onChoice(card.clarification_id, selection.current.optionId, selection.current.requestId);
+      if (result === "unavailable") setRetry(true);
+    } catch {
+      setRetry(true);
+    } finally {
+      inFlight.current = false;
+    }
+  };
   const choose = (optionId: string) => {
     if (!onChoice || lock.current || !current()) return;
     const requestId = crypto.randomUUID();
     lock.current = true;
+    selection.current = { optionId, requestId };
     setLocked(true);
-    onChoice(card.clarification_id, optionId, requestId);
+    void submit();
   };
   return h("section", { "aria-label": "Clarification" },
     h("p", null, card.question),
@@ -65,8 +82,10 @@ function ClarificationView({ card, now, onChoice }: ClarificationProps) {
     }, option.label)),
     h("button", {
       type: "button",
-      disabled: true,
+      disabled: expired || locked || !onChoice || !card.allow_none,
+      onClick: () => choose(card.none_option_id),
     }, "None of these"),
+    retry && !expired ? h("button", { type: "button", onClick: () => { if (retry) { setRetry(false); void submit(); } } }, "Try again") : null,
     expired ? h("p", { role: "status" }, expiredText) : null,
   );
 }

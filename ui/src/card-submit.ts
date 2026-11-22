@@ -50,7 +50,7 @@ export async function submitClarification(input: Clarification): Promise<SubmitR
     const conversationRef = parseCommonV1InvestigationId(input.conversationRef);
     const state = cardExpiry(card.expires_at, Date.now());
     if (state !== "active") return state;
-    if (!card.options.some((option) => option.option_id === input.optionId)) return "unavailable";
+    if (!card.options.some((option) => option.option_id === input.optionId) && !(card.allow_none && input.optionId === card.none_option_id)) return "unavailable";
     const body = parseMessageRequestV1({ request_id: input.requestId, clarification_id: card.clarification_id, option_id: input.optionId });
     return await post(input, `/v1/conversations/${encodeURIComponent(conversationRef)}/messages`, body);
   } catch (error) {
