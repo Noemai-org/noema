@@ -12,6 +12,7 @@ from typing import Any
 from benchmark.bakeoff.budget import BudgetGuard
 from benchmark.compile_acceptance.__main__ import main
 from benchmark.compile_acceptance.golden import GOLDEN, Golden
+from benchmark.compile_acceptance.record_only import RecordOnlyInput
 from benchmark.compile_acceptance.recording import Recorder
 from benchmark.compile_acceptance.runner import CompileFailed
 from benchmark.compile_acceptance.test_golden import good
@@ -20,8 +21,8 @@ KEY = "sk-test-not-a-real-key-0000"
 
 
 class Backend:
-    def __init__(self, guard: BudgetGuard, recorder: Recorder, *, dry: bool, fail: bool = False) -> None:
-        self.guard, self.recorder, self.dry, self.fail, self._calls = guard, recorder, dry, fail, 0
+    def __init__(self, guard: BudgetGuard, recorder: Recorder, *, dry: bool, fail: bool = False, fail_record_only: bool = False) -> None:
+        self.guard, self.recorder, self.dry, self.fail, self.fail_record_only, self._calls = guard, recorder, dry, fail, fail_record_only, 0
 
     async def compile_one(self, g: Golden) -> Mapping[str, Any]:
         if self.dry:
@@ -36,6 +37,19 @@ class Backend:
             raise CompileFailed("no usable reply")
         return good(g.case_id)
 
+    async def record_one(self, inp: RecordOnlyInput) -> Mapping[str, Any]:
+        if self.dry:
+            self._costs.append((inp.case_id, 555))
+            raise CompileFailed("dry run")
+        self.recorder.case_id = inp.case_id
+        self.recorder.record_call(url="https://h.invalid/v1/responses", request=b'{"input":"y"}', status=200, reply=b'{"model":"m"}', failure=None, projected_micros=10, cost_micros=7)
+        self.guard.authorize(10)
+        self.guard.settle(7, 10)
+        self._calls += 1
+        if self.fail_record_only:
+            raise CompileFailed("no usable reply")
+        return {}  # whatever the model said: a record-only case has no expectation to meet
+
     _costs: list[tuple[str, int]] = []
 
     def calls(self) -> int:
@@ -48,11 +62,11 @@ class Backend:
         return list(self._costs)
 
 
-def run_main(argv: list[str], environ: Mapping[str, str], *, fail: bool = False) -> tuple[int, str, str, list[Backend]]:
+def run_main(argv: list[str], environ: Mapping[str, str], *, fail: bool = False, fail_record_only: bool = False) -> tuple[int, str, str, list[Backend]]:
     built: list[Backend] = []
 
     def factory(dry: bool, env: Mapping[str, str], guard: BudgetGuard, recorder: Recorder, args: Any) -> Backend:
-        b = Backend(guard, recorder, dry=dry, fail=fail)
+        b = Backend(guard, recorder, dry=dry, fail=fail, fail_record_only=fail_record_only)
         b._costs = []
         built.append(b)
         return b
@@ -66,8 +80,10 @@ def run_main(argv: list[str], environ: Mapping[str, str], *, fail: bool = False)
     return code, out.getvalue(), err.getvalue(), built
 
 
-def argv(tmp: str, *extra: str, dry: bool = False) -> list[str]:
-    base = ["--pack-ref", "fin@1.0.0", "--provider", "openai", "--hard-stop-usd", "5", "--prior-spent-micros", "326693", "--out", str(Path(tmp) / "out"), "--run-id", "compile-gh1"]
+def argv(tmp: str, *extra: str, dry: bool = False, record_only: Path | None = None) -> list[str]:
+    """`record_only`: the inputs file of the record-only pass; without it the command asks for the goldens only (the default file is BO's, noema#804)."""
+    pass_flags = ["--record-only-inputs", str(record_only)] if record_only is not None else ["--skip-record-only"]
+    base = pass_flags + ["--pack-ref", "fin@1.0.0", "--provider", "openai", "--hard-stop-usd", "5", "--prior-spent-micros", "326693", "--out", str(Path(tmp) / "out"), "--run-id", "compile-gh1"]
     return (["--dry-run"] if dry else []) + base + list(extra)
 
 

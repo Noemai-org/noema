@@ -22,6 +22,9 @@ list="${NOEMA_TENANTS-$(dotenv NOEMA_TENANTS)}"
 # or a `;` in a .env value must stop here, never reach a shell. The stand-in tenant must be one of the tenants: sessions name it, and a tenant with no login cannot be served (C1's P3).
 tenant_ok() {
   case "$1" in
+    ''|*[!a-z0-9_]*) return 1 ;;  # ^[a-z0-9_]+$ first (A469 to A485, item 6): nothing else ever reaches a recipe's text
+  esac
+  case "$1" in
     ten_[0-9A-Za-z][0-9A-Za-z]*) ;;
     *) return 1 ;;
   esac

@@ -54,6 +54,20 @@ services:
       NOEMA_PACK_MANIFEST: fintech/manifest.v1.json
       NOEMA_PACK_MAX_BYTES: "1048576"
       NOEMA_PACK_MAX_DEPTH: "32"
+      # The gateway, worker and recovery settings (A477, interim, relayed; docs#213): the Architect's bench values, Compose only, no default in code (AGENT-16). Durations are Go durations. Workers is 1
+      # because the model service's pool is 6 and one pipeline uses 5 in flight (a second concurrent pipeline would be refused locally). The loaders refuse ACTIVITY_TIMEOUT <= RUN_TIMEOUT and
+      # RECOVERY_IDLE <= RUN_TIMEOUT, so a live run cannot be picked up twice; netcheck checks the same ordering in the table.
+      NOEMA_INPUT_DEDUP_WINDOW: "5m"
+      NOEMA_INPUT_RECORD_TIMEOUT: "5s"
+      NOEMA_INVESTIGATION_QUEUE: "64"
+      NOEMA_INVESTIGATION_WORKERS: "1"
+      NOEMA_INVESTIGATION_RUN_TIMEOUT_MS: "180000"
+      NOEMA_INVESTIGATION_START_TIMEOUT_MS: "30000"
+      NOEMA_EDGE_KEY_MAX_ACTIVE: "2"
+      NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS: "240000"
+      NOEMA_TEMPORAL_SHUTDOWN_DRAIN_MS: "30000"
+      NOEMA_STM_RECOVERY_IDLE_MS: "240000"
+      NOEMA_STM_RECOVERY_BATCH_SIZE: "50"
     volumes:
       - ../../packs:/run/packs:ro
       - trust_dsns:/run/trust-dsn:ro
