@@ -27,5 +27,9 @@
   "stream_url_other_route.json": "pattern",
   "stream_url_with_query.json": "pattern",
   "stream_url_all_digits_id.json": "pattern",
-  "stream_url_with_a_correlation_id.json": "pattern"
+  "stream_url_with_a_correlation_id.json": "pattern",
+  "conversation_ref_other_investigation.json": "conversation_id_mismatch",
+  "stream_url_other_investigation.json": "conversation_id_mismatch",
+  "correlation_id_other_ulid.json": "conversation_id_mismatch",
+  "investigation_id_other_than_the_rest.json": "conversation_id_mismatch"
 }
