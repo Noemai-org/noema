@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/Noemai-org/noema/services/core/trust/grants/keyfiles"
 	"github.com/Noemai-org/noema/services/core/understanding"
 )
 
@@ -53,9 +54,9 @@ func buildModelHTTPClient(env Env) (*http.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cmd/core: %s cannot be read", EnvModelClientCertFile)
 	}
-	keyPEM, err := env.ReadFile(env.Getenv(EnvModelClientKeyFile))
+	keyPEM, err := keyfiles.ReadFile(env.Getenv(EnvModelClientKeyFile), privateKeyMaxBytes) // a private key is a secret: the shared checked reader (SEC-09, REQ-SEC-009, INV-29)
 	if err != nil {
-		return nil, fmt.Errorf("cmd/core: %s cannot be read", EnvModelClientKeyFile)
+		return nil, fmt.Errorf("cmd/core: %s: the file cannot be used as a secret (a regular file you own, mode 0400, no link)", EnvModelClientKeyFile) // never repeats the key
 	}
 	caPEM, err := env.ReadFile(env.Getenv(EnvModelCAFile))
 	if err != nil {
