@@ -166,3 +166,16 @@ When #771 has merged (this PR), then, in the loader:
 - Tests that changed, none deleted or skipped: the expectation of `TestPublishedIsEveryVersion...` carries the hash; the two shadow views of `errors_test.go` give a `document_hash` column; `TestAWaitIsReevaluated...` no longer tries the overflowing wait through a published row (a document with such a number has no hash, so it is ErrDrift, asserted there) and holds the clock guard on `reevaluateAt` directly. The helpers publish each row with the hash of the pack under test (`align`, as the administrator with the table's triggers off, because many tests vary the pack under one row); a test that needs another hash, or none, names it with `publishHashed`.
 - Hand mutants (restored): the check removed (killed, 4 failing); a NULL hash accepted (killed); a different hash accepted (killed, 3). A first mutant set was invalid (a build error) and redone.
 - Not built: wiring (`cmd/core`) is EL's.
+
+## Session 2026-11-21 · TRU-02 (C1, README line SR asked for on noema#827)
+
+## Session summary
+- What changed: `trust/intakeadapters/README.md` says that every publication from before migration 0035 fails closed with `ErrDrift` until a new version is published with `policypublish` (SR's note on noema#827, which merged before the line was added). Documentation only.
+- Why: the consequence is intended and operational; an operator who sees `ErrDrift` on an old tenant must know the fix is a new publication.
+- Risks, and how they are contained: none in code; no behaviour change.
+- Tests added: none (README only). Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none for this line. Wiring of the loader in `cmd/core` is EL's.
+- Files to read first: `services/core/trust/intakeadapters/README.md`, `errors.go` (`ErrDrift`).
+- Do not touch: `services/core/migrations/README.md` (A145).

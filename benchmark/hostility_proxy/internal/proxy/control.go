@@ -82,7 +82,7 @@ func (s *Server) putPlan(w http.ResponseWriter, r *http.Request) {
 		controlJSON(w, 422, map[string]any{"error": map[string]any{"code": "INVALID_FAULT_PLAN", "message": err.Error()}})
 		return
 	}
-	generation, err := newGeneration() // before anything changes: a plan that cannot be loaded whole is refused (A480, noema#786)
+	generation, err := newGeneration(s.entropy) // before anything changes: a plan that cannot be loaded whole is refused (A480, noema#786)
 	if err != nil {
 		controlJSON(w, 500, map[string]any{"error": map[string]any{"code": "NO_RANDOMNESS", "message": err.Error()}})
 		return
@@ -116,7 +116,7 @@ func (s *Server) deletePlan(w http.ResponseWriter, _ *http.Request) {
 // clearRun forgets the plan, its counters, the trace, remembered responses and withheld events, and goes back to the wall clock. It returns errNoRandomness, with nothing changed, when the
 // new request log generation cannot be made.
 func (s *Server) clearRun() error {
-	generation, err := newGeneration()
+	generation, err := newGeneration(s.entropy)
 	if err != nil {
 		return err
 	}
