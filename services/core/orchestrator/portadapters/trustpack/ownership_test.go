@@ -258,3 +258,37 @@ func TestEveryOwnedNodeHasItsEntryWhenThereAreSeveral(t *testing.T) {
 		t.Fatalf("OwnershipKinds = %v, %v; want %v", got, err, want)
 	}
 }
+
+// A node that needs ownership and is missing from the map is found against the real pack (A475, interim, relayed): each owned node is dropped in turn from a temp copy of the pack,
+// the mutated pack is read through the accessor, and the check, which holds the real pack's expectation, fails naming exactly that node. The pack may refuse to load without the
+// node; that is also a failure to build the map, and the case says so rather than passing silently.
+func TestDroppingAnOwnedNodeFromAPackCopyFailsTheCheck(t *testing.T) {
+	want := expectedKinds(t, readPackFile(t, packFileName))
+	if len(want) == 0 {
+		t.Fatal("the real pack has no node with an owned slot: the test would be vacuous")
+	}
+	for id := range want {
+		m := files(t)
+		m[packFileName] = edit(t, m[packFileName], func(p map[string]any) {
+			var keep []any
+			for _, n := range p["intent_nodes"].([]any) {
+				if n.(map[string]any)["node_id"] != id {
+					keep = append(keep, n)
+				}
+			}
+			p["intent_nodes"] = keep
+		})
+		p, err := loadFiles(t, m)
+		if err != nil {
+			t.Logf("without %s the pack does not load (%v): no map is built", id, err)
+			continue
+		}
+		got, err := p.OwnershipKinds()
+		if err != nil {
+			continue
+		}
+		if m := missing(want, got); !reflect.DeepEqual(m, []string{id}) {
+			t.Errorf("without %s the check found %v; want exactly it", id, m)
+		}
+	}
+}
