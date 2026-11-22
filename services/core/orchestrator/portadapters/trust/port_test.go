@@ -129,13 +129,39 @@ func TestDecideBuildsTheRequestFromTheSessionAndTheStoredIntent(t *testing.T) {
 }
 
 func TestDecideMapsEveryOutcomeAndNeverInventsOne(t *testing.T) {
+	i := &intentsStub{a: intake.AdmittedIntent{CorrelationID: "c"}}
 	for out, want := range map[decide.Outcome]contracts.EnumsV1DecisionOutcome{
 		decide.Confirm: contracts.EnumsV1DecisionOutcomeCONFIRM, decide.Wait: contracts.EnumsV1DecisionOutcomeWAIT,
 		decide.Escalate: contracts.EnumsV1DecisionOutcomeESCALATE, decide.Reject: contracts.EnumsV1DecisionOutcomeREJECT, decide.Unknown: contracts.EnumsV1DecisionOutcomeUNKNOWN,
 	} {
-		d, err := port(&evalSpy{res: intake.Result{Decision: decisionOf(t, out)}}, &intentsStub{a: intake.AdmittedIntent{CorrelationID: "c"}}, &recordsStub{}).Decide(ctx(t), sess, "int_ab@1", orchestrator.EvidenceRef{})
+		// Nothing recorded (UNKNOWN, a REJECT before T13): no decision ID, no grant, and the adapter invents none.
+		d, err := port(&evalSpy{res: intake.Result{Decision: decisionOf(t, out)}}, i, &recordsStub{}).Decide(ctx(t), sess, "int_ab@1", orchestrator.EvidenceRef{})
 		if err != nil || d.Outcome != want || d.ID != "" || len(d.GrantIDs) != 0 {
 			t.Fatalf("%s: %+v %v", out, d, err)
+		}
+	}
+}
+
+// A456 (interim, relayed, not yet committed): Decide returns the decision ID of every recorded decision, not only an ALLOW's. Proves REQ-TRU-002, INV-21.
+func TestDecideReturnsTheDecisionIDOfEveryRecordedDecision(t *testing.T) {
+	i := &intentsStub{a: intake.AdmittedIntent{CorrelationID: "c"}}
+	for _, out := range []decide.Outcome{decide.Confirm, decide.Reject, decide.Wait, decide.Escalate, decide.Unknown} {
+		d, err := port(&evalSpy{res: intake.Result{Decision: decisionOf(t, out), DecisionID: "dec_7"}}, i, &recordsStub{}).Decide(ctx(t), sess, "int_ab@1", orchestrator.EvidenceRef{})
+		if err != nil || d.ID != "dec_7" || d.Read || len(d.GrantIDs) != 0 {
+			t.Fatalf("%s: %+v %v", out, d, err)
+		}
+	}
+}
+
+// Grants exist only for an ALLOW: a grant on any other outcome is an error, whatever the decision ID (fail closed, INV-03). Proves REQ-NFR-002.
+func TestDecideRefusesAGrantOnAnythingButAnAllow(t *testing.T) {
+	i := &intentsStub{a: intake.AdmittedIntent{CorrelationID: "c"}}
+	for _, out := range []decide.Outcome{decide.Confirm, decide.Reject, decide.Wait, decide.Escalate, decide.Unknown} {
+		for _, id := range []string{"", "dec_7"} {
+			d, err := port(&evalSpy{res: intake.Result{Decision: decisionOf(t, out), DecisionID: id, GrantIDs: []string{"gr_1"}}}, i, &recordsStub{}).Decide(ctx(t), sess, "int_ab@1", orchestrator.EvidenceRef{})
+			if !errors.Is(err, trustport.ErrBadAnswer) || d.ID != "" || len(d.GrantIDs) != 0 {
+				t.Fatalf("%s id=%q: %+v %v", out, id, d, err)
+			}
 		}
 	}
 }
