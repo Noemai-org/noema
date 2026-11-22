@@ -161,8 +161,11 @@ class G1StackWorkflow(unittest.TestCase):
             text = body.group(1)
             self.assertIn(f"if: always() && inputs.mode == 'full' && steps.{needs}.outputs.{needs} == '0'", text)
             self.assertIn("python -m benchmark.runner.reread --run /bench-out/run --phase " + phase, text)
-            for flag in ("--api-url http://core:8080", "--idp-binary /bench-out/idp/synthetic-idp", "--idp-key /bench-out/idp/key/private.pem", "--idp-kid bench-k1", "--idp-audience noema-core",
-                         "--tenant-id ten_alpha", "--readyz-url http://core:8080/readyz", "--ready-timeout-s 120"):
+            self.assertIn("benchmark/out/idp/runner-args", text, "the five IdP flags come from the bench-tokens runner-args file (A517)")
+            self.assertIn("$idp_args", text)
+            self.assertNotIn("--tokens-dir", text)
+            self.assertNotIn("--idp-key", text, "no hard-coded IdP flag")
+            for flag in ("--api-url http://core:8080", "--readyz-url http://core:8080/readyz", "--ready-timeout-s 120"):
                 self.assertIn(flag, text, flag)
             self.assertIn(">> benchmark/out/joblog/reread.log 2>&1", text)
             self.assertNotIn("audit-credential", text, "A502: no credential file, no seeded principal")

@@ -206,7 +206,9 @@ jobs:
           export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
           compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
           mkdir -p benchmark/out/joblog
-          $compose exec -T bench-runner python -m benchmark.runner.reread --run /bench-out/run --phase after_recovery --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core --tenant-id ten_alpha --readyz-url http://core:8080/readyz --ready-timeout-s 120 >> benchmark/out/joblog/reread.log 2>&1
+          # The five IdP flags come from the file `make bench-tokens` wrote (A517: the G1 stack uses the IdP provider); its host paths map to the runner's mount.
+          idp_args="$(sed "s#$PWD/benchmark/out#/bench-out#g" benchmark/out/idp/runner-args 2>>benchmark/out/joblog/reread.log)"
+          $compose exec -T bench-runner python -m benchmark.runner.reread --run /bench-out/run --phase after_recovery --api-url http://core:8080 $idp_args --readyz-url http://core:8080/readyz --ready-timeout-s 120 >> benchmark/out/joblog/reread.log 2>&1
           echo "recovery=$?" >> "$GITHUB_OUTPUT"
           exit 0
       - id: replay
@@ -217,7 +219,9 @@ jobs:
           export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
           compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
           mkdir -p benchmark/out/joblog
-          $compose exec -T bench-runner python -m benchmark.runner.reread --run /bench-out/run --phase after_replay --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core --tenant-id ten_alpha --readyz-url http://core:8080/readyz --ready-timeout-s 120 >> benchmark/out/joblog/reread.log 2>&1
+          # The five IdP flags come from the file `make bench-tokens` wrote (A517: the G1 stack uses the IdP provider); its host paths map to the runner's mount.
+          idp_args="$(sed "s#$PWD/benchmark/out#/bench-out#g" benchmark/out/idp/runner-args 2>>benchmark/out/joblog/reread.log)"
+          $compose exec -T bench-runner python -m benchmark.runner.reread --run /bench-out/run --phase after_replay --api-url http://core:8080 $idp_args --readyz-url http://core:8080/readyz --ready-timeout-s 120 >> benchmark/out/joblog/reread.log 2>&1
           echo "replay=$?" >> "$GITHUB_OUTPUT"
           exit 0
       # BO's package inputs (A444, noema#821): the run directory gets stamp.json and mock-case-writes.json (each case's writes, from the runner's own results; a case that cannot be counted has no entry,
