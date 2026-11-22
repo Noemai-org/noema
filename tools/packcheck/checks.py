@@ -524,7 +524,10 @@ MANIFEST_KINDS = {
     "pack": ("", "fintech_v*.json"),
     "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
     "recon_rules": ("fintech/recon_rules", "*.json"),
+    "action_graph": ("fintech/graph", "*.json"),  # A510
 }
+# The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
+SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
 WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -561,6 +564,30 @@ def _manifest_id(doc: dict, id_key: str) -> str | None:
     return f"{value}@{version}"
 
 
+def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Problem]:
+    """A510: the action graphs the manifest pins are exactly the ones the verified pack file names in `action_graph_files`, so no graph is served unpinned and none is pinned for nothing."""
+    if pack_file is None:
+        return []
+    try:
+        body = json.loads(pack_file.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return [("manifest", "the pack file is not valid JSON, so the graphs it names cannot be read")]
+    named = body.get("action_graph_files") if isinstance(body, dict) else None
+    if named is None:
+        named = []
+    if not isinstance(named, list) or not all(isinstance(n, str) for n in named):
+        return [("manifest", "the pack file's action_graph_files is not a list of paths")]
+    out: list[Problem] = []
+    if len(set(named)) != len(named):
+        out.append(("manifest", "the pack file names an action graph twice"))
+    pinned_paths = {f["path"] for f in pinned}
+    for rel in sorted(set(named) - pinned_paths):
+        out.append(("manifest", f"{_shown(rel)} is an action graph the pack names and the manifest does not pin"))
+    for rel in sorted(pinned_paths - set(named)):
+        out.append(("manifest", f"{_shown(rel)} is pinned as an action graph and the pack does not name it"))
+    return out
+
+
 def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
     evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
@@ -586,7 +613,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     files = doc["files"]
     by_kind: dict[str, list[dict]] = {k: [f for f in files if f["kind"] == k] for k in MANIFEST_KINDS}
     for kind, entries in by_kind.items():
-        if len(entries) != 1:
+        if kind in SINGLE_KINDS and len(entries) != 1:
             out.append(("manifest", f"the manifest must list exactly one {kind} file, it lists {len(entries)}"))
     seen: set[str] = set()
     readable: dict[str, Path] = {}
@@ -639,6 +666,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
                     continue
                 suffix = " (a symlink)" if full.is_symlink() else ""
                 out.append(("manifest", f"{rel}{suffix} is a {kind} file and is not listed in the manifest"))
+    out += _graph_set_problems(by_kind["action_graph"], readable.get("pack"))
     expected = doc["expected"]
     for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id")):
         path = readable.get(kind)

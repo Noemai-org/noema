@@ -120,11 +120,18 @@ func TestAChangedByteInAPinnedGraphRefusesThePack(t *testing.T) {
 func TestAGraphThePackNamesButTheManifestDoesNotPinIsRefused(t *testing.T) {
 	w := newGraphWorld(t)
 	w.dropEntry(graphTwo)
+	if err := os.Remove(filepath.Join(w.dir, filepath.FromSlash(graphTwo))); err != nil { // no file on disk: only the two lists disagree
+		t.Fatal(err)
+	}
 	p, err := w.load()
 	refusedWith(t, "a named graph that is not pinned", err, packload.ErrGraph, p)
 	if k := kindOf(t, err); k != kindGraph {
 		t.Errorf("kind %q; want %q", k, kindGraph)
 	}
+	w = newGraphWorld(t) // the file is on disk but unpinned: the pack is refused either way, here as an unlisted file of the kind
+	w.dropEntry(graphTwo)
+	p, err = w.load()
+	refusedWith(t, "a named graph that is on disk and not pinned", err, packload.ErrUnlisted, p)
 }
 
 // A graph the manifest pins and the pack does not name is refused too: the two lists are the same set.
@@ -227,6 +234,10 @@ func TestAPackWhoseGraphListIsNotUsableIsRefused(t *testing.T) {
 		"a repeat":     packNaming(graphOne, graphOne),
 	} {
 		w := newGraphWorld(t)
+		w.dropEntry(graphTwo) // only the first graph is pinned, so a repeat of it is the one thing wrong
+		if err := os.Remove(filepath.Join(w.dir, filepath.FromSlash(graphTwo))); err != nil {
+			t.Fatal(err)
+		}
 		w.setPack(body)
 		p, err := w.load()
 		refusedWith(t, name, err, packload.ErrGraph, p)
