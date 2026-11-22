@@ -49,7 +49,7 @@ var (
 	// the one the ALLOW's step carries (the eight values of SoT 43.2a). The caller cannot tell which: the three are one answer, so no outward answer tells an attacker which.
 	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
 	// ErrDeclinedRequestNotValid is returned when the declined request a REJECT DECLINED_BY_APPROVER names is not a confirmation request of this tenant and of this decision's intent (A507).
-	// The caller cannot tell which: an absent request, another tenant's and another intent's are one answer. SCAFFOLD: the variable only, nothing returns it yet.
+	// The caller cannot tell which: an absent request, another tenant's and another intent's are one answer.
 	ErrDeclinedRequestNotValid = errors.New(errPrefix + "the declined request is not valid for this decision")
 	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
 	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
@@ -195,6 +195,9 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 			return Result{}, err
 		}
 		return Result{}, ErrConfirmationNotValid
+	}
+	if errors.Is(err, errDeclinedUnowned) {
+		return Result{}, ErrDeclinedRequestNotValid
 	}
 	if err != nil {
 		return Result{}, err

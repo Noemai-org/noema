@@ -6,21 +6,40 @@ package recorder_test
 // characters) and the rule that no other outcome names a request stay. REQ-TRU-009, REQ-SEC-004; INV-25, INV-12, EC-E16. All data is SYNTHETIC.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/trust/recorder"
 )
 
-// openRequest records a CONFIRM that creates a confirmation request for the intent of the tuple, as the Trust login of the tenant, and returns the request's ID.
+// seedRequest stores a confirmation request row as the confirmation store does (orchestrator/portadapters/trustpg2: the Writer's CONFIRM path writes the decision and the
+// CONFIRMATION_REQUESTED event and no row, so the row a decline rests on is the store's), as the Trust login of the tenant, for the intent. The binding hash is the canonical form of
+// the eight bound values, which the database recomputes and refuses on any difference. Each request is for a target of its own (one root request per action).
+func (w *world) seedRequest(t *testing.T, pool *pgxpool.Pool, tenantID, id, intentID string) {
+	t.Helper()
+	b := struct{ capability, evidence, intent, params, plan, policy, principal, target string }{"cap.change", "sha256:e1", "sha256:i1", "sha256:p1", "sha256:l1", "pol_v1", "prn_1", "fin.transaction:" + id} // one root request per action: each request is for a target of its own
+	canonical := `{"capability_id":"` + b.capability + `","evidence_set_hash":"` + b.evidence + `","intent_hash":"` + b.intent + `","params_hash":"` + b.params + `","plan_hash":"` + b.plan +
+		`","policy_version":"` + b.policy + `","principal_id":"` + b.principal + `","target_ref":"` + b.target + `"}`
+	sum := sha256.Sum256([]byte(canonical))
+	if _, err := pool.Exec(ctx(t), `INSERT INTO confirmation_request (tenant_id, confirmation_request_id, correlation_id, intent_id, intent_version, principal_id, intent_hash, capability_id,
+			target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, binding_hash, requirement, requester_id, expires_at)
+		VALUES ($1, $2, 'cor_1', $3, 1, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'SELF', 'prn_1', now() + interval '10 minutes')`,
+		tenantID, id, intentID, b.principal, b.intent, b.capability, b.target, b.params, b.evidence, b.plan, b.policy, "sha256:"+hex.EncodeToString(sum[:])); err != nil {
+		t.Fatalf("seed the request %s: %v", id, err)
+	}
+}
+
+// openRequest seeds the request of the tenant's own intent and returns its ID.
 func (w *world) openRequest(t *testing.T) string {
 	t.Helper()
-	res, err := w.write(t, confirmRequest(t, w, "evs_01ABC", true), true)
-	if err != nil || res.ConfirmationRequestID == "" {
-		t.Fatalf("the CONFIRM that creates the request: %+v, %v", res, err)
-	}
-	return res.ConfirmationRequestID
+	const id = "cfr_01REAL"
+	w.seedRequest(t, w.trust, tenant, id, "int_01J9X3")
+	return id
 }
 
 // recordAndEventCounts is what a refused decline must leave as it was: the decisions and the events.
@@ -73,15 +92,9 @@ func TestADeclinedRejectNamingARequestOfAnotherTenantIsRefusedAndNothingIsWritte
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_bb', 'B')`); err != nil {
 		t.Fatal(err)
 	}
-	other := confirmRequest(t, w, "evs_01ABC", true)
-	other.TenantID = "ten_bb"
-	otherLogin := testpg.TenantLogin(t, w.admin, w.dsn, "trust_rw", "ten_bb")
-	res, err := w.writeVia(t, otherLogin, other)
-	if err != nil || res.ConfirmationRequestID == "" {
-		t.Fatalf("the other tenant's request: %+v, %v", res, err)
-	}
+	w.seedRequest(t, testpg.TenantLogin(t, w.admin, w.dsn, "trust_rw", "ten_bb"), "ten_bb", "cfr_01BBREQ", "int_01J9X3")
 	records, events := w.recordAndEventCounts(t)
-	if _, err := w.write(t, declinedReject(t, "evs_01ABC", res.ConfirmationRequestID), true); !errors.Is(err, recorder.ErrDeclinedRequestNotValid) {
+	if _, err := w.write(t, declinedReject(t, "evs_01ABC", "cfr_01BBREQ"), true); !errors.Is(err, recorder.ErrDeclinedRequestNotValid) {
 		t.Fatalf("err %v, want ErrDeclinedRequestNotValid for another tenant's request", err)
 	}
 	if r2, e2 := w.recordAndEventCounts(t); r2 != records || e2 != events {
