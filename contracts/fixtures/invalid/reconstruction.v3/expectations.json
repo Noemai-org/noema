@@ -33,5 +33,6 @@
   "minted_id_whose_first_ulid_character_is_8.json": "oneOf",
   "minted_id_with_a_letter_outside_the_ulid_alphabet.json": "oneOf",
   "minted_id_in_lower_case.json": "oneOf",
-  "minted_id_of_26_digits.json": "oneOf"
+  "minted_id_of_26_digits.json": "oneOf",
+  "disposition_decision_id_not_a_decision_id.json": "pattern"
 }
