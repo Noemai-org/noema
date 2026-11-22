@@ -33,6 +33,8 @@ type Pack struct {
 	ReconRules        []byte
 	EvidenceMappingID string
 	ReconRuleSetID    string
+	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
+	ActionGraphs map[string][]byte
 }
 
 // The kinds of refusal. Callers compare with errors.Is.
@@ -45,6 +47,7 @@ var (
 	ErrHash     = errors.New("packload: a file does not match its pinned SHA-256")
 	ErrUnlisted = errors.New("packload: a file of a listed kind is not listed")
 	ErrID       = errors.New("packload: a file carries another id than the manifest expects")
+	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
 // Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping` or `recon_rules`), never a path, a digest or content.
