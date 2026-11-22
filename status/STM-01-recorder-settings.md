@@ -6,6 +6,7 @@ Updated 2026-11-20. Owner: Engineering Lead (built by an agent lane; unreviewed)
 
 - Mutation check (hand, `recorder_settings.go`): 10 of 13 killed; the 3 survivors are equivalent (`ms < 0` after the regex that refuses 0; `%v` for `%s` on a string; returning `s` on the first failure, where it is still zero).
 - **Red pushed (noema#847):** `cmd/core/recorder_settings.go` is a stub that accepts everything; the tests fail on the missing behaviour (the evidence-page guard also fails on the status file at the red head, which the green fixes by naming the PERD source on one line). The implementation is committed locally and not pushed (EL pushes it after reading the red job).
+- **Order check (A503, interim, relayed, not yet committed):** `loadRecorderSettings` refuses a grant lifetime above the record lifetime, after all three settings are valid; the error names both settings and no value; equal is accepted. Tests: `cmd/core/recorder_settings_order_test.go`. This closes the mismatch noted under "The gap for the Founder" below as a refusal at start-up. Safer reading taken: an invalid or missing value is reported before the order check.
 - Settings (whole milliseconds, A330, no default in code, required): `NOEMA_TRUST_GRANT_LIFETIME_MS`, `NOEMA_TRUST_RECORD_LIFETIME_MS`, `NOEMA_TRUST_TX_TIMEOUT_MS`. The area `TRUST` follows the existing `NOEMA_TRUST_DB_TIMEOUT_MS` of `wire_trust.go`.
 
 ## Values: what the specifications name, and what is bench-only (Founder to confirm)

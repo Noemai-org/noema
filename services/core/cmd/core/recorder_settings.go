@@ -38,7 +38,8 @@ func recorderSettingMS(env Env, name string) (time.Duration, error) {
 }
 
 // loadRecorderSettings reads the three settings, in the order grant, record, transaction. On an error it returns the zero value and names the first setting that is missing or
-// invalid.
+// invalid. Once all three are valid, a grant lifetime above the record lifetime is refused (a grant must not outlive its record; Founder instruction, interim, relayed, not yet
+// committed, A503): the error names both settings and no value. Equal values are accepted.
 func loadRecorderSettings(env Env) (RecorderSettings, error) {
 	var s RecorderSettings
 	var err error
@@ -50,6 +51,9 @@ func loadRecorderSettings(env Env) (RecorderSettings, error) {
 	}
 	if s.TxTimeout, err = recorderSettingMS(env, EnvTrustTxTimeoutMS); err != nil {
 		return RecorderSettings{}, err
+	}
+	if s.GrantLifetime > s.RecordLifetime {
+		return RecorderSettings{}, fmt.Errorf("cmd/core: %s must not exceed %s", EnvTrustGrantLifetimeMS, EnvTrustRecordLifetimeMS)
 	}
 	return s, nil
 }
