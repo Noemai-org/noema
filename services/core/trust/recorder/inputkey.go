@@ -150,12 +150,17 @@ func sameGrants(stored []contracts.DecisionGrantV1, r Request) bool {
 // or into ErrDecisionConflict when the input already has an ALLOW.
 var errUnresolved = errors.New(errPrefix + "the confirmation is not recorded")
 
+// errDeclinedUnowned is resolveState's answer for a REJECT that names a declined request which is not a request of the tenant and of the decision's intent (A507). It is internal: the
+// writer turns it into ErrDeclinedRequestNotValid.
+var errDeclinedUnowned = errors.New(errPrefix + "the declined request is not recorded for this tenant and intent")
+
 // noState is a state that no stored decision has (a stored state is NULL or a cfr_ ID): with it otherState reports every decision of the outcome on the tuple.
 const noState = "?"
 
 // resolveState is the confirmation state of the decision a request asks for (A366): the confirmation request it rests on, or "" for none. An ALLOW that follows a confirmation rests on the
 // request that confirmation resolved, read from confirmation_resolution as the caller's tenant login (row security hides another tenant's; the tenant is also in the predicate); a
-// confirmation that is not recorded for the tenant is errUnresolved. A REJECT DECLINED_BY_APPROVER rests on the declined request it names. Every other decision rests on none.
+// confirmation that is not recorded for the tenant is errUnresolved. A REJECT DECLINED_BY_APPROVER rests on the declined request it names, which must be a request of the tenant and of the
+// decision's intent (errDeclinedUnowned, A507). Every other decision rests on none.
 func resolveState(ctx context.Context, tx pgx.Tx, r Request) (string, error) {
 	switch {
 	case r.Decision.Outcome() == decide.Allow && r.ConfirmationEventID != "":
@@ -169,6 +174,19 @@ func resolveState(ctx context.Context, tx pgx.Tx, r Request) (string, error) {
 		}
 		return request, nil
 	case r.Decision.Outcome() == decide.Reject:
+		if r.DeclinedRequestID == "" {
+			return "", nil
+		}
+		// A507: the request a decline rests on is a request of this tenant (row security hides another tenant's; the tenant is in the predicate too) and of this decision's intent.
+		// A request is never updated or deleted, so a stored decline stays valid on a retry.
+		var intent string
+		err := tx.QueryRow(ctx, `SELECT intent_id FROM confirmation_request WHERE tenant_id = $1 AND confirmation_request_id = $2`, r.TenantID, r.DeclinedRequestID).Scan(&intent)
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && intent != r.IntentID {
+			return "", errDeclinedUnowned
+		}
+		if err != nil {
+			return "", fmt.Errorf("%sread the declined request: %w", errPrefix, err)
+		}
 		return r.DeclinedRequestID, nil
 	}
 	return "", nil
