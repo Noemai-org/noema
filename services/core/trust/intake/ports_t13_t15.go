@@ -80,6 +80,16 @@ type PlanRequest struct {
 	IntentHash    string
 	IntentNode    string
 	WriteRequired bool
+	// Capabilities are the capability IDs to plan now (TRU-14). Empty for the first evaluation of an intent: the planner then plans the action graph's first step(s) as before.
+	// A continuation evaluation (EvaluateStep) names exactly the one capability whose step it decides; the planner plans that step and no other.
+	Capabilities []string
+	// PolicyParams are the parameters of the winning PERMIT rule of each capability, as T11 read them (capability ID to param name to value). The planner takes a graph
+	// `policy_param` from here and from nowhere else (A363, interim, relayed, not yet committed).
+	PolicyParams map[string]map[string]string
+	// Facts are values the caller learned from verified results (for example case_id), for a graph `fact` param; set only by a continuation evaluation.
+	Facts map[string]string
+	// EvidencePacket is the evidence packet for a graph `evidence_packet` param; set only by a continuation evaluation.
+	EvidencePacket string
 }
 
 // PlanStep is one step of a plan as plain values: the capability, the target and the hash of the parameters. Its index in Plan.Steps is its plan step number.
