@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -157,6 +158,10 @@ func buildWorld(t *testing.T, legacyVersion string) *world {
 func (w *world) dsnFile(name, dsn string) string {
 	w.t.Helper()
 	p := filepath.Join(w.files, name)
+	// A file written 0400 cannot be opened for writing again by its owner, so a test that asks for the same name twice replaces it (as the deploy step does when it rewrites a secret).
+	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.t.Fatal(err)
+	}
 	if err := os.WriteFile(p, []byte(dsn+"\n"), 0o400); err != nil {
 		w.t.Fatal(err)
 	}
