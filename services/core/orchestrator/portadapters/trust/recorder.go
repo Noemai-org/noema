@@ -68,12 +68,14 @@ type RecordStepFacts struct {
 	Permission     reconcile.Permission
 }
 
-// RecordFacts is what the composition adds to a RecordRequest: the policy the record and the grants bind, the hash of the evidence set, and one RecordStepFacts per write step, in
+// RecordFacts is what the composition adds to a RecordRequest: the policy the record and the grants bind, the hash of the evidence set, the content digest a confirmation binds (one per
+// request, A459; set only for a request that follows a confirmation, and never the request's own value, A435), and one RecordStepFacts per write step, in
 // step order. The stores behind it (T9 to T11) belong to other lanes.
 type RecordFacts struct {
-	PolicyID        string
-	EvidenceSetHash string
-	Steps           []RecordStepFacts
+	PolicyID                        string
+	EvidenceSetHash                 string
+	ConfirmationBindingEvidenceHash string
+	Steps                           []RecordStepFacts
 }
 
 // RecordFactSource gives the facts of one request.
@@ -216,6 +218,15 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	if f.PolicyID == "" || !recHashRe.MatchString(f.EvidenceSetHash) || len(f.Steps) != len(r.Steps) {
 		return recorder.Request{}, ErrRecordRequest
 	}
+	// A435, A459, INV-25: a Record that follows a confirmation carries the fresh content digest of the evidence (the facts', never the request's); the Writer recomputes the binding from it
+	// and the database refuses the spend unless the confirmation was given for exactly that. Any other Record carries none.
+	var binding contracts.CommonV1Hash
+	if r.ConfirmationEventID != "" {
+		if !recHashRe.MatchString(f.ConfirmationBindingEvidenceHash) {
+			return recorder.Request{}, fmt.Errorf("%w: a confirmed record has no well-formed fresh evidence value of its binding", ErrRecordRequest)
+		}
+		binding = contracts.CommonV1Hash(f.ConfirmationBindingEvidenceHash)
+	}
 	steps := make([]grants.Step, 0, len(r.Steps))
 	for i, s := range r.Steps {
 		steps = append(steps, grants.Step{PrincipalID: r.PrincipalID, CapabilityID: s.CapabilityID, TargetRef: s.TargetRef, ParamsHash: contracts.CommonV1Hash(s.ParamsHash),
@@ -223,7 +234,7 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 			TargetVersions: f.Steps[i].TargetVersions, Permission: f.Steps[i].Permission})
 	}
 	return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), PolicyID: f.PolicyID,
-		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, Steps: steps,
+		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, ConfirmationBindingEvidenceHash: binding, Steps: steps,
 		ConfirmationRequest: newRequest(r.ConfirmationRequest), DispositionDecisionID: r.DispositionDecisionID}, nil
 }
 

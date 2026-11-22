@@ -120,7 +120,7 @@ func (s *recFacts) Facts(ctx context.Context, r intake.RecordRequest) (RecordFac
 }
 
 func newRecFacts() *recFacts {
-	return &recFacts{f: RecordFacts{PolicyID: "fin.pol", EvidenceSetHash: recHash(3)}}
+	return &recFacts{f: RecordFacts{PolicyID: "fin.pol", EvidenceSetHash: recHash(3), ConfirmationBindingEvidenceHash: recHash(5)}}
 }
 
 // recTx records what is done to a transaction; it embeds a nil pgx.Tx, so any other call panics, which the tests treat as a failure.
