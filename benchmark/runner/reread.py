@@ -118,6 +118,9 @@ def main(argv: list[str] | None = None) -> int:
     if not all(idp):
         print("refused: the IdP session provider needs --idp-key, --idp-binary, --idp-kid, --idp-audience and --tenant-id together")
         return 2
+    if not a.idp_key.is_file():
+        print("refused: --idp-key must be the path of an existing key file, never key material on the command line")
+        return 2
     sessions = IdpSessionProvider(a.idp_binary, a.idp_key, kid=a.idp_kid, audience=a.idp_audience, tenant_id=a.tenant_id)
     try:
         if a.readyz_url:

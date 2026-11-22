@@ -244,6 +244,29 @@ class Cli(unittest.TestCase):
             self.assertEqual(before, snapshot(run))
 
 
+class KeyIsAFile(unittest.TestCase):
+    """SR: `--idp-key` is the PATH of the key file and never key material on the command line (a command line is logged and visible in the process list). A value that is not an existing regular file is refused,
+    and the message never prints the value."""
+
+    def test_inline_key_material_or_a_missing_file_is_refused_without_echoing_it(self) -> None:
+        import contextlib
+        import io
+
+        with Tmp(self) as tmp:
+            run = run_dir(tmp)
+            before = snapshot(run)
+            secret = "-----BEGIN PRIVATE KEY-----MIIEvQIBADANBg-----END PRIVATE KEY-----"
+            for value in (secret, str(Path(tmp) / "absent.key"), tmp):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = main(["--run", str(run), "--phase", "after_recovery", "--api-url", "http://127.0.0.1:9", "--idp-key", value, "--idp-binary", "b", "--idp-kid", "kid",
+                                 "--idp-audience", "core", "--tenant-id", "ten_alpha"])
+                self.assertEqual(2, code, value[:20])
+                self.assertNotIn("PRIVATE KEY", out.getvalue())
+                self.assertNotIn("MIIEvQ", out.getvalue())
+            self.assertEqual(before, snapshot(run))
+
+
 class Abbreviations(unittest.TestCase):
     """IL's rule (noema#791): argparse accepts any unique prefix, so an abbreviated flag could select a setting without the full flag appearing in a workflow."""
 
