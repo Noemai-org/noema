@@ -3,6 +3,7 @@ import { parseCommonV1InvestigationId } from "./contract_types/common_v1.js";
 import { parseOverlayCardV1ClarificationCard, parseOverlayCardV1ConfirmationCard } from "./contract_types/overlay_card_v1.js";
 import { parseMessageRequestV1 } from "./contract_types/customer.js";
 import { cardExpiry } from "./card-expiry.js";
+import { parseConfirmationAnswerForPath } from "./confirmation.js";
 
 type SubmitResult = "accepted" | "expired" | "unavailable";
 type Shared = { baseUrl: string; sessionToken: string; signal?: AbortSignal };
@@ -65,9 +66,10 @@ export async function submitConfirmation(input: Confirmation): Promise<SubmitRes
     const state = cardExpiry(card.expires_at, Date.now());
     if (state !== "active") return state;
     if (input.response !== "ACCEPT" && input.response !== "DECLINE") return "unavailable";
-    return await post(input, `/v1/confirmations/${encodeURIComponent(card.confirmation_request_id)}`, {
+    const body = parseConfirmationAnswerForPath(card.confirmation_request_id, {
       request_id: card.confirmation_request_id, response: input.response,
     });
+    return await post(input, `/v1/confirmations/${encodeURIComponent(card.confirmation_request_id)}`, body);
   } catch (error) {
     if (!(error instanceof ContractError)) throw error;
     return "unavailable";
