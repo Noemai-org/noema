@@ -153,11 +153,11 @@ func buildWorld(t *testing.T, legacyVersion string) *world {
 	return w
 }
 
-// dsnFile writes the DSN of a pool's login into a file only its owner can read, as the deploy step mounts one.
+// dsnFile writes the DSN of a pool's login into a file only its owner can read (0400, as the deploy step writes one; A509), as the deploy step mounts one.
 func (w *world) dsnFile(name, dsn string) string {
 	w.t.Helper()
 	p := filepath.Join(w.files, name)
-	if err := os.WriteFile(p, []byte(dsn+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(dsn+"\n"), 0o400); err != nil {
 		w.t.Fatal(err)
 	}
 	return p
