@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/session"
@@ -19,6 +22,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/record/admission"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
+	"github.com/Noemai-org/noema/services/core/workflows"
 )
 
 // compose.go is the composition root of the G1 slice (EDG-01 slice 3c). It is the only place that plugs the components other tasks build into the orchestrator,
@@ -47,6 +51,11 @@ type Components struct {
 	ServedTenants []string
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
+	// TrustUnbuilt names the Trust adapters that are not yet built when Trust is configured but cannot be plugged (the named, expected gaps of UnbuiltAdaptersError). It is not a
+	// component: /readyz names each after "trust" as "trust.<Name>" (fixed text, no value). Empty when Trust is built or not asked for.
+	TrustUnbuilt []string
+	// Confirmations is the confirmation route's ports (POST /v1/confirmations/{confirmation_request_id}, A341, noema#754); the route is mounted only with it.
+	Confirmations *confirmationRouteConfig
 }
 
 // Env is the process's configuration source, injected so that tests do not touch the real environment. Nothing read through it has a default (AGENT-16).
@@ -74,6 +83,13 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 	if c.Investigations != nil {
 		routes = append(routes, investigationRoute(c.Investigations))
 	}
+	if c.Confirmations != nil {
+		cfg := *c.Confirmations
+		if cfg.Logger == nil {
+			cfg.Logger = c.AccessLog // the one redacted process logger (redactedLog); a route with its own logger keeps it
+		}
+		routes = append(routes, confirmationRoute(cfg))
+	}
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,
@@ -91,6 +107,9 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 func buildAPI(c Components, e Env, clk clock.Clock, ids session.IDs) (http.Handler, error) {
 	if c.Records != nil && c.AccessLog == nil {
 		return nil, errors.New("the Record reader is configured without an access logger: its reads would not be logged (REQ-AUD-003)")
+	}
+	if c.Confirmations != nil && c.AccessLog == nil {
+		return nil, errors.New("the confirmation route is configured without a logger: its refusals would not be logged (A341, AGENT-13)")
 	}
 	routes := apiRoutes(c, ids)
 	h, err := edge.Load(e.Getenv, e.ReadFile, clk, ids, routes)
@@ -122,11 +141,18 @@ func missing(c Components, api http.Handler) []string {
 		{"record reader", c.Records != nil},
 		{"record logins", recordLoginsPresent(c)},
 		{"input gateway", c.Gateway != nil},
+		{"confirmation route", c.Confirmations != nil},
 	}
 	var names []string
 	for _, p := range parts {
-		if !p.built {
-			names = append(names, p.name)
+		if p.built {
+			continue
+		}
+		names = append(names, p.name)
+		if p.name == "trust" {
+			for _, n := range c.TrustUnbuilt {
+				names = append(names, "trust."+n)
+			}
 		}
 	}
 	return names
@@ -201,6 +227,15 @@ func redactedLog(l *slog.Logger) *slog.Logger {
 // orchestrator's Recorder and, over the same per-tenant stores, the investigation reader (A243), which needs NOEMA_READ_TIMEOUT_MS as well (A319). With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
 // whose adapters are not built stay nil, so /readyz names them (missing). Nothing is dialled here.
 func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger) (Components, func(), error) {
+	c, _, closer, err := buildComponentsWith(ctx, env, clk, ids, logger, productionDeps())
+	return c, closer, err
+}
+
+// buildComponentsWith is buildComponents with its seams, and it also returns the Trust parts the write path needs later (the Bindings, the grant keys, the intake service). Trust is
+// built here, once, with buildTrust, and only when one of the Trust settings is given (trustRequested): with none there is nothing and no error, and /readyz names "trust"; with
+// any, buildTrust requires the rest and names the one that is missing (A330, AGENT-16). When the adapters are not yet built (UnbuiltAdaptersError) Trust is not plugged and is no error:
+// the settings are still checked, and /readyz names "trust" and each adapter (Components.TrustUnbuilt). The grant keys are loaded by buildTrust from NOEMA_GRANT_KEY_DIR and nowhere else (INV-29).
+func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger, d composeDeps) (Components, TrustParts, func(), error) {
 	var closers []func()
 	closeAll := func() {
 		for i := len(closers) - 1; i >= 0; i-- {
@@ -209,13 +244,13 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 	}
 	records, closeRecords, err := buildRecordReader(ctx, env)
 	if err != nil {
-		return Components{}, closeAll, err
+		return Components{}, TrustParts{}, closeAll, err
 	}
 	closers = append(closers, closeRecords)
 	recorder, closeRecorder, err := buildRecorder(ctx, env, clk, ids, records)
 	if err != nil {
 		closeAll()
-		return Components{}, closeAll, err
+		return Components{}, TrustParts{}, closeAll, err
 	}
 	closers = append(closers, closeRecorder)
 	c := Components{Records: records, ServedTenants: servedTenants(env), AccessLog: redactedLog(logger)}
@@ -226,10 +261,277 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		reader, err := buildInvestigationReader(env, recorder) // reads over the same per-tenant orchestrator logins; the bound is NOEMA_READ_TIMEOUT_MS (A243, A319, noema#715)
 		if err != nil {
 			closeAll()
-			return Components{}, closeAll, err
+			return Components{}, TrustParts{}, closeAll, err
 		}
 		c.Ports.Recorder = recorder
 		c.Investigations = reader
 	}
-	return c, closeAll, nil
+	var parts TrustParts
+	if trustRequested(env) {
+		if d.TrustAdapters == nil {
+			closeAll()
+			return Components{}, TrustParts{}, closeAll, errors.New("cmd/core: the Trust adapters are not configured")
+		}
+		adapters, err := d.TrustAdapters(env, records, clk)
+		var unbuilt *UnbuiltAdaptersError
+		switch {
+		case errors.As(err, &unbuilt) && len(unbuilt.Names) > 0:
+			// A named, expected gap (interim, relayed, not yet committed: EL's decision of 20 Nov, with A445): the process starts, Trust is not plugged (the orchestrator's Trust
+			// stays the one that refuses) and /readyz names it. The settings are still checked: an invalid one stops the process whether or not Trust can be plugged yet.
+			if _, _, err := trustSettings(env, records, d.LoadKeys); err != nil {
+				closeAll()
+				return Components{}, TrustParts{}, closeAll, err
+			}
+			c.TrustUnbuilt = unbuilt.Names
+		case err != nil && !errors.As(err, &unbuilt):
+			closeAll()
+			return Components{}, TrustParts{}, closeAll, err
+		default:
+			var closeTrust func()
+			parts, closeTrust, err = buildTrust(ctx, env, records, adapters, d.LoadKeys)
+			if err != nil {
+				closeAll()
+				return Components{}, TrustParts{}, closeAll, err
+			}
+			closers = append(closers, closeTrust)
+			c.Ports.Trust = parts.Trust
+		}
+	}
+	return c, parts, closeAll, nil
+}
+
+// trustRequested says whether any setting that only Trust uses is given. NOEMA_TRUST_DSN_DIR is not one: the payload reader reads it too, so it alone does not ask for Trust.
+func trustRequested(env Env) bool {
+	for _, n := range []string{EnvTrustDBTimeout, EnvGrantKeyDir, EnvGrantKeyMaxActive} {
+		if env.Getenv(n) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// composeDeps are the seams of the process composition (STM-01 main): what the production build gets from adapter packages and the real loaders, and what a test replaces.
+type composeDeps struct {
+	LoadKeys         KeyLoader
+	TrustAdapters    func(env Env, records reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error)
+	WorkerDial       func(context.Context, *WorkerConfig) (Connection, error)
+	WorkerActivities func() *workflows.EscalateActivities
+}
+
+// productionDeps is the real build: the grant keys through keyfiles.Load (INV-29) and the Temporal dial of worker_dial.go. The intake adapters other tasks build, and the worker's
+// activities, are added here as each merges and never from a fake; until then the Trust adapter source gives only the clock, so a process asked for Trust starts without it and /readyz names each adapter
+// it lacks (UnbuiltAdaptersError), and a configured worker without activities is not started (A442). Nothing is dialled here.
+func productionDeps() composeDeps {
+	return composeDeps{
+		LoadKeys:         loadGrantKeys,
+		TrustAdapters:    trustAdaptersSource(productionPack),
+		WorkerDial:       dialTemporal,
+		WorkerActivities: func() *workflows.EscalateActivities { return nil },
+	}
+}
+
+// EnvInvestigationStartTimeout is how long the dial and the start of the worker may take, in whole milliseconds (A472, interim, relayed, not yet committed). Required once a worker is configured;
+// no default in code (A330, AGENT-16).
+const EnvInvestigationStartTimeout = "NOEMA_INVESTIGATION_START_TIMEOUT_MS"
+
+// EnvInvestigationRunTimeout is the bound of one investigation run, in whole milliseconds (A477, interim, relayed, not yet committed). The loader only compares it with the activity timeout.
+const EnvInvestigationRunTimeout = "NOEMA_INVESTIGATION_RUN_TIMEOUT_MS"
+
+// workerSettings are every setting that asks for a worker. Any one of them present means a worker is wanted; the settings that are then absent are a gap (A486).
+var workerSettings = []string{EnvTemporalAddress, EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA, EnvInvestigationStartTimeout}
+
+// workerMissing names the worker settings that are missing, in a fixed order, and nothing else (A486, interim, relayed, recorded in docs#216; it replaces the earlier reading that a
+// configured worker with a missing setting is fatal). It is empty when no worker setting is present (the plain "worker" gap) and when the set is complete. A client certificate needs its
+// key and the reverse, so the one that is absent is named.
+func workerMissing(env Env) []string {
+	found := false
+	for _, n := range workerSettings {
+		if env.Getenv(n) != "" {
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	var m []string
+	for _, n := range []string{EnvTemporalAddress, EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCA, EnvInvestigationStartTimeout} {
+		if env.Getenv(n) == "" {
+			m = append(m, n)
+		}
+	}
+	cert, key := env.Getenv(EnvTemporalTLSCert), env.Getenv(EnvTemporalTLSKey)
+	switch {
+	case cert != "" && key == "":
+		m = append(m, EnvTemporalTLSKey)
+	case cert == "" && key != "":
+		m = append(m, EnvTemporalTLSCert)
+	}
+	return m
+}
+
+// readMillis reads a present setting as a positive whole number of milliseconds. The error names the setting and never its value.
+func readMillis(env Env, name string) (time.Duration, error) {
+	ms, err := strconv.ParseInt(env.Getenv(name), 10, 64)
+	if err != nil || ms <= 0 || ms > int64(1<<31) {
+		return 0, fmt.Errorf("%s: a positive whole number of milliseconds is required", name)
+	}
+	return time.Duration(ms) * time.Millisecond, nil
+}
+
+// readStartTimeout reads the bound of the dial and the start of the worker: NOEMA_INVESTIGATION_START_TIMEOUT_MS, required, no default (A472, AGENT-16).
+func readStartTimeout(env Env) (time.Duration, error) {
+	return readMillis(env, EnvInvestigationStartTimeout)
+}
+
+// checkWorkerSettings refuses a present value that is invalid (A469), whatever else is missing: each present setting is checked by LoadWorkerConfig over an environment in which only the
+// absent ones are filled with valid placeholders, so that a gap is never an error here and the loader's own checks stay the one place a worker setting is judged. It then refuses an
+// activity timeout that is not above the run timeout when both are present, since a live run could be picked up twice (A477).
+func checkWorkerSettings(env Env) error {
+	filled := map[string]string{EnvTemporalAddress: "placeholder.invalid:1", EnvTemporalNamespace: "placeholder", EnvTemporalTaskQueue: "placeholder", EnvTemporalActivityTimeout: "1", EnvTemporalTLSCA: "placeholder"}
+	over := env
+	over.Getenv = func(n string) string {
+		if v := env.Getenv(n); v != "" {
+			return v
+		}
+		if n == EnvTemporalTLSCert || n == EnvTemporalTLSKey {
+			if env.Getenv(EnvTemporalTLSCert) != "" || env.Getenv(EnvTemporalTLSKey) != "" {
+				return "placeholder"
+			}
+			return ""
+		}
+		return filled[n]
+	}
+	if _, err := LoadWorkerConfig(over); err != nil {
+		return err
+	}
+	if env.Getenv(EnvInvestigationStartTimeout) != "" {
+		if _, err := readStartTimeout(env); err != nil {
+			return err
+		}
+	}
+	if env.Getenv(EnvInvestigationRunTimeout) == "" {
+		return nil
+	}
+	run, err := readMillis(env, EnvInvestigationRunTimeout)
+	if err != nil {
+		return err
+	}
+	if env.Getenv(EnvTemporalActivityTimeout) == "" {
+		return nil
+	}
+	act, err := readMillis(env, EnvTemporalActivityTimeout)
+	if err != nil {
+		return err
+	}
+	if act <= run {
+		return fmt.Errorf("%s must be greater than %s", EnvTemporalActivityTimeout, EnvInvestigationRunTimeout)
+	}
+	return nil
+}
+
+// buildWorker starts the Temporal worker through startWorker. A worker setting that is missing (A486) or whose activities are not built (noema#812) is a gap, not an error: there is no
+// worker, /readyz names it, and the process starts. A present value that is invalid, or an activity timeout not above the run timeout, is an error that names the settings and never a
+// value (A469, A477); one that was asked to start and cannot is an error and the process does not run without it (A442).
+func buildComposedWorker(ctx context.Context, env Env, d composeDeps) (*RunningWorker, error) {
+	if err := checkWorkerSettings(env); err != nil {
+		return nil, err
+	}
+	if len(workerMissing(env)) > 0 {
+		return nil, nil
+	}
+	cfg, err := LoadWorkerConfig(env)
+	if err != nil || cfg == nil {
+		return nil, err
+	}
+	timeout, err := readStartTimeout(env)
+	if err != nil {
+		return nil, err
+	}
+	var acts *workflows.EscalateActivities
+	if d.WorkerActivities != nil {
+		acts = d.WorkerActivities()
+	}
+	if acts == nil {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return startWorker(ctx, cfg, d.WorkerDial, acts)
+}
+
+// Process is the composed core: the redacting logger every component received, the trace attribute filter (the core has no tracer yet; the filter is the one a tracer must use), what
+// buildComponentsWith made, the protected API, the handler of the health routes and the API, and the worker. Close stops the worker and closes every pool, safe to call more than once.
+type Process struct {
+	Logger      *slog.Logger
+	TraceFilter func(map[string]string) map[string]string
+	Components  Components
+	Trust       TrustParts
+	API         http.Handler
+	Handler     http.Handler
+	Worker      *RunningWorker
+	Close       func()
+}
+
+// newProcessLogger makes the one logger of the process: JSON to w through the redactor (SEC-03; REQ-SEC-003, AGENT-13). No message or attribute reaches w with a secret-looking
+// value or a digit run longer than four.
+func newProcessLogger(w io.Writer) (*slog.Logger, *redaction.Redactor) {
+	red := redaction.New()
+	return slog.New(red.Handler(slog.NewJSONHandler(w, nil))), red
+}
+
+// processReadiness is the /readyz check of the process: the composition's, plus a "worker" line while no worker runs. Liveness of a running worker is the next commit (noema#794).
+func processReadiness(c Components, api http.Handler, rw *RunningWorker) readiness {
+	return processReadinessGap(c, api, rw, nil)
+}
+
+// processReadinessGap is processReadiness with the worker settings that are missing (A486): each is named as "worker: NAME missing", fixed text, never a value. With none, the gap is the
+// plain "worker" (nothing configured, or the activities not built).
+func processReadinessGap(c Components, api http.Handler, rw *RunningWorker, missingSettings []string) readiness {
+	base := composeReadiness(c, api)
+	gaps := []string{"worker"}
+	if len(missingSettings) > 0 {
+		gaps = nil
+		for _, n := range missingSettings {
+			gaps = append(gaps, "worker: "+n+" missing")
+		}
+	}
+	return func() (bool, string) {
+		ok, reason := base()
+		switch {
+		case rw != nil:
+			return ok, reason
+		case ok:
+			return false, notConfigured(gaps)
+		}
+		return false, reason + ", " + strings.Join(gaps, ", ")
+	}
+}
+
+// newProcess composes the process. The Process is never nil: on an error it still holds the logger (the caller logs the error through it) and a Close that releases what was opened.
+func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, sink io.Writer, d composeDeps) (*Process, error) {
+	logger, red := newProcessLogger(sink)
+	p := &Process{Logger: logger, TraceFilter: red.FilterAttributes, Close: func() {}}
+	c, parts, closeComponents, err := buildComponentsWith(ctx, env, clk, ids, logger, d)
+	p.Close = closeComponents
+	if err != nil {
+		return p, err
+	}
+	rw, err := buildComposedWorker(ctx, env, d)
+	if err != nil {
+		closeComponents()
+		return p, err
+	}
+	api, err := buildAPI(c, env, clk, ids)
+	if err != nil {
+		rw.Stop()
+		closeComponents()
+		return p, err
+	}
+	p.Components, p.Trust, p.Worker, p.API = c, parts, rw, api
+	p.Handler = newMux(processReadinessGap(c, api, rw, workerMissing(env)), api)
+	p.Close = func() {
+		rw.Stop()
+		closeComponents()
+	}
+	return p, nil
 }

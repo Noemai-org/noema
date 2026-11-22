@@ -91,8 +91,9 @@ func (p Port) usable() error {
 	return nil
 }
 
-// Decide asks the intake for the one decision of the intent on the evidence. The identity is the session's, the correlation the stored intent's (INV-12). Only an ALLOW
-// carries a decision ID: the intake records an ALLOW before it returns one (EC-E16), and an ALLOW without an ID is an error. An ALLOW with no grant is a read.
+// Decide asks the intake for the one decision of the intent on the evidence. The identity is the session's, the correlation the stored intent's (INV-12). Every decision the
+// intake recorded returns its decision ID (A456, interim, relayed, not yet committed); an outcome it did not record (UNKNOWN, a REJECT before T13) returns none, and this
+// adapter invents none. An ALLOW without an ID is an error (EC-E16). Grants exist only for an ALLOW: a grant on any other outcome is an error (INV-03). An ALLOW with no grant is a read.
 func (p Port) Decide(ctx context.Context, s orchestrator.Session, intentRef string, e orchestrator.EvidenceRef) (orchestrator.Decision, error) {
 	if err := p.usable(); err != nil {
 		return orchestrator.Decision{}, err
@@ -126,7 +127,10 @@ func (p Port) Decide(ctx context.Context, s orchestrator.Session, intentRef stri
 		return orchestrator.Decision{}, err
 	}
 	if outcome != contracts.EnumsV1DecisionOutcomeALLOW {
-		return orchestrator.Decision{Outcome: outcome}, nil
+		if len(res.GrantIDs) != 0 {
+			return orchestrator.Decision{}, fmt.Errorf("%w: a grant on a %s decision", ErrBadAnswer, outcome)
+		}
+		return orchestrator.Decision{ID: res.DecisionID, Outcome: outcome}, nil
 	}
 	if res.DecisionID == "" {
 		return orchestrator.Decision{}, fmt.Errorf("%w: an ALLOW with no recorded decision", ErrBadAnswer)

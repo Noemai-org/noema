@@ -205,6 +205,8 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                 continue
             if collisions:
                 problems.append(f"valid/{name}/{path.name}: none_option_id equals an option_id: {collisions}")
+            if name == "conversation-response" and conversation_response_mismatches(load_strict(path)):
+                problems.append(f"valid/{name}/{path.name}: members name different investigations: {conversation_response_mismatches(load_strict(path))}")
             for error in errors[:3]:
                 problems.append(f"valid/{name}/{path.name}: rejected at {'/'.join(map(str, error.absolute_path)) or '(root)'}: {error.message[:120]}")
         expectations_path = invalid_dir / "expectations.json"
@@ -230,6 +232,13 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                     problems.append(f"invalid/{name}/{path.name}: must be well formed and rejected only for its none_option_id, but the schema rejects it: {shape[0].message[:100]}")
                 elif not none_option_collisions(load_strict(path)):
                     problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected (its none_option_id equals no option_id)")
+                continue
+            if expected == "conversation_id_mismatch":
+                shape = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
+                if shape:
+                    problems.append(f"invalid/{name}/{path.name}: must be well formed and rejected only for its cross-member relation, but the schema rejects it: {shape[0].message[:100]}")
+                elif not conversation_response_mismatches(load_strict(path)):
+                    problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected (its members name one investigation)")
                 continue
             try:
                 errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
@@ -282,6 +291,23 @@ def none_option_collisions(doc) -> list[str]:
 
     visit(doc)
     return found
+
+
+def conversation_response_mismatches(doc) -> list[str]:
+    """The members of a conversation-response that disagree with its investigation_id (A479, the follow-up of noema#815); empty when they all agree.
+
+    The schema states each member alone. These relations it cannot state: conversation_ref is the same value as investigation_id; stream_url is
+    `/v1/conversations/<investigation_id>/events`; correlation_id is `corr_` and the ULID of investigation_id. A document that is not an object, whose
+    investigation_id is not `inv_` and a string, or that lacks a member, is a mismatch and never a crash. The core's writer holds the same relations
+    (services/core/cmd/core/conversations.go, `checkAnswer`) against the same fixtures.
+    """
+    if not isinstance(doc, dict):
+        return ["document"]
+    inv = doc.get("investigation_id")
+    if not isinstance(inv, str) or not inv.startswith("inv_"):
+        return ["investigation_id"]
+    wanted = {"conversation_ref": inv, "stream_url": f"/v1/conversations/{inv}/events", "correlation_id": "corr_" + inv.removeprefix("inv_")}
+    return [member for member, value in wanted.items() if doc.get(member) != value]
 
 
 def keywords(error) -> set[str]:

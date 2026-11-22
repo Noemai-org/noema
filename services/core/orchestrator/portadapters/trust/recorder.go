@@ -13,6 +13,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/chain"
+	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/grants"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
@@ -162,7 +163,7 @@ func (a *RecorderAdapter) Record(ctx context.Context, r intake.RecordRequest) (i
 		rollback(ctx, tx)
 		return intake.RecordResult{}, fmt.Errorf("%w: %w", ErrCommit, err)
 	}
-	out := intake.RecordResult{DecisionID: string(res.Record.DecisionId)}
+	out := intake.RecordResult{DecisionID: string(res.Record.DecisionId), ConfirmationRequestID: res.ConfirmationRequestID}
 	for _, g := range res.Grants {
 		out.GrantIDs = append(out.GrantIDs, string(g.GrantId))
 	}
@@ -185,8 +186,11 @@ func rollback(ctx context.Context, tx pgx.Tx) {
 
 // request maps the intake's request and the facts to recorder.Request, with every check that needs no database.
 func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (recorder.Request, error) {
-	if r.TenantID == "" || r.PrincipalID == "" || r.Evaluated == nil || !recHashRe.MatchString(r.PlanHash) {
+	if r.TenantID == "" || r.PrincipalID == "" || r.Evaluated == nil {
 		return recorder.Request{}, ErrRecordRequest
+	}
+	if err := outcomeShape(r); err != nil {
+		return recorder.Request{}, err
 	}
 	digest, err := r.Evaluated.Digest()
 	if err != nil {
@@ -219,5 +223,30 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 			TargetVersions: f.Steps[i].TargetVersions, Permission: f.Steps[i].Permission})
 	}
 	return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), PolicyID: f.PolicyID,
-		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, Steps: steps}, nil
+		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, Steps: steps,
+		ConfirmationRequest: newRequest(r.ConfirmationRequest)}, nil
+}
+
+// outcomeShape is A456 (interim, relayed, not yet committed): the port serves every outcome. An ALLOW names its plan hash (a read has no steps but has its plan and its hash, A205
+// Q3; a write's steps are the intake's to count). Every other outcome has no plan hash and no step, so no grant (INV-03), and only a CONFIRM carries a confirmation request.
+func outcomeShape(r intake.RecordRequest) error {
+	if r.Decision.Outcome() == decide.Allow {
+		if !recHashRe.MatchString(r.PlanHash) {
+			return ErrRecordRequest
+		}
+		return nil
+	}
+	if r.PlanHash != "" || len(r.Steps) > 0 || r.ConfirmationRequest != nil && r.Decision.Outcome() != decide.Confirm {
+		return fmt.Errorf("%w: a %s decision carries no plan hash, no step and no grant", ErrRecordRequest, r.Decision.Outcome())
+	}
+	return nil
+}
+
+// newRequest maps the confirmation request of a CONFIRM value for value; the Writer mints the request's ID and computes the binding hash (SoT 43.2a).
+func newRequest(c *intake.NewConfirmationRequest) *recorder.NewConfirmationRequest {
+	if c == nil {
+		return nil
+	}
+	return &recorder.NewConfirmationRequest{PrincipalID: c.PrincipalID, IntentHash: c.IntentHash, CapabilityID: c.CapabilityID, TargetRef: c.TargetRef, ParamsHash: c.ParamsHash,
+		ConfirmationBindingEvidenceHash: c.ConfirmationBindingEvidenceHash, PlanHash: c.PlanHash, PolicyVersion: c.PolicyVersion, Requirement: c.Requirement, RequesterID: c.RequesterID, ExpiresAt: c.ExpiresAt}
 }
