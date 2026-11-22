@@ -17,3 +17,17 @@
 - Open questions (owner): the stale comment above `t13` in `gates_t13_t15.go` still says a decline ends in UNKNOWN (EL/C1, a doc fix in a later PR); EL's doc line text (EL).
 - Files to read first: `trust/intake/ports_t13_t15.go`, `trust/intake/gates_t13_t15.go` (t13Declined), `trust/recorder/recorder.go` (DeclinedRequestID).
 - Do not touch: `trust/recorder`, `orchestrator/portadapters/trust` (EL's noema#840).
+
+# Session 2026-11-22 03:50 WAT · TRU-12 (C1, ruling A507: the declined request is checked for tenant and intent ownership)
+
+## Session summary
+- What changed (PR links): `trust/recorder`: for a REJECT that names a declined request (`Request.DeclinedRequestID`), `resolveState` reads `confirmation_request` as the tenant (`SELECT intent_id ... WHERE tenant_id AND confirmation_request_id`; row security hides another tenant's) and refuses with the new typed `ErrDeclinedRequestNotValid` (fixed text, nothing written) when the request is absent for the tenant or its `intent_id` is not the decision's. The shape check and the rule that no other outcome names a request are unchanged; a decline that names no request is still valid (A470).
+- Why: the Security Reviewer's condition on noema#849 and #840, accepted as a follow-up owned by C1 (A507). Before this, a well-formed ID that named no request, another intent's or another tenant's was recorded as the REJECT's state, and two declines of one input could rest on different IDs.
+- Risks, and how they are contained: a fail-closed check on the decline path only. It needs the request row to exist, which the confirmation store (`trustpg2.Requests.Create`) writes and the approver's answer references; the Writer's own CONFIRM path writes the event and no row (found while writing the tests: a request created only by the Writer's CONFIRM cannot be declined by this path until the store has its row). `RecorderAdapter` still does not hand `DeclinedRequestID` to the Writer; that mapping is the next small PR and must land after this one.
+- Tests added (REQ-TRU-009, REQ-SEC-004; INV-25, INV-12, EC-E16): `declined_request_ownership_test.go`: the real request of the intent is accepted and is the REJECT's state; a request that does not exist, one of another intent and one of another tenant are each refused with nothing written; no request named stays valid; a malformed name stays `ErrRequest`. `TestADeclinedRejectOnTheTupleOfAStoredConfirm...` now seeds its declined requests first (the same assertions). Two hand mutants killed and restored (the intent comparison dropped; a missing row accepted).
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the adapter maps `DeclinedRequestID` into `recorder.Request` (a small PR after this one); whether the Writer should also require a recorded DECLINE answer (the answer table of 0032) is the Architect's; I started with existence and intent, as proposed.
+- Files to read first: `trust/recorder/inputkey.go` (`resolveState`), `migrations/0032_confirmation_request_answer.sql`, `orchestrator/portadapters/trustpg2/requests.go`.
+- Do not touch: `services/core/migrations/` (no change needed).

@@ -38,6 +38,20 @@ State: built locally on `prep/tru10-linkage` (two commits, not pushed, no PR). O
 - Files to read first: `services/core/trust/recorder/recorder.go` (`check`, `requireEscalationDisposition`), `escalation_link_test.go`, `services/core/migrations/0012_decision_record.sql`.
 - Do not touch: `Write`'s order (Record first on a miss; nothing appended on a hit); migration 0012.
 
+# Session 2026-11-22 03:35 WAT · TRU-10 (C1, the small PR: DispositionDecisionID on the intake's RecordRequest and the adapter pass-through; A503, A507, A508)
+
+## Session summary
+- What changed (PR links): the optional `DispositionDecisionID` on `intake.RecordRequest` and its pass-through in `orchestrator/portadapters/trust.RecorderAdapter` to `recorder.Request` (A503: an ESCALATE disposition is its own Trust decision, recorded first through the Recorder; each escalation action decision links it). It is the small PR from main that A503 and the Founder asked for; noema#733 keeps the Writer rule and flips it afterwards, and EL adds the escalation path on #733's branch (A508).
+- Why: until the adapter hands the Writer the ID, no production path can name a disposition, so the Writer's rule (#733) could not be satisfied by any caller.
+- Risks, and how they are contained: none in behaviour for any caller that names no disposition (the field is empty and the Writer's rules are unchanged on main). The Writer still checks that a disposition it is given is an existing same-tenant ESCALATE decision.
+- Tests added (REQ-TRU-010; INV-25): `trust/intake/disposition_decision_id_test.go` (the field exists, is a string, is empty by default, and an ALLOW, a CONFIRM and a REJECT the intake records leave it empty; it failed in CI on the earlier head of noema#733 before the field existed); `recorder_disposition_test.go` (the Writer gets the ID, or none; a decision with no steps passes it too; **the real path**: the disposition is recorded first through the adapter and the real Writer, an action decision that names it is stored with the link, and the chain verifies; no INSERT). `newRecWorld` in `recorder_test.go` is now `newRecWorldWith(t, escalation)` (the escalation plan the composition root injects, A335); `newRecWorld` keeps its behaviour.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: noema#733 flips the Writer rule (the escalation path of EL passes the ID) and refuses, before any transaction opens, a decision with steps and no disposition ID at the adapter; its tests record their disposition through a real `Writer.Write`. A decline's `DeclinedRequestID` is not passed by the adapter yet (the follow-up of A507 does it, with the ownership check).
+- Files to read first: `orchestrator/portadapters/trust/recorder.go`, `trust/recorder/recorder.go` (`ErrDispositionRequired`, `ErrDispositionNotValid`).
+- Do not touch: `services/core/migrations/` (0012 has the column).
+
 # Session 2026-11-22 05:10 WAT · TRU-10 (C1, US-06: disposition_decision_id in the DECISION facts of reconstruction.v3; A503)
 
 ## Session summary
