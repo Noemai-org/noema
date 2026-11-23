@@ -731,6 +731,7 @@ class LimitsRequiredFromVersionThree(Base):
         for version in (1, 2):
             with self.subTest(version):
                 root, manifest = self.without_limits(version)
+                shutil.rmtree(root / "fintech/limits")  # an older pack has no limits folder (a limits file nobody pinned is refused, test above)
                 self.assertEqual(self.check(manifest, root), [])
 
     def test_version_three_with_the_limits_passes(self):

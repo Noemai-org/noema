@@ -30,3 +30,18 @@ Ready-to-paste block for `docs/open-decisions.md` (the Steward registers it; thi
 - Open questions (owner): OD-A544-1 and OD-A544-2 (Architect); the descriptor-versus-file question above (Architect).
 - Files to read first: `contracts/schemas/trust-limits.v1.json`, `services/core/platform/trustlimits/routing.go`, `packs/fintech/limits/trust_limits.json`, `tools/packcheck/checks.py` (`check_trust_routing`).
 - Do not touch: the other three limits files' values (not part of this task).
+
+# Session 2026-11-23 14:30 WAT · PCK-08 (A561, A567, A575, A579)
+
+## Session summary
+- What changed (PR links): noema#910, second round. (1) A561: `trust-limits.v1` gains the required `confirmation_ttl_ceiling_ms` (1 to 600000; the file holds 600000, PERD v1.23 section 67 "confirmation TTL 10 min", adopted DEC-2026-10-17, OD-P-31); `platform/ceilings.MaxConfirmationTTLMillis`; `trustlimits.Load` refuses a document without it and exposes `ConfirmationTTLCeilingMS()`. C1's consumers (intake, Writer) are not touched. (2) A575: packcheck `trust_routing` requires `anchor_entities[].field` to be a field the entity's descriptor declares, of type Timestamp, with negative tests for a missing and a non-timestamp field. (3) A579: a manifest of version 3 or later must list the limits files: `manifest.v1.json` (`allOf` if/then), packcheck `check_manifest`, and `packload` (`ErrManifest`); versions 1 and 2 may list none. (4) A567: the conflict with REQ-RES-002 (the freeze list on descriptors) goes into the conflicts register through the Steward's change request; A579 settles that `trust_limits.json` is the single authority. Main merged in (PCK-07 landed): both README sections and both test classes kept; the manifest pin recomputed with `sha256sum`.
+- Why: rulings A561, A567, A575, A579 (interim).
+- Risks, and how they are contained: the required member is a breaking shape in the strict AGENT-15 reading, kept at v1 for the reasons in `contracts/README.md` (reviewers may require a major). The pin of `trust_limits.json` changed; #916 merges before this PR and each recomputes the pin.
+- Tests added (REQ-RES-002, REQ-TRU-004, AGENT-15, AGENT-16): the fixtures and tests of the red commit `33c9d40a4`.
+- Regression cases added: as above.
+- Debt entries: none. Conflicts raised: the REQ-RES-002 conflict is the Steward's register entry (A567).
+
+## Pre-work for the next agent
+- Exact next step: C1 reads `ConfirmationTTLCeilingMS()` in the intake and the Writer and refuses a larger TTL (A561). EL: the consumer fails closed when the limits entry is missing (A567).
+- Do not touch: the manifest pin without recomputing it with `sha256sum`.
+

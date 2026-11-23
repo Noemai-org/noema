@@ -72,12 +72,15 @@ func refuse(err error, kind string) error { return &Error{Err: err, Kind: kind} 
 
 // The kinds of file a manifest lists, as manifest.v1 spells them, and the one name of the manifest itself in a refusal.
 const (
-	kindPack     = "pack"
-	kindMapping  = "evidence_mapping"
-	kindRules    = "recon_rules"
-	kindGraph    = "action_graph"
-	kindLimits   = "limits"
-	kindManifest = "manifest"
+	kindPack    = "pack"
+	kindMapping = "evidence_mapping"
+	kindRules   = "recon_rules"
+	kindGraph   = "action_graph"
+	kindLimits  = "limits"
+
+	// limitsFromVersion is the first manifest version that must list the limits files (A579, interim).
+	limitsFromVersion = 3
+	kindManifest      = "manifest"
 )
 
 var (
@@ -226,6 +229,10 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		paths[*f.Path] = true
 	}
 	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 {
+		return manifestDoc{}, bad
+	}
+	// A579 (interim; SOT-C-33): a manifest of version 3 or later lists its limits files, and a pack whose manifest does not is refused. There is no opt-in.
+	if *doc.Version >= limitsFromVersion && perKind[kindLimits] == 0 {
 		return manifestDoc{}, bad
 	}
 	return doc, nil

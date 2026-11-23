@@ -58,7 +58,7 @@ class TrustLimitsV1PhaseRoutesItem(ContractModel):
 
 
 class TrustLimitsV1(ContractModel):
-    """The two provisional limits the Trust steps read as pack data, not code, for one pack, and (A544, interim, additive and optional) the routing data of the Reconciler and the Clocks: the escalation reason of a classifica... Source: trust-limits.v1.json"""
+    """The provisional limits the Trust steps read as pack data, not code, for one pack, and (A544, interim, additive and optional) the routing data of the Reconciler and the Clocks: the escalation reason of a classification... Source: trust-limits.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
     schema_version: TrustLimitsV1SchemaVersion
@@ -66,6 +66,7 @@ class TrustLimitsV1(ContractModel):
     label: TrustLimitsV1Label
     ambiguity_absolute_floor_bp: IntentSlotV2BasisPoints
     clock_at_risk_remaining_bp: IntentSlotV2BasisPoints
+    confirmation_ttl_ceiling_ms: Annotated[int, Field(ge=1, le=600000)]
     escalation_reasons: Annotated[list[TrustLimitsV1EscalationReasonsItem], Field(min_length=1, max_length=12)] | None = Field(default=None)
     allowed_under_freeze: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.cap\\.[a-z][a-z0-9_]*\\Z')]], Field(min_length=1, max_length=32)] | None = Field(default=None)
     phase_routes: Annotated[list[TrustLimitsV1PhaseRoutesItem], Field(min_length=1, max_length=4)] | None = Field(default=None)

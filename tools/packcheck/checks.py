@@ -624,6 +624,9 @@ def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Prob
     return out
 
 
+MANIFEST_LIMITS_FROM_VERSION = 3  # A579 (interim): the first manifest version that must list the limits files
+
+
 def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
     evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
@@ -642,6 +645,12 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
         if why:
             out.append(("manifest", f"{_shown(f['path'])} {why}"))
             named.add(("files", str(i), "path"))
+    # A579 (interim; SOT-C-33): a manifest of version 3 or later lists its limits files; there is no opt-in. The schema says the same; this names the version.
+    version = doc.get("version") if isinstance(doc, dict) else None
+    if isinstance(version, int) and not isinstance(version, bool) and version >= MANIFEST_LIMITS_FROM_VERSION and isinstance(raw, list) \
+            and not any(isinstance(f, dict) and f.get("kind") == "limits" for f in raw):
+        out.append(("manifest", f"a manifest of version {version} must list its limits files (A579); it lists none"))
+        named.add(("files",))
     errs = sorted(validate.StrictValidator(validate.load_strict(MANIFEST_SCHEMA)).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
     errs = [e for e in errs if tuple(map(str, e.absolute_path)) not in named]
     if errs or out:
@@ -727,7 +736,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
 def check_trust_routing(pack: dict, limits: dict) -> list[Problem]:
     """A544 (interim; PERD v1.23 23.1, 23.3, 23.5, REQ-RES-002): the routing members of the pack's trust-limits document name only what the pack declares. An escalation reason of a classification
     is a catalogue code the pack produces from a state mapping, a clock phase's is one it produces from a clock mapping, a capability allowed under a freeze is a declared capability that is not
-    prohibited, and an anchor event is one a pack clock names, read from an entity the pack's evidence descriptors declare. A classification, a phase or an event is routed at most once.
+    prohibited, and an anchor event is one a pack clock names, read from an entity the pack's evidence descriptors declare, at a field that descriptor declares as a Timestamp (A575). A classification, a phase or an event is routed at most once.
     No value is checked for being right: a value the documents do not state is not in the file (AGENT-16), and is an open decision, not a check."""
     out: list[Problem] = []
 
@@ -765,12 +774,19 @@ def check_trust_routing(pack: dict, limits: dict) -> list[Problem]:
     anchors = limits.get("anchor_entities", [])
     once([e["event"] for e in anchors], "event")
     events = {c["anchor_event"] for c in pack.get("clocks", [])}
-    entities = {d["entity"] for d in pack.get("evidence_descriptors", [])}
+    descriptors = {d["entity"]: d for d in pack.get("evidence_descriptors", [])}
     for e in anchors:
         if e["event"] not in events:
             bad(f"anchor_entities: event {e['event']!r} is not the anchor event of any pack clock")
-        if e["entity"] not in entities:
+        if e["entity"] not in descriptors:
             bad(f"anchor_entities: entity {e['entity']!r} has no evidence descriptor in the pack")
+            continue
+        # A575 (interim): the field a clock's anchor is read from is a field the entity's descriptor declares, and a Timestamp.
+        declared = descriptors[e["entity"]].get("fields", {})
+        if e["field"] not in declared:
+            bad(f"anchor_entities: field {e['field']!r} is not declared by the descriptor of entity {e['entity']!r}")
+        elif declared[e["field"]].get("type") != "Timestamp":
+            bad(f"anchor_entities: field {e['field']!r} of entity {e['entity']!r} is a {declared[e['field']].get('type')}, not a Timestamp")
     return out
 
 

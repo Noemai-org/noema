@@ -142,20 +142,21 @@ func (e *TrustLimitsV1SchemaVersion) UnmarshalJSON(b []byte) error {
 }
 
 // TrustLimitsV1 is generated from trust-limits.v1.json.
-// The two provisional limits the Trust steps read as pack data, not code, for one pack, and (A544, interim, additive and optional) the routing data of the Reconciler and the Clocks: the escalation reason of a classifica...
+// The provisional limits the Trust steps read as pack data, not code, for one pack, and (A544, interim, additive and optional) the routing data of the Reconciler and the Clocks: the escalation reason of a classification...
 type TrustLimitsV1 struct {
 	SchemaVersion            TrustLimitsV1SchemaVersion            `json:"schema_version"`
 	PackId                   string                                `json:"pack_id"`
 	Label                    TrustLimitsV1Label                    `json:"label"`
 	AmbiguityAbsoluteFloorBp IntentSlotV2BasisPoints               `json:"ambiguity_absolute_floor_bp"`
 	ClockAtRiskRemainingBp   IntentSlotV2BasisPoints               `json:"clock_at_risk_remaining_bp"`
+	ConfirmationTtlCeilingMs int64                                 `json:"confirmation_ttl_ceiling_ms"`
 	EscalationReasons        *[]TrustLimitsV1EscalationReasonsItem `json:"escalation_reasons,omitempty"`
 	AllowedUnderFreeze       *[]string                             `json:"allowed_under_freeze,omitempty"`
 	PhaseRoutes              *[]TrustLimitsV1PhaseRoutesItem       `json:"phase_routes,omitempty"`
 	AnchorEntities           *[]TrustLimitsV1AnchorEntitiesItem    `json:"anchor_entities,omitempty"`
 }
 
-var TrustLimitsV1Shape = objectShape{name: "TrustLimitsV1", props: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true, "escalation_reasons": true, "allowed_under_freeze": true, "phase_routes": true, "anchor_entities": true}, required: []string{"schema_version", "pack_id", "label", "ambiguity_absolute_floor_bp", "clock_at_risk_remaining_bp"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true, "escalation_reasons": true, "allowed_under_freeze": true, "phase_routes": true, "anchor_entities": true}, closed: true}
+var TrustLimitsV1Shape = objectShape{name: "TrustLimitsV1", props: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true, "confirmation_ttl_ceiling_ms": true, "escalation_reasons": true, "allowed_under_freeze": true, "phase_routes": true, "anchor_entities": true}, required: []string{"schema_version", "pack_id", "label", "ambiguity_absolute_floor_bp", "clock_at_risk_remaining_bp", "confirmation_ttl_ceiling_ms"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true, "confirmation_ttl_ceiling_ms": true, "escalation_reasons": true, "allowed_under_freeze": true, "phase_routes": true, "anchor_entities": true}, closed: true}
 
 func (t *TrustLimitsV1) UnmarshalJSON(b []byte) error {
 	raw, err := TrustLimitsV1Shape.check(b)

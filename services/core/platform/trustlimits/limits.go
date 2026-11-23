@@ -41,6 +41,7 @@ func refuse(reason string, cause error) *Error { return &Error{Reason: reason, E
 // Limits is the loaded document. Its zero value is not loaded.
 type Limits struct {
 	floor, atRisk int
+	confirmCeilMS int
 	label         string
 	loaded        bool
 }
@@ -72,6 +73,16 @@ func (l Limits) ClockAtRiskRemainingBP() (int, error) {
 	return l.atRisk, nil
 }
 
+// ConfirmationTTLCeilingMS is the most, in milliseconds, that the time-to-live of a confirmation request may be (ruling A561, interim; PERD v1.23 section 67, "confirmation TTL
+// 10 min", adopted by DEC-2026-10-17). The intake and the Writer refuse a larger TTL. A Limits that was not loaded returns ErrNotLoaded, never a value: a zero would refuse every TTL
+// and a missing ceiling must never read as no ceiling.
+func (l Limits) ConfirmationTTLCeilingMS() (int, error) {
+	if !l.loaded {
+		return 0, ErrNotLoaded
+	}
+	return l.confirmCeilMS, nil
+}
+
 // packIDShape is the pattern of pack_id in trust-limits.v1.json. The generated type does not check patterns, so Load does (\z, not $).
 var packIDShape = regexp.MustCompile(`\A[a-z][a-z0-9]*\z`)
 
@@ -98,20 +109,25 @@ func Load(r io.Reader, wantPackID string) (Limits, error) {
 	if err := checkRouting(d); err != nil {
 		return Limits{}, err
 	}
-	floor, err := basisPoints("ambiguity_absolute_floor_bp", int64(d.AmbiguityAbsoluteFloorBp), ceilings.MinAmbiguityAbsoluteFloorBP, maxBasisPoints)
+	floor, err := boundedInt("ambiguity_absolute_floor_bp", int64(d.AmbiguityAbsoluteFloorBp), ceilings.MinAmbiguityAbsoluteFloorBP, maxBasisPoints)
 	if err != nil {
 		return Limits{}, err
 	}
-	atRisk, err := basisPoints("clock_at_risk_remaining_bp", int64(d.ClockAtRiskRemainingBp), ceilings.MinClockAtRiskRemainingBP, ceilings.MaxClockAtRiskRemainingBP)
+	atRisk, err := boundedInt("clock_at_risk_remaining_bp", int64(d.ClockAtRiskRemainingBp), ceilings.MinClockAtRiskRemainingBP, ceilings.MaxClockAtRiskRemainingBP)
 	if err != nil {
 		return Limits{}, err
 	}
-	return Limits{floor: floor, atRisk: atRisk, label: string(d.Label), loaded: true}, nil
+	ceil, err := boundedInt("confirmation_ttl_ceiling_ms", d.ConfirmationTtlCeilingMs, 1, ceilings.MaxConfirmationTTLMillis)
+	if err != nil {
+		return Limits{}, err
+	}
+	return Limits{floor: floor, atRisk: atRisk, confirmCeilMS: ceil, label: string(d.Label), loaded: true}, nil
 }
 
-func basisPoints(member string, v, least, most int64) (int, error) {
+// boundedInt checks an integer member of the document against the bounds the rulings fix (platform/ceilings).
+func boundedInt(member string, v, least, most int64) (int, error) {
 	if v < least || v > most {
-		return 0, refuse(member+" is outside the bounds of the ruling (A233)", nil)
+		return 0, refuse(member+" is outside the bounds of the ruling (A233, A561)", nil)
 	}
 	return int(v), nil
 }
