@@ -38,12 +38,11 @@ export function EvidencePanel({ reconstruction }: { reconstruction: unknown }) {
     if (!(error instanceof ContractError)) throw error;
     return h("p", { role: "status" }, "This evidence is unavailable.");
   }
+  const chainVerdict = value.timeline.find((entry) => entry.event_type === "VERDICT");
   return h("section", { "aria-label": "Record" }, h("h2", null, "Record"),
+    chainVerdict ? h("p", { role: "status" }, chainVerdict.text) : null,
     ...value.sections.map((section, index) => h("section", { key: index },
       h("h3", null, headings[section.kind]),
-      ...section.items.flatMap((item, i) => [
-        ...details(section.kind, item.facts).map((text, j) => h("p", { key: `${i}-${j}` }, text)),
-        ...(section.kind === "VERIFICATION" && item.facts.verdict === "ACHIEVED" ? [h("span", { key: `${i}-verified` }, "Verified")] : []),
-      ]),
+      ...section.items.flatMap((item, i) => details(section.kind, item.facts).map((text, j) => h("p", { key: `${i}-${j}` }, text))),
     )));
 }
