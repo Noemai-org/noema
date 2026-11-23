@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
+	"github.com/Noemai-org/noema/services/core/trust/grants/keyfiles"
 )
 
 // recordpools.go builds the Record reader's per-tenant pools (EDG-01 slice 3c, part 3; ruling A170 and the default for OD-P-82): a directory with one file per tenant, named
@@ -21,6 +22,12 @@ import (
 
 // EnvRecordReadDSNDir names the directory of DSN files. Unset means no Record reader; there is no default directory.
 const EnvRecordReadDSNDir = "NOEMA_RECORD_READ_DSN_DIR"
+
+// dsnFileMaxBytes bounds the read of a mounted DSN file. It is not a setting: a DSN is a few hundred bytes. privateKeyMaxBytes bounds a mounted PEM private key the same way.
+const (
+	dsnFileMaxBytes    = 4096
+	privateKeyMaxBytes = 16 * 1024
+)
 
 // tenantFileRe is the name of a DSN file: a tenant ID of common.v1, as written (anchored, case-sensitive).
 var tenantFileRe = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
@@ -61,7 +68,7 @@ func buildRecordReader(ctx context.Context, env Env) (reconstruct.TenantDBs, fun
 // errors. The error names the setting or the tenant and never a DSN or any part of one (AGENT-13). The closer is safe to call more than once.
 func loginPools(ctx context.Context, env Env, setting string) (map[string]*pgxpool.Pool, func(), error) {
 	dir := env.Getenv(setting)
-	if env.ReadDir == nil || env.ReadFile == nil {
+	if env.ReadDir == nil {
 		return nil, nil, fmt.Errorf("cmd/core: %s cannot be read: the process has no file access wired", setting)
 	}
 	entries, err := env.ReadDir(dir)
@@ -88,10 +95,12 @@ func loginPools(ctx context.Context, env Env, setting string) (map[string]*pgxpo
 		}
 	}
 	for _, tenant := range names {
-		raw, err := env.ReadFile(filepath.Join(dir, tenant))
+		// A DSN holds a password: it is read by the shared checked reader (SEC-09, REQ-SEC-009, INV-29), never by the injected Env.ReadFile, which checks nothing. The reader's error
+		// is dropped on purpose: it is fixed text, but the message here names the setting and the tenant and nothing else.
+		raw, err := keyfiles.ReadFile(filepath.Join(dir, tenant), dsnFileMaxBytes)
 		if err != nil {
 			closeAll()
-			return nil, nil, fmt.Errorf("cmd/core: %s: the file of tenant %s cannot be read", setting, tenant)
+			return nil, nil, fmt.Errorf("cmd/core: %s: the file of tenant %s cannot be used as a secret (a regular file you own, mode 0400, no link, at most %d bytes)", setting, tenant, dsnFileMaxBytes)
 		}
 		dsn := strings.TrimSpace(string(raw))
 		if dsn == "" {

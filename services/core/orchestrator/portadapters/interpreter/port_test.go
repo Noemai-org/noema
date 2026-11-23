@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"pgregory.net/rapid"
+
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	interpreterport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/interpreter"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -44,6 +46,24 @@ func (s *sessions) Resolve(context.Context, orchestrator.Session) (interpreterpo
 	return s.out, s.err
 }
 
+const objectRef = "req_01J9X3A1B2C3D4E5F6G7H8J9K0" // SYNTHETIC: the object_ref of the recorded INPUT_RECEIVED
+
+// admissions is the Record-backed Admissions port, as a spy: it answers for the turn's InputReceivedRef.
+type admissions struct {
+	out   orchestrator.Admission
+	err   error
+	asked []string
+}
+
+func newAdmissions() *admissions {
+	return &admissions{out: orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: "ten_demo", PrincipalID: "usr_88213", CorrelationID: corr, RequestID: reqID, ObjectRef: objectRef}}
+}
+
+func (a *admissions) Lookup(_ context.Context, s orchestrator.Session, ref string) (orchestrator.Admission, error) {
+	a.asked = append(a.asked, s.TenantID+"/"+ref)
+	return a.out, a.err
+}
+
 type compiler struct {
 	out  []byte
 	err  error
@@ -64,12 +84,14 @@ func (r *recorder) Rejected(context.Context, interpreter.Subject, []understandin
 func (r *recorder) OverrideAttempt(context.Context, interpreter.Subject, []string) error { return nil }
 
 type saver struct {
+	docs   [][]byte
 	actors []string
 	err    error
 }
 
-func (s *saver) Save(_ context.Context, actor string, _ intentstore.Admitted) (intentstore.Ref, error) {
+func (s *saver) Save(_ context.Context, actor string, a intentstore.Admitted) (intentstore.Ref, error) {
 	s.actors = append(s.actors, actor)
+	s.docs = append(s.docs, a.JSON)
 	return intentstore.Ref{EventID: "recev_01J9X3", Seq: 1, Hash: "sha256:" + strings.Repeat("a", 64)}, s.err
 }
 
@@ -77,7 +99,7 @@ func proposal(mutate func(m map[string]any)) []byte {
 	m := map[string]any{
 		"schema_version": "3.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": nil, "tenant_id": session.TenantID, "correlation_id": corr, "created_at": "2026-10-01T09:47:03Z",
 		"principal":   map[string]any{"principal_id": session.PrincipalID, "principal_type": "unset", "authn_ref": session.AuthnRef, "asserted_by": "unset"},
-		"source":      map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": "raw_01J9X3"},
+		"source":      map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": "unset"},
 		"pack":        map[string]any{"pack_id": "fin", "pack_version": "1.0.0"},
 		"intent_node": "fin.payments.exception.investigate",
 		"slots": map[string]any{
@@ -102,6 +124,7 @@ type world struct {
 	comp *compiler
 	rec  *recorder
 	save *saver
+	adm  *admissions
 }
 
 func pack(t *testing.T) []byte {
@@ -128,12 +151,12 @@ func newWorld(t *testing.T, out []byte) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &world{sess: &sessions{out: interpreterport.Resolved{Session: session, ActorKind: "customer"}}, comp: &compiler{out: out}, rec: &recorder{}, save: &saver{}}
+	w := &world{sess: &sessions{out: interpreterport.Resolved{Session: session, ActorKind: "customer"}}, comp: &compiler{out: out}, rec: &recorder{}, save: &saver{}, adm: newAdmissions()}
 	in, err := interpreter.New(interpreter.Config{Compiler: w.comp, Gate: gate, Recorder: w.rec, Saver: w.save})
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.port, err = interpreterport.New(interpreterport.Config{Sessions: w.sess, Interpreter: in, Clock: clock.NewManual(now), PackRef: packRef, Required: required})
+	w.port, err = interpreterport.New(interpreterport.Config{Sessions: w.sess, Interpreter: in, Clock: clock.NewManual(now), PackRef: packRef, Required: required, Admissions: w.adm})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +363,7 @@ func TestAnAdmittedNodeThePackDoesNotDescribeIsAnErrorNotAnAdmission(t *testing.
 		t.Fatal("an unknown node has a required set")
 	}
 	w := newWorld(t, proposal(nil))
-	p, err := interpreterport.New(interpreterport.Config{Sessions: w.sess, Interpreter: stubInterpreter{w: w}, Clock: clock.NewManual(now), PackRef: packRef, Required: emptyRequired{}})
+	p, err := interpreterport.New(interpreterport.Config{Sessions: w.sess, Interpreter: stubInterpreter{w: w}, Clock: clock.NewManual(now), PackRef: packRef, Required: emptyRequired{}, Admissions: w.adm})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,11 +406,11 @@ func TestRequiredFromPackRefusesWhatItCannotTrust(t *testing.T) {
 
 func TestNewRefusesAnIncompleteConfiguration(t *testing.T) {
 	w := newWorld(t, proposal(nil))
-	full := interpreterport.Config{Sessions: w.sess, Interpreter: stubInterpreter{w: w}, Clock: clock.NewManual(now), PackRef: packRef, Required: emptyRequired{}}
+	full := interpreterport.Config{Sessions: w.sess, Interpreter: stubInterpreter{w: w}, Clock: clock.NewManual(now), PackRef: packRef, Required: emptyRequired{}, Admissions: w.adm}
 	for name, mutate := range map[string]func(*interpreterport.Config){
 		"no sessions": func(c *interpreterport.Config) { c.Sessions = nil }, "no interpreter": func(c *interpreterport.Config) { c.Interpreter = nil },
 		"no clock": func(c *interpreterport.Config) { c.Clock = nil }, "no required": func(c *interpreterport.Config) { c.Required = nil },
-		"no pack ref": func(c *interpreterport.Config) { c.PackRef = "" }, "bad pack ref": func(c *interpreterport.Config) { c.PackRef = "Fin 1" },
+		"no admissions": func(c *interpreterport.Config) { c.Admissions = nil }, "no pack ref": func(c *interpreterport.Config) { c.PackRef = "" }, "bad pack ref": func(c *interpreterport.Config) { c.PackRef = "Fin 1" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := full
@@ -425,9 +448,97 @@ func mustPort(t *testing.T, w *world, f func(context.Context, interpreter.Input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := interpreterport.New(interpreterport.Config{Sessions: w.sess, Interpreter: fnInterpreter(f), Clock: clock.NewManual(now), PackRef: packRef, Required: required})
+	p, err := interpreterport.New(interpreterport.Config{Sessions: w.sess, Interpreter: fnInterpreter(f), Clock: clock.NewManual(now), PackRef: packRef, Required: required, Admissions: w.adm})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// UND-17 (noema#580; A219; REQ-INT-001, REQ-INT-002; INV-02, INV-12; AGENT-09): the intent the port gets compiled and saved carries the object_ref of the INPUT_RECEIVED the Record
+// holds for the turn, read from the stored event as the session's tenant, never from the request or the model.
+
+type capturing struct {
+	w    *world
+	last interpreter.Input
+}
+
+func (c *capturing) Interpret(ctx context.Context, in interpreter.Input) (interpreter.Result, error) {
+	c.last = in
+	return stubInterpreter{w: c.w}.Interpret(ctx, in)
+}
+
+func TestTheInterpreterIsGivenTheRecordedInputsObjectRefFromTheStoredEvent(t *testing.T) {
+	w := newWorld(t, proposal(nil))
+	c := &capturing{w: w}
+	w.port = mustPort(t, w, c.Interpret)
+	if _, err := w.port.Interpret(context.Background(), tenant, turn("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if c.last.RawRef != objectRef {
+		t.Fatalf("the Interpreter was given RawRef %q, want the stored event's %q", c.last.RawRef, objectRef)
+	}
+	if len(w.adm.asked) != 1 || w.adm.asked[0] != "ten_demo/recev_01J9X0" {
+		t.Fatalf("the Record was asked %v, want the session's tenant and the turn's InputReceivedRef", w.adm.asked)
+	}
+}
+
+func TestTheSavedIntentsRawRefIsTheRecordedInputsAndNotTheModels(t *testing.T) {
+	for _, model := range []string{"unset", "req_01J9X3ZZZZZZZZZZZZZZZZZZZZ"} {
+		w := newWorld(t, proposal(func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = model }))
+		if _, err := w.port.Interpret(context.Background(), tenant, turn("hello")); err != nil {
+			t.Fatal(err)
+		}
+		if len(w.save.docs) != 1 || !strings.Contains(string(w.save.docs[0]), `"raw_ref":"`+objectRef+`"`) || strings.Contains(string(w.save.docs[0]), `"raw_ref":"`+model+`"`) {
+			t.Fatalf("model %q: saved %s, want raw_ref %s", model, w.save.docs, objectRef)
+		}
+	}
+}
+
+// Fail closed: an event that is not this turn's INPUT_RECEIVED, an unreadable Record or an object_ref that is not a minted input ID stops the turn before the model service is called.
+func TestAnInputTheRecordDoesNotConfirmStopsTheTurnBeforeAnythingIsCalledOrStored(t *testing.T) {
+	bad := map[string]func(a *admissions){
+		"lookup fails":      func(a *admissions) { a.err = errors.New("synthetic: no such event") },
+		"another event":     func(a *admissions) { a.out.EventType = "INPUT_DEDUPLICATED" },
+		"another tenant":    func(a *admissions) { a.out.TenantID = "ten_other" },
+		"another principal": func(a *admissions) { a.out.PrincipalID = "usr_other" },
+		"empty principal":   func(a *admissions) { a.out.PrincipalID = "" },
+		"another corr":      func(a *admissions) { a.out.CorrelationID = "corr_other1" },
+		"another request":   func(a *admissions) { a.out.RequestID = "11111111-1111-4111-8111-111111111111" },
+		"no object ref":     func(a *admissions) { a.out.ObjectRef = "" },
+		"unset object ref":  func(a *admissions) { a.out.ObjectRef = "unset" },
+		"malformed ref":     func(a *admissions) { a.out.ObjectRef = "req_short" },
+	}
+	for name, mutate := range bad {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, proposal(nil))
+			mutate(w.adm)
+			got, err := w.port.Interpret(context.Background(), tenant, turn("hello"))
+			if err == nil || got != (orchestrator.Interpretation{}) {
+				t.Fatalf("got %+v, %v; want an error and no interpretation", got, err)
+			}
+			if len(w.comp.reqs) != 0 || len(w.save.actors) != 0 || w.rec.rejected != 0 {
+				t.Fatalf("compile %d, saved %d, rejected %d: want nothing", len(w.comp.reqs), len(w.save.actors), w.rec.rejected)
+			}
+		})
+	}
+}
+
+// Property: whatever the model wrote in raw_ref, a saved intent carries the Record's.
+func TestPropertyTheSavedRawRefIsAlwaysTheRecordedOne(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		model := rapid.String().Draw(rt, "model")
+		w := newWorld(t, proposal(func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = model }))
+		if _, err := w.port.Interpret(context.Background(), tenant, turn("hello")); err != nil {
+			rt.Fatal(err)
+		}
+		var doc struct {
+			Source struct {
+				RawRef string `json:"raw_ref"`
+			} `json:"source"`
+		}
+		if err := json.Unmarshal(w.save.docs[0], &doc); err != nil || doc.Source.RawRef != objectRef {
+			rt.Fatalf("saved raw_ref %q (%v) for model value %q, want %q", doc.Source.RawRef, err, model, objectRef)
+		}
+	})
 }

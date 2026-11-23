@@ -38,7 +38,7 @@ var sess = orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_01"}
 const ref = "recev_01ABC"
 
 func foundFor(tenant string) admission.Found {
-	return admission.Found{EventType: "INPUT_RECEIVED", TenantID: tenant, PrincipalID: "usr_01", CorrelationID: "corr_ABC123", RequestID: "0a1b2c3d-0000-4000-8000-000000000001"}
+	return admission.Found{EventType: "INPUT_RECEIVED", TenantID: tenant, PrincipalID: "usr_01", CorrelationID: "corr_ABC123", RequestID: "0a1b2c3d-0000-4000-8000-000000000001", ObjectRef: "req_01J9X3A1B2C3D4E5F6G7H8J9K0"}
 }
 
 func TestItAsksTheReaderForTheSessionsTenantAndTheTurnsReferenceAndNothingElse(t *testing.T) {
@@ -50,7 +50,7 @@ func TestItAsksTheReaderForTheSessionsTenantAndTheTurnsReferenceAndNothingElse(t
 	if len(r.asked) != 1 || r.asked[0] != [2]string{"ten_aa", ref} {
 		t.Fatalf("the reader was asked %v, want exactly the session's tenant and the reference", r.asked)
 	}
-	want := orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: "ten_aa", PrincipalID: "usr_01", CorrelationID: "corr_ABC123", RequestID: "0a1b2c3d-0000-4000-8000-000000000001"}
+	want := orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: "ten_aa", PrincipalID: "usr_01", CorrelationID: "corr_ABC123", RequestID: "0a1b2c3d-0000-4000-8000-000000000001", ObjectRef: "req_01J9X3A1B2C3D4E5F6G7H8J9K0"}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}

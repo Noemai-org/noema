@@ -200,14 +200,16 @@ func buildG1Fixture(t *testing.T, raw []byte) ([]byte, error) {
 			Session:   understanding.Session{PrincipalID: in.Principal, TenantID: g1Tenant, AuthnRef: g1Session, PrincipalType: "end_user", AssertedBy: "noema-poc-idp"},
 			ActorKind: "customer",
 		}}
+		requestID, correlationID := g1ID(in.CaseID)
+		// The port confirms each turn's recorded input (UND-17, A219). The stub confirms exactly this turn; the object_ref goes to the Interpreter, never into the canonical input.
+		adm := g1Admissions{admission: orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: g1Tenant, PrincipalID: in.Principal, CorrelationID: correlationID, RequestID: requestID, ObjectRef: g1ObjectRef}}
 		port, err := interpreterport.New(interpreterport.Config{Sessions: sess, Interpreter: fnInterpreter(func(_ context.Context, i interpreter.Input) (interpreter.Result, error) {
 			captured = append([]byte(nil), i.Request.CanonicalInput...)
 			return interpreter.Result{}, errCaptured
-		}), Clock: clock.NewManual(instant), PackRef: packRef, Required: required})
+		}), Clock: clock.NewManual(instant), PackRef: packRef, Required: required, Admissions: adm})
 		if err != nil {
 			t.Fatal(err)
 		}
-		requestID, correlationID := g1ID(in.CaseID)
 		_, err = port.Interpret(context.Background(), orchestrator.Session{TenantID: g1Tenant, PrincipalID: in.Principal, Role: "customer"}, orchestrator.Turn{
 			InvestigationID: "inv_synthetic", CorrelationID: correlationID, Text: in.Text, InputReceivedRef: "recev_synthetic", RequestID: requestID})
 		if !errors.Is(err, errCaptured) || len(captured) == 0 {
@@ -239,4 +241,14 @@ func TestWriteG1Fixture(t *testing.T) {
 	if err := os.WriteFile(*g1FixturePath, out, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// g1ObjectRef is a SYNTHETIC minted input id (`req_` and 26 Crockford characters), the shape the Interpreter requires of the recorded input's object_ref.
+const g1ObjectRef = "req_01J9X3A1B2C3D4E5F6G7H8J9K0"
+
+// g1Admissions answers the one lookup of the turn the generator builds.
+type g1Admissions struct{ admission orchestrator.Admission }
+
+func (a g1Admissions) Lookup(context.Context, orchestrator.Session, string) (orchestrator.Admission, error) {
+	return a.admission, nil
 }

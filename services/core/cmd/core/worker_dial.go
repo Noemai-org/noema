@@ -13,6 +13,8 @@ import (
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+
+	"github.com/Noemai-org/noema/services/core/trust/grants/keyfiles"
 )
 
 // worker_dial.go: the real connection to Temporal (STM-04 slice 2). Always TLS with the server verified; the client certificate is sent only when configured (A310, DEBT-46: the bench
@@ -82,7 +84,15 @@ func dialTemporal(_ context.Context, cfg *WorkerConfig) (Connection, error) {
 func temporalTLS(cfg *WorkerConfig) (*tls.Config, error) {
 	var certs []tls.Certificate
 	if cfg.TLS.CertFile != "" || cfg.TLS.KeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		certPEM, err := os.ReadFile(cfg.TLS.CertFile)
+		if err != nil {
+			return nil, fmt.Errorf("%s and %s: the client certificate and key cannot be loaded", EnvTemporalTLSCert, EnvTemporalTLSKey)
+		}
+		keyPEM, err := keyfiles.ReadFile(cfg.TLS.KeyFile, privateKeyMaxBytes) // a private key is a secret: the shared checked reader (SEC-09, REQ-SEC-009, INV-29)
+		if err != nil {
+			return nil, fmt.Errorf("%s: the file cannot be used as a secret (a regular file you own, mode 0400, no link)", EnvTemporalTLSKey)
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
 		if err != nil {
 			return nil, fmt.Errorf("%s and %s: the client certificate and key cannot be loaded", EnvTemporalTLSCert, EnvTemporalTLSKey)
 		}
