@@ -1,11 +1,12 @@
 package candidaterank
 
-// REQ-AMB-003, INV-01, INV-21; ruling A555, A559, A560 (interim, relayed). The shared golden vectors (testdata/ranking_vectors.json) are loaded by this suite and by the Python
+// REQ-AMB-003, INV-01, INV-21; ruling A555, A559, A560 (interim, relayed). The shared golden vectors (contracts/fixtures/candidate_ranking_vectors.json) are loaded by this suite and by the Python
 // reference suite (services/model/tests/test_ranking_vectors.py). All data is SYNTHETIC.
 
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -91,7 +92,7 @@ type vecResolution struct {
 
 func loadVectors(t *testing.T) vecFile {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/ranking_vectors.json")
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "fixtures", "candidate_ranking_vectors.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

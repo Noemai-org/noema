@@ -1,6 +1,6 @@
 """The Python reference ranker against the shared golden vectors (REQ-AMB-003, INV-21; rulings A555, A559, A560, interim, relayed).
 
-The same file, services/core/platform/candidaterank/testdata/ranking_vectors.json, is loaded by the Go suite. The Python ranker is exact rational arithmetic (fractions, never a float); the Go
+The same file, contracts/fixtures/candidate_ranking_vectors.json, is loaded by the Go suite (platform/candidaterank). The Python ranker is exact rational arithmetic (fractions, never a float); the Go
 ranker is integer basis points with floor division and is the authority. Every vector is built so its exact score is a whole number of basis points, so both give the same answer; the
 expected value in basis points is the floor of the exact one. All data is SYNTHETIC.
 """
@@ -11,11 +11,12 @@ import unittest
 from datetime import datetime
 from fractions import Fraction
 from pathlib import Path
+from typing import Any, cast
 
-from noema_model.understanding.resolution import Candidate, Context, RankingConfig, Target, rank
+from noema_model.understanding.resolution import Candidate, Context, RankingConfig, RecipientMatcher, Target, rank
 from noema_model.understanding.resolution.ranking import amount_feature, temporal_feature
 
-VECTORS = Path(__file__).resolve().parents[3] / "services/core/platform/candidaterank/testdata/ranking_vectors.json"
+VECTORS = Path(__file__).resolve().parents[3] / "contracts" / "fixtures" / "candidate_ranking_vectors.json"
 UNIT = 10_000
 
 
@@ -39,7 +40,7 @@ class _StubMatcher:
         return Fraction(self._by_display[display], UNIT)
 
 
-def _config(v: dict) -> RankingConfig:
+def _config(v: dict[str, Any]) -> RankingConfig:
     c = v["config"]
     return RankingConfig.from_mapping(
         {
@@ -54,7 +55,7 @@ def _config(v: dict) -> RankingConfig:
     )
 
 
-def _candidate(row: dict) -> Candidate:
+def _candidate(row: dict[str, Any]) -> Candidate:
     return Candidate(
         candidate_id=row["id"], resource_ref="res_" + row["id"], amount_minor=row["amount_minor"], currency=row["currency"],
         occurred_at=_when(row["occurred_at"]), counterparty_display=row["id"], account_last4="1234", direction=row["direction"],
@@ -63,6 +64,9 @@ def _candidate(row: dict) -> Candidate:
 
 
 class RankingVectors(unittest.TestCase):
+    v: dict[str, Any]
+    config: RankingConfig
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.v = json.loads(VECTORS.read_text(encoding="utf-8"))
@@ -91,7 +95,7 @@ class RankingVectors(unittest.TestCase):
 
     def test_score_is_the_floored_weighted_sum(self) -> None:
         for case in self.v["scores"]:
-            total = sum(self.config.weights[k] * Fraction(bp, UNIT) for k, bp in case["features_bp"].items())
+            total = sum((self.config.weights[k] * Fraction(bp, UNIT) for k, bp in case["features_bp"].items()), Fraction(0))
             with self.subTest(case["name"]):
                 self.assertEqual(_bp(total), case["want_bp"])
 
@@ -106,7 +110,7 @@ class RankingVectors(unittest.TestCase):
             cands = tuple(_candidate(r) for r in case["candidates"])
             matcher = _StubMatcher({r["id"]: r["recipient_bp"] for r in case["candidates"]})
             ctx = Context(material_flag_present=case["context"]["material_flag"], key_slot_low_asr=case["context"]["key_slot_low_asr"], phonetic=False)
-            got = rank(cands, target, ctx, self.config, matcher, candidate_set_id="set_x", candidate_set_version=1)  # type: ignore[arg-type]
+            got = rank(cands, target, ctx, self.config, cast(RecipientMatcher, matcher), candidate_set_id="set_x", candidate_set_version=1)
             want = case["want"]
             with self.subTest(case["name"]):
                 self.assertEqual(got.state.value, want["state"])

@@ -1,6 +1,6 @@
 {
  "label": "SYNTHETIC",
- "note": "Shared golden vectors for the candidate ranker (REQ-AMB-003, A555/A559/A560). Integer basis points, floor division, no float. Loaded by the Go suite (platform/candidaterank) and the Python reference suite (services/model/tests/test_ranking_vectors.py). Every case is built so the exact score is a whole number of basis points, so the two implementations agree; where they could differ (below one basis point) the Go value is the authority.",
+ "note": "Shared golden vectors for the candidate ranker (REQ-AMB-003, A555/A559/A560). Integer basis points, floor division, no float. Loaded by the Go suite (services/core/platform/candidaterank) and the Python reference suite. Every case is built so the exact score is a whole number of basis points, so the two implementations agree; where they could differ (below one basis point) the Go value is the authority.",
  "version": 1,
  "config": {
   "label": "SYNTHETIC",
