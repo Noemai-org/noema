@@ -69,6 +69,19 @@ def _text(document: dict[str, Any], key: str) -> str:
     return value
 
 
+_ERRORS = {
+    "AUTHENTICATION_ERROR": ProviderFailure.REJECTED,
+    "RESOURCE_EXHAUSTED": ProviderFailure.RATE_LIMITED,
+    "SESSION_TIME_LIMIT_EXCEEDED": ProviderFailure.TIMEOUT,
+    "INSUFFICIENT_AUDIO_ACTIVITY": ProviderFailure.TIMEOUT,
+    "ERROR": ProviderFailure.UNAVAILABLE,
+    "INPUT_ERROR": ProviderFailure.MALFORMED,
+    "CHUNK_SIZE_TOO_SMALL": ProviderFailure.MALFORMED,
+    "CHUNK_SIZE_TOO_LARGE": ProviderFailure.MALFORMED,
+    "CHUNK_ID_MISMATCH_WITH_TOTAL": ProviderFailure.MALFORMED,
+}
+
+
 def parse_server_message(raw: str) -> ServerMessage:
     """One message from the server, or MALFORMED."""
     try:
@@ -80,6 +93,8 @@ def parse_server_message(raw: str) -> ServerMessage:
     kind = document["message_type"]
     if kind in ("SESSION_CREATED", "AUDIO_CHUNK_ACK", "QUOTA_EXCEEDED"):
         return ServerMessage(kind)
+    if kind in _ERRORS:
+        raise ProviderError(_ERRORS[kind])  # the vendor's error types of its streaming speech-to-text page; no body or message of the vendor is kept (AGENT-13)
     if kind == "PARTIAL_TRANSCRIPT":
         return ServerMessage(kind, _text(document, "transcript"))
     if kind == "COMMITTED_TRANSCRIPT":

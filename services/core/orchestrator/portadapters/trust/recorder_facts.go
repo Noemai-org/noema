@@ -19,25 +19,27 @@ type SealedFactsConfig struct {
 	Snapshots SnapshotReader
 	PolicyID  string
 	Steps     StepFactSource
+	Facts     ItemFacts
 }
 
 // SealedFacts implements RecordFactSource over the sealed snapshot of the evaluation (TRU-12; A377 items 6 and 7). The evidence set hash is the sealed snapshot's, which the
 // database sealed and this code re-checks; the policy is the verified pack's and must be one the evaluation used; the step facts come from the StepFactSource for that snapshot.
-// A RecordRequest has no field that could set any of them.
+// A RecordRequest has no field that could set any of them; for a request that follows a confirmation, the content digest the confirmation binds (A435, A459) is computed here as well.
 type SealedFacts struct {
 	snaps SnapshotReader
 	pol   string
 	steps StepFactSource
+	facts ItemFacts
 }
 
 var _ RecordFactSource = (*SealedFacts)(nil)
 
-// NewSealedFacts builds the fact source. A missing reader, step source or policy is ErrConfig.
+// NewSealedFacts builds the fact source. A missing reader, step source, item facts source or policy is ErrConfig.
 func NewSealedFacts(c SealedFactsConfig) (*SealedFacts, error) {
-	if c.Snapshots == nil || c.Steps == nil || c.PolicyID == "" {
+	if c.Snapshots == nil || c.Steps == nil || c.Facts == nil || c.PolicyID == "" {
 		return nil, ErrConfig
 	}
-	return &SealedFacts{snaps: c.Snapshots, pol: c.PolicyID, steps: c.Steps}, nil
+	return &SealedFacts{snaps: c.Snapshots, pol: c.PolicyID, steps: c.Steps, facts: c.Facts}, nil
 }
 
 // Facts reads the sealed snapshot the evaluation recorded in its basis, as the request's tenant, and refuses it unless it is that snapshot, intact, and of the evaluation's own
@@ -64,13 +66,21 @@ func (f *SealedFacts) Facts(ctx context.Context, r intake.RecordRequest) (Record
 	if err != nil {
 		return RecordFacts{}, err
 	}
-	if _, err := intact(snap, r.TenantID, basis.EvidenceSnapshotID); err != nil {
+	ordered, err := intact(snap, r.TenantID, basis.EvidenceSnapshotID)
+	if err != nil {
 		return RecordFacts{}, err
 	}
 	if snap.CorrelationID != r.CorrelationID {
 		return RecordFacts{}, notIntact()
 	}
 	out := RecordFacts{PolicyID: f.pol, EvidenceSetHash: snap.EvidenceSetHash, Steps: make([]RecordStepFacts, 0, len(r.Steps))}
+	if r.ConfirmationEventID != "" {
+		// A435, A459: the one evidence value the confirmation binds, for the request (there is one snapshot per decision). It is the content digest of the sealed snapshot, computed here by
+		// the evidence layer; the value the request names (what the confirmation was bound to) is never its source, and the Writer's spend refuses a confirmation given for another (INV-25).
+		if out.ConfirmationBindingEvidenceHash, err = (Evidence{facts: f.facts}).contentHash(ctx, r.TenantID, ordered); err != nil {
+			return RecordFacts{}, err
+		}
+	}
 	for _, s := range r.Steps {
 		sf, err := f.steps.StepFacts(ctx, snap, s)
 		if err != nil {

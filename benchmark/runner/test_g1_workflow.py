@@ -147,6 +147,35 @@ class G1StackWorkflow(unittest.TestCase):
                 self.assertIn(variable, step, f"{name}: calls compose without {variable.split('=')[0]}")
             self.assertRegex(step, r"export NOEMA_BENCH_OUT=.*STANDIN_TENANT_ID=ten_alpha", name)
 
+    # A476 and A502 (relayed): the core is restarted after the cases, then BO's reread adds after_recovery and after_replay before the package stamps the file.
+    def test_the_core_is_restarted_after_the_evidence_and_the_two_rereads_follow_before_the_package(self) -> None:
+        order = [self.text.index(f"- id: {i}") for i in ("evidence", "restart", "recovery", "replay", "package")]
+        self.assertEqual(order, sorted(order), "evidence, restart, recovery, replay, package")
+        restart = re.search(r"(?ms)- id: restart\n(.*?)(?=^      - )", self.text)
+        assert restart
+        self.assertIn("if: always() && inputs.mode == 'full'", restart.group(1))
+        self.assertIn("$compose restart core >> benchmark/out/joblog/restart.log 2>&1", restart.group(1))
+        for step, phase, needs in (("recovery", "after_recovery", "restart"), ("replay", "after_replay", "recovery")):
+            body = re.search(r"(?ms)- id: " + step + r"\n(.*?)(?=^      - )", self.text)
+            assert body
+            text = body.group(1)
+            self.assertIn(f"if: always() && inputs.mode == 'full' && steps.{needs}.outputs.{needs} == '0'", text)
+            self.assertIn("python -m benchmark.runner.reread --run /bench-out/run --phase " + phase, text)
+            self.assertIn("benchmark/out/idp/runner-args", text, "the five IdP flags come from the bench-tokens runner-args file (A517)")
+            self.assertIn("$idp_args", text)
+            self.assertNotIn("--tokens-dir", text)
+            self.assertNotIn("--idp-key", text, "no hard-coded IdP flag")
+            for flag in ("--api-url http://core:8080", "--readyz-url http://core:8080/readyz", "--ready-timeout-s 120"):
+                self.assertIn(flag, text, flag)
+            self.assertIn(">> benchmark/out/joblog/reread.log 2>&1", text)
+            self.assertNotIn("audit-credential", text, "A502: no credential file, no seeded principal")
+            self.assertIn(f'echo "{step}=$?" >> "$GITHUB_OUTPUT"', text)
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        for name, step in (("RESTART", "restart"), ("RECOVERY", "recovery"), ("REPLAY", "replay")):
+            self.assertIn(f"{name}: ${{{{ steps.{step}.outputs.{step} }}}}", result.group(0))
+            self.assertRegex(result.group(0), r'\[ "\$\{' + name + r':-missing\}" = 0 \]')
+
     def test_the_package_step_runs_after_the_evidence_and_before_the_scan_and_a_failure_fails_the_result(self) -> None:
         step = re.search(r"(?ms)- id: package\n(.*?)(?=^      - )", self.text)
         assert step, "no package step"

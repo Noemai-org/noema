@@ -13,6 +13,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/chain"
+	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/grants"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
@@ -67,12 +68,14 @@ type RecordStepFacts struct {
 	Permission     reconcile.Permission
 }
 
-// RecordFacts is what the composition adds to a RecordRequest: the policy the record and the grants bind, the hash of the evidence set, and one RecordStepFacts per write step, in
+// RecordFacts is what the composition adds to a RecordRequest: the policy the record and the grants bind, the hash of the evidence set, the content digest a confirmation binds (one per
+// request, A459; set only for a request that follows a confirmation, and never the request's own value, A435), and one RecordStepFacts per write step, in
 // step order. The stores behind it (T9 to T11) belong to other lanes.
 type RecordFacts struct {
-	PolicyID        string
-	EvidenceSetHash string
-	Steps           []RecordStepFacts
+	PolicyID                        string
+	EvidenceSetHash                 string
+	ConfirmationBindingEvidenceHash string
+	Steps                           []RecordStepFacts
 }
 
 // RecordFactSource gives the facts of one request.
@@ -162,7 +165,7 @@ func (a *RecorderAdapter) Record(ctx context.Context, r intake.RecordRequest) (i
 		rollback(ctx, tx)
 		return intake.RecordResult{}, fmt.Errorf("%w: %w", ErrCommit, err)
 	}
-	out := intake.RecordResult{DecisionID: string(res.Record.DecisionId)}
+	out := intake.RecordResult{DecisionID: string(res.Record.DecisionId), ConfirmationRequestID: res.ConfirmationRequestID}
 	for _, g := range res.Grants {
 		out.GrantIDs = append(out.GrantIDs, string(g.GrantId))
 	}
@@ -185,8 +188,11 @@ func rollback(ctx context.Context, tx pgx.Tx) {
 
 // request maps the intake's request and the facts to recorder.Request, with every check that needs no database.
 func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (recorder.Request, error) {
-	if r.TenantID == "" || r.PrincipalID == "" || r.Evaluated == nil || !recHashRe.MatchString(r.PlanHash) {
+	if r.TenantID == "" || r.PrincipalID == "" || r.Evaluated == nil {
 		return recorder.Request{}, ErrRecordRequest
+	}
+	if err := outcomeShape(r); err != nil {
+		return recorder.Request{}, err
 	}
 	digest, err := r.Evaluated.Digest()
 	if err != nil {
@@ -212,6 +218,15 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	if f.PolicyID == "" || !recHashRe.MatchString(f.EvidenceSetHash) || len(f.Steps) != len(r.Steps) {
 		return recorder.Request{}, ErrRecordRequest
 	}
+	// A435, A459, INV-25: a Record that follows a confirmation carries the fresh content digest of the evidence (the facts', never the request's); the Writer recomputes the binding from it
+	// and the database refuses the spend unless the confirmation was given for exactly that. Any other Record carries none.
+	var binding contracts.CommonV1Hash
+	if r.ConfirmationEventID != "" {
+		if !recHashRe.MatchString(f.ConfirmationBindingEvidenceHash) {
+			return recorder.Request{}, fmt.Errorf("%w: a confirmed record has no well-formed fresh evidence value of its binding", ErrRecordRequest)
+		}
+		binding = contracts.CommonV1Hash(f.ConfirmationBindingEvidenceHash)
+	}
 	steps := make([]grants.Step, 0, len(r.Steps))
 	for i, s := range r.Steps {
 		steps = append(steps, grants.Step{PrincipalID: r.PrincipalID, CapabilityID: s.CapabilityID, TargetRef: s.TargetRef, ParamsHash: contracts.CommonV1Hash(s.ParamsHash),
@@ -219,5 +234,30 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 			TargetVersions: f.Steps[i].TargetVersions, Permission: f.Steps[i].Permission})
 	}
 	return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), PolicyID: f.PolicyID,
-		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, Steps: steps}, nil
+		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, ConfirmationBindingEvidenceHash: binding, Steps: steps,
+		ConfirmationRequest: newRequest(r.ConfirmationRequest), DispositionDecisionID: r.DispositionDecisionID}, nil
+}
+
+// outcomeShape is A456 (interim, relayed, not yet committed): the port serves every outcome. An ALLOW names its plan hash (a read has no steps but has its plan and its hash, A205
+// Q3; a write's steps are the intake's to count). Every other outcome has no plan hash and no step, so no grant (INV-03), and only a CONFIRM carries a confirmation request.
+func outcomeShape(r intake.RecordRequest) error {
+	if r.Decision.Outcome() == decide.Allow {
+		if !recHashRe.MatchString(r.PlanHash) {
+			return ErrRecordRequest
+		}
+		return nil
+	}
+	if r.PlanHash != "" || len(r.Steps) > 0 || r.ConfirmationRequest != nil && r.Decision.Outcome() != decide.Confirm {
+		return fmt.Errorf("%w: a %s decision carries no plan hash, no step and no grant", ErrRecordRequest, r.Decision.Outcome())
+	}
+	return nil
+}
+
+// newRequest maps the confirmation request of a CONFIRM value for value; the Writer mints the request's ID and computes the binding hash (SoT 43.2a).
+func newRequest(c *intake.NewConfirmationRequest) *recorder.NewConfirmationRequest {
+	if c == nil {
+		return nil
+	}
+	return &recorder.NewConfirmationRequest{PrincipalID: c.PrincipalID, IntentHash: c.IntentHash, CapabilityID: c.CapabilityID, TargetRef: c.TargetRef, ParamsHash: c.ParamsHash,
+		ConfirmationBindingEvidenceHash: c.ConfirmationBindingEvidenceHash, PlanHash: c.PlanHash, PolicyVersion: c.PolicyVersion, Requirement: c.Requirement, RequesterID: c.RequesterID, ExpiresAt: c.ExpiresAt}
 }
