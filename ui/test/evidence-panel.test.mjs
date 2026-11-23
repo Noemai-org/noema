@@ -4,6 +4,23 @@ import { readFile, readdir } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EvidencePanel } from "../build/js/evidence-panel.js";
+import { EvidenceResult } from "../build/js/evidence-access.js";
+
+test("A524: 403 and 404 use one generic response without role or view names", () => {
+  const forbidden = renderToStaticMarkup(createElement(EvidenceResult, { status: 403 }));
+  const missing = renderToStaticMarkup(createElement(EvidenceResult, { status: 404 }));
+  assert.equal(forbidden, missing);
+  assert.match(forbidden, /This is unavailable\./);
+  assert.doesNotMatch(forbidden.replace(/<[^>]+>/gu, ""), /role|audit|ops|record|evidence|access/iu);
+});
+
+test("A524: denied responses never render supplied content; 200 uses the validated panel", async () => {
+  const value = await load("no_events");
+  for (const status of [403, 404]) {
+    assert.doesNotMatch(renderToStaticMarkup(createElement(EvidenceResult, { status, reconstruction: value })), /Record|Verified/u);
+  }
+  assert.match(renderToStaticMarkup(createElement(EvidenceResult, { status: 200, reconstruction: value })), /Record/u);
+});
 import { scanVisibleText } from "../build/js/privacy.js";
 
 const load = async (name) => JSON.parse(await readFile(new URL(`../../contracts/fixtures/valid/reconstruction.v3/${name}.json`, import.meta.url), "utf8"));
