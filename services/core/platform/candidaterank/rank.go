@@ -133,11 +133,16 @@ type Resolution struct {
 	ResolvedID string
 }
 
-// ScoreBP is the weighted sum of the features, floored once to a whole basis point.
-func (c Config) ScoreBP(f Features) int64 {
+// scaledScore is the exact weighted sum of the features, unrounded: the sum of weight x feature, each in basis points, so it is the score in basis points times UnitBP (an integer, at
+// most UnitBP x UnitBP). The margin, the floor and the tie are decided on it and never on a floored score (A566).
+func (c Config) scaledScore(f Features) int64 {
 	w := c.Weights
-	sum := w.AmountBP*f.AmountBP + w.RecipientBP*f.RecipientBP + w.TemporalBP*f.TemporalBP + w.RelationshipBP*f.RelationshipBP + w.TypeDirectionBP*f.TypeDirectionBP
-	return sum / UnitBP
+	return w.AmountBP*f.AmountBP + w.RecipientBP*f.RecipientBP + w.TemporalBP*f.TemporalBP + w.RelationshipBP*f.RelationshipBP + w.TypeDirectionBP*f.TypeDirectionBP
+}
+
+// ScoreBP is the weighted sum of the features, floored once to a whole basis point: the score as it is reported. It is not what a threshold is compared with (A566).
+func (c Config) ScoreBP(f Features) int64 {
+	return c.scaledScore(f) / UnitBP
 }
 
 // ramp is the share of UnitBP left when `distance` of `tolerance` is used up: UnitBP at distance 0, falling in a straight line to 0 at the tolerance, floored; 0 beyond it and when
@@ -203,8 +208,9 @@ func TypeDirectionFeatureBP(t Target, cand Candidate) int64 {
 
 // Rank scores every candidate and applies the auto-resolve rule: exactly one candidate with the top score; top minus second at or above MarginBP (the second is 0 for a single
 // candidate); top at or above FloorBP; no material flag and no low ASR confidence. More than MaxAboveFloor candidates at or above the floor is TOO_MANY_CANDIDATES, whatever else
-// holds. The margin is the difference of the two floored scores, so it can differ from the exact difference by less than one basis point (the Go value is the authority).
-// The input is not changed and the result shares nothing with it. The order of the rows changes nothing.
+// holds. A566: the tie, the margin and the floor are compared in exact scaled-integer arithmetic on the unrounded sums, never on floored scores (9000.00 against 5500.25 is a margin of
+// 3499.75 and does not resolve, although the floored scores differ by exactly 3500); floor division is applied only to the scores that are reported, so the reported margin is the
+// floor of the exact margin. The input is not changed and the result shares nothing with it. The order of the rows changes nothing.
 func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, error) {
 	if err := c.Validate(); err != nil {
 		return Resolution{}, err
@@ -214,9 +220,9 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 	}
 	seen := make(map[string]bool, len(cands))
 	type row struct {
-		id    string
-		score int64
-		at    time.Time
+		id     string
+		scaled int64
+		at     time.Time
 	}
 	rows := make([]row, 0, len(cands))
 	for _, cand := range cands {
@@ -228,11 +234,11 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 			AmountBP: c.AmountFeatureBP(t, cand), RecipientBP: cand.RecipientBP, TemporalBP: c.TemporalFeatureBP(t, cand),
 			RelationshipBP: RelationshipFeatureBP(cand), TypeDirectionBP: TypeDirectionFeatureBP(t, cand),
 		}
-		rows = append(rows, row{id: cand.ID, score: c.ScoreBP(f), at: cand.OccurredAt})
+		rows = append(rows, row{id: cand.ID, scaled: c.scaledScore(f), at: cand.OccurredAt})
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].score != rows[j].score {
-			return rows[i].score > rows[j].score
+		if rows[i].scaled != rows[j].scaled {
+			return rows[i].scaled > rows[j].scaled
 		}
 		if !rows[i].at.Equal(rows[j].at) {
 			return rows[i].at.After(rows[j].at)
@@ -240,9 +246,10 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 		return rows[i].id < rows[j].id
 	})
 	res := Resolution{Ranked: make([]Scored, 0, len(rows))}
+	floorScaled, marginScaled := c.FloorBP*UnitBP, c.MarginBP*UnitBP
 	for _, r := range rows {
-		res.Ranked = append(res.Ranked, Scored{ID: r.id, ScoreBP: r.score})
-		if r.score >= c.FloorBP {
+		res.Ranked = append(res.Ranked, Scored{ID: r.id, ScoreBP: r.scaled / UnitBP})
+		if r.scaled >= floorScaled {
 			res.AboveFloor++
 		}
 	}
@@ -250,18 +257,19 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 		res.State = NoCandidates
 		return res, nil
 	}
-	res.TopBP = rows[0].score
+	topScaled := rows[0].scaled
+	var secondScaled int64
 	if len(rows) > 1 {
-		res.SecondBP = rows[1].score
+		secondScaled = rows[1].scaled
 	}
-	res.MarginBP = res.TopBP - res.SecondBP
-	if len(rows) > 1 && res.TopBP == res.SecondBP {
+	res.TopBP, res.SecondBP, res.MarginBP = topScaled/UnitBP, secondScaled/UnitBP, (topScaled-secondScaled)/UnitBP
+	if len(rows) > 1 && topScaled == secondScaled {
 		res.WhyNot = append(res.WhyNot, TieAtTop)
 	}
-	if res.MarginBP < c.MarginBP {
+	if topScaled-secondScaled < marginScaled {
 		res.WhyNot = append(res.WhyNot, MarginNotMet)
 	}
-	if res.TopBP < c.FloorBP {
+	if topScaled < floorScaled {
 		res.WhyNot = append(res.WhyNot, BelowFloor)
 	}
 	if ctx.MaterialFlag {
