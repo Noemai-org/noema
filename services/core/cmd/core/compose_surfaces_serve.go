@@ -17,3 +17,6 @@ func serve(context.Context, httpServer, <-chan error, time.Duration, *slog.Logge
 
 // mergeFatal delivers the first error of any of the channels. Not built yet.
 func mergeFatal(context.Context, ...<-chan error) <-chan error { return nil }
+
+// fatalChans are the channels of the parts that can die on their own: the worker and the recovery pass. Not built yet.
+func (p *Process) fatalChans() []<-chan error { return nil }

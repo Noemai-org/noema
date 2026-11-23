@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/edge"
+	"github.com/Noemai-org/noema/services/core/edge/events"
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
@@ -56,6 +57,8 @@ type Components struct {
 	TrustUnbuilt []string
 	// Confirmations is the confirmation route's ports (POST /v1/confirmations/{confirmation_request_id}, A341, noema#754); the route is mounted only with it.
 	Confirmations *confirmationRouteConfig
+	// Events is the events route (GET /v1/conversations/{conversation_ref}/events, EDG-02); the route is mounted only with it.
+	Events *events.Handler
 }
 
 // Env is the process's configuration source, injected so that tests do not touch the real environment. Nothing read through it has a default (AGENT-16).
@@ -316,6 +319,8 @@ type composeDeps struct {
 	TrustAdapters    func(env Env, records reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error)
 	WorkerDial       func(context.Context, *WorkerConfig) (Connection, error)
 	WorkerActivities func() *workflows.EscalateActivities
+	// Surfaces are the parts the surfaces lane takes from other tasks (compose_surfaces.go); the zero value names each as a gap.
+	Surfaces SurfaceSeams
 }
 
 // productionDeps is the real build: the grant keys through keyfiles.Load (INV-29) and the Temporal dial of worker_dial.go. The intake adapters other tasks build, and the worker's
@@ -469,6 +474,7 @@ type Process struct {
 	API         http.Handler
 	Handler     http.Handler
 	Worker      *RunningWorker
+	Surfaces    *Surfaces
 	Close       func()
 }
 

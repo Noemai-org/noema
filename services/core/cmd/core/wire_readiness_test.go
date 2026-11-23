@@ -21,13 +21,13 @@ import (
 
 // readinessOrder is the stable order in which /readyz names what is missing: every component of Components, the ports first. It is written out here, not derived from the
 // code under test, so a reordering or a rename is a failure of this test.
-var readinessOrder = []string{"interpreter", "evidence", "trust", "explainer", "recorder", "admissions", "investigations", "edge chain", "record reader", "input gateway", "confirmation route"}
+var readinessOrder = []string{"interpreter", "evidence", "trust", "explainer", "recorder", "admissions", "investigations", "edge chain", "record reader", "input gateway", "confirmation route", "events route"}
 
 // readinessNameOfField maps each field of Components and of Ports to the name /readyz gives it. AccessLog is a logger the Record reader needs (buildAPI refuses a reader
 // without it); it is not a component, and "edge chain" is the protected handler, which is an argument, not a field.
 var readinessNameOfField = map[string]string{
 	"Ports.Interpreter": "interpreter", "Ports.Evidence": "evidence", "Ports.Trust": "trust", "Ports.Explainer": "explainer", "Ports.Recorder": "recorder",
-	"Ports.Admissions": "admissions", "Investigations": "investigations", "Records": "record reader", "Gateway": "input gateway", "Confirmations": "confirmation route",
+	"Ports.Admissions": "admissions", "Investigations": "investigations", "Records": "record reader", "Gateway": "input gateway", "Confirmations": "confirmation route", "Events": "events route",
 }
 
 func wantReason(names ...string) string { return "not configured: " + strings.Join(names, ", ") }
