@@ -335,3 +335,10 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Fixed the red `compose-scripts` on #894: `test_bench_tenants.py` counted the tenant-list expression once in the overlay and now there are three (postgres and the two tenant one-shots).
 - A540: the statements `provision-tenants.sh` runs are listed in the PR body; it needs no DDL.
 - Not verified without a Docker daemon: that the host user can read the 0400 copy inside the container (same uid), libpq as a uid with no passwd entry, and the tmpfs heredocs on a read-only root. The first stack run decides.
+
+## Debt entry, 2026-11-23 · ENV-04 (A540; register number to be assigned by the Steward)
+- **Shortcut:** `tenants-provision` runs `provision-tenants.sh` as the migration login `noema_migration_login`, so a second one-shot holds the migration password (A536) although the script needs far less than that login can do.
+- **What the script runs** (listed in noema#894): per tenant and power group, one `SELECT ... provision_tenant_login(...)`; per tenant and emitter, one `SELECT ... provision_emitter_login(...)`. No DDL, no `CREATE`, `ALTER`, `GRANT` or `DROP`, no role creation. The caller needs only `USAGE` on schema `public`, `SELECT` on `tenant_login`, and `EXECUTE` on the two functions.
+- **Why it stays for now:** only the migration login holds `EXECUTE` on those functions (migrations 0006 and 0011 grant it `TO CURRENT_USER`, the migrating role). A narrower login needs (1) a role and a secret in `deploy/compose/postgres/init.sh`, which runs before the functions exist and so cannot grant, and (2) a new migration granting `EXECUTE` on both functions and `SELECT` on `tenant_login` to it. The migration is C2's lane.
+- **Payoff when repaid:** `tenants-provision` stops holding the migration password; the password has one holder besides postgres, `migrate`.
+- **Owner:** C2 (the migration) with IL (init.sh role, secret, Compose). **Date:** none given by A540 (not a blocker); the Architect sets it. **Evidence that invalidates it:** a need for DDL in `provision-tenants.sh`, which would keep the migration login.
