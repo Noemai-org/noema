@@ -39,6 +39,14 @@ class JoblogAllow(unittest.TestCase):
     def test_the_go_download_line_passes_with_the_allow_file(self) -> None:
         self.assertEqual(kinds(self.PSEUDO, digits=False, allow=allow()), set())
 
+    def test_the_same_line_with_the_image_build_step_prefix_passes_too(self) -> None:
+        # Run 45161180436: the line as the image build prints it is `<timestamp> #<step> <seconds> go: downloading ...`.
+        line = "2026-11-23T11:01:20.1234567Z #34 3.128 go: downloading github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761"
+        self.assertIn("card_number", kinds(line, digits=False))
+        self.assertEqual(kinds(line, digits=False, allow=allow()), set())
+        card = luhn_complete("4" + "12345678901234")
+        self.assertIn("card_number", kinds(f"2026-11-23T11:01:20.1Z #34 3.128 go: downloading example.org/x v1.0.0 {card}", digits=False, allow=allow()))
+
     def test_a_card_number_in_a_go_download_line_is_still_found(self) -> None:
         card = luhn_complete("4" + "12345678901234")
         for line in (f"2026-11-23T07:03:50.1Z go: downloading example.org/x v1.0.0 {card}", f"2026-11-23T07:03:50.1Z go: downloading example.org/{card}/x v1.0.0"):
