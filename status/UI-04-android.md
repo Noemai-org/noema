@@ -29,5 +29,5 @@ If blocked or conflicting: STOP and emit the CONFLICT block (§71.3).
 
 
 ## 2026-11-23 · Android emulation sub-slice complete
-- `noema#686` completes the static Pixel 5 browser-emulation slice. Current head `04f404df227fef14e5099f4346f46ce0a257869a` has all workflow checks green. Viewport fit, disabled controls, touch-target dimensions, contract/scanner rejection and the DOM privacy scan are asserted; an HTTP-only request assertion proves the local fixture flow makes no API/Record writes.
+- `noema#686` completes the static Pixel 5 browser-emulation slice. At `04f404df227fef14e5099f4346f46ce0a257869a`, the UI suite passed, but the core and other workflows had not all completed. At the later documentation head `b0e4d058e3a34786ec9ee5e1e453a2560637d9ff`, the UI and most workflows passed; core was still running. Viewport fit, disabled controls, touch-target dimensions, contract/scanner rejection and the DOM privacy scan are asserted; an HTTP-only request assertion proves the local fixture flow makes no API/Record writes.
 - This is not physical Android or Android WebView acceptance and does **not** complete TASK-P11-UI-04. Physical-device acceptance and live J1–J8/core Record-event assertions remain deferred until after G1.
