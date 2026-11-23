@@ -45,5 +45,5 @@ func (p Port) Lookup(ctx context.Context, s orchestrator.Session, ref string) (o
 	if f.TenantID != s.TenantID {
 		return orchestrator.Admission{}, ErrWrongTenant
 	}
-	return orchestrator.Admission{EventType: f.EventType, TenantID: f.TenantID, PrincipalID: f.PrincipalID, CorrelationID: f.CorrelationID, RequestID: f.RequestID}, nil
+	return orchestrator.Admission{EventType: f.EventType, TenantID: f.TenantID, PrincipalID: f.PrincipalID, CorrelationID: f.CorrelationID, RequestID: f.RequestID, ObjectRef: f.ObjectRef}, nil
 }
