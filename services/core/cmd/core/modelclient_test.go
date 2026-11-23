@@ -127,7 +127,7 @@ func writeMTLS(t *testing.T, coreCert, coreKey, caPEM []byte) mtlsFiles {
 	d := t.TempDir()
 	f := mtlsFiles{cert: filepath.Join(d, "core.crt"), key: filepath.Join(d, "core.key"), ca: filepath.Join(d, "ca.crt")}
 	for p, b := range map[string][]byte{f.cert: coreCert, f.key: coreKey, f.ca: caPEM} {
-		if err := os.WriteFile(p, b, 0o600); err != nil {
+		if err := os.WriteFile(p, b, 0o400); err != nil {
 			t.Fatal(err)
 		}
 	}

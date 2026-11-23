@@ -144,7 +144,7 @@ func TestStartWritesTheRoleAndTheAuthnRefOfTheVerifiedSession(t *testing.T) {
 	w := newStoreWorld(t)
 	sess := orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_01", Role: "approver"}
 	const authnA = "ses_cccccccccccccccccccccccccccccccc" // this test's own reference, so a fixed value in the store cannot pass
-	if _, created, err := w.storeA.Start(ctx(t), sess, authnA, start("inv_AA11", "recev_AA11")); err != nil || !created {
+	if _, created, err := w.storeA.Start(ctx(t), withRef(sess, authnA), start("inv_AA11", "recev_AA11")); err != nil || !created {
 		t.Fatalf("Start: created %v, %v", created, err)
 	}
 	var role, ref string
@@ -152,7 +152,7 @@ func TestStartWritesTheRoleAndTheAuthnRefOfTheVerifiedSession(t *testing.T) {
 		t.Fatalf("row holds %q %q (%v); want approver and %s", role, ref, err, authnA)
 	}
 	later := "ses_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	if _, created, err := w.storeA.Start(ctx(t), sess, later, start("inv_ZZ99", "recev_AA11")); err != nil || created {
+	if _, created, err := w.storeA.Start(ctx(t), withRef(sess, later), start("inv_ZZ99", "recev_AA11")); err != nil || created {
 		t.Fatalf("a second Start of the input: created %v, %v", created, err)
 	}
 	if err := w.admin.QueryRow(ctx(t), `SELECT principal_role, authn_ref FROM investigation WHERE tenant_id = $1 AND investigation_id = 'inv_AA11'`, tenantA).Scan(&role, &ref); err != nil || role != "approver" || ref != authnA {
@@ -181,7 +181,7 @@ func TestNoValueOfTheRequestReachesTheRoleOrTheAuthnRef(t *testing.T) {
 		"a role as the correlation":               {InvestigationID: "inv_AA11", CorrelationID: "ops", InputReceivedRef: "recev_AA11"},
 		"an authn reference as the input":         {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", InputReceivedRef: hostile},
 	} {
-		if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, r); !errors.Is(err, investigations.ErrRequest) {
+		if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), r); !errors.Is(err, investigations.ErrRequest) {
 			t.Errorf("%s: %v; want ErrRequest", name, err)
 		}
 	}
@@ -206,7 +206,7 @@ func TestStartRefusesARoleOutsideTheFourAndAnAuthnRefOutsideItsForm(t *testing.T
 		"a reference too long": {"customer", "ses_" + strings.Repeat("a", 33)},
 	} {
 		sess := orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_01", Role: c.role}
-		if _, created, err := w.storeA.Start(ctx(t), sess, c.authn, start("inv_AA11", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) || created {
+		if _, created, err := w.storeA.Start(ctx(t), withRef(sess, c.authn), start("inv_AA11", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) || created {
 			t.Errorf("%s: created %v, %v; want ErrRequest", name, created, err)
 		}
 	}
@@ -219,7 +219,7 @@ func TestStartRefusesARoleOutsideTheFourAndAnAuthnRefOutsideItsForm(t *testing.T
 // SessionOf is the read path for recovery: it returns the role and the authn reference the row holds, for the session's own tenant only, and fails closed for a legacy row.
 func TestSessionOfReturnsTheStoredRoleAndAuthnRefAndFailsClosedForALegacyRow(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_01", Role: "ops"}, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_01", Role: "ops"}, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	got, err := w.storeA.SessionOf(ctx(t), sessA, "inv_AA11")
