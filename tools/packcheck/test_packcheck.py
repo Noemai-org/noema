@@ -461,6 +461,8 @@ class CandidateLabels(unittest.TestCase):
             "a fact placeholder": lambda d: d.__setitem__("display_template", "{fact:payment.amount}"),
             "a bare brace": lambda d: d.__setitem__("display_template", "{amount_minor}"),
             "an unclosed brace": lambda d: d.__setitem__("display_template", "{attr:amount_minor"),
+            "a brace beside a good placeholder": lambda d: d.__setitem__("display_template", "{attr:amount_minor} {fact:payment.amount}"),
+            "a lone opening brace beside a good placeholder": lambda d: d.__setitem__("display_template", "{attr:amount_minor} {"),
             "a stray closing brace": lambda d: d.__setitem__("display_template", "amount_minor}"),
             "another attribute in an attribute label": lambda d: d["attribute_order"][0].__setitem__("label_template", "{attr:account_last4}"),
             "no placeholder in an attribute label": lambda d: d["attribute_order"][0].__setitem__("label_template", "the time"),
