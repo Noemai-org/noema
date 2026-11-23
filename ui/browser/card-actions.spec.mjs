@@ -118,23 +118,23 @@ test("A491 and PERD 40.1: confirmation locks after response and reveals policy o
   expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
 });
 
-test("A542: a failed confirmation submission unlocks controls and retry resubmits the same answer", async ({ page }) => {
+test("A576 REQ-UI-002: failed confirmation callback unlocks both choices for a plain retry", async ({ page }) => {
   attempts = 0;
   const value = await card("confirmation");
   await page.goto(origin);
   await page.evaluate((input) => window.showRetryConfirmation(input), value);
   const accept = page.getByRole("button", { name: "Accept" });
+  const decline = page.getByRole("button", { name: "Decline" });
   await accept.click();
+  await expect(accept).toBeEnabled();
+  await expect(decline).toBeEnabled();
+  await expect(page.getByRole("status")).toContainText("Please try again.");
+  await decline.click();
   await expect(accept).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
-  await expect(page.getByRole("status")).toContainText("I could not confirm whether your response was recorded.");
-  await page.getByRole("button", { name: "Try again" }).click();
-  await expect(accept).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await expect(decline).toBeDisabled();
   expect(await page.evaluate(() => window.events)).toEqual([
     [value.confirmation_request_id, "ACCEPT"],
-    [value.confirmation_request_id, "ACCEPT"],
+    [value.confirmation_request_id, "DECLINE"],
   ]);
 });
 
