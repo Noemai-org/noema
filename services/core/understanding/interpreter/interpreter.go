@@ -13,6 +13,8 @@ import (
 
 const prefix = "interpreter: "
 
+var errEpochNotPositive = errors.New(prefix + "the epoch port answered an epoch below 1")
+
 // The kinds of failure of Interpret. Callers compare with errors.Is. None of the messages carries the input, the proposal or an admitted document: a cause that may hold
 // one (a database error with a key, a model service answer) is kept for errors.Is and errors.As, never printed.
 var (
@@ -25,6 +27,9 @@ var (
 	ErrRecord = errors.New(prefix + "the Record is not available")
 	// ErrSave means the store refused or failed to save the admitted intent: neither its event nor its row stands.
 	ErrSave = errors.New(prefix + "the admitted intent could not be saved")
+	// ErrEpoch means the logical resolution epoch of the intent's subject could not be named (the epoch port could not answer, or answered with something that is not a positive
+	// epoch): nothing was saved, because a guessed epoch would reuse an earlier epoch's idempotency key (PERD 28.2).
+	ErrEpoch = errors.New(prefix + "the logical resolution epoch could not be named")
 )
 
 // CompileFailure is a compile call that failed in one of the model service client's four classes. It is an ErrCompile.
@@ -71,12 +76,21 @@ type Saver interface {
 	Save(ctx context.Context, actor string, a intentstore.Admitted) (intentstore.Ref, error)
 }
 
-// Config is what New needs. Every part is required; there are no defaults.
+// Epochs answers the logical resolution epoch of a new intent about a subject, in the scope of the session's tenant and principal (DEBT-54 part 2, ruling A520). The Evidence
+// reader's case list, read without recording, implements it in the composition (evidence/portread.Reader.NextEpoch). An error means no epoch can be named.
+type Epochs interface {
+	EpochOf(ctx context.Context, tenantID, principalID, subjectRef string) (int, error)
+}
+
+// Config is what New needs. The first four parts are required; there are no defaults. Subject and Epochs are optional and come together: with neither, an admitted intent is
+// saved with no subject and epoch 1 (the G1 path); with both, the subject of the intent is read from the pack's subject slot and its epoch from the case list.
 type Config struct {
 	Compiler Compiler
 	Gate     Admitter
 	Recorder Recorder
 	Saver    Saver
+	Subject  func(understanding.AdmittedIntent) (subjectRef string, ok bool) // understanding.SubjectOf(pack view)
+	Epochs   Epochs
 }
 
 // Interpreter compiles, admits, records and saves.
@@ -86,6 +100,9 @@ type Interpreter struct{ c Config }
 func New(c Config) (*Interpreter, error) {
 	if c.Compiler == nil || c.Gate == nil || c.Recorder == nil || c.Saver == nil {
 		return nil, errors.New(prefix + "a compiler, a gate, a recorder and a saver are all required")
+	}
+	if (c.Subject == nil) != (c.Epochs == nil) {
+		return nil, errors.New(prefix + "a subject reader and an epoch port come together")
 	}
 	return &Interpreter{c: c}, nil
 }
@@ -165,7 +182,20 @@ func (i *Interpreter) Interpret(ctx context.Context, in Input) (Result, error) {
 			return Result{}, wrap(ErrRecord, err)
 		}
 	}
-	ref, err := i.c.Saver.Save(ctx, in.Actor, admitted(adm.Intent))
+	saved := admitted(adm.Intent)
+	if i.c.Subject != nil {
+		if subject, ok := i.c.Subject(adm.Intent); ok { // an intent whose subject is not resolved has no subject: epoch 1, nothing to ask
+			epoch, err := i.c.Epochs.EpochOf(ctx, in.Session.TenantID, in.Session.PrincipalID, subject)
+			if err != nil {
+				return Result{}, wrap(ErrEpoch, err)
+			}
+			if epoch < 1 {
+				return Result{}, wrap(ErrEpoch, errEpochNotPositive)
+			}
+			saved.SubjectRef, saved.LogicalResolutionEpoch = subject, epoch
+		}
+	}
+	ref, err := i.c.Saver.Save(ctx, in.Actor, saved)
 	if err != nil {
 		return Result{}, wrap(ErrSave, err)
 	}

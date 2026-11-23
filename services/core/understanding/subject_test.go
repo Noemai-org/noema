@@ -88,14 +88,16 @@ func TestTheSubjectOfAnAdmittedIntentIsTheResolvedReferenceOfTheNodesSubjectSlot
 	}
 	for name, slot := range map[string]map[string]any{
 		"unresolved": {"type": "Resource", "status": "UNRESOLVED"},
-		"ambiguous":  {"type": "Resource", "status": "AMBIGUOUS", "candidates_ref": "cand_01J9X3"},
+		"ambiguous":  {"type": "Resource", "status": "AMBIGUOUS", "candidates_ref": "cns_01J9X3"},
 		"absent":     {"type": "Resource", "status": "ABSENT"},
 	} {
 		slot := slot
-		a := admittedWith(t, subjectPack{}, func(m map[string]any) { m["slots"].(map[string]any)["transaction"] = slot })
-		if ref, ok := subject(a); ok || ref != "" {
-			t.Errorf("%s: subject %q %v, want none", name, ref, ok)
-		}
+		t.Run(name, func(t *testing.T) {
+			a := admittedWith(t, subjectPack{}, func(m map[string]any) { m["slots"].(map[string]any)["transaction"] = slot })
+			if ref, ok := subject(a); ok || ref != "" {
+				t.Errorf("subject %q %v, want none", ref, ok)
+			}
+		})
 	}
 }
 
