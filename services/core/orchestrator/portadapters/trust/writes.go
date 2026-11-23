@@ -15,10 +15,10 @@ import (
 // ErrNoWriteAnswer is what a WriteRule returns for an intent node it has no answer for: an unknown node, an unloaded pack, or a node the pack does not classify.
 var ErrNoWriteAnswer = errors.New("trustport: the pack gives no write answer for this intent node")
 
-// WriteRule answers, per intent node, whether the node may lead to a write. It is the pack's data and nothing else. For a node it has no answer for it returns an error that wraps
+// WriteRule answers whether an intent may lead to a write, over its node and its resolved slot values (A543: the node's `write_when` is a predicate over the slots). It is the pack's data and nothing else. For a node it has no answer for it returns an error that wraps
 // ErrNoWriteAnswer, never false. An answer returned with an error is not used.
 type WriteRule interface {
-	MayWrite(intentNode string) (bool, error)
+	MayWrite(ctx context.Context, a intake.AdmittedIntent) (bool, error)
 }
 
 // WritesSwitch answers whether writes are enabled for a tenant. *KillSwitch is one.
@@ -55,7 +55,7 @@ func (w *Writes) usable() error {
 	return nil
 }
 
-// NeedsWrite is the rule's answer for the node of the intent. An intent with no node, a node the rule has no answer for, a rule that fails and a context that is done are all false
+// NeedsWrite is the rule's answer for the intent: its node and its resolved slot values (A543), as T1 read them. An intent with no node, a node the rule has no answer for, a rule that fails and a context that is done are all false
 // with an error: the intake takes the answer for the Planner's WriteRequired, so a guess either way would shape the plan.
 func (w *Writes) NeedsWrite(ctx context.Context, a intake.AdmittedIntent) (bool, error) {
 	if err := w.usable(); err != nil {
@@ -67,7 +67,8 @@ func (w *Writes) NeedsWrite(ctx context.Context, a intake.AdmittedIntent) (bool,
 	if a.IntentNode == "" {
 		return false, fmt.Errorf("%w: the intent names no node", ErrStoredIntent)
 	}
-	may, err := w.rule.MayWrite(a.IntentNode)
+	// red-commit stub (A543): the rule is given the node alone, as before; GREEN passes the intent with its slot values.
+	may, err := w.rule.MayWrite(ctx, intake.AdmittedIntent{TenantID: a.TenantID, IntentID: a.IntentID, Version: a.Version, IntentNode: a.IntentNode})
 	if err != nil {
 		return false, fmt.Errorf("trustport: the write rule: %w", err)
 	}
