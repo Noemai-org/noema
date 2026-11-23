@@ -68,7 +68,7 @@ function LiveOverlay({ context }: { context: HostContext }) {
       state ? createElement("p", { role: "status" }, progressCopy(state.state)) : null,
       state?.state === "answered" && state.last_answer ? createElement(CustomerAnswer, { answer: state.last_answer }) : null),
     createElement("label", { htmlFor: "message" }, "Your message"),
-    createElement("textarea", { id: "message", name: "message", rows: 3, maxLength: 2000, value: text, onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => { setText(event.currentTarget.value); setInvalidMessage(false); } }),
+    createElement("textarea", { id: "message", name: "message", rows: 3, value: text, onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => { setText(event.currentTarget.value); setInvalidMessage(false); } }),
     invalidMessage ? createElement("p", { role: "status" }, "Enter a message between 1 and 2,000 characters.") : null,
     createElement("div", { className: "actions" },
       createElement("button", { type: "button", disabled: Boolean(context.investigationId) || started || !text.trim(), onClick: send }, "Send"),
