@@ -36,9 +36,28 @@ class StoreError(Exception):
     """The store refused the write or is not right. The message is fixed text and never carries a name, a path or content."""
 
 
+_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+_FILE_FLAGS = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0)
+
+
+def _verified_dir(descriptor: int, what: str) -> None:
+    """The check is made on the DESCRIPTOR that will be used, never on a path that could be swapped between the check and the use: a directory, owned by the caller, mode 0700."""
+    info = os.fstat(descriptor)
+    if not stat.S_ISDIR(info.st_mode):
+        raise StoreError(f"the {what} must be a real directory, not a link")
+    if info.st_uid != getattr(os, "geteuid")() or stat.S_IMODE(info.st_mode) != 0o700:
+        raise StoreError(f"the {what} must be owned by the user that runs this and be mode 0700")
+
+
 class AudioStore:
+    """Every operation opens the store, then the speaker folder, then the file, each relative to the descriptor of the one before it and each with `O_NOFOLLOW`, and checks each directory on its
+    descriptor. `O_NOFOLLOW` alone covers only the last component of a path, so a path-based open would follow a link in place of the speaker folder or of the store (Codex on #824). This needs
+    directory descriptors (POSIX): where they are not available the store is refused rather than used unsafely."""
+
     def __init__(self, root: Path, now: Callable[[], datetime]) -> None:
         """`now` is the injected clock (INV-21): an analysis date later than it is refused, because it would extend the retention."""
+        if os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+            raise StoreError("the audio store needs a platform with directory descriptors")
         self._now = now
         try:
             info = os.lstat(root)
@@ -46,12 +65,42 @@ class AudioStore:
             raise StoreError("the audio store does not exist") from None
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             raise StoreError("the audio store must be a real directory, not a link")
-        if os.name != "nt":
-            if info.st_uid != getattr(os, "geteuid")():
-                raise StoreError("the audio store is not owned by the user that runs this")
-            if stat.S_IMODE(info.st_mode) != 0o700:
-                raise StoreError("the audio store must be mode 0700")
+        if info.st_uid != getattr(os, "geteuid")():
+            raise StoreError("the audio store is not owned by the user that runs this")
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            raise StoreError("the audio store must be mode 0700")
         self._root = root
+
+    def _open_root(self) -> int:
+        try:
+            descriptor = os.open(self._root, _DIR_FLAGS)  # refuses a link in the last component: the store may have been swapped since it was checked
+        except OSError:
+            raise StoreError("the audio store could not be opened") from None
+        try:
+            _verified_dir(descriptor, "audio store")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return descriptor
+
+    def _open_folder(self, root_fd: int, speaker_ref: str, *, create: bool) -> int:
+        try:
+            try:
+                descriptor = os.open(speaker_ref, _DIR_FLAGS, dir_fd=root_fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(speaker_ref, 0o700, dir_fd=root_fd)
+                descriptor = os.open(speaker_ref, _DIR_FLAGS, dir_fd=root_fd)
+                os.fchmod(descriptor, 0o700)  # not left to the umask
+        except OSError:
+            raise StoreError("the speaker folder must be a real directory, not a link") from None  # a link, a plain file or a missing folder
+        try:
+            _verified_dir(descriptor, "speaker folder")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return descriptor
 
     def write(self, speaker_ref: str, name: str, data: bytes, analysed_on: datetime) -> None:
         """Write one file under `<store>/<speaker_ref>/`, mode 0600, in a folder of mode 0700, with `analysed_on` as its modification time."""
@@ -63,58 +112,75 @@ class AudioStore:
             raise StoreError("the analysis date must carry a time zone")
         if analysed_on > self._now():
             raise StoreError("the analysis date is in the future and would extend the retention")
-        folder = self._root / speaker_ref
+        root_fd = self._open_root()
         try:
+            folder_fd = self._open_folder(root_fd, speaker_ref, create=True)
             try:
-                info = os.lstat(folder)
-            except FileNotFoundError:
-                os.mkdir(folder, 0o700)
-                os.chmod(folder, 0o700)  # not left to the umask
-            else:
-                if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-                    raise StoreError("the speaker folder must be a real directory, not a link")
-                if os.name != "nt" and (info.st_uid != getattr(os, "geteuid")() or stat.S_IMODE(info.st_mode) != 0o700):
-                    raise StoreError("the speaker folder must be owned by the user that runs this and be mode 0700")
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0)
-            descriptor = os.open(folder / name, flags, 0o600)
+                self._write_file(folder_fd, name, data, analysed_on)
+            finally:
+                os.close(folder_fd)
+        finally:
+            os.close(root_fd)
+
+    @staticmethod
+    def _write_file(folder_fd: int, name: str, data: bytes, analysed_on: datetime) -> None:
+        try:
+            descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _FILE_FLAGS, 0o600, dir_fd=folder_fd)
         except FileExistsError:
             raise StoreError("the file already exists and is never overwritten") from None
         except OSError:
             raise StoreError("the audio store could not be written") from None
-        target = folder / name
         try:
             try:
-                if os.name != "nt":
-                    os.fchmod(descriptor, 0o600)  # not left to the umask
+                os.fchmod(descriptor, 0o600)  # not left to the umask
                 written = 0
                 while written < len(data):
                     written += os.write(descriptor, data[written:])
                 os.fsync(descriptor)
+                stamp = analysed_on.timestamp()
+                os.utime(descriptor, (stamp, stamp))  # the retention counts from the analysis date; set on the open file, not on a path
             finally:
                 os.close(descriptor)
-            stamp = analysed_on.timestamp()
-            os.utime(target, (stamp, stamp))  # the retention counts from the analysis date
         except OSError:
             try:
-                os.unlink(target)  # a partial file is never kept: it would hold raw audio and block the name for ever (O_EXCL)
+                os.unlink(name, dir_fd=folder_fd)  # a partial file is never kept: it would hold raw audio and block the name for ever (O_EXCL)
             except OSError:
                 pass
             raise StoreError("the audio store could not be written") from None
 
-
     def read(self, speaker_ref: str, name: str) -> bytes:
-        """Read one file under `<store>/<speaker_ref>/` (a recording made earlier). Plain names only, no link followed, at most `MAX_READ_BYTES`."""
+        """Read one file under `<store>/<speaker_ref>/` (a recording made earlier). Plain names only, no link followed in any component, at most `MAX_READ_BYTES`, and the whole file or an error."""
         if not _SPEAKER_REF.fullmatch(speaker_ref) or speaker_ref in (".", "..") or not _FILE_NAME.fullmatch(name):
             raise StoreError("a name must be a plain name")
+        root_fd = self._open_root()
         try:
-            descriptor = os.open(self._root / speaker_ref / name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0))
+            folder_fd = self._open_folder(root_fd, speaker_ref, create=False)
+            try:
+                return self._read_file(folder_fd, name)
+            finally:
+                os.close(folder_fd)
+        finally:
+            os.close(root_fd)
+
+    @staticmethod
+    def _read_file(folder_fd: int, name: str) -> bytes:
+        try:
+            descriptor = os.open(name, os.O_RDONLY | _FILE_FLAGS, dir_fd=folder_fd)
         except OSError:
             raise StoreError("the audio store file could not be read") from None
         try:
             info = os.fstat(descriptor)
             if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_READ_BYTES:
                 raise StoreError("the audio store file is not a regular file of a size a recording can have")
-            return os.read(descriptor, info.st_size)
+            chunks: list[bytes] = []
+            remaining = info.st_size
+            while remaining > 0:  # a single read may return fewer bytes than asked for
+                chunk = os.read(descriptor, remaining)
+                if not chunk:
+                    raise StoreError("the audio store file ended before its declared size")
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            return b"".join(chunks)
         except OSError:
             raise StoreError("the audio store file could not be read") from None
         finally:

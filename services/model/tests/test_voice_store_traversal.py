@@ -110,3 +110,25 @@ def test_a_file_that_ends_before_its_declared_size_is_refused_not_returned_short
     monkeypatch.setattr(os, "read", truncating_read)
     with pytest.raises(StoreError):
         store.read("spk-01", "u1.pcm")
+
+
+@POSIX
+def test_a_store_whose_mode_changed_after_it_was_checked_is_refused_on_a_read_and_on_a_write(tmp_path: Path) -> None:
+    root = private_dir(tmp_path / "store")
+    store = AudioStore(root, now)
+    store.write("spk-01", "u1.pcm", b"x", ANALYSED)
+    root.chmod(0o755)  # opened to the group and the world after the check
+    with pytest.raises(StoreError):
+        store.read("spk-01", "u1.pcm")
+    with pytest.raises(StoreError):
+        store.write("spk-01", "u2.pcm", b"x", ANALYSED)
+
+
+@POSIX
+def test_a_symbolic_link_in_place_of_a_file_is_not_followed_on_a_read(tmp_path: Path) -> None:
+    root = private_dir(tmp_path / "store")
+    folder = private_dir(root / "spk-01")
+    (folder / "u1.pcm").symlink_to(outside_with_a_recording(tmp_path) / "u1.pcm")
+    with pytest.raises(StoreError) as caught:
+        AudioStore(root, now).read("spk-01", "u1.pcm")
+    assert "SECRET" not in str(caught.value)
