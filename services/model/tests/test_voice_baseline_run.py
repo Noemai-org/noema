@@ -664,3 +664,66 @@ def test_a_run_that_ends_after_writing_a_report_keeps_it_even_with_no_session_me
     code = main(argv, environ, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
     report = json.loads((tmp_path / "report.json").read_text())
     assert code == 0 and report["ended"] == "generation_or_store_failed" and report["sessions"]["total"] == 0 and stat.S_IMODE((tmp_path / "report.json").stat().st_mode) == 0o600
+
+
+# ---- SR on #824: the report is written to a temporary file and renamed, so a crash never leaves a half-written report ----------------------------------------------------------
+
+
+@POSIX
+def test_the_new_report_is_whole_in_a_temporary_file_before_it_replaces_the_old_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    report_file = ReportFile.create(path)
+    real_replace = os.replace
+    seen: list[tuple[object, object]] = []
+
+    def checking_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        seen.append((json.loads(Path(source).read_text()), path.read_text()))  # the new document is complete before the swap; the old file is untouched until it
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", checking_replace)
+    report_file.write({"n": 1})
+    report_file.write({"n": 2, "pad": "x" * 400})
+    report_file.close()
+    assert seen == [({"n": 1}, ""), ({"n": 2, "pad": "x" * 400}, json.dumps({"n": 1}, indent=2, sort_keys=True))]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["report.json"] and stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+@POSIX
+def test_a_write_that_fails_part_way_leaves_the_previous_complete_report_and_no_temporary_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    report_file = ReportFile.create(path)
+    report_file.write({"n": 1, "pad": "x" * 300})
+
+    def failing_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        raise OSError("the swap failed")
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        report_file.write({"n": 2})
+    monkeypatch.undo()
+    assert json.loads(path.read_text()) == {"n": 1, "pad": "x" * 300} and sorted(p.name for p in tmp_path.iterdir()) == ["report.json"]
+    report_file.close()
+
+
+@POSIX
+def test_a_first_write_that_fails_leaves_only_the_empty_placeholder_which_is_then_discarded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    report_file = ReportFile.create(path)
+
+    def failing_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        raise OSError("the swap failed")
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        report_file.write({"n": 1})
+    monkeypatch.undo()
+    assert path.read_text() == "" and sorted(p.name for p in tmp_path.iterdir()) == ["report.json"]
+    report_file.discard_if_empty()
+    report_file.close()
+    assert list(tmp_path.iterdir()) == []
