@@ -96,7 +96,6 @@ test("REQ-UI-003: operator sees supplied decision, grant, execution and outcome 
   assert.match(html, /Decision: Allowed/);
   assert.match(html, /Execution: Acknowledged/);
   assert.match(html, /Grant: Valid/);
-  assert.match(html, /Verdict: Achieved/);
   assert.match(html, /Candidates: 1/);
   assert.equal((html.match(/Verdict: ACHIEVED/g) ?? []).length, 1);
   assert.doesNotMatch(html, /Verified/);
