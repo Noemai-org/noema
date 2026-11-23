@@ -10,7 +10,6 @@ const headings: Record<ReconstructionV3SectionKind, string> = {
 const decision: Record<string, string> = { ALLOW: "Allowed", CLARIFY: "Clarification needed", CONFIRM: "Confirmation needed", WAIT: "Waiting", ESCALATE: "Escalated", REJECT: "Rejected", UNKNOWN: "Unknown" };
 const execution: Record<string, string> = { DISPATCHED: "Dispatched", ACKNOWLEDGED: "Acknowledged", OUTCOME_UNKNOWN: "Outcome unknown", REJECTED_BY_TARGET: "Rejected by target", REJECTED_STALE_VERSION: "Rejected due to stale version", FAILED_TERMINAL: "Failed" };
 const grant: Record<string, string> = { VALID: "Valid", MISSING: "Missing", EXPIRED: "Expired", SPENT: "Spent", UNMATCHED: "Unmatched" };
-const verdict: Record<string, string> = { ACHIEVED: "Achieved", NOT_ACHIEVED: "Not achieved", PARTIALLY_ACHIEVED: "Partially achieved", PENDING_EXTERNAL: "Waiting for an external result", UNKNOWN: "Unknown", COMPENSATED: "Compensated" };
 
 // Values are mapped from the core's enums; unknown or absent values are not rendered.
 function mapped(facts: Record<string, unknown>, field: string, labels: Record<string, string>, title: string) {
