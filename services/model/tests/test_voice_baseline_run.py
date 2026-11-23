@@ -600,3 +600,67 @@ def test_an_existing_report_refuses_the_run_before_any_connection_so_no_credit_i
     spy = Spy()
     code, _ = run_main(args(tmp_path), {"INTRON_API_KEY_FILE": str(key)}, spy, capsys)
     assert code == 2 and spy.built == 0 and (tmp_path / "report.json").read_text() == "{}"
+
+
+# ---- A587: a run that fails before any session removes the empty report file it created, and never a non-empty one --------------------------------------------------------------
+
+
+def a_ready_run(tmp_path: Path) -> tuple[list[str], dict[str, str]]:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    (tmp_path / "store").mkdir(mode=0o700)
+    (tmp_path / "store").chmod(0o700)
+    return args(tmp_path), {"INTRON_API_KEY_FILE": str(key)}
+
+
+@POSIX
+def test_an_empty_report_file_is_removed_a_written_one_never(tmp_path: Path) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    empty = ReportFile.create(tmp_path / "empty.json")
+    empty.discard_if_empty()
+    assert not (tmp_path / "empty.json").exists()
+    written = ReportFile.create(tmp_path / "written.json")
+    written.write({"sessions": 0})
+    written.discard_if_empty()
+    assert json.loads((tmp_path / "written.json").read_text()) == {"sessions": 0}
+
+
+@POSIX
+def test_a_file_that_replaced_the_report_is_not_removed_even_if_it_is_empty(tmp_path: Path) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    ours = ReportFile.create(path)
+    path.unlink()
+    path.write_text("")  # someone else's empty file now stands at the path
+    ours.discard_if_empty()
+    assert path.exists()
+
+
+@POSIX
+def test_a_run_that_fails_before_any_session_leaves_no_empty_report_so_it_can_be_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    argv, environ = a_ready_run(tmp_path)
+
+    def make(**_: object) -> Connect:
+        raise RuntimeError("the connector could not be built")
+
+    with pytest.raises(RuntimeError):
+        main(argv, environ, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    assert not (tmp_path / "report.json").exists()
+
+
+@POSIX
+def test_a_run_that_ends_after_writing_a_report_keeps_it_even_with_no_session_measured(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    argv, environ = a_ready_run(tmp_path)
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            raise ProviderError(ProviderFailure.UNAVAILABLE)  # the first generation fails: the run ends with a report that says why
+
+        return connect
+
+    code = main(argv, environ, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert code == 0 and report["ended"] == "generation_or_store_failed" and report["sessions"]["total"] == 0 and stat.S_IMODE((tmp_path / "report.json").stat().st_mode) == 0o600
