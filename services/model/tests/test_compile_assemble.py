@@ -146,7 +146,7 @@ def test_the_window_is_utc_with_a_z_and_the_surface_form_is_the_customers() -> N
 
 
 def test_a_time_the_lexicon_gave_no_window_for_is_unresolved_and_carries_no_window() -> None:
-    # The pipeline itself refuses a candidate search with no window (REQ-CTX-006), so this result is built from a real one with the window taken out: the assembler is a pure function.
+    # The pipeline reads no candidates when there is no window (A535), so this result is built from a real one with the window taken out: the assembler is a pure function.
     real = compile_result(g_a(), (ref_candidate("a"),))
     assert real.normalised is not None
     result = replace(real, normalised=replace(real.normalised, window=None))

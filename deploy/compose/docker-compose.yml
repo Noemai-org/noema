@@ -58,8 +58,8 @@ secrets:
     file: ./secrets/grant_hmac_key_a
   grant_hmac_key_b:
     file: ./secrets/grant_hmac_key_b
-  # The migration login's password (W1 D14a). Mounted into postgres (bootstrap) only; the one-shot migrate step (W4) will be
-  # the second and last holder. The core never holds it.
+  # The migration login's password (W1 D14a), mode 644. Mounted into postgres (bootstrap) only. Its private copy, migrator_password_file (same value, mode 0400, host user;
+  # declared in bench-stack.yml), is held by migrate and tenants-provision (A536). The core never holds either.
   noema_migrator_password:
     file: ./secrets/noema_migrator_password
   noema_verify_password:

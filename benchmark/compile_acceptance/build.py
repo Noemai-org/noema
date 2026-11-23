@@ -23,7 +23,7 @@ from benchmark.compile_acceptance.runner import CompileFailed
 
 ROOT = Path(__file__).resolve().parents[2]
 PACK_FILE = ROOT / "packs" / "fintech_v1.json"
-LEXICON_FILE = ROOT / "packs" / "fintech" / "lexicons" / "fin.lex.en_ng.json"
+LEXICON_DIR = ROOT / "packs" / "fintech" / "lexicons"  # the files the pack names in its `lexicon_refs` are read from here and merged (UND-16, run #6)
 MASKING_LIMITS = ROOT / "packs" / "fintech" / "limits" / "masking_limits.json"
 OUT_OF_SCOPE_NODE = "fin.meta.out_of_scope"
 # Settings of this run, not safety thresholds: the pool is the number of provider calls that may be in flight at once; the three bounds are the compile service's own (noema#635 reads them from a file).
@@ -141,7 +141,9 @@ class LiveBackend:
         compiler = import_module("noema_model.understanding.compiler.service")
         try:
             return dict(await self._service.run(dict(canonical), self._pack_ref, None))
-        except (compiler.ProviderUnavailable, compiler.InputInvalid) as err:
+        except compiler.InputInvalid as err:
+            raise CompileFailed(f"the compile service gave no usable proposal (InputInvalid:{err.reason.value})") from None  # the class, from a closed set: never a piece of the request
+        except compiler.ProviderUnavailable as err:
             raise CompileFailed(f"the compile service gave no usable proposal ({type(err).__name__})") from None
 
     def calls(self) -> int:
@@ -193,14 +195,15 @@ def build_backend(dry: bool, environ: Mapping[str, str], guard: BudgetGuard, rec
     catalogue = pipeline.NodeCatalogue.from_pack(pack, out_of_scope_node=OUT_OF_SCOPE_NODE)
     nodes = {node_id: gate.Node(slots={s.name: s.slot_type for s in info.slots}, outcomes=frozenset()) for node_id, info in catalogue.nodes.items()}
     candidates = _Candidates()
-    the_compiler = pipeline_compiler.PipelineCompiler({pack_ref: packconfig.load_pipeline_config(pack, PACK_FILE.parent, out_of_scope_node=OUT_OF_SCOPE_NODE)}, lexicon_mod.Lexicon.from_file(LEXICON_FILE),
+    lexicon = lexicon_mod.load_pack_lexicons(pack, LEXICON_DIR)
+    the_compiler = pipeline_compiler.PipelineCompiler({pack_ref: packconfig.load_pipeline_config(pack, PACK_FILE.parent, out_of_scope_node=OUT_OF_SCOPE_NODE)}, lexicon,
                                               the_harness, candidates, _Minter(assemble.Identifiers, gate.UNSET))
     service = service_mod.CompileService(the_compiler, _Packs(pack_ref, pack["pack_id"], pack["pack_version"], nodes), max_proposal_bytes=MAX_PROPOSAL_BYTES, timeout_s=COMPILE_TIMEOUT_S, max_request_bytes=MAX_REQUEST_BYTES)
     pin = {
         "pinned_model_id": provider.model_version, "reasoning_effort": raw["providers"][name].get("reasoning_effort"), "max_output_tokens": provider.max_output_tokens,
         "rate_card": {"input_micro_per_mtok": rates["input_micro_per_mtok"], "output_micro_per_mtok": rates["output_micro_per_mtok"], "as_of": raw["providers"][name]["rate"]["as_of"]},
         "harness_config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(), "pack_ref": pack_ref, "pack_sha256": hashlib.sha256(PACK_FILE.read_bytes()).hexdigest(),
-        "lexicon_sha256": hashlib.sha256(LEXICON_FILE.read_bytes()).hexdigest(), "masking_limits_sha256": hashlib.sha256(MASKING_LIMITS.read_bytes()).hexdigest(),
+        "lexicon_sha256": lexicon.digest, "masking_limits_sha256": hashlib.sha256(MASKING_LIMITS.read_bytes()).hexdigest(),
     }
     return LiveBackend(service, pack_ref, candidates, wire_transport, recorder, pin, dry)
 
