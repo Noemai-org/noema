@@ -50,9 +50,7 @@ function ClarificationView({ card, now, onChoice }: ClarificationProps) {
   const selection = useRef<{ optionId: string; requestId: string } | null>(null);
   const [locked, setLocked] = useState(false);
   const [retry, setRetry] = useState(false);
-  const [serverExpired, setServerExpired] = useState(false);
-  const isExpired = expired || serverExpired;
-  const current = () => !isExpired && cardExpiry(card.expires_at, now ?? clock()) === "active";
+  const current = () => !expired && cardExpiry(card.expires_at, now ?? clock()) === "active";
   const submit = async () => {
     if (!onChoice || !selection.current || !current() || inFlight.current) return;
     inFlight.current = true;
@@ -116,7 +114,9 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
   const selected = useRef<"ACCEPT" | "DECLINE" | null>(null);
   const [locked, setLocked] = useState(false);
   const [retry, setRetry] = useState(false);
-  const current = () => !expired && cardExpiry(card.expires_at, now ?? clock()) === "active";
+  const [serverExpired, setServerExpired] = useState(false);
+  const isExpired = expired || serverExpired;
+  const current = () => !isExpired && cardExpiry(card.expires_at, now ?? clock()) === "active";
   const submit = async () => {
     if (!onResponse || !selected.current || !current() || inFlight.current) return;
     inFlight.current = true;
