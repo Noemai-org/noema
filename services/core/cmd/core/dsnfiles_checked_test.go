@@ -56,7 +56,7 @@ func refusedWithoutContent(t *testing.T, label, setting, tenant string, err erro
 // REQ-SEC-009, INV-29: a DSN file that group or world can read, or that the owner can write, is refused, for each of the four DSN settings.
 func TestADSNFileThatIsNotOwnerReadOnlyIsRefused(t *testing.T) {
 	for _, setting := range dsnDirSettings {
-		for _, mode := range []os.FileMode{0o600, 0o640, 0o440, 0o444, 0o644, 0o500} {
+		for _, mode := range []os.FileMode{0o000, 0o200, 0o600, 0o640, 0o440, 0o444, 0o644, 0o500} {
 			dir := t.TempDir()
 			writeDSNFile(t, dir, "ten_aa", synthDSN("login_a"), mode)
 			pools, closer, err := loginPools(t.Context(), lenientEnv(setting, dir), setting)
@@ -159,6 +159,9 @@ func TestTheModelClientPrivateKeyMustBeOwnerReadOnlyAndBounded(t *testing.T) {
 	for name, prep := range map[string]func(f mtlsFiles){
 		"mode 0600": func(f mtlsFiles) { _ = os.Chmod(f.key, 0o600) },
 		"mode 0644": func(f mtlsFiles) { _ = os.Chmod(f.key, 0o644) },
+		"mode 0440": func(f mtlsFiles) { _ = os.Chmod(f.key, 0o440) },
+		"mode 0200": func(f mtlsFiles) { _ = os.Chmod(f.key, 0o200) },
+		"mode 0000": func(f mtlsFiles) { _ = os.Chmod(f.key, 0o000) },
 		"over bound": func(f mtlsFiles) {
 			_ = os.Chmod(f.key, 0o600)
 			_ = os.WriteFile(f.key, append(ck, make([]byte, 64*1024)...), 0o600)
@@ -184,7 +187,7 @@ func TestTheModelClientPrivateKeyMustBeOwnerReadOnlyAndBounded(t *testing.T) {
 
 // REQ-SEC-009, INV-29: the Temporal client's private key is a secret and is checked as one.
 func TestTheTemporalClientPrivateKeyMustBeOwnerReadOnly(t *testing.T) {
-	for _, mode := range []os.FileMode{0o600, 0o640, 0o644} {
+	for _, mode := range []os.FileMode{0o000, 0o200, 0o600, 0o640, 0o644} {
 		dir := t.TempDir()
 		cert, key := writePair(t, dir)
 		if err := os.Chmod(key, mode); err != nil {
