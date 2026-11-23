@@ -14,7 +14,24 @@ export function PushToTalk({ onPcm, maxRecordingMs }: Props) {
     controller.current = null;
     setActive(false);
   };
-  useEffect(() => () => { controller.current?.abort(); controller.current = null; }, []);
+  useEffect(() => {
+    const stopForWindowLoss = () => {
+      controller.current?.abort();
+      controller.current = null;
+      setActive(false);
+    };
+    const stopWhenHidden = () => {
+      if (document.visibilityState === "hidden") stopForWindowLoss();
+    };
+    window.addEventListener("blur", stopForWindowLoss);
+    document.addEventListener("visibilitychange", stopWhenHidden);
+    return () => {
+      window.removeEventListener("blur", stopForWindowLoss);
+      document.removeEventListener("visibilitychange", stopWhenHidden);
+      controller.current?.abort();
+      controller.current = null;
+    };
+  }, []);
   const begin = async () => {
     if (!onPcm || typeof maxRecordingMs !== "number" || !Number.isSafeInteger(maxRecordingMs) || maxRecordingMs <= 0 || maxRecordingMs > 2_147_483_647 || controller.current) return;
     const current = new AbortController();
