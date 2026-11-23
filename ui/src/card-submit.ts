@@ -72,7 +72,7 @@ async function post(input: Shared, path: string, body: object): Promise<SubmitRe
       redirect: "error",
       signal: input.signal,
     });
-    if (response.status === 409) {
+    if (response.status === 409 && path.startsWith("/v1/confirmations/")) {
       const code = await errorCode(response);
       return code === "CONFIRMATION_EXPIRED" ? "expired" : "unavailable";
     }
