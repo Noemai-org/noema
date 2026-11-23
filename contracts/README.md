@@ -6,6 +6,7 @@ Canonical, versioned contracts (JSON Schema 2020-12, `<name>.v<major>.json`). Ow
 - `fixtures/valid/` and `fixtures/invalid/`: one of each per schema.
 - `fixtures/golden_vectors.json`: existing evidence-set hash vectors; see `fixtures/README.md`.
 - `fixtures/digit_run_vectors.json`: the shared vectors of the digit-run rule for the Record guard, the model service's redactor and the UI scan (a fixture, not a contract); see `fixtures/README.md`.
+- `fixtures/candidate_ranking_vectors.json`: the shared vectors of the candidate ranker (REQ-AMB-003, A555, A559, A560), integer basis points; loaded by the Go ranker (`services/core/platform/candidaterank`) and the Python reference (a fixture, not a contract); see `fixtures/README.md`.
 
 Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: version bump, migration note, regenerated models.
 
