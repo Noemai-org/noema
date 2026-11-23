@@ -2,6 +2,8 @@ import { test as base, expect, devices } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
 const markup = await readFile("dist/index.html", "utf8");
+// Isolated fixture injects the test scanner and CSS; the served CSP is tested separately.
+const fixtureMarkup = markup.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/u, "");
 const stylesheet = await readFile("dist/tokens.css", "utf8");
 const scanner = await readFile("build/js/privacy.js", "utf8");
 const schema = JSON.parse(await readFile("../contracts/schemas/customer-answer.v1.json", "utf8"));
@@ -23,7 +25,7 @@ const test = base.extend({
 test.use({ ...devices["Pixel 5"] });
 
 test("REQ-UI-001: the static overlay fits the emulated Android viewport", async ({ page }) => {
-  await page.setContent(markup);
+  await page.setContent(fixtureMarkup);
   await page.addStyleTag({ content: stylesheet });
   await expect(page.getByRole("textbox", { name: "Your message" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Messages" })).toBeEmpty();
@@ -31,7 +33,7 @@ test("REQ-UI-001: the static overlay fits the emulated Android viewport", async 
 });
 
 test("REQ-UI-001: emulated Android action targets meet the existing touch token in both dimensions", async ({ page }) => {
-  await page.setContent(markup);
+  await page.setContent(fixtureMarkup);
   await page.addStyleTag({ content: stylesheet });
   for (const name of ["Send", "Push to talk"]) {
     const button = page.getByRole("button", { name });
@@ -46,7 +48,7 @@ test("REQ-UI-001: emulated Android action targets meet the existing touch token 
 });
 
 test("REQ-UI-001: the Android DOM scan refuses synthetic runs rejected by the shared answer contract", async ({ page }) => {
-  await page.setContent(markup);
+  await page.setContent(fixtureMarkup);
   await page.addStyleTag({ content: stylesheet });
   const results = await page.evaluate(async ({ source, pattern }) => {
     const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
