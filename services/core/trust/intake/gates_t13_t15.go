@@ -434,7 +434,7 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
 		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
 		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash, ConfirmationBindingEvidenceHash: bindingEvidence,
-		DispositionDecisionID: e.disposition()})
+		DispositionDecisionID: e.recordedDisposition(steps)})
 	if err != nil {
 		return decide.FailStep(err)
 	}
@@ -450,6 +450,21 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	}
 	e.late.recorded = RecordResult{DecisionID: res.DecisionID, GrantIDs: append([]string(nil), res.GrantIDs...)}
 	return decide.Stop(d)
+}
+
+// recordedDisposition is the disposition the Decision Record names (A562, REQ-TRU-010): the one the continuation follows, and only when a step of the decision is in the pack's escalation plan.
+// A read, a step outside the set, or a service with no escalation set names none (fail closed).
+func (e *evaluation) recordedDisposition(steps []RecordStep) string {
+	d := e.disposition()
+	if d == "" || e.svc.Escalation == nil {
+		return ""
+	}
+	for _, s := range steps {
+		if e.svc.Escalation.Contains(s.CapabilityID) {
+			return d
+		}
+	}
+	return ""
 }
 
 // disposition is the ESCALATE decision a continuation follows, as the caller named it (A534); empty for a first evaluation and for a continuation that names none.
