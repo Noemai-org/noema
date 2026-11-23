@@ -92,26 +92,32 @@ func buildRecoverySurface(env Env, c Components, seams SurfaceSeams, rec *orches
 		return nil, nil, err
 	}
 	var gaps []string
+	var rn *orchestrator.WriteRunner
 	if seams.Recovery == nil {
 		gaps = append(gaps, "recovery: reader not built")
 	}
 	if rec == nil {
 		gaps = append(gaps, "recovery: recorder not built")
 	}
-	if wp.Journal == nil {
-		wp.Journal = tenantJournal{dbs: c.Records}
-	}
-	runner, err := buildSurfaceRunner(c, recoveryWritePorts(wp))
-	if err != nil {
-		return nil, nil, err
-	}
-	if runner == nil {
-		gaps = append(gaps, "recovery: write path not built")
+	if c.Records == nil {
+		gaps = append(gaps, "recovery: record reader not built") // no Record reader, no Journal: the gap is named, never a Journal whose calls fail at run time
+	} else {
+		if wp.Journal == nil {
+			wp.Journal = tenantJournal{dbs: c.Records}
+		}
+		runner, err := buildSurfaceRunner(c, recoveryWritePorts(wp))
+		if err != nil {
+			return nil, nil, err
+		}
+		if runner == nil {
+			gaps = append(gaps, "recovery: write path not built")
+		}
+		rn = runner
 	}
 	if len(gaps) > 0 {
 		return nil, gaps, nil
 	}
-	act, err := recovery.New(cfg, seams.Recovery, recoverySessions{rec: rec}, wp.Journal, c.Ports.Admissions, runner)
+	act, err := recovery.New(cfg, seams.Recovery, recoverySessions{rec: rec}, wp.Journal, c.Ports.Admissions, rn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cmd/core: recovery: %w", err)
 	}
@@ -139,9 +145,12 @@ func (r *recoverySurface) run(ctx context.Context) {
 		r.ok.Store(true)
 		return
 	}
-	ctx, cancel := context.WithTimeout(ctx, r.bound)
+	pctx, cancel := context.WithTimeout(ctx, r.bound)
 	defer cancel()
-	reports, err := r.act.StartupPass(ctx, r.tenants)
+	reports, err := r.act.StartupPass(pctx, r.tenants)
+	if err != nil && ctx.Err() != nil && errors.Is(err, context.Canceled) {
+		return // a signal during the pass is a normal shutdown: the pass is cancelled, not failed, and the process exits 0
+	}
 	if err != nil {
 		if r.log != nil {
 			r.log.Error("recovery startup pass failed", "error_class", fmt.Sprintf("%T", errors.Unwrap(err)))

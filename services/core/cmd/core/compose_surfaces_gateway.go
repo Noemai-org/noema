@@ -65,7 +65,9 @@ func buildGatewaySurface(ctx context.Context, env Env, clk clock.Clock, ids chai
 		return nil, nil, nil
 	case len(absent) > 0:
 		return nil, gapLines("input gateway", absent), nil
-	case rec == nil || records == nil:
+	case records == nil:
+		return nil, []string{"input gateway: record reader not built"}, nil // the Journal and the pools need it; "record reader" is the name /readyz gives it
+	case rec == nil:
 		return nil, []string{"input gateway: recorder not built"}, nil
 	case runner == nil:
 		return nil, []string{"input gateway: write path not built"}, nil

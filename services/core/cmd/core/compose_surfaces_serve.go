@@ -34,6 +34,9 @@ func serve(ctx context.Context, srv httpServer, fatal <-chan error, shutdownTime
 	select {
 	case <-ctx.Done():
 	case err := <-fatal:
+		if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+			break // the cancelled work of a shutdown, not a failure
+		}
 		logger.Error("fatal", "error_class", fmt.Sprintf("%T", err))
 		exit = 1
 	case exit = <-code:
