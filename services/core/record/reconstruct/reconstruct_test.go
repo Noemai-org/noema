@@ -993,3 +993,29 @@ func TestAReceiptReplacesItsDispatchAndTakesItsCapabilityFromTheDispatch(t *test
 		t.Fatalf("ACTION %v, want one ACKNOWLEDGED item for %s", act, capability)
 	}
 }
+
+// US-06 (A503; BO needs it): a decision that names its ESCALATE disposition shows the link in its DECISION facts, and the disposition decision comes first in the Record, so the
+// reconstruction shows both, in order, from the Record alone. A decision with no disposition shows no such fact. REQ-AUD-003, REQ-TRU-010; INV-25.
+func TestTheDecisionFactsNameTheDispositionTheDecisionLinks(t *testing.T) {
+	w := newWorld(t)
+	st := w.append(t, tenant, "corr_disp", []ev{
+		{writtenBy: "core-trust", eventType: "DECISION_MADE", objectRef: "dec_synth0601", payload: map[string]any{"decision_outcome": "ESCALATE", "decision_id": "dec_synth0601"}},
+		{writtenBy: "core-trust", eventType: "DECISION_MADE", objectRef: "dec_synth0602", payload: map[string]any{"decision_outcome": "ALLOW", "decision_id": "dec_synth0602", "disposition_decision_id": "dec_synth0601"}},
+	}...)
+	raw, err := build(t, w, tenant, "corr_disp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := parse(t, raw)
+	checkCitations(t, b, st)
+	items := b.section("DECISION")
+	if len(items) != 2 || items[0].RecordEventID != st[0].EventID || items[1].RecordEventID != st[1].EventID {
+		t.Fatalf("DECISION items %+v, want the disposition first and the action decision second", items)
+	}
+	if _, ok := items[0].Facts["disposition_decision_id"]; ok {
+		t.Errorf("the disposition's own item shows a disposition: %v", items[0].Facts)
+	}
+	if items[1].Facts["disposition_decision_id"] != "dec_synth0601" || items[1].Facts["decision_outcome"] != "ALLOW" {
+		t.Errorf("the action decision's facts %v, want ALLOW linking dec_synth0601", items[1].Facts)
+	}
+}

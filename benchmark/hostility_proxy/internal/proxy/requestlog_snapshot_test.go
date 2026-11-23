@@ -10,7 +10,7 @@ import (
 // log as continuous. snapshot reads both under one lock. The invariant checked here: while the generation a reader sees does not change, the
 // log it sees only grows (the earlier entries are a prefix of the later ones). SYNTHETIC (AGENT-25).
 func TestASnapshotNeverPairsAnOldGenerationWithANewLog(t *testing.T) {
-	l, _ := newRequestLog(0)
+	l, _ := newRequestLog(0, nil)
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -24,7 +24,7 @@ func TestASnapshotNeverPairsAnOldGenerationWithANewLog(t *testing.T) {
 			}
 			l.add(RequestEntry{Target: "t", Operation: "o", Method: "GET", Path: "/p"})
 			if i%3 == 0 {
-				g, _ := newGeneration()
+				g, _ := newGeneration(nil)
 				l.reset(g)
 			}
 		}
@@ -47,13 +47,13 @@ func TestASnapshotNeverPairsAnOldGenerationWithANewLog(t *testing.T) {
 }
 
 func TestASnapshotCarriesTheGenerationThatResetChangesAndAddDoesNot(t *testing.T) {
-	l, _ := newRequestLog(0)
+	l, _ := newRequestLog(0, nil)
 	g1, _, _, _ := l.snapshot("", "")
 	l.add(RequestEntry{Target: "t", Operation: "o"})
 	if g2, e, _, _ := l.snapshot("", ""); g2 != g1 || len(e) != 1 {
 		t.Fatalf("an added entry changed the generation or was lost: %s %s %d", g1, g2, len(e))
 	}
-	g, _ := newGeneration()
+	g, _ := newGeneration(nil)
 	l.reset(g)
 	if g3, e, _, _ := l.snapshot("", ""); g3 == g1 || len(e) != 0 {
 		t.Fatalf("a reset must change the generation and clear the log: %s %d", g3, len(e))

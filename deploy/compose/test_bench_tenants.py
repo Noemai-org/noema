@@ -84,18 +84,21 @@ class BenchTenants(unittest.TestCase):
     # SR and C1 on noema#790 (P2): Make pastes the list into the recipe's command line as text, so a value with a quote or a `$(...)` would run as shell. Every word is checked against the tenant
     # shape here, before anything is printed, and the stand-in tenant must be one of them (C1's P3).
     def test_a_word_that_is_not_a_tenant_id_is_refused_and_nothing_is_printed(self) -> None:
-        hostile = ['ten_aa"; echo INJECTED >&2; "', "ten_aa $(id)", "ten_aa`id`", "ten_aa;ls", "ten_aa&&ls", "ten_aa|ls", "ten_aa'x", "ten_a", "ten_" + "a" * 33, "Ten_aa", "ten_aa ten_b", "x", "ten_a$HOME", "ten_aa\\n", "../ten_aa"]
+        # A469 to A485, item 6 (C1's P2): the list is checked against ^[a-z0-9_]+$ before it reaches any recipe text, so an upper-case word is refused too.
+        hostile = ["ten_AB9", "ten_aB", "ten_AA ten_bb", 'ten_aa"; echo INJECTED >&2; "', "ten_aa $(id)", "ten_aa`id`", "ten_aa;ls", "ten_aa&&ls", "ten_aa|ls", "ten_aa'x", "ten_a", "ten_" + "a" * 33, "Ten_aa", "ten_aa ten_b", "x", "ten_a$HOME", "ten_aa\\n", "../ten_aa"]
         for value in hostile:
-            for where in ("shell", "dotenv"):
-                done = self.refused(None, value) if where == "shell" else self.refused("NOEMA_TENANTS=" + value + "\n", None)
-                self.assertNotEqual(done.returncode, 0, (where, value))
-                self.assertEqual(done.stdout, "", (where, value, "something was printed for the shell to take"))
-                self.assertNotIn("INJECTED", done.stdout)
+            # each hostile value is tried alone and BESIDE the stand-in tenant, so the refusal is the word's own and not the missing stand-in tenant's
+            for listed in (value, "ten_alpha " + value):
+                for where in ("shell", "dotenv"):
+                    done = self.refused(None, listed) if where == "shell" else self.refused("NOEMA_TENANTS=" + listed + "\n", None)
+                    self.assertNotEqual(done.returncode, 0, (where, listed))
+                    self.assertEqual(done.stdout, "", (where, listed, "something was printed for the shell to take"))
+                    self.assertNotIn("INJECTED", done.stdout)
 
     def test_the_fallback_argument_is_checked_too_and_a_good_list_passes(self) -> None:
         self.assertNotEqual(self.refused(None, None, 'ten_aa"; id; "').returncode, 0)
         self.assertNotEqual(self.refused(None, None, "").returncode, 0, "no list and no stand-in tenant is an error, not an empty list")
-        self.assertEqual(self.effective(None, "ten_alpha ten_AB9"), "ten_alpha ten_AB9")
+        self.assertEqual(self.effective(None, "ten_alpha ten_ab9"), "ten_alpha ten_ab9")
         self.assertEqual(self.effective(None, "ten_" + "a" * 32 + " ten_aa", "ten_aa"), "ten_" + "a" * 32 + " ten_aa", "the longest tenant id is accepted")
 
     def test_the_stand_in_tenant_must_be_one_of_the_tenants(self) -> None:

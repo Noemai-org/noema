@@ -15,6 +15,22 @@
 volumes:
   # The Trust login DSN files the core loads: written once by trust-dsn-init at mode 0400 owned by the core's user (A356, INV-29). Only that step writes it; only the core mounts it, read-only.
   trust_dsns: {}
+  # The other three DSN directories, the two signing-key directories and the input hash key (A506, interim, from the code): each written once by a one-shot at mode 0400 owned by the core's user
+  # (INV-29). Only that step writes it; only the core mounts it, read-only. One directory per identity: the loader reads every key file of its directory.
+  orchestrator_dsns: {}
+  record_read_dsns: {}
+  edge_dsns: {}
+  orchestrator_keys: {}
+  edge_keys: {}
+  input_hash: {}
+# The three key values (secrets_local.sh makes them; 64 lower-case hexadecimal characters each). Held by the core-keys-init one-shot ONLY.
+secrets:
+  core_workflows_ed25519_seed_1:
+    file: ./secrets/core_workflows_ed25519_seed_1
+  core_edge_ed25519_seed_1:
+    file: ./secrets/core_edge_ed25519_seed_1
+  input_hash_key:
+    file: ./secrets/input_hash_key
 services:
   core:
     environment:
@@ -54,15 +70,56 @@ services:
       NOEMA_PACK_MANIFEST: fintech/manifest.v1.json
       NOEMA_PACK_MAX_BYTES: "1048576"
       NOEMA_PACK_MAX_DEPTH: "32"
+      # The gateway, worker and recovery settings (A477, interim, relayed; docs#213): the Architect's bench values, Compose only, no default in code (AGENT-16). Durations are Go durations. Workers is 1
+      # because the model service's pool is 6 and one pipeline uses 5 in flight (a second concurrent pipeline would be refused locally). The loaders refuse ACTIVITY_TIMEOUT <= RUN_TIMEOUT and
+      # RECOVERY_IDLE <= RUN_TIMEOUT, so a live run cannot be picked up twice; netcheck checks the same ordering in the table.
+      NOEMA_INPUT_DEDUP_WINDOW: "5m"
+      NOEMA_INPUT_RECORD_TIMEOUT: "5s"
+      NOEMA_INVESTIGATION_QUEUE: "64"
+      NOEMA_INVESTIGATION_WORKERS: "1"
+      NOEMA_INVESTIGATION_RUN_TIMEOUT_MS: "180000"
+      NOEMA_INVESTIGATION_START_TIMEOUT_MS: "30000"
+      NOEMA_EDGE_KEY_MAX_ACTIVE: "2"
+      NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS: "240000"
+      NOEMA_TEMPORAL_SHUTDOWN_DRAIN_MS: "30000"
+      NOEMA_STM_RECOVERY_IDLE_MS: "240000"
+      NOEMA_STM_RECOVERY_BATCH_SIZE: "50"
+      # A506 (interim, from the code at the heads of noema#838, main and noema#847): the DSN directories (one file per tenant named by the tenant id: `record_read__<t>`, `orchestrator_rw__<t>` and
+      # `record_emitter__<t>__core-edge`), the key directories (`core-workflows.ed25519.1.key` and `core-edge.ed25519.1.key`, 64 hex, 0400, owned by uid 65532) and the input hash key file. The
+      # Temporal values: the namespace auto-setup creates, the queue the worker and the starter both read, the CA only (server-side TLS, DEBT-46: the client certificate and key stay unset).
+      # The Recorder's lifetimes are EL's values in noema#847's body (the PERD's 10 minutes for the grant, equal for the record, A475's 10 s for the transaction; the Founder confirms): the grant
+      # lifetime must not exceed the record lifetime. NOEMA_WRITE_SWAP_DECISIONS is a test-only switch and is never a Compose setting.
+      NOEMA_RECORD_READ_DSN_DIR: /run/record-read-dsn
+      NOEMA_ORCHESTRATOR_DSN_DIR: /run/orchestrator-dsn
+      NOEMA_EDGE_DSN_DIR: /run/edge-dsn
+      NOEMA_ORCHESTRATOR_KEY_DIR: /run/orchestrator-keys
+      NOEMA_EDGE_KEY_DIR: /run/edge-keys
+      NOEMA_INPUT_HASH_KEY_FILE: /run/input-hash/key
+      NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE: "2"
+      NOEMA_TEMPORAL_NAMESPACE: default
+      NOEMA_TEMPORAL_TASK_QUEUE: noema-investigations
+      NOEMA_TEMPORAL_TLS_CA_FILE: /run/tls/ca.crt
+      NOEMA_TRUST_ESCALATION_GRAPH: fin.graph.escalate
+      NOEMA_TRUST_GRANT_LIFETIME_MS: "600000"
+      NOEMA_TRUST_RECORD_LIFETIME_MS: "600000"
+      NOEMA_TRUST_TX_TIMEOUT_MS: "10000"
     volumes:
       - ../../packs:/run/packs:ro
       - trust_dsns:/run/trust-dsn:ro
+      - record_read_dsns:/run/record-read-dsn:ro
+      - orchestrator_dsns:/run/orchestrator-dsn:ro
+      - edge_dsns:/run/edge-dsn:ro
+      - orchestrator_keys:/run/orchestrator-keys:ro
+      - edge_keys:/run/edge-keys:ro
+      - input_hash:/run/input-hash:ro
       - standin_runtime_credential:/run/standin/runtime:ro
       - standin_principal_key:/run/standin/principal:ro
       - ${NOEMA_BENCH_OUT:?set by make bench-up}/idp/key/public.pem:/run/idp/public.pem:ro
       - ../../packs/fintech/limits/session_limits.json:/run/idp/session_limits.json:ro
     depends_on:
       trust-dsn-init:
+        condition: service_completed_successfully
+      core-keys-init:
         condition: service_completed_successfully
       hostility-proxy:
         condition: service_healthy
@@ -83,7 +140,9 @@ services:
     cap_add: [CHOWN, FOWNER, SETUID, SETGID]
     environment:
       TRUST_DSN_SRC: /run/secrets
-      TRUST_DSN_OUT: /out
+      TRUST_DSN_EMITTERS: /run/emitter_logins
+      # one job per directory of the core (A506): the group and the volume's path inside this step
+      TRUST_DSN_JOBS: "trust_rw:/out/trust orchestrator_rw:/out/orchestrator record_read:/out/record-read edge:/out/edge"
       TRUST_DSN_UID: "65532"
       TRUST_DSN_GID: "65532"
       TRUST_DSN_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
@@ -91,7 +150,38 @@ services:
     secrets: [noema_tenant_login_password]
     volumes:
       - ./trust-dsn/init.py:/init/init.py:ro
-      - trust_dsns:/out
+      - trust_dsns:/out/trust
+      - orchestrator_dsns:/out/orchestrator
+      - record_read_dsns:/out/record-read
+      - edge_dsns:/out/edge
+      # the core-edge login's own secret, one file per tenant (ruling A4); read-only, held by postgres and by this step only
+      - ./secrets/emitter_logins:/run/emitter_logins:ro
+  # One-shot, as root, no network (A506): turns the three key secrets into the files the core loads (64 hexadecimal characters, mode 0400, owner 65532) and checks each by reading it as that user. It prints
+  # file names, never a value. If it fails the core does not start.
+  core-keys-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    # The three key secrets are files that keep the host user's ownership and mode 0600 (Compose bind-mounts them as they are), so uid 0 with no capability cannot read them: DAC_READ_SEARCH reads any file
+    # and writes none (Codex P1 on noema#874). CHOWN and FOWNER give the written file to the core's user and set its mode; SETUID and SETGID read it back as that user. Never DAC_OVERRIDE.
+    cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
+    environment:
+      CORE_KEYS_SRC: /run/secrets
+      CORE_KEYS_FILES: "core_workflows_ed25519_seed_1=/out/orchestrator/core-workflows.ed25519.1.key core_edge_ed25519_seed_1=/out/edge/core-edge.ed25519.1.key input_hash_key=/out/input-hash/key"
+      CORE_KEYS_UID: "65532"
+      CORE_KEYS_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [core_workflows_ed25519_seed_1, core_edge_ed25519_seed_1, input_hash_key]
+    volumes:
+      - ./core-keys/init.py:/init/init.py:ro
+      - orchestrator_keys:/out/orchestrator
+      - edge_keys:/out/edge
+      - input_hash:/out/input-hash
   postgres:
     environment:
       NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
