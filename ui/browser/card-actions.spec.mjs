@@ -122,7 +122,7 @@ test("A491 and PERD 40.1: confirmation locks after response and reveals policy o
   expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
 });
 
-test("A576 REQ-UI-002: failed confirmation callback unlocks both choices for a plain retry", async ({ page }) => {
+test("A576 REQ-UI-002: failed confirmation keeps the original choice locked and retries the same request", async ({ page }) => {
   attempts = 0;
   const value = await card("confirmation");
   await page.goto(origin);
@@ -130,15 +130,18 @@ test("A576 REQ-UI-002: failed confirmation callback unlocks both choices for a p
   const accept = page.getByRole("button", { name: "Accept" });
   const decline = page.getByRole("button", { name: "Decline" });
   await accept.click();
-  await expect(accept).toBeEnabled();
-  await expect(decline).toBeEnabled();
-  await expect(page.getByRole("status")).toContainText("Please try again.");
+  await expect(accept).toBeDisabled();
+  await expect(decline).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("Retry the same response.");
   await decline.click();
+  expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
   await expect(accept).toBeDisabled();
   await expect(decline).toBeDisabled();
   expect(await page.evaluate(() => window.events)).toEqual([
     [value.confirmation_request_id, "ACCEPT"],
-    [value.confirmation_request_id, "DECLINE"],
+    [value.confirmation_request_id, "ACCEPT"],
   ]);
 });
 
@@ -165,15 +168,21 @@ test("REQ-UI-002: an already-expired confirmation renders terminally without an 
 });
 
 
-test("A576 REQ-UI-002: a thrown confirmation callback unlocks Accept and Decline", async ({ page }) => {
+test("A576 REQ-UI-002: a thrown callback keeps the original confirmation choice locked", async ({ page }) => {
   const value = await card("confirmation");
   await page.goto(origin);
   await page.evaluate((input) => window.showThrowingConfirmation(input), value);
   const accept = page.getByRole("button", { name: "Accept" });
   const decline = page.getByRole("button", { name: "Decline" });
   await accept.click();
-  await expect(accept).toBeEnabled();
-  await expect(decline).toBeEnabled();
-  await expect(page.getByRole("status")).toContainText("Please try again.");
-  expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
+  await expect(accept).toBeDisabled();
+  await expect(decline).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("Retry the same response.");
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(accept).toBeDisabled();
+  await expect(decline).toBeDisabled();
+  expect(await page.evaluate(() => window.events)).toEqual([
+    [value.confirmation_request_id, "ACCEPT"],
+    [value.confirmation_request_id, "ACCEPT"],
+  ]);
 });
