@@ -70,7 +70,14 @@ func trustAdaptersSource(pack PackSource) func(Env, reconstruct.TenantDBs, clock
 			if err == nil {
 				err = errPackNotConfigured
 			}
-			return TrustAdapters{}, &UnbuiltAdaptersError{Names: append([]string{"Pack"}, unsetAdapters(TrustAdapters{Clock: clk})...), Cause: err}
+			names := []string{"Pack"}
+			var gap *packSettingsGap
+			if errors.As(err, &gap) {
+				for _, m := range gap.Missing {
+					names = append(names, "Pack: "+m+" missing") // a partly given set names what is missing, in fixed text and never a value (A571)
+				}
+			}
+			return TrustAdapters{}, &UnbuiltAdaptersError{Names: append(names, unsetAdapters(TrustAdapters{Clock: clk})...), Cause: err}
 		}
 		graph := env.Getenv(EnvTrustEscalationGraph)
 		if graph == "" {

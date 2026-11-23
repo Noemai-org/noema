@@ -1,6 +1,6 @@
 # Status · STM-01-compose-pack-source · lane 1 of the G1 final composition: the pack source and what is built from it
 
-Updated 2026-11-23 WAT. Owner: Engineering Lead (lane run by a subagent; unreviewed work). REQ-STM-001, REQ-TRU-004, REQ-TRU-005, REQ-OPS-003; INV-14, INV-16, INV-21; AGENT-13, AGENT-16. Rulings (all "interim, relayed, not yet committed"): A537 (the four lanes), A333 and A377 items 6 and 7 (PackVersion from the manifest-verified pack), A469 and A486 (a part not built is a named gap; an invalid value is fatal), A475, A510 (an action graph is served only from the manifest's pins). All data is SYNTHETIC.
+Updated 2026-11-23 WAT. Owner: Engineering Lead (lane run by a subagent; unreviewed work). REQ-STM-001, REQ-TRU-004, REQ-TRU-005, REQ-OPS-003; INV-14, INV-16, INV-21; AGENT-13, AGENT-16. Rulings (all "interim, relayed, not yet committed"): A537 (the four lanes), A333 and A377 items 6 and 7 (PackVersion from the manifest-verified pack), A469 and A486 (a part not built is a named gap; an invalid value is fatal), A571 (a partial pack-settings set is a named gap), A475, A510 (an action graph is served only from the manifest's pins). All data is SYNTHETIC.
 
 ## State
 
@@ -22,7 +22,7 @@ Updated 2026-11-23 WAT. Owner: Engineering Lead (lane run by a subagent; unrevie
 ## Behaviour of the pack settings
 
 - None of the three set: the pack is a named gap (`errPackNotConfigured`): the process starts, `/readyz` names `trust.Pack` and every adapter (A469, A486).
-- Some of the three set: fatal, "the pack needs <NAME>". An invalid bound: fatal naming the setting, never the value.
+- Some of the three set (A571, interim, relayed): a NAMED GAP, not fatal: `/readyz` names `trust.Pack` and, for each missing setting, `trust.Pack: <NAME> missing` (fixed text, never a value), exactly as the Understanding half does. An invalid present bound stays fatal beside a missing one, naming the setting, never the value.
 - A file changed after the manifest was made, a link, an unlisted file, an unpinned graph, an id other than the manifest's: fatal with `packload`'s text (a closed kind, no path). A pack that verifies but that the Trust adapters cannot use: fatal with fixed text; the cause stays behind `errors.Is` (`trustpack.ErrPack`).
 - A guard test fails if any non-test file of `cmd/core` calls `LoadPack` (a second read of the directory).
 
