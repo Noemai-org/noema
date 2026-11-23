@@ -61,23 +61,29 @@ func faultOnSpend(t *testing.T, w *world, sqlstate string, failFirst, sleepMS in
 	}
 }
 
-// waitForNoRunningStatement returns once the database runs no statement for the tenant's execution login other than this one, so that a statement the client sent before its
-// context ended has finished. It polls every 25 ms, counting polls and not reading the clock (the clock rule), and fails the test if one is still running after about ten seconds.
-func waitForNoRunningStatement(t *testing.T, w *world) {
+// endTheLoginsBackends ends every server-side connection of the tenant's execution login and returns once none is left. Spend returned on the deadline, but a statement the
+// client sent just before it can still be waiting at the server, and a loaded server may begin it after Spend returned: the probe counts it, and it is one attempt in flight,
+// not a new one. With every connection gone nothing the client sent earlier can be counted, so any attempt counted afterwards was started by the client. It polls every 25 ms,
+// counting polls and not reading the clock (the clock rule), and fails the test if connections remain after about ten seconds (a client that keeps reconnecting).
+func endTheLoginsBackends(t *testing.T, w *world) {
 	t.Helper()
 	const polls = 400
 	for i := 0; i < polls; i++ {
-		var running int
+		var left int
 		if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_stat_activity
-			WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'active' AND usename LIKE 'execution_rw%'`).Scan(&running); err != nil {
+			WHERE datname = current_database() AND pid <> pg_backend_pid() AND usename LIKE 'execution_rw%'`).Scan(&left); err != nil {
 			t.Fatal(err)
 		}
-		if running == 0 {
+		if left == 0 {
 			return
+		}
+		if _, err := w.admin.Exec(ctx(t), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+			WHERE datname = current_database() AND pid <> pg_backend_pid() AND usename LIKE 'execution_rw%'`); err != nil {
+			t.Fatal(err)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("statements of the execution login were still running about ten seconds after Spend returned")
+	t.Fatalf("connections of the execution login were still there about ten seconds after Spend returned")
 }
 
 type spendOutcome struct {
@@ -364,13 +370,17 @@ func TestTheContextDeadlineStopsTheAttempts(t *testing.T) {
 	if !isDidNotCommit40001(o.err) && !errors.Is(o.err, context.DeadlineExceeded) && !errors.Is(o.err, context.Canceled) {
 		t.Errorf("the error is neither the did-not-commit error nor the context's: %v", o.err)
 	}
-	// Spend returned on the deadline, but the database may still be running a statement that the client sent just before it, and a loaded server can count that statement's
-	// first call to the probe after Spend returned. That is one attempt in flight, not a new one. So the count is taken once no statement of the tenant's login is running: from
-	// that moment nothing the client sent earlier is left to count, and an attempt the client starts later still shows up below.
-	waitForNoRunningStatement(t, w)
+	// Spend returned on the deadline. The one connection that held the spend runs one statement at a time, so at most ONE statement sent just before the deadline may still
+	// begin at the server after Spend returned, and the probe counts it (the failure this replaces read "8, then 9"). Anything more is a client that went on trying. So: take the
+	// count at the return, end the login's server-side connections (endTheLoginsBackends), allow the count to have moved by at most one, then check that nothing more comes.
+	atReturn := probe()
+	endTheLoginsBackends(t, w)
 	made := probe()
 	if made < 1 || made >= 1000 {
 		t.Fatalf("%d attempts were made inside a 500 ms deadline, want at least one and far fewer than 1000", made)
+	}
+	if made-atReturn > 1 {
+		t.Fatalf("%d attempts were started after Spend returned (%d at the return, %d once the statements ended), want at most the one already sent", made-atReturn, atReturn, made)
 	}
 	time.Sleep(300 * time.Millisecond)
 	if later := probe(); later != made {
