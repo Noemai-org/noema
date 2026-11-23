@@ -35,6 +35,9 @@ type Pack struct {
 	ReconRuleSetID    string
 	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
 	ActionGraphs map[string][]byte
+	// Limits holds the verified bytes of each limits file the manifest pins (A544), by the path the manifest pins. Which file is which, and what it holds, is the caller's: this package
+	// names none of them. A limits file that is not pinned is never here, and a folder of limits files with one unpinned refuses the pack (ErrUnlisted).
+	Limits map[string][]byte
 }
 
 // The kinds of refusal. Callers compare with errors.Is.
@@ -50,7 +53,7 @@ var (
 	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules` or `action_graph`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph` or `limits`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -73,6 +76,7 @@ const (
 	kindMapping  = "evidence_mapping"
 	kindRules    = "recon_rules"
 	kindGraph    = "action_graph"
+	kindLimits   = "limits"
 	kindManifest = "manifest"
 )
 
@@ -139,6 +143,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	listed := map[string]bool{manifest: true}
 	bytesOf := map[string][]byte{}
 	graphs := map[string][]byte{}
+	limits := map[string][]byte{}
 	for _, f := range doc.Files {
 		listed[*f.Path] = true
 	}
@@ -151,9 +156,12 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 		if hex.EncodeToString(sum[:]) != *f.Sha256 {
 			return Pack{}, refuse(ErrHash, *f.Kind)
 		}
-		if *f.Kind == kindGraph {
+		switch *f.Kind {
+		case kindGraph:
 			graphs[*f.Path] = data
-		} else {
+		case kindLimits:
+			limits[*f.Path] = data
+		default:
 			bytesOf[*f.Kind] = data
 		}
 	}
@@ -171,6 +179,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 		return Pack{}, err
 	}
 	p.ActionGraphs = graphs
+	p.Limits = limits
 	return p, nil
 }
 
@@ -207,7 +216,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindLimits {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++

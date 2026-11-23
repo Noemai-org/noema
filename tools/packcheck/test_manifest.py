@@ -148,7 +148,7 @@ class RealManifest(Base):
 
     def test_every_json_file_of_a_listed_kind_is_listed(self):
         listed = {f["path"] for f in self.load()["files"]}
-        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph") for p in (PACKS / d).rglob("*.json")}
+        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
         self.assertEqual(found, listed)
 

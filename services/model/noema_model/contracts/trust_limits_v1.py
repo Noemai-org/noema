@@ -5,9 +5,27 @@ from __future__ import annotations
 
 from enum import StrEnum
 from typing import Annotated
-from pydantic import ConfigDict, StringConstraints
+from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
+from .enums_v1 import EnumsV1TransactionClassification
 from .intent_slot_v2 import IntentSlotV2BasisPoints
+
+class TrustLimitsV1AnchorEntitiesItem(ContractModel):
+    """TrustLimitsV1AnchorEntitiesItem Source: trust-limits.v1.json#/properties/anchor_entities/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    event: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
+    entity: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
+    field: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
+
+
+class TrustLimitsV1EscalationReasonsItem(ContractModel):
+    """TrustLimitsV1EscalationReasonsItem Source: trust-limits.v1.json#/properties/escalation_reasons/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    classification: EnumsV1TransactionClassification
+    reason_code: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*\\Z')]
+
 
 class TrustLimitsV1Label(StrEnum):
     """TrustLimitsV1Label Source: trust-limits.v1.json#/properties/label"""
@@ -16,14 +34,31 @@ class TrustLimitsV1Label(StrEnum):
     VALIDATED = 'VALIDATED'
 
 
+class TrustLimitsV1PhaseRoutesItemPhase(StrEnum):
+    """TrustLimitsV1PhaseRoutesItemPhase Source: trust-limits.v1.json#/properties/phase_routes/items/properties/phase"""
+
+    NOT_STARTED = 'NOT_STARTED'
+    RUNNING = 'RUNNING'
+    AT_RISK = 'AT_RISK'
+    BREACHED = 'BREACHED'
+
+
 class TrustLimitsV1SchemaVersion(StrEnum):
     """TrustLimitsV1SchemaVersion Source: trust-limits.v1.json#/properties/schema_version"""
 
     V_1_0 = '1.0'
 
 
+class TrustLimitsV1PhaseRoutesItem(ContractModel):
+    """TrustLimitsV1PhaseRoutesItem Source: trust-limits.v1.json#/properties/phase_routes/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    phase: TrustLimitsV1PhaseRoutesItemPhase
+    reason_code: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*\\Z')]
+
+
 class TrustLimitsV1(ContractModel):
-    """The two provisional limits the Trust steps read as pack data, not code, for one pack (Architect ruling A205 Q1, recorded in docs PR #176; AGENT-16: agents do not set thresholds, so no number lives in code). Both are i... Source: trust-limits.v1.json"""
+    """The two provisional limits the Trust steps read as pack data, not code, for one pack, and (A544, interim, additive and optional) the routing data of the Reconciler and the Clocks: the escalation reason of a classifica... Source: trust-limits.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
     schema_version: TrustLimitsV1SchemaVersion
@@ -31,6 +66,13 @@ class TrustLimitsV1(ContractModel):
     label: TrustLimitsV1Label
     ambiguity_absolute_floor_bp: IntentSlotV2BasisPoints
     clock_at_risk_remaining_bp: IntentSlotV2BasisPoints
+    escalation_reasons: Annotated[list[TrustLimitsV1EscalationReasonsItem], Field(min_length=1, max_length=12)] | None = Field(default=None)
+    allowed_under_freeze: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.cap\\.[a-z][a-z0-9_]*\\Z')]], Field(min_length=1, max_length=32)] | None = Field(default=None)
+    phase_routes: Annotated[list[TrustLimitsV1PhaseRoutesItem], Field(min_length=1, max_length=4)] | None = Field(default=None)
+    anchor_entities: Annotated[list[TrustLimitsV1AnchorEntitiesItem], Field(min_length=1, max_length=16)] | None = Field(default=None)
 
 
+TrustLimitsV1AnchorEntitiesItem.model_rebuild()
+TrustLimitsV1EscalationReasonsItem.model_rebuild()
+TrustLimitsV1PhaseRoutesItem.model_rebuild()
 TrustLimitsV1.model_rebuild()

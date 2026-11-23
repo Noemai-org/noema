@@ -95,6 +95,9 @@ func Load(r io.Reader, wantPackID string) (Limits, error) {
 	if !packIDShape.MatchString(wantPackID) || d.PackId != wantPackID {
 		return Limits{}, refuse("the document is not the one of the pack asked for", nil)
 	}
+	if err := checkRouting(d); err != nil {
+		return Limits{}, err
+	}
 	floor, err := basisPoints("ambiguity_absolute_floor_bp", int64(d.AmbiguityAbsoluteFloorBp), ceilings.MinAmbiguityAbsoluteFloorBP, maxBasisPoints)
 	if err != nil {
 		return Limits{}, err

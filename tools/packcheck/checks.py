@@ -525,9 +525,11 @@ MANIFEST_KINDS = {
     "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
     "recon_rules": ("fintech/recon_rules", "*.json"),
     "action_graph": ("fintech/graph", "*.json"),  # A510
+    "limits": ("fintech/limits", "*.json"),  # A544: every limits file of the folder is pinned
 }
 # The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
 SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
+# `limits` is listed once for each file of the pack's limits folder (A544) and may be listed for none: the kind is additive.
 WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -688,6 +690,56 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     return out
 
 
+def check_trust_routing(pack: dict, limits: dict) -> list[Problem]:
+    """A544 (interim; PERD v1.23 23.1, 23.3, 23.5, REQ-RES-002): the routing members of the pack's trust-limits document name only what the pack declares. An escalation reason of a classification
+    is a catalogue code the pack produces from a state mapping, a clock phase's is one it produces from a clock mapping, a capability allowed under a freeze is a declared capability that is not
+    prohibited, and an anchor event is one a pack clock names, read from an entity the pack's evidence descriptors declare. A classification, a phase or an event is routed at most once.
+    No value is checked for being right: a value the documents do not state is not in the file (AGENT-16), and is an open decision, not a check."""
+    out: list[Problem] = []
+
+    def bad(msg: str) -> None:
+        out.append(("trust_routing", msg))
+
+    if limits.get("pack_id") != pack["pack_id"]:
+        bad(f"pack_id {limits.get('pack_id')!r} is not the pack's {pack['pack_id']!r}")
+    produced = {r["code"]: r.get("produced_by") for r in pack["reason_catalogue"]}
+
+    def reason(code: str, producer: str, where: str) -> None:
+        if code not in produced:
+            bad(f"{where}: reason code {code!r} is not in the pack's catalogue")
+        elif produced[code] != producer:
+            bad(f"{where}: reason code {code!r} is produced by {produced[code]}, not {producer}")
+
+    def once(keys: list, what: str) -> None:
+        for k in sorted({k for k in keys if keys.count(k) > 1}):
+            bad(f"{what} {k!r} is routed twice")
+
+    entries = limits.get("escalation_reasons", [])
+    once([e["classification"] for e in entries], "classification")
+    for e in entries:
+        reason(e["reason_code"], "STATE_MAPPING", f"escalation_reasons[{e['classification']}]")
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    for cid in limits.get("allowed_under_freeze", []):
+        if cid not in caps:
+            bad(f"allowed_under_freeze: capability {cid!r} is not declared by the pack")
+        elif caps[cid]["prohibited"]:
+            bad(f"allowed_under_freeze: capability {cid!r} is prohibited")
+    phases = limits.get("phase_routes", [])
+    once([e["phase"] for e in phases], "phase")
+    for e in phases:
+        reason(e["reason_code"], "CLOCK_MAPPING", f"phase_routes[{e['phase']}]")
+    anchors = limits.get("anchor_entities", [])
+    once([e["event"] for e in anchors], "event")
+    events = {c["anchor_event"] for c in pack.get("clocks", [])}
+    entities = {d["entity"] for d in pack.get("evidence_descriptors", [])}
+    for e in anchors:
+        if e["event"] not in events:
+            bad(f"anchor_entities: event {e['event']!r} is not the anchor event of any pack clock")
+        if e["entity"] not in entities:
+            bad(f"anchor_entities: entity {e['entity']!r} has no evidence descriptor in the pack")
+    return out
+
+
 def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, graphs_override: dict[str, dict] | None = None,
         templates: str = "off") -> list[Problem]:
     """templates="enforce" adds the REQ-EXP-002 coverage check. It is off by default only until EXP-04 delivers the real pack's templates;
@@ -712,6 +764,15 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
+    # A544: the pack's trust-limits document sits in the pack's own folder (`fintech_v1.json` is of `fintech/`); a pack with none (a conformance pack) has no routing to check.
+    limits_path = pack_path.parent / pack_path.stem.rsplit("_v", 1)[0] / "limits" / "trust_limits.json"
+    if limits_path.is_file():
+        try:
+            limits = validate.load_strict(limits_path)
+        except ValueError as exc:
+            problems.append(("trust_routing", str(exc)))
+        else:
+            problems += check_trust_routing(pack, limits)
     if templates == "enforce":
         problems += check_templates(pack, pack_path.parent)
     return problems

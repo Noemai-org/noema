@@ -17,7 +17,7 @@
 | `ErrUnlisted` | a file of a listed kind is not listed: a second mapping or rule set beside the pinned one (any file of the same extension in the listed file's folder, at any depth, links included and not followed), or a second pack file of the same family in the pack directory (`x_v1.json` and `x_v2.json`) |
 | `ErrID` | the mapping or the rule set does not carry the id the manifest expects, or the mapping was written for another rule set |
 
-The error text is fixed: it names the kind of refusal and, from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`), which file. It never holds a path, a digest, a file's content or an operating-system error; the kind of refusal is reachable with `errors.Is` and the file kind with `errors.As(err, &*packload.Error)`.
+The error text is fixed: it names the kind of refusal and, from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`, `limits`), which file. It never holds a path, a digest, a file's content or an operating-system error; the kind of refusal is reachable with `errors.Is` and the file kind with `errors.As(err, &*packload.Error)`.
 
 **How it reads.** Through `os.Root`, so a component that is swapped for a link after the check still cannot lead outside the directory. Each component below the directory is examined with `Lstat` before the file is opened. The directory itself is the caller's mount and is not examined for a link. Each file is read at most `maxBytes + 1` bytes: one byte over is refused.
 
@@ -30,3 +30,5 @@ The error text is fixed: it names the kind of refusal and, from a closed set (`m
 **Tests.** `go test -count=1 ./platform/packload/` from `services/core/`. Real files in a real directory, nothing mocked: a byte changed after the manifest was made, a symlink in each position, a stray second mapping, a path of every escaping spelling.
 
 **Action graphs (A510).** The manifest may list files of kind `action_graph`. `Load` verifies each (path rules, no link, SHA-256) and returns the verified bytes in `Pack.ActionGraphs`, by the pinned path. The pinned graphs must be exactly the ones the verified pack file names in `action_graph_files` (a pack that names none pins none): any difference is `ErrGraph` (kind `action_graph`), and a `*.json` of the graph folder that is not listed is `ErrUnlisted`. A refused pack returns no graph. The loader holds no graph path or id; the pack and the manifest name them (INV-14).
+
+**Limits (A544).** The manifest may list files of kind `limits`. `Load` verifies each (path rules, no link, SHA-256, every file of the folder listed) and returns the verified bytes in `Pack.Limits`, by the pinned path. Which file is which, and what it holds, is the caller's: this package names none of them. A pack that pins none loads with none.

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://packs.noema.invalid/fintech/schemas/manifest.v1.json",
   "title": "fin.manifest",
-  "description": "The pack manifest (A333, A510): the pack files the core loads, each with its SHA-256 (the pack file, the evidence mapping, the reconciliation rules and every action graph the pack names), and the two ids the core expects (the evidence mapping and the reconciliation rule set), so the core names neither (INV-14). No action graph is served unless it is listed here and verified (A510). A path is relative to the pack directory (the one the core mounts, `packs/`; the same base as `action_graph_files`), plain, with no `.` or `..` component, and never a symlink. Pack data (SoT 51): checked by `tools/packcheck manifest`, a change is reviewed by a Founder (AGENT-16). SYNTHETIC.",
+  "description": "The pack manifest (A333, A510, A544): the pack files the core loads, each with its SHA-256 (the pack file, the evidence mapping, the reconciliation rules and every action graph the pack names), and the two ids the core expects (the evidence mapping and the reconciliation rule set), so the core names neither (INV-14). No action graph is served unless it is listed here and verified (A510). The limits files (kind `limits`, A544) are pinned too: a limit is data a Founder reviews (AGENT-16). A path is relative to the pack directory (the one the core mounts, `packs/`; the same base as `action_graph_files`), plain, with no `.` or `..` component, and never a symlink. Pack data (SoT 51): checked by `tools/packcheck manifest`, a change is reviewed by a Founder (AGENT-16). SYNTHETIC.",
   "type": "object",
   "properties": {
     "manifest_id": {"const": "fin.manifest"},
@@ -40,7 +40,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other."},
+          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph", "limits"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other; `limits` once for each limits file of the pack's limits folder (A544), every one of them."},
           "path": {
             "type": "string",
             "minLength": 1,

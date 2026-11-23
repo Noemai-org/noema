@@ -7,6 +7,53 @@ import (
 	"fmt"
 )
 
+// TrustLimitsV1AnchorEntitiesItem is generated from trust-limits.v1.json#/properties/anchor_entities/items.
+type TrustLimitsV1AnchorEntitiesItem struct {
+	Event  string `json:"event"`
+	Entity string `json:"entity"`
+	Field  string `json:"field"`
+}
+
+var TrustLimitsV1AnchorEntitiesItemShape = objectShape{name: "TrustLimitsV1AnchorEntitiesItem", props: map[string]bool{"event": true, "entity": true, "field": true}, required: []string{"event", "entity", "field"}, nonNull: map[string]bool{"event": true, "entity": true, "field": true}, closed: true}
+
+func (t *TrustLimitsV1AnchorEntitiesItem) UnmarshalJSON(b []byte) error {
+	raw, err := TrustLimitsV1AnchorEntitiesItemShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias TrustLimitsV1AnchorEntitiesItem
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: TrustLimitsV1AnchorEntitiesItem: %w", err)
+	}
+	_ = raw
+	*t = TrustLimitsV1AnchorEntitiesItem(a)
+	return nil
+}
+
+// TrustLimitsV1EscalationReasonsItem is generated from trust-limits.v1.json#/properties/escalation_reasons/items.
+type TrustLimitsV1EscalationReasonsItem struct {
+	Classification EnumsV1TransactionClassification `json:"classification"`
+	ReasonCode     string                           `json:"reason_code"`
+}
+
+var TrustLimitsV1EscalationReasonsItemShape = objectShape{name: "TrustLimitsV1EscalationReasonsItem", props: map[string]bool{"classification": true, "reason_code": true}, required: []string{"classification", "reason_code"}, nonNull: map[string]bool{"classification": true, "reason_code": true}, closed: true}
+
+func (t *TrustLimitsV1EscalationReasonsItem) UnmarshalJSON(b []byte) error {
+	raw, err := TrustLimitsV1EscalationReasonsItemShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias TrustLimitsV1EscalationReasonsItem
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: TrustLimitsV1EscalationReasonsItem: %w", err)
+	}
+	_ = raw
+	*t = TrustLimitsV1EscalationReasonsItem(a)
+	return nil
+}
+
 // TrustLimitsV1Label is generated from trust-limits.v1.json#/properties/label.
 type TrustLimitsV1Label string
 
@@ -26,6 +73,52 @@ func (e *TrustLimitsV1Label) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	return fmt.Errorf("contracts: TrustLimitsV1Label: %q is not one of its values", s)
+}
+
+// TrustLimitsV1PhaseRoutesItem is generated from trust-limits.v1.json#/properties/phase_routes/items.
+type TrustLimitsV1PhaseRoutesItem struct {
+	Phase      TrustLimitsV1PhaseRoutesItemPhase `json:"phase"`
+	ReasonCode string                            `json:"reason_code"`
+}
+
+var TrustLimitsV1PhaseRoutesItemShape = objectShape{name: "TrustLimitsV1PhaseRoutesItem", props: map[string]bool{"phase": true, "reason_code": true}, required: []string{"phase", "reason_code"}, nonNull: map[string]bool{"phase": true, "reason_code": true}, closed: true}
+
+func (t *TrustLimitsV1PhaseRoutesItem) UnmarshalJSON(b []byte) error {
+	raw, err := TrustLimitsV1PhaseRoutesItemShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias TrustLimitsV1PhaseRoutesItem
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: TrustLimitsV1PhaseRoutesItem: %w", err)
+	}
+	_ = raw
+	*t = TrustLimitsV1PhaseRoutesItem(a)
+	return nil
+}
+
+// TrustLimitsV1PhaseRoutesItemPhase is generated from trust-limits.v1.json#/properties/phase_routes/items/properties/phase.
+type TrustLimitsV1PhaseRoutesItemPhase string
+
+const (
+	TrustLimitsV1PhaseRoutesItemPhaseNOTSTARTED TrustLimitsV1PhaseRoutesItemPhase = "NOT_STARTED"
+	TrustLimitsV1PhaseRoutesItemPhaseRUNNING    TrustLimitsV1PhaseRoutesItemPhase = "RUNNING"
+	TrustLimitsV1PhaseRoutesItemPhaseATRISK     TrustLimitsV1PhaseRoutesItemPhase = "AT_RISK"
+	TrustLimitsV1PhaseRoutesItemPhaseBREACHED   TrustLimitsV1PhaseRoutesItemPhase = "BREACHED"
+)
+
+func (e *TrustLimitsV1PhaseRoutesItemPhase) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("contracts: TrustLimitsV1PhaseRoutesItemPhase: %w", err)
+	}
+	switch v := TrustLimitsV1PhaseRoutesItemPhase(s); v {
+	case TrustLimitsV1PhaseRoutesItemPhaseNOTSTARTED, TrustLimitsV1PhaseRoutesItemPhaseRUNNING, TrustLimitsV1PhaseRoutesItemPhaseATRISK, TrustLimitsV1PhaseRoutesItemPhaseBREACHED:
+		*e = v
+		return nil
+	}
+	return fmt.Errorf("contracts: TrustLimitsV1PhaseRoutesItemPhase: %q is not one of its values", s)
 }
 
 // TrustLimitsV1SchemaVersion is generated from trust-limits.v1.json#/properties/schema_version.
@@ -49,16 +142,20 @@ func (e *TrustLimitsV1SchemaVersion) UnmarshalJSON(b []byte) error {
 }
 
 // TrustLimitsV1 is generated from trust-limits.v1.json.
-// The two provisional limits the Trust steps read as pack data, not code, for one pack (Architect ruling A205 Q1, recorded in docs PR #176; AGENT-16: agents do not set thresholds, so no number lives in code). Both are i...
+// The two provisional limits the Trust steps read as pack data, not code, for one pack, and (A544, interim, additive and optional) the routing data of the Reconciler and the Clocks: the escalation reason of a classifica...
 type TrustLimitsV1 struct {
-	SchemaVersion            TrustLimitsV1SchemaVersion `json:"schema_version"`
-	PackId                   string                     `json:"pack_id"`
-	Label                    TrustLimitsV1Label         `json:"label"`
-	AmbiguityAbsoluteFloorBp IntentSlotV2BasisPoints    `json:"ambiguity_absolute_floor_bp"`
-	ClockAtRiskRemainingBp   IntentSlotV2BasisPoints    `json:"clock_at_risk_remaining_bp"`
+	SchemaVersion            TrustLimitsV1SchemaVersion            `json:"schema_version"`
+	PackId                   string                                `json:"pack_id"`
+	Label                    TrustLimitsV1Label                    `json:"label"`
+	AmbiguityAbsoluteFloorBp IntentSlotV2BasisPoints               `json:"ambiguity_absolute_floor_bp"`
+	ClockAtRiskRemainingBp   IntentSlotV2BasisPoints               `json:"clock_at_risk_remaining_bp"`
+	EscalationReasons        *[]TrustLimitsV1EscalationReasonsItem `json:"escalation_reasons,omitempty"`
+	AllowedUnderFreeze       *[]string                             `json:"allowed_under_freeze,omitempty"`
+	PhaseRoutes              *[]TrustLimitsV1PhaseRoutesItem       `json:"phase_routes,omitempty"`
+	AnchorEntities           *[]TrustLimitsV1AnchorEntitiesItem    `json:"anchor_entities,omitempty"`
 }
 
-var TrustLimitsV1Shape = objectShape{name: "TrustLimitsV1", props: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true}, required: []string{"schema_version", "pack_id", "label", "ambiguity_absolute_floor_bp", "clock_at_risk_remaining_bp"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true}, closed: true}
+var TrustLimitsV1Shape = objectShape{name: "TrustLimitsV1", props: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true, "escalation_reasons": true, "allowed_under_freeze": true, "phase_routes": true, "anchor_entities": true}, required: []string{"schema_version", "pack_id", "label", "ambiguity_absolute_floor_bp", "clock_at_risk_remaining_bp"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "label": true, "ambiguity_absolute_floor_bp": true, "clock_at_risk_remaining_bp": true, "escalation_reasons": true, "allowed_under_freeze": true, "phase_routes": true, "anchor_entities": true}, closed: true}
 
 func (t *TrustLimitsV1) UnmarshalJSON(b []byte) error {
 	raw, err := TrustLimitsV1Shape.check(b)
