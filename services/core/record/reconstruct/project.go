@@ -93,7 +93,7 @@ var projections = map[string]projection{
 	evGrantVoided:                  {secAuthority, basisRule, authorityKeys, nil},
 	"REVALIDATION_PASSED":          {secAuthority, basisRule, authorityKeys, nil},
 	"REVALIDATION_FAILED":          {secAuthority, basisRule, authorityKeys, nil},
-	"DECISION_MADE":                {secDecision, basisRule, []string{"decision_outcome", "reason_codes", "decision_id"}, []string{"decision_outcome"}},
+	"DECISION_MADE":                {secDecision, basisRule, []string{"decision_outcome", "reason_codes", "decision_id", "disposition_decision_id"}, []string{"decision_outcome"}},
 	evDispatch:                     {secAction, basisRule, []string{"attempt"}, []string{"capability_id", "execution_state", "grant_state"}},
 	evReceipt:                      {secAction, basisRule, []string{"execution_state", "attempt", "receipt_id"}, []string{"capability_id", "execution_state", "grant_state"}},
 	"VERIFICATION_READ":            {secDownstream, basisEvidence, downstreamKeys, nil},
@@ -141,17 +141,18 @@ var (
 	// idShapes is the contract shape of each ID fact the projection serves as written (common.v1; policy_id is a pack ID). An `_id` fact is exempt from masking
 	// only when its value has the shape of its own key; any other value, and any `_id` key not listed, is masked like every scalar (Codex P1 on noema#492, A154).
 	idShapes = map[string]*regexp.Regexp{
-		"request_id":          regexp.MustCompile(`^req_[0-9A-Za-z]{2,32}$`),
-		"intent_id":           regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`),
-		"clarification_id":    regexp.MustCompile(`^clr_[0-9A-Za-z]{2,32}$`),
-		"confirmation_id":     regexp.MustCompile(`^cf[re]_[0-9A-Za-z]{2,32}$`),
-		"decision_id":         regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`),
-		"plan_id":             regexp.MustCompile(`^pln_[0-9A-Za-z]{2,32}$`),
-		"grant_id":            regexp.MustCompile(`^grt_[0-9A-Za-z]{2,32}$`),
-		"receipt_id":          regexp.MustCompile(`^rcp_[0-9A-Za-z]{2,32}$`),
-		"verdict_id":          regexp.MustCompile(`^ver_[0-9A-Za-z]{2,32}$`),
-		"watch_id":            regexp.MustCompile(`^wat_[0-9A-Za-z]{2,32}$`),
-		"recovery_request_id": regexp.MustCompile(`^rrq_[0-9A-Za-z]{2,32}$`),
+		"request_id":              regexp.MustCompile(`^req_[0-9A-Za-z]{2,32}$`),
+		"intent_id":               regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`),
+		"clarification_id":        regexp.MustCompile(`^clr_[0-9A-Za-z]{2,32}$`),
+		"confirmation_id":         regexp.MustCompile(`^cf[re]_[0-9A-Za-z]{2,32}$`),
+		"decision_id":             regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`),
+		"disposition_decision_id": regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`),
+		"plan_id":                 regexp.MustCompile(`^pln_[0-9A-Za-z]{2,32}$`),
+		"grant_id":                regexp.MustCompile(`^grt_[0-9A-Za-z]{2,32}$`),
+		"receipt_id":              regexp.MustCompile(`^rcp_[0-9A-Za-z]{2,32}$`),
+		"verdict_id":              regexp.MustCompile(`^ver_[0-9A-Za-z]{2,32}$`),
+		"watch_id":                regexp.MustCompile(`^wat_[0-9A-Za-z]{2,32}$`),
+		"recovery_request_id":     regexp.MustCompile(`^rrq_[0-9A-Za-z]{2,32}$`),
 	}
 )
 

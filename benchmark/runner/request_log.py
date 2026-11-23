@@ -43,6 +43,12 @@ class RequestRecorder:
             return
         self._done.extend({"case_id": case_id, "correlation_id": correlation_id, **entry} for entry in pending)
 
+    def append(self, path: Path) -> None:
+        """Add this recorder's finished entries to an existing record, keeping every line already in it."""
+        if not path.is_file():
+            raise ValueError(f"{path.name} does not exist: the runner did not write its own request record")
+        path.write_bytes(path.read_bytes() + "".join(json.dumps({k: line[k] for k in FIELDS}, sort_keys=True) + "\n" for line in self._done).encode("utf-8"))
+
     def write(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes("".join(json.dumps({k: line[k] for k in FIELDS}, sort_keys=True) + "\n" for line in self._done).encode("utf-8"))

@@ -46,6 +46,20 @@ grep -q 'umask 077; python3 -c .*core_trust_ed25519_seed_1' "$here/secrets_local
 cp "$work/secrets/core_trust_ed25519_seed_1" "$work/seed.first"
 ( cd "$work" && sh secrets_local.sh >/dev/null )
 cmp -s "$work/seed.first" "$work/secrets/core_trust_ed25519_seed_1" || fail "a second run replaced the core-trust seed"
+# The core's other key files (A506): the orchestrator's and the gateway's signing seeds and the input hash key, each 64 lower-case hexadecimal characters (the form the loaders read), mode 600 (a
+# one-shot step sets 0400 and the core's owner), all different from each other and from the other keys, written under umask 077, and kept on a second run.
+for f in core_workflows_ed25519_seed_1 core_edge_ed25519_seed_1 input_hash_key; do
+  [ -s "$work/secrets/$f" ] || fail "secrets/$f was not made"
+  printf '%s' "$(cat "$work/secrets/$f")" | grep -Eq '^[0-9a-f]{64}$' || fail "secrets/$f is not 64 lower-case hexadecimal characters"
+  [ "$(stat -c %a "$work/secrets/$f")" = "600" ] || fail "secrets/$f is not mode 600"
+  grep -q "umask 077; python3 -c .*$f" "$here/secrets_local.sh" || fail "secrets/$f is not written under umask 077"
+  cp "$work/secrets/$f" "$work/$f.first"
+done
+[ "$(cat "$work"/secrets/core_workflows_ed25519_seed_1 "$work"/secrets/core_edge_ed25519_seed_1 "$work"/secrets/input_hash_key "$work"/secrets/core_trust_ed25519_seed_1 "$work"/secrets/grant_hmac_key_a | sort -u | wc -l)" = "5" ] || fail "two of the core's keys are the same"
+( cd "$work" && sh secrets_local.sh >/dev/null )
+for f in core_workflows_ed25519_seed_1 core_edge_ed25519_seed_1 input_hash_key; do
+  cmp -s "$work/$f.first" "$work/secrets/$f" || fail "a second run replaced secrets/$f"
+done
 # The mTLS material for the core and the model service (noema#555) is made too, kept on a second run, and leaves no CA key behind.
 for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key; do
   [ -s "$work/secrets/tls/$f" ] || fail "secrets/tls/$f was not made"

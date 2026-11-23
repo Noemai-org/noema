@@ -252,13 +252,29 @@ func (e *evaluation) t14(ctx context.Context) decide.StepResult {
 	return decide.Continue()
 }
 
+// planRequest is what Trust asks the Planner for: the intent, what T3 learned and, for a continuation, the one capability to plan with the facts and the evidence packet the
+// caller gave. The policy params are T11's, copied, for every capability it asked the policy about.
+func (e *evaluation) planRequest() PlanRequest {
+	a := e.intent
+	r := PlanRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash, IntentNode: a.IntentNode,
+		WriteRequired: e.late.needsWrite}
+	if len(e.policyParams) > 0 {
+		r.PolicyParams = make(map[string]map[string]string, len(e.policyParams))
+		for id, p := range e.policyParams {
+			r.PolicyParams[id] = cloneStrings(p)
+		}
+	}
+	if e.step != nil {
+		r.Capabilities, r.Facts, r.EvidencePacket = []string{e.step.capabilityID}, cloneStrings(e.step.facts), e.step.packet
+	}
+	return r
+}
+
 // validPlan asks the Planner for the plan of the admitted intent and validates it: the Planner must not call it invalid, it must be well formed, and every step must agree with what
 // the earlier steps found (planAgrees). T14 and T13 (which needs the plan to bind a new confirmation request) use this one function. ok is false for a plan that is not valid
 // (PLAN_INVALID); an error is a dependency that failed, never a pass.
 func (e *evaluation) validPlan(ctx context.Context) (p Plan, ok bool, err error) {
-	a := e.intent
-	p, err = e.svc.Ports.Planner.Plan(ctx, PlanRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
-		IntentNode: a.IntentNode, WriteRequired: e.late.needsWrite})
+	p, err = e.svc.Ports.Planner.Plan(ctx, e.planRequest())
 	switch {
 	case errors.Is(err, ErrPlanInvalid):
 		return Plan{}, false, nil
@@ -299,6 +315,9 @@ func (e *evaluation) planAgrees(ctx context.Context, p Plan) (bool, error) {
 	authorized, err := e.authorizedCapabilities(ctx)
 	if err != nil {
 		return false, err
+	}
+	if e.step != nil && (len(p.Steps) != 1 || p.Steps[0].CapabilityID != e.step.capabilityID) {
+		return false, nil // a continuation is one step with one grant (A335)
 	}
 	for _, s := range p.Steps {
 		c, err := e.svc.Ports.Capabilities.Check(ctx, s.CapabilityID, e.req.Session.Role)

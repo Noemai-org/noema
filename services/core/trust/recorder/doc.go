@@ -57,7 +57,7 @@
 // A186 and A366, the confirmation state of the key: one decision exists for an input tuple AND confirmation state, and migration 0034 enforces it (decision_record_input_state_key: the
 // tuple and COALESCE of decision_record.confirmation_request_id). The state is the confirmation request the decision rests on: for an ALLOW that follows a confirmation, the request the
 // spent confirmation resolved (read from confirmation_resolution; a confirmation not recorded for the tenant is ErrConfirmationNotValid); for a REJECT DECLINED_BY_APPROVER, the declined
-// request it names in Request.DeclinedRequestID (shape-checked: the writer cannot verify a decline, which is the confirmation store's); NULL for every other decision. So a stored CONFIRM
+// request it names in Request.DeclinedRequestID (shape-checked, and read as the tenant from confirmation_request: it must be a request of the tenant and of the decision's intent, else ErrDeclinedRequestNotValid and nothing is written, A507; the writer still cannot verify that the request was DECLINED, which is the answer table's); NULL for every other decision. So a stored CONFIRM
 // (NULL) and the ALLOW or the REJECT that rests on its request are two decisions of one snapshot, and a repeated Record of either returns the stored one (INV-21). On top of the key the
 // writer refuses, under the tuple's advisory lock, a decision of an outcome the tuple already has in another state (another confirmation, or none): ErrDecisionConflict, so two accepted
 // confirmations cannot give two grants on one input. An ALLOW or a REJECT that rests on no confirmation, on the tuple of a stored CONFIRM, is still ErrDecisionConflict (same state, other

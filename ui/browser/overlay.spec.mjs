@@ -1,5 +1,6 @@
 import { test as base, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { assertAccessible } from "./flow-a11y.mjs";
 const markup = await readFile("dist/index.html", "utf8");
 const stylesheet = await readFile("dist/tokens.css", "utf8");
 const scanner = await readFile("build/js/privacy.js", "utf8");
@@ -26,7 +27,10 @@ async function scan(page, synthetic = false) {
 // Every browser flow uses this fixture. Test data is synthetic.
 const test = base.extend({
   page: async ({ page }, use) => {
-    try { await use(page); } finally { expect(await scan(page)).toEqual([]); }
+    try { await use(page); } finally {
+      expect(await scan(page)).toEqual([]);
+      await assertAccessible(page);
+    }
   },
 });
 
