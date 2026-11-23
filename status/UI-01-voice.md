@@ -30,3 +30,7 @@ Node 22: the full Node suite and six Chromium Playwright checks pass locally, in
 
 ## 23 Nov · synthetic host and sink
 - A515: a synthetic browser host passes 20,000 ms explicitly to the component; no value is defaulted by UI code. Chromium's synthetic microphone feeds a synthetic in-memory sink while the visible Recording indicator is asserted, then the test releases the control. The sink interface is documented in ui/overlay/VOICE-CAPTURE.md. Node 22 full suite passes with one real-core test skipped. No live voice route or Android-device result is claimed.
+
+
+## 2026-11-23 · A516 visibility coverage
+- Added a separate synthetic browser test for `document.visibilityState === "hidden"`, alongside the existing window-blur test. Both assert capture ends and no additional PCM frames reach the sink.
