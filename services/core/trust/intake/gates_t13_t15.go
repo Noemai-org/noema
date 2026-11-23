@@ -97,7 +97,7 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 // was answered; it never carries a new one), nothing is planned, and no grant exists for a refusal (INV-03). If the Recorder fails, nothing else happens and the evaluation ends in
 // UNKNOWN, never in a REJECT the caller could take as recorded.
 func (e *evaluation) t13Declined(ctx context.Context, c Confirmation) decide.StepResult {
-	if c.NewRequest != nil || c.RequestID != "" && !requestIDRe.MatchString(c.RequestID) {
+	if c.NewRequest != nil || !requestIDRe.MatchString(c.RequestID) { // A542: a decline names the request it rests on, as the Given answer does
 		return decide.FailStep(errAnswer)
 	}
 	reason, err := decide.Core("DECLINED_BY_APPROVER")
