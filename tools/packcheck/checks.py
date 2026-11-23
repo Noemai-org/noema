@@ -240,6 +240,22 @@ def check_write_when(pack: dict) -> list[Problem]:
     return out
 
 
+def check_subject_slot(pack: dict) -> list[Problem]:
+    """A520 (interim; DEBT-54): an intent node's optional `subject_slot` names a Resource slot of the SAME node, the slot whose resolved reference is the subject of the intent (the
+    core reads the name from the pack, INV-14). A node with no such slot declares none."""
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        if "subject_slot" not in n:
+            continue
+        name = n["subject_slot"]
+        slot = next((s for s in n["slots"] if s["name"] == name), None)
+        if slot is None:
+            out.append(("subject", f"{n['node_id']}: subject_slot {name!r} is not a slot of the node"))
+        elif slot["type"] != "Resource":
+            out.append(("subject", f"{n['node_id']}: subject_slot {name!r} must be a Resource slot, found {slot['type']}"))
+    return out
+
+
 def check_graph_params(pack: dict, graphs: dict[str, dict], pack_dir: Path) -> list[Problem]:
     """A369 (interim, relayed): a node that declares `params` declares exactly the inputs of its capability (every required input covered, no extra), once each; its slots and map keys
     are the intent nodes' own, its map values are `case_reasons`, its facts are declared predicate variables and its policy params are carried by a PERMIT rule of the capability (and
@@ -412,6 +428,24 @@ def check_routing(pack: dict) -> list[Problem]:
                     out.append(("routing", f"{r['rule_id']}: {key} is a free-form destination"))
                 elif value not in allow:
                     out.append(("routing", f"{r['rule_id']}: {key}={value!r} is not in the routing allowlist"))
+    out += check_handoff_routes(pack, allow)
+    return out
+
+
+def check_handoff_routes(pack: dict, allow: set[str]) -> list[Problem]:
+    """A531 (interim, relayed, not yet committed): a handoff route names a queue of the pack's own allowlist, a reason code at most once, and only intent nodes the pack declares.
+    That the reason code is a core code is the schema's (the CoreReasonCode enum, check `schema`), so it is not checked twice."""
+    out: list[Problem] = []
+    nodes = {n["node_id"] for n in pack["intent_nodes"]}
+    seen: set[str] = set()
+    for route in pack.get("handoff_routes", []):
+        code, queue = route["reason_code"], route["owner_queue"]
+        if code in seen:
+            out.append(("routing", f"handoff route {code!r} is declared twice"))
+        seen.add(code)
+        if queue not in allow:
+            out.append(("routing", f"handoff route {code!r}: queue {queue!r} is not in the routing allowlist"))
+        out += [("routing", f"handoff route {code!r}: intent node {n!r} is not declared by the pack") for n in route.get("intent_nodes", []) if n not in nodes]
     return out
 
 
@@ -760,7 +794,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
