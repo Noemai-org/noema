@@ -80,3 +80,39 @@ test("REQ-VOI-001 A516: capture stops and tracks close when the browser window l
     expect(await page.evaluate(() => window.frameSizes.length)).toBe(count);
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
+
+test("REQ-VOI-001 A516: hidden document stops capture and prevents further PCM delivery", async ({ page, context }) => {
+  const address = Object.values(networkInterfaces()).flat().find(x => x?.internal && x.family === "IPv4")?.address;
+  if (!address) throw new Error("Local test interface unavailable");
+  const server = createServer((req, res) => {
+    if (req.url === "/voice.js") res.writeHead(200, { "content-type": "text/javascript" }).end(bundle);
+    else res.writeHead(200, { "content-type": "text/html" }).end('<!doctype html><div id="app"></div><script src="/voice.js"></script>');
+  });
+  server.listen(0, address); await once(server, "listening");
+  const origin = `http://${address}:${server.address().port}`;
+  try {
+    await context.grantPermissions(["microphone"], { origin });
+    await page.addInitScript(() => {
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await original(constraints);
+        window.captureTracks = stream.getTracks();
+        return stream;
+      };
+    });
+    await page.goto(origin);
+    const button = page.getByRole("button", { name: "Push to talk" });
+    await button.hover(); await page.mouse.down();
+    await expect(page.getByRole("status")).toHaveText("Recording");
+    await expect.poll(() => page.evaluate(() => window.frameSizes.length)).toBeGreaterThan(0);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect(page.getByText("Recording", { exact: true })).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => window.captureTracks.every((track) => track.readyState === "ended"))).toBe(true);
+    const count = await page.evaluate(() => window.frameSizes.length);
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => window.frameSizes.length)).toBe(count);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
