@@ -12,6 +12,7 @@ model. v0 reads digits only ("20k", "20,000", "20 thousand naira"); numeral word
 
 import hashlib
 import json
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -22,6 +23,9 @@ from typing import Any
 
 from noema_model.platform.config import ConfigError, reject_unknown, require_mapping, require_str
 from noema_model.understanding.pipeline import NormalisedSlots, PipelineInput, Proposal
+
+logger = logging.getLogger(__name__)
+SKIPPED_CODE = "LEXICON_REF_WITHOUT_FILE"
 
 MARK = "[synthetic seed]"
 MAX_SAFE_INT = 9007199254740991
@@ -176,7 +180,7 @@ def load_pack_lexicons(pack: Mapping[str, Any], directory: Path) -> Lexicon:
     """The lexicon of a pack: the files its nodes name in `lexicon_refs`, in the order they are first named, merged (UND-16, run #6; A532).
 
     A ref is a plain id, never a path: the file is `<directory>/<ref>.json` and its own `lexicon_id` must be the ref. A ref with no file is skipped, as the refs for the languages with no lexicon yet always were
-    (`yo`, `ha`, `ig` at this point); a pack none of whose refs has a file is refused. A file the pack does not name is never read."""
+    (`yo`, `ha`, `ig` at this point), and their ids are named once in a warning at start-up so a declared language with no file is visible; a pack none of whose refs has a file is refused. A file the pack does not name is never read."""
     refs: list[str] = []
     for node in require_mapping(pack, "pack").get("intent_nodes") or []:
         for ref in require_mapping(node, "pack.intent_nodes[]").get("lexicon_refs") or []:
@@ -185,9 +189,11 @@ def load_pack_lexicons(pack: Mapping[str, Any], directory: Path) -> Lexicon:
             if ref not in refs:
                 refs.append(ref)
     parts: list[Lexicon] = []
+    without_file: list[str] = []
     for ref in refs:
         path = directory / f"{ref}.json"
         if not path.is_file():
+            without_file.append(ref)
             continue
         part = Lexicon.from_file(path)
         if part.lexicon_id != ref:
@@ -195,6 +201,8 @@ def load_pack_lexicons(pack: Mapping[str, Any], directory: Path) -> Lexicon:
         parts.append(part)
     if not parts:
         raise ConfigError("pack: none of its lexicon_refs has a lexicon file")
+    if without_file:
+        logger.warning(SKIPPED_CODE, extra={"lexicon_refs": sorted(without_file)})  # ids only, once: this runs at start-up, never per request
     return merge_lexicons(parts)
 
 
