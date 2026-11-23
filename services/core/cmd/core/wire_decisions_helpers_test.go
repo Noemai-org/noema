@@ -5,8 +5,7 @@ package main
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,13 +15,17 @@ import (
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpack"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
-	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/trust/grants"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-func decEnv(over map[string]string) Env {
-	m := envMap{EnvTrustDBTimeout: "1000", EnvTrustGrantLifetimeMS: "7000", EnvTrustRecordLifetimeMS: "8000", EnvTrustTxTimeoutMS: "900", EnvTrustEscalationGraph: syntheticEscalationGraph}
+// decEnv is a full environment: the lifetimes, the read bound, the escalation graph and the core-trust signing key directory (one SYNTHETIC key, mode 0400, in a directory of the test).
+func decEnv(t *testing.T, over map[string]string) Env {
+	t.Helper()
+	dir := t.TempDir()
+	writeKey(t, dir, "core-trust.ed25519.1.key", strings.Repeat("c3", 32), 0o400)
+	m := envMap{EnvTrustDBTimeout: "1000", EnvTrustGrantLifetimeMS: "7000", EnvTrustRecordLifetimeMS: "8000", EnvTrustTxTimeoutMS: "900", EnvTrustEscalationGraph: syntheticEscalationGraph,
+		EnvTrustKeyDir: dir, EnvTrustKeyMaxActive: "2"}
 	for k, v := range over {
 		if v == "<unset>" {
 			delete(m, k)
@@ -31,15 +34,6 @@ func decEnv(over map[string]string) Env {
 		m[k] = v
 	}
 	return Env{Getenv: m.get}
-}
-
-func decPackJSON(t *testing.T) []byte {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packs", "fintech_v1.json"))
-	if err != nil {
-		t.Fatalf("read the synthetic pack: %v", err)
-	}
-	return raw
 }
 
 func decPack(t *testing.T) *trustpack.Pack {
@@ -75,15 +69,13 @@ func (decFacts) Facts(context.Context, intake.RecordRequest) (trustport.RecordFa
 func decInputs(t *testing.T, over map[string]string) decisionInputs {
 	t.Helper()
 	return decisionInputs{
-		Env:      decEnv(over),
-		Clock:    clock.NewManual(time.Unix(1_800_000_000, 0)),
-		Pools:    trustport.PoolsOf(map[string]*pgxpool.Pool{}),
-		PackJSON: decPackJSON(t),
-		Pack:     decPack(t),
-		Keys:     decKeys(t),
-		Begin:    decBegin{},
-		Facts:    decFacts{},
-		Appender: &chain.Appender{},
+		Env:   decEnv(t, over),
+		Clock: clock.NewManual(time.Unix(1_800_000_000, 0)),
+		Pools: trustport.PoolsOf(map[string]*pgxpool.Pool{}),
+		Pack:  decPack(t),
+		Keys:  decKeys(t),
+		Begin: decBegin{},
+		Facts: decFacts{},
 	}
 }
 

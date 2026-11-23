@@ -29,7 +29,7 @@ func TestTheRecordersConfigurationIsTheSettingsTheKeysTheSeamsAndThePacksEscalat
 	if cfg.GrantLifetime != 7*time.Second || cfg.RecordLifetime != 8*time.Second || cfg.TxTimeout != 900*time.Millisecond {
 		t.Errorf("lifetimes %v %v %v; want the settings' own (7000, 8000, 900 ms)", cfg.GrantLifetime, cfg.RecordLifetime, cfg.TxTimeout)
 	}
-	if cfg.Keys != in.Keys || cfg.Appender != in.Appender || cfg.Begin != in.Begin || cfg.Facts != in.Facts || cfg.Clock != in.Clock {
+	if cfg.Keys != in.Keys || cfg.Appender == nil || cfg.Begin != in.Begin || cfg.Facts != in.Facts || cfg.Clock != in.Clock {
 		t.Errorf("a seam was dropped or replaced: %+v", cfg)
 	}
 	if cfg.IDs == nil || cfg.Entropy == nil {

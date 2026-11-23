@@ -40,6 +40,15 @@ const (
 	needHandoffAdapter = "an intake.Handoffs adapter over the pack's handoff routes"
 )
 
+// The settings of the core-trust Record signing keys (A548, interim, relayed, not yet committed): the decision records are signed on the Go side and verified by the database
+// (migrations 0012 and 0019). Both are required with the other Recorder inputs and neither has a default (A330).
+const (
+	// EnvTrustKeyDir names the directory that holds the signing keys of the identity core-trust (core-trust.ed25519.<n>.key, mode 0400; execution/signing.LoadRing).
+	EnvTrustKeyDir = "NOEMA_TRUST_KEY_DIR"
+	// EnvTrustKeyMaxActive is how many keys of that identity may be mounted at once: the rotation overlap (REQ-SEC-005). A positive integer.
+	EnvTrustKeyMaxActive = "NOEMA_TRUST_KEY_MAX_ACTIVE"
+)
+
 // Adapter names of the gaps that are not a TrustAdapters field: fields of intake.Service.
 const (
 	gapServiceRunnable = "Service.Runnable"

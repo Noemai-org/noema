@@ -7,10 +7,12 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
+	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpack"
 )
 
 func TestIntentsAreTheStoredIntentsAdapterAndReadOnlyAsTheTenantsOwnLogin(t *testing.T) {
@@ -38,13 +40,13 @@ func TestAnIntentsInputThatIsAbsentIsAGapNamedInFixedTextAndNoError(t *testing.T
 		mutate  func(*decisionInputs)
 		missing []string
 	}{
-		{"no pack bytes", func(in *decisionInputs) { in.PackJSON = nil }, []string{needPackBytes}},
+		{"no pack", func(in *decisionInputs) { in.Pack = nil }, []string{needPack}},
 		{"no logins", func(in *decisionInputs) { in.Pools = nil }, []string{needTrustLogins}},
-		{"no read bound", func(in *decisionInputs) { in.Env = decEnv(map[string]string{EnvTrustDBTimeout: "<unset>"}) }, []string{EnvTrustDBTimeout}},
+		{"no read bound", func(in *decisionInputs) { in.Env = decEnv(t, map[string]string{EnvTrustDBTimeout: "<unset>"}) }, []string{EnvTrustDBTimeout}},
 		{"all three, in the fixed order", func(in *decisionInputs) {
-			in.PackJSON, in.Pools = nil, nil
-			in.Env = decEnv(map[string]string{EnvTrustDBTimeout: "<unset>"})
-		}, []string{needTrustLogins, needPackBytes, EnvTrustDBTimeout}},
+			in.Pack, in.Pools = nil, nil
+			in.Env = decEnv(t, map[string]string{EnvTrustDBTimeout: "<unset>"})
+		}, []string{needTrustLogins, needPack, EnvTrustDBTimeout}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -82,17 +84,29 @@ func TestAnInvalidIntentsReadBoundIsFatalAndNamesTheSettingNotTheValue(t *testin
 	}
 }
 
-// INV-16: pack bytes the adapter cannot trust are a startup error, never a named gap.
-func TestPackBytesTheAdapterCannotTrustAreFatalAndNotAGap(t *testing.T) {
-	for name, raw := range map[string][]byte{"not json": []byte("not json"), "an empty object": []byte("{}")} {
-		in := decInputs(t, nil)
-		in.PackJSON = raw
-		p, err := buildDecisions(in)
-		if !errors.Is(err, trustport.ErrPackData) {
-			t.Errorf("%s: error %v; want ErrPackData", name, err)
+// INV-16: a Pack the adapter cannot trust (a zero Pack holds no pack document) is a startup error, never a named gap.
+func TestAPackTheAdapterCannotTrustIsFatalAndNotAGap(t *testing.T) {
+	in := decInputs(t, nil)
+	in.Pack = &trustpack.Pack{}
+	p, err := buildDecisions(in)
+	if !errors.Is(err, trustport.ErrPackData) {
+		t.Errorf("error %v; want ErrPackData", err)
+	}
+	if _, gapped := decGap(p, "Intents"); gapped || p.Intents != nil {
+		t.Errorf("the bad pack was turned into a gap or an adapter")
+	}
+}
+
+// One source (A548, INV-16): the lane takes the pack once, as a Pack. There is no second field that carries pack bytes, so a copy that disagrees with the Pack cannot be supplied.
+func TestThereIsOneSourceOfThePackAndNoSecondCopyOfItsBytes(t *testing.T) {
+	typ := reflect.TypeOf(decisionInputs{})
+	for _, gone := range []string{"PackJSON", "Appender"} {
+		if _, has := typ.FieldByName(gone); has {
+			t.Errorf("decisionInputs still has the field %s", gone)
 		}
-		if _, gapped := decGap(p, "Intents"); gapped || p.Intents != nil {
-			t.Errorf("%s: the bad pack was turned into a gap or an adapter", name)
-		}
+	}
+	si, _ := buildDecisions(decInputs(t, nil))
+	if si.Intents == nil {
+		t.Fatal("no Intents from a Pack alone")
 	}
 }
