@@ -126,3 +126,12 @@ func TestThePackSaysWhichPackItIs(t *testing.T) {
 		t.Errorf("zero pack Ref() = %q, want none", got)
 	}
 }
+
+// A graph cannot take the place of the pack file: the pack's own bytes are the ones that were verified as the pack (INV-16).
+func TestAGraphCannotHaveTheNameOfThePackFile(t *testing.T) {
+	pack, graphs := verifiedParts(t)
+	graphs[".pack"] = pack
+	if p, err := trustpack.LoadVerified(pack, graphs); !errors.Is(err, trustpack.ErrPack) || p != nil {
+		t.Fatalf("LoadVerified = %v, %v; want a nil Pack and ErrPack", p, err)
+	}
+}
