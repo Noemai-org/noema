@@ -37,3 +37,23 @@ State: PR noema#846 (draft until its CI is green). Tier 1-adjacent: Codex, SR, o
 - Open questions (Codex, SR, IL): the 0400/0600 rule above; a follow-up for `cmd/policypublish`.
 - Files to read first: `services/core/cmd/migrate/dsnfile_unix.go`.
 - Do not touch: merged migrations.
+
+# Session 2026-11-23 · EXE-08 (A518, A521, A527, A528: the password file and the shared reader)
+
+## Session summary
+- What changed (PR links): noema#893. `--dsn-file` is replaced by `--host`, `--port`, `--database`, `--user`, `--password-file` and `--sslmode` (`disable`, `prefer` (default), `require`); the pgx configuration is built in process from the non-secret parts and the password is set on it directly. The password file is read by the shared `trust/grants/keyfiles.ReadFile` (mode exactly 0400, owner the effective user, no link, one descriptor); the command's own `dsnfile_unix.go` and `dsnfile_other.go` are deleted.
+- Why: A521 (no new image, no third credential holder; the one-shot builds its DSN in process), A527 (the password never in argv, the environment, a log or an error), A518 and A528 (one reader, mode exactly 0400, 0600 refused, before migration 0037).
+- Rule changes: 0600 is now refused (it was accepted in #846); a password file that is empty, blank, longer than 1 KiB or holds a line break or a NUL inside is refused.
+- Environment: every `PG*` variable the driver reads is removed from the process before the configuration is parsed, so nothing in the environment can supply the password or change the connection; a test sets them all to wrong values and still connects with the flags and the file. The command reads no environment variable.
+- TLS: `--sslmode` is a closed set. The other logins of the stack name no sslmode in their DSNs (`deploy/compose/trust-dsn/init.py`), so the driver's default `prefer` applies to them; the flag's default is `prefer` for the same reason. `verify-full` is not offered (it needs a root certificate this command does not take).
+- Risks, and how they are contained: a deployment that mounts the password file 0444 or 0600, or root-owned, now fails closed with the fixed sentence (exit 2) before any connection. IL writes the Compose files 0400, owner 65532 (A509).
+- Tests added (REQ-DATA-001, REQ-SEC-001; AGENT-13, INV-29): `migrate_test.go` (every flag refusal; the password in no output for a refused login, a refused file and a bad command line; special characters; the PG environment; the source guard) and `passwordfile_test.go` (modes, link, pipe, foreign owner, no reader of its own).
+- Test defects found in my red and fixed in the green commit (not code defects): the PG-environment test set the variables before the test database helper connected (the helper read them too), and the source guard named only the word `password` and missed the variable `pw` (a mutant that printed `pw` survived until the guard learned the name).
+- Regression cases added: the tests above.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: IL's Compose one-shot calls `migrate --host ... --port ... --database ... --user ... --password-file ... --migrations-dir ...`; the password file is mode 0400, owner 65532, one line.
+- Open questions (IL): the host, port, database and login names the one-shot passes; whether the Compose network speaks TLS (`--sslmode`).
+- Files to read first: `services/core/cmd/migrate/main.go`, `services/core/trust/grants/keyfiles/keyfiles.go` (`ReadFile`).
+- Do not touch: merged migrations.
