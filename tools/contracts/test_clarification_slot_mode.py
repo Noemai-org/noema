@@ -34,7 +34,7 @@ def slot_card():
     d["slot"] = "when"
     d["question_key"] = "fin.clarify.when"
     d["options"] = []
-    for k in ("candidate_set_id", "candidate_set_version", "attribute"):
+    for k in ("candidate_set_id", "candidate_set_version", "attribute", "allow_none", "none_option_id"):  # A593: a SLOT card carries no "None of these"
         d.pop(k, None)
     return d
 
@@ -60,13 +60,36 @@ class SlotMode(unittest.TestCase):
         self.assertTrue(errors(d), "SLOT with an attribute is accepted")
 
     def test_a_slot_card_still_needs_its_other_required_members(self):
-        for k in ("clarification_id", "slot", "question_key", "allow_none", "none_option_id", "expires_at", "round"):
+        for k in ("clarification_id", "slot", "question_key", "expires_at", "round"):
             d = slot_card()
             del d[k]
             self.assertTrue(errors(d), f"SLOT without {k} is accepted")
 
 
+    def test_a_slot_card_never_carries_a_none_choice(self):
+        """A593: nothing to choose from, so no `allow_none` and no `none_option_id`: not required in SLOT mode, and not allowed there, so no card can show one."""
+        for k, v in (("allow_none", True), ("none_option_id", "opt_none")):
+            d = slot_card()
+            d[k] = v
+            self.assertTrue(any(e.validator == "not" for e in errors(d)), f"SLOT with {k} is not refused by the rule that forbids it: {[e.message for e in errors(d)]}")
+
+
 class OtherModes(unittest.TestCase):
+    def test_every_other_mode_still_requires_the_none_choice(self):
+        """A600: allow_none and none_option_id stay required whenever mode is absent, OPTIONS or ATTRIBUTE."""
+        for mode in (None, "OPTIONS"):
+            for k in ("allow_none", "none_option_id"):
+                d = copy.deepcopy(options_card())
+                if mode:
+                    d["mode"] = mode
+                del d[k]
+                self.assertTrue(errors(d), f"mode {mode!r} without {k} is accepted")
+        for p in sorted(FIX.glob("*attribute*.json")):
+            for k in ("allow_none", "none_option_id"):
+                d = json.loads(p.read_text())
+                del d[k]
+                self.assertTrue(errors(d), f"{p.name} without {k} is accepted")
+
     def test_a_card_with_no_mode_an_options_mode_or_an_attribute_mode_still_needs_its_choices(self):
         for mode in (None, "OPTIONS"):
             for k in CANDIDATE_MEMBERS:
