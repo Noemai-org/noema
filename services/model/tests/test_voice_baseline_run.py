@@ -34,8 +34,9 @@ SETTINGS_FILE = {
     "stt_final_s": 20.0, "response_s": 1.0, "tts_first_s": 10.0, "session_s": 40.0, "read_s": 2.0, "close_s": 1.0, "hold_s": 5.0, "concurrency": 1, "min_pause_s": 2.0,
     "connections_per_minute": 3, "connections_per_session": 2, "budget_minutes": 20.0, "utterance_min_s": 5.0, "utterance_max_s": 15.0,
     "open_timeout_s": 10.0, "ping_interval_s": None, "ping_timeout_s": None, "max_message_bytes": 4194304, "tts_poll_s": 0.2,
+    "allowed_hosts": ["example.invalid"],  # A556: the Founder supplies the host the base address is pinned to; the repository never names the vendor's
 }
-WIRE = ("open_timeout_s", "ping_interval_s", "ping_timeout_s", "max_message_bytes", "tts_poll_s")
+WIRE = ("open_timeout_s", "ping_interval_s", "ping_timeout_s", "max_message_bytes", "tts_poll_s", "allowed_hosts")
 
 
 class Clock:
@@ -290,6 +291,7 @@ def test_the_shipped_settings_file_loads_and_holds_the_values_of_a380() -> None:
     assert (loaded.stt_final_s, loaded.response_s, loaded.tts_first_s, loaded.session_s) == (20.0, 1.0, 10.0, 40.0)
     assert (loaded.read_s, loaded.close_s, loaded.hold_s, loaded.concurrency, loaded.min_pause_s, loaded.budget_minutes) == (2.0, 1.0, 5.0, 1, 2.0, 20.0)
     assert bounds == (5.0, 15.0) and (loaded.connections_per_minute, loaded.connections_per_session) == (3, 2) and wire.ping_interval_s is None
+    assert len(wire.allowed_hosts) >= 1  # a placeholder in the repository (never the vendor's host): the Founder sets the real one on the bench host
 
 
 # ---- an item whose audio is outside the bounds is skipped and counted, never sent, and the run goes on ---------------------------------------------------------------------------
@@ -421,3 +423,41 @@ def test_a_refusal_at_the_handshake_is_rejected_only_when_the_vendor_refused_the
     code = main(argv, {"INTRON_API_KEY_FILE": str(key)}, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
     out = capsys.readouterr()
     assert out.out.strip() == word and code == (1) and KEY not in out.out + out.err
+
+
+# ---- A556: the base address is pinned to a host the Founder supplies in the settings file (required, no default) ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", [[], "example.invalid", ["https://example.invalid"], ["example.invalid:443"], ["example.invalid/path"], ["*.example.invalid"], ["Example.Invalid"], ["10.0.0.1"], ["a b"], [""], [1], ["example.invalid", 2], None])
+def test_the_allowlist_must_be_a_non_empty_list_of_plain_lowercase_host_names(tmp_path: Path, bad: object) -> None:
+    with pytest.raises(RunnerConfigError):
+        load_settings(write_json(tmp_path / "s.json", {**SETTINGS_FILE, "allowed_hosts": bad}))
+
+
+def test_the_allowlist_is_loaded_as_given(tmp_path: Path) -> None:
+    _, _, wire = load_settings(write_json(tmp_path / "s.json", {**SETTINGS_FILE, "allowed_hosts": ["example.invalid", "other.example.invalid"]}))
+    assert wire.allowed_hosts == ("example.invalid", "other.example.invalid")
+
+
+@pytest.mark.parametrize("base_url", ["wss://elsewhere.invalid", "wss://example.invalid.evil.invalid", "wss://example.invalid@evil.invalid", "wss://evil.invalid@example.invalid", "wss://example.invalid:8443", "wss://EXAMPLE.invalid.evil.invalid"])
+def test_a_base_address_off_the_allowlist_is_refused_before_any_connection_for_a_run_and_for_check_key(tmp_path: Path, capsys: pytest.CaptureFixture[str], base_url: str) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    spy = Spy()
+    run_args = args(tmp_path, **{"base-url": base_url})
+    assert main(run_args, {"INTRON_API_KEY_FILE": str(key)}, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s)) == 2 and spy.built == 0
+    check = ["--check-key", f"--settings={write_json(tmp_path / 'c.json', SETTINGS_FILE)}", f"--base-url={base_url}"]
+    assert main(check, {"INTRON_API_KEY_FILE": str(key)}, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s)) == 2 and spy.built == 0
+    out = capsys.readouterr()
+    assert KEY not in out.out + out.err and "evil" not in out.out + out.err  # the refusal never echoes the address it refused
+
+
+def test_a_base_address_on_the_allowlist_is_not_refused_for_that_reason(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    spy = Spy()
+    check = ["--check-key", f"--settings={write_json(tmp_path / 'c.json', SETTINGS_FILE)}", "--base-url=wss://example.invalid"]
+    main(check, {"INTRON_API_KEY_FILE": str(key)}, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    assert spy.built == 1  # it got as far as building the connector
