@@ -240,6 +240,22 @@ def check_write_when(pack: dict) -> list[Problem]:
     return out
 
 
+def check_subject_slot(pack: dict) -> list[Problem]:
+    """A520 (interim; DEBT-54): an intent node's optional `subject_slot` names a Resource slot of the SAME node, the slot whose resolved reference is the subject of the intent (the
+    core reads the name from the pack, INV-14). A node with no such slot declares none."""
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        if "subject_slot" not in n:
+            continue
+        name = n["subject_slot"]
+        slot = next((s for s in n["slots"] if s["name"] == name), None)
+        if slot is None:
+            out.append(("subject", f"{n['node_id']}: subject_slot {name!r} is not a slot of the node"))
+        elif slot["type"] != "Resource":
+            out.append(("subject", f"{n['node_id']}: subject_slot {name!r} must be a Resource slot, found {slot['type']}"))
+    return out
+
+
 def check_graph_params(pack: dict, graphs: dict[str, dict], pack_dir: Path) -> list[Problem]:
     """A369 (interim, relayed): a node that declares `params` declares exactly the inputs of its capability (every required input covered, no extra), once each; its slots and map keys
     are the intent nodes' own, its map values are `case_reasons`, its facts are declared predicate variables and its policy params are carried by a PERMIT rule of the capability (and
@@ -708,7 +724,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
