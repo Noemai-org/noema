@@ -58,6 +58,8 @@ type Pack struct {
 	rooted map[string][]string
 	// owned is, for each intent node whose trust profile says the principal must own a slot, what the pack says of that ownership, read at load and judged by OwnershipKinds.
 	owned map[string]nodeOwnership
+	// ref is `<pack id>@<pack version>` as the pack file carries them (Ref).
+	ref string
 }
 
 type nodeAuthority struct {
@@ -101,6 +103,7 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 		return nil, packErr("the capability registry refuses the pack: %v", err)
 	}
 	p := &Pack{reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}}
+	p.ref = string(doc.PackId) + "@" + string(doc.PackVersion)
 	for _, d := range doc.Capabilities {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
 	}
