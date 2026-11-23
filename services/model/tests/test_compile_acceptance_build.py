@@ -320,3 +320,26 @@ def test_the_lexicon_pin_is_the_digest_of_every_lexicon_the_pack_names_not_of_th
     merged = load_pack_lexicons(json.loads(PACK_FILE.read_text(encoding="utf-8")), LEXICON_DIR)
     english = hashlib.sha256((LEXICON_DIR / "fin.lex.en_ng.json").read_bytes()).hexdigest()
     assert pin["lexicon_sha256"] == merged.digest != english
+
+
+# --- run #7 (noema#338; A602): the choices of each example reach the log -----------------------------------------------------------------------------
+
+def test_the_compiler_the_backend_builds_hands_its_choices_to_the_backend_and_the_backend_prints_them_by_case(tmp_path: Path) -> None:
+    from noema_model.understanding.compiler.compiler import SlotChoice
+    from benchmark.compile_acceptance.golden import canonical_input  # type: ignore[import-not-found,unused-ignore]
+    backend = build_backend(True, ENV, BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), args())
+    sink = backend._service._compiler._diagnostics
+    assert sink is not None  # the wiring: without it no run could print a choice
+    with pytest.raises(CompileFailed):
+        run(backend.compile_one(GOLDEN[1]))  # dry: nothing is sent; the example's correlation id is now known to the backend
+    choice = SlotChoice("requested_remedy", None, {"none_or_other": 0.31, "fin.cap.lookup_transaction": 0.5}, None)
+    sink(canonical_input(GOLDEN[1])["correlation_id"], (choice,))
+    assert backend.choice_lines(GOLDEN[1].case_id) == ["CHOICE G-B slot=requested_remedy chosen=none_or_other top5=fin.cap.lookup_transaction:0.5000,none_or_other:0.3100 threshold=n/a"]
+    assert backend.choice_lines("G-A") == [] and backend.choice_lines("nope") == []
+
+
+def test_a_choice_for_a_correlation_id_no_example_used_is_dropped_not_filed_under_another_case(tmp_path: Path) -> None:
+    from noema_model.understanding.compiler.compiler import SlotChoice
+    backend = build_backend(True, ENV, BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), args())
+    backend._service._compiler._diagnostics("corr_unknown", (SlotChoice("requested_remedy", None, {"none_or_other": 1.0}, None),))
+    assert all(backend.choice_lines(g.case_id) == [] for g in GOLDEN)
