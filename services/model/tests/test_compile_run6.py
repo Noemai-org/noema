@@ -399,3 +399,47 @@ def test_the_pidgin_file_and_its_readme_say_synthetic() -> None:
     assert "SYNTHETIC" in pcm["note"]
     readme = (LEXICONS / "README.md").read_text(encoding="utf-8")
     assert "SYNTHETIC" in readme[readme.index("fin.lex.*.json"):readme.index("## Not here yet")]
+
+
+# --- 4. a declared language with no lexicon file is visible at start-up (SR's read of noema#901) ----------------------------------------------------
+
+LEXICON_LOGGER = "noema_model.understanding.compiler.lexicon"
+SKIPPED_CODE = "LEXICON_REF_WITHOUT_FILE"
+
+
+def _skipped_records(caplog: pytest.LogCaptureFixture) -> list[Any]:
+    return [r for r in caplog.records if r.name == LEXICON_LOGGER]
+
+
+def test_the_refs_with_no_file_are_named_once_at_start_up_ids_only(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("DEBUG", logger=LEXICON_LOGGER)
+    copy_lexicon(tmp_path, "fin.lex.en_ng")
+    copy_lexicon(tmp_path, "fin.lex.pcm", **{k: v for k, v in json.loads(PCM_FILE.read_text(encoding="utf-8")).items() if k != "lexicon_id"})
+    load_pack_lexicons(PACK, tmp_path)  # the pack also names yo, ha and ig; none has a file here
+    records = _skipped_records(caplog)
+    assert len(records) == 1, [r.getMessage() for r in records]  # once, not once per ref
+    assert records[0].getMessage() == SKIPPED_CODE  # one fixed code, no free text
+    assert getattr(records[0], "lexicon_refs") == ["fin.lex.ha", "fin.lex.ig", "fin.lex.yo"]  # sorted, only the refs with no file
+    assert str(tmp_path) not in " ".join(str(v) for v in vars(records[0]).values())  # no path
+
+
+def test_nothing_is_logged_when_every_named_ref_has_a_file(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("DEBUG", logger=LEXICON_LOGGER)
+    refs = sorted({r for node in PACK["intent_nodes"] for r in node.get("lexicon_refs") or []})
+    for ref in refs:
+        copy_lexicon(tmp_path, ref)
+    only = {"intent_nodes": [{"lexicon_refs": ["fin.lex.en_ng"]}]}
+    load_pack_lexicons(only, tmp_path)
+    assert _skipped_records(caplog) == []
+
+
+def test_using_the_loaded_lexicon_logs_nothing_more(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("DEBUG", logger=LEXICON_LOGGER)
+    copy_lexicon(tmp_path, "fin.lex.en_ng")
+    lexicon = load_pack_lexicons(PACK, tmp_path)
+    caplog.clear()
+    now = datetime(2026, 11, 16, 12, 30, tzinfo=UTC)
+    proposal = Proposal(intent_node=NODE, reference_slots={}, mentions={"when": _mention("this morning")}, ambiguity_flags=(), locale="en-NG", code_switching=False, probabilities={})
+    for _ in range(3):
+        Normaliser(lexicon, now).normalise(make_input("where is it this morning"), proposal)
+    assert _skipped_records(caplog) == []  # per request: silent
