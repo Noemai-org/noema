@@ -4,11 +4,12 @@ Run #6 (45120524373) ended with exit 1: goldens G-A, G-C and G-D MISSED (a `requ
 inputs ERROR (InputInvalid). What these tests pin, from the code and from the committed recording of the earlier live run (`tests/fixtures/replay/compile-gh44521380842`, rec-0006: for G-A the model
 chose `fin.cap.lookup_transaction` for `requested_remedy` at p 0.78, a capability the customer never asked for):
 
-1. The three failing record-only inputs say `dis morning`, which the lexicon had no phrase for, so there was no window and the pipeline refused the turn at the gate (REQ-CTX-006). The phrase is
-   Pidgin: it goes in the Pidgin lexicon `fin.lex.pcm` (named by the intent node's `lexicon_refs`), never into the English one (A532: a locale is never silently mapped to English).
+1. The three failing record-only inputs say `dis morning`, which the lexicon had no phrase for, so there was no window and the pipeline refused the turn at the gate. The phrase is
+   Pidgin: it goes in the Pidgin lexicon `fin.lex.pcm` (named by the intent node's `lexicon_refs`), never into the English one (A532: a locale is never silently mapped to English); the
+   file is pack data, minimal, and labelled SYNTHETIC (A538). A request with no usable time is no longer refused at all (A535): nothing is read, the proposal carries the slots unresolved, Trust asks.
 2. An optional closed-vocabulary slot (`requested_remedy`) is asked as "does the customer explicitly ask for one of these?", with the abstention that every choice question already offers (A533: the
    schema and the prompt change, not the golden).
-3. An `InputInvalid` carries a closed internal reason, so the next run says WHY (no time window, not text, ...). The public answer does not change.
+3. An `InputInvalid` carries a closed internal reason, so the next run says WHY (not text, unknown pack, ...). The public answer does not change.
 """
 
 import copy
@@ -199,18 +200,28 @@ def candidate_row(at: datetime) -> Candidate:
     return Candidate("c1", "fin.transaction:TXA", 250_000, "NGN", at, "Chidi Okonkwo", "3644", "OUTGOING", True)
 
 
-def test_a_pidgin_request_compiles_with_the_merged_lexicon_and_is_refused_without_the_pidgin_file() -> None:
+def test_a_pidgin_request_compiles_with_the_merged_lexicon_and_without_the_pidgin_file_the_time_is_unresolved_and_nothing_is_read() -> None:
     now = {**CANONICAL, "text": PIDGIN, "received_at": "2026-11-16T12:30:00Z"}
     source = FakeSource((candidate_row(datetime(2026, 11, 16, 10, 0, tzinfo=UTC)),))
     merged = PipelineCompiler({"fin@1.0.0": CONFIG}, load_pack_lexicons(PACK, LEXICONS), harness_for(g_a(mentions=PIDGIN_MENTIONS))[0], source, Minter())
-    service = CompileService(merged, Packs(), max_proposal_bytes=65536, timeout_s=30.0, max_request_bytes=65536)
-    doc = run(service.run(now, "fin@1.0.0", None))
+    doc = through_service_with(merged, now)
     when = next(s for s in doc["slots"].values() if s["type"] == "TimeRef")
     assert when["window"] == ["2026-11-16T04:00:00Z", "2026-11-16T11:00:00Z"] and when["surface_form"] == "dis morning"
-    english_only = PipelineCompiler({"fin@1.0.0": CONFIG}, Lexicon.from_file(EN_FILE), harness_for(g_a(mentions=PIDGIN_MENTIONS))[0], FakeSource((candidate_row(datetime(2026, 11, 16, 10, 0, tzinfo=UTC)),)), Minter())
-    with pytest.raises(InputInvalid) as caught:
-        run(english_only.compile(now, "fin@1.0.0", None))
-    assert caught.value.reason is InputInvalidReason.NO_TIME_WINDOW  # the run #6 failure, now named
+    # Without the Pidgin file the phrase has no window. A535: that is not a refusal. The candidates are not read, the time slot stays UNRESOLVED and says what the customer said,
+    # the resource slot is UNRESOLVED with no candidate set, and Trust asks (CLARIFY).
+    english_only_source = FakeSource((candidate_row(datetime(2026, 11, 16, 10, 0, tzinfo=UTC)),))
+    english_only = PipelineCompiler({"fin@1.0.0": CONFIG}, Lexicon.from_file(EN_FILE), harness_for(g_a(mentions=PIDGIN_MENTIONS))[0], english_only_source, Minter())
+    unresolved = through_service_with(english_only, now)
+    slot = next(s for s in unresolved["slots"].values() if s["type"] == "TimeRef")
+    assert slot["status"] == "UNRESOLVED" and "window" not in slot and slot["surface_form"] == "dis morning"
+    assert english_only_source.queries == []  # no window, no read (the Evidence API's contract needs one; nothing is sent against it)
+    resource = next(s for s in unresolved["slots"].values() if s["type"] == "Resource")
+    assert resource == {"type": "Resource", "status": "UNRESOLVED"}
+
+
+def through_service_with(compiler: PipelineCompiler, canonical: dict[str, Any]) -> dict[str, Any]:
+    service = CompileService(compiler, Packs(), max_proposal_bytes=65536, timeout_s=30.0, max_request_bytes=65536)
+    return cast(dict[str, Any], run(service.run(canonical, "fin@1.0.0", None)))
 
 
 # --- 2. the optional slot is asked as an explicit request (A533) ---------------------------------------------------------------------------------
@@ -268,7 +279,7 @@ def test_an_explicit_request_still_reaches_the_slot() -> None:  # G-E must still
 
 def test_the_reasons_are_a_closed_set() -> None:
     assert {r.value for r in InputInvalidReason} == {
-        "NO_TIME_WINDOW", "NOT_FINAL_TRANSCRIPT", "CANDIDATE_REQUEST_INVALID", "UNKNOWN_PACK", "NOT_TEXT_CHANNEL", "BAD_RECEIVED_AT", "IDENTITY_INVALID",
+        "NOT_FINAL_TRANSCRIPT", "CANDIDATE_REQUEST_INVALID", "UNKNOWN_PACK", "NOT_TEXT_CHANNEL", "BAD_RECEIVED_AT", "IDENTITY_INVALID",
     }
 
 
@@ -282,12 +293,20 @@ def piped(norm: Any = normaliser, source: Any = None, **over: Any) -> Any:
 
 
 def test_the_pipeline_names_why_it_refused_as_invalid_input() -> None:
-    none = piped(_no_window)
-    assert none.outcome is Outcome.REJECTED_AT_GATE and none.gate_errors == ("INPUT_INVALID",) and none.input_invalid is InputInvalidReason.NO_TIME_WINDOW
     voice = piped(channel="voice", transcript_is_final=False)
     assert voice.input_invalid is InputInvalidReason.NOT_FINAL_TRANSCRIPT
     refused = piped(source=FakeSource(raises=CandidateRequestInvalid()))
     assert refused.input_invalid is InputInvalidReason.CANDIDATE_REQUEST_INVALID
+
+
+def test_a_request_with_no_time_window_is_proposed_with_nothing_read_and_no_refusal() -> None:
+    """A535 (interim): no default window and no refusal. The turn is PROPOSED, no read is made, there is no resolution to report, and the flag for an empty search is not raised."""
+    source = FakeSource((candidate_row(datetime(2026, 10, 21, 8, 0, tzinfo=UTC)),))
+    none = piped(_no_window, source=source)
+    assert none.outcome is Outcome.PROPOSED and none.gate_errors == () and none.input_invalid is None
+    assert source.queries == [] and none.query is None and none.resolution is None
+    assert "NO_TRANSACTION_MATCH" not in none.ambiguity_flags  # that code is for a search that ran and came back empty (REQ-AMB-002)
+    assert none.proposal is not None and none.proposal.intent_node == NODE
 
 
 def test_a_turn_that_is_not_invalid_input_names_no_reason() -> None:
@@ -307,8 +326,6 @@ def test_the_compiler_names_each_refusal() -> None:
     assert compile_raises({**CANONICAL, "channel": "voice"}).reason is InputInvalidReason.NOT_TEXT_CHANNEL
     for bad in ("2026-10-21T08:00:00", "yesterday", None):
         assert compile_raises({**CANONICAL, "received_at": bad}).reason is InputInvalidReason.BAD_RECEIVED_AT
-    nothing = {"when": {"present": False, "surface_form": "", "proposed_value": "", "confidence": 0.0}}
-    assert compile_raises({**CANONICAL, "text": "Wetin happen to the 20k wey I send Tunde?"}, mentions={**GOOD_MENTIONS, **nothing}).reason is InputInvalidReason.NO_TIME_WINDOW
 
 
 def test_the_service_names_its_own_refusals() -> None:
@@ -342,3 +359,43 @@ def test_the_public_answer_is_the_same_for_every_reason_and_names_none() -> None
         assert all(name.value not in answer.text for name in InputInvalidReason)
         bodies.append(answer.text)
     assert len(set(bodies)) == 1
+
+
+NO_MENTION = {"present": False, "surface_form": "", "proposed_value": "", "confidence": 0.0}
+NO_WHEN = {"when": NO_MENTION}
+
+
+def test_a_request_with_no_time_reference_compiles_with_the_slots_unresolved_and_nothing_is_read() -> None:
+    """A535: the proposal is the contract's own shape for 'not known': no `when` slot (a TimeRef needs the words the customer used, and there are none) and a Resource slot that is
+    UNRESOLVED with no candidate set. The service's schema gate accepts it."""
+    source = FakeSource((candidate_row(datetime(2026, 10, 21, 8, 0, tzinfo=UTC)),))
+    compiler = PipelineCompiler({"fin@1.0.0": CONFIG}, Lexicon.from_file(EN_FILE), harness_for(g_a(mentions={**GOOD_MENTIONS, **NO_WHEN}))[0], source, Minter())
+    doc = through_service_with(compiler, {**CANONICAL, "text": "Wetin happen to the 20k wey I send Tunde?"})
+    assert source.queries == []
+    assert not [s for s in doc["slots"].values() if s["type"] == "TimeRef"]
+    assert next(s for s in doc["slots"].values() if s["type"] == "Resource") == {"type": "Resource", "status": "UNRESOLVED"}
+    assert doc["intent_node"] == NODE and "NO_TRANSACTION_MATCH" not in doc["ambiguity_flags"]
+
+
+def test_goldens_b_and_e_are_met_by_a_proposal_with_no_time_slot() -> None:
+    """The goldens stay as they are (A535): neither expects a time slot, and both expect a proposal."""
+    import sys
+    sys.path.insert(0, str(ROOT))
+    from benchmark.compile_acceptance.golden import GOLDEN, check  # type: ignore[import-not-found,unused-ignore]
+    by_id = {g.case_id: g for g in GOLDEN}
+    for case_id, answers in (("G-B", {}), ("G-E", {"question_type": "RESEND_ADVICE", "requested_remedy": "fin.cap.transfer_funds"})):
+        golden = by_id[case_id]
+        mentions = {**GOOD_MENTIONS, **NO_WHEN, "amount": NO_MENTION}
+        if golden.counterparty is None:
+            mentions["counterparty"] = NO_MENTION
+        compiler = PipelineCompiler({"fin@1.0.0": CONFIG}, Lexicon.from_file(EN_FILE), harness_for(g_a(answers=answers, mentions=mentions))[0], FakeSource(()), Minter())
+        doc = through_service_with(compiler, {**CANONICAL, "text": golden.text})
+        assert check(golden, doc) == [], (case_id, check(golden, doc))
+
+
+def test_the_pidgin_file_and_its_readme_say_synthetic() -> None:
+    """A538 / AGENT-25: the lexicon is pack data labelled SYNTHETIC, in the file's own note and where the files are described."""
+    pcm = json.loads(PCM_FILE.read_text(encoding="utf-8"))
+    assert "SYNTHETIC" in pcm["note"]
+    readme = (LEXICONS / "README.md").read_text(encoding="utf-8")
+    assert "SYNTHETIC" in readme[readme.index("fin.lex.*.json"):readme.index("## Not here yet")]
