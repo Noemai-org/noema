@@ -103,3 +103,10 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 
 ## Pre-work for the next agent
 - Exact next step: unchanged (Founder: key file, real host in `allowed_hosts`, `--check-key`, `start` on noema#767).
+
+# Session 2026-11-23 · VOI-16 (SR's atomic report in noema#824)
+
+## Session summary
+- What changed (noema#824): the report is written whole to a temporary file beside it, flushed to disk, and renamed over the path (then the directory is flushed), so a crash never leaves a half-written report; the empty placeholder that reserves the path is kept (an existing report still refuses the run before any credit is spent) and is removed only while it is still empty and still the same file (A587).
+- Tests: red first at fea29a0f (three tests); mutants of the rename, the temp-file cleanup, the identity check and both flushes each caught.
+- Debt entries: none. Conflicts raised: none.

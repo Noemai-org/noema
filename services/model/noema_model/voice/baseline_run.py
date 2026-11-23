@@ -291,8 +291,9 @@ def _request(locale: Locale) -> StreamRequest:
 
 
 class ReportFile:
-    """The report file, created once, owner-only and never over an existing file, and rewritten whole after every session (A568): the new content is written in place and only then is the file cut
-    to its length, so the file is never empty and a longer earlier version leaves nothing behind."""
+    """The report file. It is created once, owner-only and never over an existing file, as an empty placeholder that reserves the path (so an existing report refuses the run before any credit is
+    spent). Every `write` builds the whole new document in a temporary file beside it, flushes it to disk, and renames it over the path: the path therefore always holds either the placeholder or a
+    complete report, never a half-written one, whatever crashes (SR on #824). The placeholder's descriptor stays open so that its identity (device and inode) cannot be reused by another file."""
 
     def __init__(self, descriptor: int, path: Path) -> None:
         self._descriptor = descriptor
@@ -307,21 +308,39 @@ class ReportFile:
 
     def write(self, report: dict[str, object]) -> None:
         data = json.dumps(report, indent=2, sort_keys=True).encode("utf-8")
-        written = 0
-        while written < len(data):
-            written += os.pwrite(self._descriptor, data[written:], written)
-        os.ftruncate(self._descriptor, len(data))
-        os.fsync(self._descriptor)
+        temporary = self._path.with_name(f".{self._path.name}.{os.getpid()}.tmp")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            try:
+                written = 0
+                while written < len(data):
+                    written += os.write(descriptor, data[written:])
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.replace(temporary, self._path)  # atomic: the path holds the old report or the new one, never a mixture
+        except BaseException:
+            try:
+                os.unlink(temporary)  # a failed write leaves no temporary file behind
+            except OSError:
+                pass
+            raise
+        self._sync_directory()
+
+    def _sync_directory(self) -> None:
+        directory = os.open(self._path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0))
+        try:
+            os.fsync(directory)  # the rename itself is on disk, not only the file
+        finally:
+            os.close(directory)
 
     def discard_if_empty(self) -> None:
-        """A587: a run that failed before any session leaves an empty file that would refuse the rerun, so it is removed: only if it is still empty and only if the path still names THIS file (the
-        same device and inode), never a report with anything in it and never somebody else's file."""
+        """A587: a run that failed before any session leaves the empty placeholder, which would refuse the rerun, so it is removed: only if it is still empty and only if the path still names THIS
+        placeholder (the same device and inode), never a report with anything in it and never somebody else's file."""
         try:
             held = os.fstat(self._descriptor)
-            if held.st_size != 0:
-                return
             present = os.lstat(self._path)
-            if (present.st_dev, present.st_ino) == (held.st_dev, held.st_ino):
+            if present.st_size == 0 and (present.st_dev, present.st_ino) == (held.st_dev, held.st_ino):
                 os.unlink(self._path)
         except OSError:
             pass  # the file is gone or cannot be removed: the Founder deletes it, and nothing non-empty was touched

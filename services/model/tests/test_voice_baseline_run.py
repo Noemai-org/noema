@@ -727,3 +727,26 @@ def test_a_first_write_that_fails_leaves_only_the_empty_placeholder_which_is_the
     report_file.discard_if_empty()
     report_file.close()
     assert list(tmp_path.iterdir()) == []
+
+
+@POSIX
+def test_the_new_report_and_then_the_rename_are_flushed_to_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    report_file = ReportFile.create(tmp_path / "report.json")
+    calls: list[str] = []
+    real_fsync, real_replace = os.fsync, os.replace
+
+    def fsync(descriptor: int) -> None:
+        calls.append("fsync directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "fsync file")
+        real_fsync(descriptor)
+
+    def replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        calls.append("rename")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "replace", replace)
+    report_file.write({"n": 1})
+    report_file.close()
+    assert calls == ["fsync file", "rename", "fsync directory"]  # the contents are on disk before the rename, and the rename is on disk after it
