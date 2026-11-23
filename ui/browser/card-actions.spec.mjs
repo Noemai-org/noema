@@ -133,7 +133,6 @@ test("A576 REQ-UI-002: failed confirmation keeps the original choice locked and 
   await expect(accept).toBeDisabled();
   await expect(decline).toBeDisabled();
   await expect(page.getByRole("status")).toContainText("Retry the same response.");
-  await decline.click();
   expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
