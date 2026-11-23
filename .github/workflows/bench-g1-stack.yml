@@ -103,8 +103,8 @@ jobs:
             [ "$collector_dead" -eq 0 ] || code=3
             # A445 (interim): reported now, required once the final composition PR merges (READINESS_REQUIRED in the Result step). /readyz is asked from the runner, which is on the core's network;
             # the netcheck is the static profile check over the resolved Compose configuration. Neither changes the stack-check's own code here.
-            $compose exec -T bench-runner python -c 'import http.client as h; c = h.HTTPConnection("core", 8080, timeout=5); c.request("GET", "/readyz"); print(c.getresponse().status)' >> benchmark/out/joblog/readyz.log 2>&1
-            readyz="$(tail -n 1 benchmark/out/joblog/readyz.log)"
+            $compose exec -T bench-runner python -c 'import http.client as h; c = h.HTTPConnection("core", 8080, timeout=5); c.request("GET", "/readyz"); r = c.getresponse(); print(r.status); print(r.read(4096).decode("utf-8", "replace"))' >> benchmark/out/joblog/readyz.log 2>&1
+            readyz="$(head -n 1 benchmark/out/joblog/readyz.log)"
             echo "stack-check: /readyz answered ${readyz:-nothing}"
             netcheck=0
             python3 -I deploy/compose/netcheck/profiles.py > /dev/null 2>&1 || netcheck=$?
@@ -303,6 +303,8 @@ jobs:
             echo "Criterion 6, the recorded FaultPlans (id, seed, producer per case): exit ${FAULT_PLANS:-missing} (0 is met). Criterion 9, one negative probe of each kind per case: exit ${PROBES:-missing} (0 is met). The access log shows the handler ran for no refusal: exit ${RECORD_ACCESS:-missing} (0 is met)."
             [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
             [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
+            # A stack-check has neither file, and a group ends with its last command's status: without this the step failed a healthy stack (the first stack-check run, 23 Nov).
+            true
           } > benchmark/out/summary.md
       # The stack stops before the scan, so nothing is still writing to the files that are scanned and uploaded (Security Reviewer's note on noema#591).
       - name: Stop the stack

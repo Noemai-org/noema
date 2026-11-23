@@ -530,6 +530,28 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn("RECORD_ACCESS: ${{ steps.access.outputs.record_access }}", result.group(0))
         self.assertRegex(result.group(0), r'\[ "\$\{RECORD_ACCESS:-missing\}" = 0 \] \|\| \{[^\n]*fail=1')
 
+    def test_the_summary_step_succeeds_in_stack_check_mode_where_no_run_files_exist(self) -> None:
+        # Found by the first stack-check run on main (23 Nov): the last line of the Summary group was `[ -f score/scorecard.json ] && {...}`, which exits 1 when the file is absent, and a stack-check
+        # run has none, so the step failed a healthy stack. The step is run here, as written, in an empty output directory.
+        step = re.search(r"(?ms)- name: Summary\n.*?        run: \|\n(.*?)(?=^      # |^      - name:)", self.text)
+        assert step, "no Summary step"
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "benchmark", "out").mkdir(parents=True)
+            env = {"PATH": os.environ.get("PATH", ""), "MODE": "stack-check", "CODE": "0", "RUN_ID": "g1-stack-ghtest", "READYZ": "503", "NETCHECK": "0"}
+            r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("STACK-CHECK", Path(tmp, "benchmark", "out", "summary.md").read_text(encoding="utf-8"))
+
+    def test_the_stack_check_keeps_the_readyz_answer_that_names_every_missing_component(self) -> None:
+        # /readyz is 503 until every component is built and names each one that is not (names only, never a value: services/core/cmd/core/compose.go). The status alone told nobody what was missing,
+        # so the first line is the status and the rest is the body, capped, in the run output that is shown only after a clean leak scan.
+        block = re.search(r'(?s)if \[ "\$MODE" = stack-check \]; then(.*?)\n          else\n', self.script)
+        assert block
+        self.assertIn("print(r.status)", block.group(1))
+        self.assertRegex(block.group(1), r"r\.read\(\d+\)")
+        self.assertIn('readyz="$(head -n 1 benchmark/out/joblog/readyz.log)"', block.group(1))
+
 
 if __name__ == "__main__":
     unittest.main()
