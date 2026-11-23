@@ -12,19 +12,43 @@ import sys
 
 SRC = os.environ.get("TRUST_DSN_SRC", "/run/secrets")
 OUT = os.environ.get("TRUST_DSN_OUT", "/out")
+EMITTERS = os.environ.get("TRUST_DSN_EMITTERS", "/run/emitter_logins")
+# A506 (interim, from the code): the core loads four DSN directories, one file per tenant named by the tenant id. TRUST_DSN_JOBS is "<group>:<directory> ..."; without it there is one job, the
+# Trust login into TRUST_DSN_OUT. The first three groups use the shared tenant login password; `edge` is the per-login emitter secret of the core-edge login.
+GROUPS = ("trust_rw", "orchestrator_rw", "record_read", "edge")
+WRITTEN: list[str] = []  # every file made by any job: a failure removes all of them, so no half-written set is left
 HOST, PORT, DATABASE = "postgres", "5432", "noema"
 TENANT = re.compile(r"^ten_[0-9A-Za-z]{2,32}$")  # the core's tenantFileRe, and provision-tenants.sh's rule
 PASSWORD = re.compile(r"^[A-Za-z0-9._~-]{16,}$")  # nothing that is a separator in a URL, so the DSN means what it says without quoting
 
 
-def fail(message: str, written: tuple[str, ...] = ()) -> None:
+def fail(message: str) -> None:
     print(f"trust-dsn-init: {message}", file=sys.stderr)
-    for name in written:
+    for path in WRITTEN:
         try:
-            os.unlink(os.path.join(OUT, name))
+            os.unlink(path)
         except FileNotFoundError:
             pass
     sys.exit(1)
+
+
+def login_of(group: str, tenant: str) -> str:
+    return f"record_emitter__{tenant}__core-edge" if group == "edge" else f"{group}__{tenant}"
+
+
+def jobs() -> list[tuple[str, str]]:
+    spec = os.environ.get("TRUST_DSN_JOBS")
+    if spec is None:
+        return [("trust_rw", OUT)]
+    found: list[tuple[str, str]] = []
+    for item in spec.split():
+        group, _, out = item.partition(":")
+        if group not in GROUPS or not out.startswith("/") or ".." in out.split("/"):
+            fail("a job of TRUST_DSN_JOBS is not <group>:<absolute directory> of a known group")
+        found.append((group, out))
+    if not found or len({g for g, _ in found}) != len(found) or len({o for _, o in found}) != len(found):
+        fail("TRUST_DSN_JOBS must name each group and each directory once, and at least one job")
+    return found
 
 
 def ident(name: str) -> int:
@@ -71,30 +95,51 @@ def main() -> None:
             fail("a tenant in TRUST_DSN_TENANTS is not a tenant ID (ten_ and 2 to 32 letters or digits)")
     if len(set(tenants)) != len(tenants):
         fail("a tenant is named twice in TRUST_DSN_TENANTS")
-    try:
-        with open(os.path.join(SRC, "noema_tenant_login_password"), "rb") as f:
-            password = f.read().decode("utf-8", "replace").strip()
-    except OSError:
-        fail("noema_tenant_login_password cannot be read")
-    if not PASSWORD.match(password):
-        fail("noema_tenant_login_password is not at least 16 letters, digits or . _ ~ - (a DSN would need quoting)")
+    plan = jobs()  # every job is checked before any file is written
+    passwords: dict[tuple[str, str], str] = {}
+    shared = ""
+    if any(group != "edge" for group, _ in plan):
+        try:
+            with open(os.path.join(SRC, "noema_tenant_login_password"), "rb") as f:
+                shared = f.read().decode("utf-8", "replace").strip()
+        except OSError:
+            fail("noema_tenant_login_password cannot be read")
+        if not PASSWORD.match(shared):
+            fail("noema_tenant_login_password is not at least 16 letters, digits or . _ ~ - (a DSN would need quoting)")
+    for group, _ in plan:
+        for tenant in tenants:
+            if group != "edge":
+                passwords[(group, tenant)] = shared
+                continue
+            try:
+                with open(os.path.join(EMITTERS, f"{tenant}__core-edge"), "rb") as f:
+                    secret = f.read().decode("utf-8", "replace").strip()
+            except OSError:
+                fail("a core-edge login secret cannot be read")
+            if not PASSWORD.match(secret):
+                fail("a core-edge login secret is not at least 16 letters, digits or . _ ~ - (a DSN would need quoting)")
+            passwords[(group, tenant)] = secret
+    for group, out in plan:
+        run_job(group, out, tenants, passwords, uid, gid)
+
+
+def run_job(group: str, out: str, tenants: list[str], passwords: dict[tuple[str, str], str], uid: int, gid: int) -> None:
     # The volume is persistent and the core builds a pool for every file in it: a tenant dropped from the list must not keep its DSN file, and anything that is not a tenant file stops the step (C1's P3).
-    for name in os.listdir(OUT):
-        path = os.path.join(OUT, name)
+    for name in os.listdir(out):
+        path = os.path.join(out, name)
         if not TENANT.match(name) or os.path.islink(path) or not os.path.isfile(path):
             fail("the DSN volume holds an entry that is not a tenant file")
         if name not in tenants:
             os.unlink(path)
-    written: list[str] = []
     for tenant in tenants:
-        dsn = f"postgres://trust_rw__{tenant}:{password}@{HOST}:{PORT}/{DATABASE}"
-        dst = os.path.join(OUT, tenant)
+        dsn = f"postgres://{login_of(group, tenant)}:{passwords[(group, tenant)]}@{HOST}:{PORT}/{DATABASE}"
+        dst = os.path.join(out, tenant)
         try:
             os.unlink(dst)
         except FileNotFoundError:
             pass
         fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
-        written.append(tenant)
+        WRITTEN.append(dst)
         try:
             os.write(fd, (dsn + "\n").encode("utf-8"))
             os.fchown(fd, uid, gid)
@@ -102,14 +147,14 @@ def main() -> None:
         finally:
             os.close(fd)
     for tenant in tenants:
-        dst = os.path.join(OUT, tenant)
+        dst = os.path.join(out, tenant)
         st = os.stat(dst)
         if stat.S_IMODE(st.st_mode) != 0o400 or st.st_uid != uid:
-            fail(f"{tenant} is not mode 0400 owned by {uid}", tuple(written))
+            fail(f"{tenant} is not mode 0400 owned by {uid}")
         got = read_as(dst, uid, gid)
-        if got is None or not got.decode("utf-8", "replace").startswith(f"postgres://trust_rw__{tenant}:"):
-            fail(f"{tenant} cannot be read as user {uid}", tuple(written))
-        print(f"trust-dsn-init: {tenant} written, mode 0400, owner {uid}, readable by that user")
+        if got is None or not got.decode("utf-8", "replace").startswith(f"postgres://{login_of(group, tenant)}:"):
+            fail(f"{tenant} cannot be read as user {uid}")
+        print(f"trust-dsn-init: {group}: {tenant} written, mode 0400, owner {uid}, readable by that user")
 
 
 if __name__ == "__main__":

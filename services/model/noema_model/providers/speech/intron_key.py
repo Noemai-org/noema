@@ -10,7 +10,7 @@ import stat
 from collections.abc import Callable, Mapping
 
 ENV_KEY_FILE = "INTRON_API_KEY_FILE"
-MAX_KEY_BYTES = 512  # a ceiling on what is read, so a wrong file (a log, a binary) is refused instead of loaded; Intron's keys are far shorter
+MAX_KEY_BYTES = 4096  # a ceiling on what is read, so a wrong file (a log, a binary) is refused instead of loaded. It is NOT a rule of the vendor: the credential Intron issued is 654 bytes, which the first ceiling (512, my assumption that keys are short) refused
 _FORBIDDEN_MODE = stat.S_IRWXG | stat.S_IRWXO | stat.S_IXUSR
 
 
@@ -37,12 +37,12 @@ def key_reader(environ: Mapping[str, str]) -> Callable[[], str]:
                 raise KeyFileError("the Intron key file must be readable by its owner only")
             if os.name != "nt" and info.st_uid != getattr(os, "geteuid")():
                 raise KeyFileError("the Intron key file must be owned by the user that reads it")  # the SEC-09 loader pattern (SR on #689)
-            raw = os.read(descriptor, MAX_KEY_BYTES + 1)
+            raw = os.read(descriptor, MAX_KEY_BYTES + 2)  # the ceiling counts the key, not its one optional trailing newline
         except OSError:
             raise KeyFileError("the Intron key file cannot be read") from None
         finally:
             os.close(descriptor)
-        if len(raw) > MAX_KEY_BYTES:
+        if len(raw.removesuffix(b"\n")) > MAX_KEY_BYTES:
             raise KeyFileError("the Intron key file is too large to be a key")
         try:
             key = raw.decode("ascii").removesuffix("\n")

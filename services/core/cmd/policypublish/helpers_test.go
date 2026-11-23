@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -153,11 +154,15 @@ func buildWorld(t *testing.T, legacyVersion string) *world {
 	return w
 }
 
-// dsnFile writes the DSN of a pool's login into a file only its owner can read, as the deploy step mounts one.
+// dsnFile writes the DSN of a pool's login into a file only its owner can read (0400, as the deploy step writes one; A509), as the deploy step mounts one.
 func (w *world) dsnFile(name, dsn string) string {
 	w.t.Helper()
 	p := filepath.Join(w.files, name)
-	if err := os.WriteFile(p, []byte(dsn+"\n"), 0o600); err != nil {
+	// A file written 0400 cannot be opened for writing again by its owner, so a test that asks for the same name twice replaces it (as the deploy step does when it rewrites a secret).
+	if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(dsn+"\n"), 0o400); err != nil {
 		w.t.Fatal(err)
 	}
 	return p

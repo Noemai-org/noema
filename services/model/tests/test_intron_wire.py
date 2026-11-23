@@ -87,3 +87,23 @@ def test_anything_not_understood_is_malformed_never_skipped_and_never_echoed(raw
         parse_server_message(raw)
     assert caught.value.kind is ProviderFailure.MALFORMED
     assert raw[:20] not in str(caught.value) or raw == ""  # the body is never in the error text (AGENT-13)
+
+
+# ---- the error messages of Intron's streaming speech-to-text page (read 21 Nov 2026) become typed failures, not MALFORMED ---------------------------------------------------
+
+
+@pytest.mark.parametrize("kind,failure", [
+    ("AUTHENTICATION_ERROR", ProviderFailure.REJECTED),
+    ("RESOURCE_EXHAUSTED", ProviderFailure.RATE_LIMITED),
+    ("SESSION_TIME_LIMIT_EXCEEDED", ProviderFailure.TIMEOUT),
+    ("INSUFFICIENT_AUDIO_ACTIVITY", ProviderFailure.TIMEOUT),
+    ("ERROR", ProviderFailure.UNAVAILABLE),
+    ("INPUT_ERROR", ProviderFailure.MALFORMED),
+    ("CHUNK_SIZE_TOO_SMALL", ProviderFailure.MALFORMED),
+    ("CHUNK_SIZE_TOO_LARGE", ProviderFailure.MALFORMED),
+    ("CHUNK_ID_MISMATCH_WITH_TOTAL", ProviderFailure.MALFORMED),
+])
+def test_a_documented_vendor_error_is_a_typed_failure_with_no_body_in_it(kind: str, failure: ProviderFailure) -> None:
+    with pytest.raises(ProviderError) as caught:
+        parse_server_message(json.dumps({"message_type": kind, "message": "secret detail of the vendor", "status": "x"}))
+    assert caught.value.kind is failure and "secret" not in str(caught.value)

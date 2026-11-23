@@ -384,5 +384,58 @@ class CodexP2Round2(unittest.TestCase):
         self.assertEqual(kinds("n 4111111111111111"), ["card_number"])
 
 
+class ScannedInventory(unittest.TestCase):
+    """Codex P2 on #875: the scan says how many files it read, never which. `--list-scanned` writes the names of the files it actually read (relative to `--list-root`), only for a clean scan."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "art" / "sub").mkdir(parents=True)
+        (self.root / "art" / "a.log").write_text("ok 12\n", encoding="utf-8")
+        (self.root / "art" / "sub" / "b.log").write_text("fine\n", encoding="utf-8")
+        self.out = self.root / "scanned.txt"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_main(self, *args):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = s.main(list(args))
+        return code, buf.getvalue()
+
+    def test_a_clean_scan_lists_exactly_the_files_it_read_relative_to_the_root(self):
+        code, text = self.run_main("--list-scanned", str(self.out), "--list-root", str(self.root), str(self.root / "art"))
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.out.read_text(encoding="utf-8").split("\n"), ["art/a.log", "art/sub/b.log", ""])
+
+    def test_scan_paths_reports_the_names_it_counted(self):
+        names = []
+        _, n_files, _ = s.scan_paths([str(self.root / "art")], scanned=names)
+        self.assertEqual(n_files, len(names))
+
+    def test_a_scan_with_a_finding_writes_no_list_and_removes_a_stale_one(self):
+        (self.root / "art" / "leak.log").write_text("paid " + CARD + "\n", encoding="utf-8")
+        self.out.write_text("stale\n", encoding="utf-8")
+        code, _ = self.run_main("--list-scanned", str(self.out), "--list-root", str(self.root), str(self.root / "art"))
+        self.assertEqual(code, 1)
+        self.assertFalse(self.out.exists())
+
+    def test_a_file_outside_the_root_is_refused(self):
+        other = tempfile.TemporaryDirectory()
+        try:
+            (Path(other.name) / "c.log").write_text("fine\n", encoding="utf-8")
+            code, text = self.run_main("--list-scanned", str(self.out), "--list-root", str(self.root), str(Path(other.name)))
+            self.assertEqual(code, 2, text)
+            self.assertFalse(self.out.exists())
+        finally:
+            other.cleanup()
+
+    def test_no_list_is_written_unless_asked(self):
+        code, _ = self.run_main(str(self.root / "art"))
+        self.assertEqual(code, 0)
+        self.assertFalse(self.out.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

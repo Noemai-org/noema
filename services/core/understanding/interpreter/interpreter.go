@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -95,6 +96,7 @@ type Input struct {
 	Actor         string // "<kind>:<id>" of the session's principal, as the Record writes it
 	CorrelationID string // the investigation's, minted by the core
 	Request       understanding.CompileRequest
+	RawRef        string // the object_ref of the recorded INPUT_RECEIVED (A184, A219); the core writes it over the model's source.raw_ref
 }
 
 // Result is an admitted and saved intent: the admitted intent and the reference of its INTENT_ADMITTED event.
@@ -106,6 +108,8 @@ type Result struct {
 var (
 	actorRe = regexp.MustCompile(`^[a-z]+:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	corrRe  = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+	// rawRefRe is the shape of the object_ref the core mints for an input (common.v1, A184). \A and \z: a trailing newline is not a match.
+	rawRefRe = regexp.MustCompile(`\Areq_[0-9A-HJKMNP-TV-Z]{26}\z`)
 )
 
 func validate(in Input) error {
@@ -113,7 +117,7 @@ func validate(in Input) error {
 	if !s.Valid() { // the gate's own rule for the whole session, before the model service sees anything (Codex P2 on noema#519)
 		return ErrInput
 	}
-	if !actorRe.MatchString(in.Actor) || !strings.HasSuffix(in.Actor, ":"+s.PrincipalID) || !corrRe.MatchString(in.CorrelationID) {
+	if !actorRe.MatchString(in.Actor) || !strings.HasSuffix(in.Actor, ":"+s.PrincipalID) || !corrRe.MatchString(in.CorrelationID) || !rawRefRe.MatchString(in.RawRef) {
 		return ErrInput
 	}
 	return nil
@@ -134,6 +138,11 @@ func (i *Interpreter) Interpret(ctx context.Context, in Input) (Result, error) {
 		}
 		return Result{}, wrap(ErrCompile, err)
 	}
+	doc, err := withRawRef(compiled.IntentObject, in.RawRef)
+	if err != nil {
+		return Result{}, wrap(ErrCompile, err)
+	}
+	compiled.IntentObject = doc
 	subject := Subject{TenantID: in.Session.TenantID, Actor: in.Actor, CorrelationID: in.CorrelationID}
 	adm, err := i.c.Gate.Admit(compiled.IntentObject, in.Session, in.CorrelationID)
 	if err != nil {
@@ -173,3 +182,37 @@ func admitted(a understanding.AdmittedIntent) intentstore.Admitted {
 	return intentstore.Admitted{TenantID: string(o.TenantId), IntentID: string(o.IntentId), Version: int(o.Version), Supersedes: sup, IntentNode: string(o.IntentNode),
 		IntentHash: a.Hash(), CorrelationID: string(o.CorrelationId), JSON: a.JSON()}
 }
+
+// withRawRef writes the core's reference to the recorded input over whatever the model put in `source.raw_ref`, including the unset marker (A219). It runs after the model
+// service's schema gate and before the core's gate, so the gate and the store only ever see the core's value. It fails closed: a document with no `source`, a `source` that is
+// not an object, or a `raw_ref` that is not a string is an error, never passed through with the model's value. Only raw_ref is written; a document that is not an object at all
+// is returned as it is, for the gate to refuse.
+func withRawRef(doc []byte, rawRef string) ([]byte, error) {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(doc, &top) != nil || top == nil {
+		return doc, nil
+	}
+	var source map[string]json.RawMessage
+	if json.Unmarshal(top["source"], &source) != nil || source == nil {
+		return nil, errBadSource
+	}
+	if cur, ok := source["raw_ref"]; ok {
+		var s string
+		if json.Unmarshal(cur, &s) != nil || string(cur) == "null" {
+			return nil, errBadSource
+		}
+	}
+	ref, err := json.Marshal(rawRef)
+	if err != nil {
+		return nil, errBadSource
+	}
+	source["raw_ref"] = ref
+	src, err := json.Marshal(source)
+	if err != nil {
+		return nil, errBadSource
+	}
+	top["source"] = src
+	return json.Marshal(top)
+}
+
+var errBadSource = errors.New("the compiled intent has no usable source")

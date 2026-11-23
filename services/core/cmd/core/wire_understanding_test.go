@@ -44,7 +44,8 @@ import (
 
 const undManifestRel = "fintech/manifest.v1.json"
 
-var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json"}
+var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json",
+	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"} // A510: the three action graphs are pinned by the manifest too
 
 // copyPack copies the real pack and its manifest into a fresh directory, so that a test can break one file of it.
 func copyPack(t *testing.T) string {
@@ -251,9 +252,23 @@ func undFakeRecorder(t *testing.T, tenants ...string) *orchestratorRecorder {
 	return rec
 }
 
+// undTurnAdmissions confirms the one INPUT_RECEIVED these tests name, for the session that asks, with the minted input id it carries (A184, A219).
+type undTurnAdmissions struct{}
+
+func (undTurnAdmissions) Lookup(_ context.Context, s orchestrator.Session, _ string) (orchestrator.Admission, error) {
+	return orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: s.TenantID, PrincipalID: s.PrincipalID, CorrelationID: undCorr, RequestID: undRequestID, ObjectRef: "req_01ARZ3NDEKTSV4RRFFQ69G5FAV"}, nil
+}
+
+// undAdmissions answers no lookup: the builder tests never run a turn.
+type undAdmissions struct{}
+
+func (undAdmissions) Lookup(context.Context, orchestrator.Session, string) (orchestrator.Admission, error) {
+	return orchestrator.Admission{}, errors.New("no admission")
+}
+
 func buildUnd(t *testing.T, e envMap, rec *orchestratorRecorder) (UnderstandingParts, error) {
 	t.Helper()
-	return buildUnderstanding(Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, clock.NewManual(apiEpoch), rec)
+	return buildUnderstanding(Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, clock.NewManual(apiEpoch), rec, undAdmissions{})
 }
 
 func wantNone(t *testing.T, what string, p UnderstandingParts) {
@@ -327,6 +342,28 @@ func TestWithoutTheModelSettingsNothingIsBuilt(t *testing.T) {
 		t.Errorf("got %v; want an error that names the model service settings", err)
 	}
 	wantNone(t, "no model", p)
+}
+
+// A510: the real pack's action graphs are the ones its manifest pins, verified, by the paths the pack file names; nothing else is served.
+func TestTheRealPackLoadsItsActionGraphsVerifiedThroughItsManifest(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..", "packs")
+	p, err := packload.Load(root, undManifestRel, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, _ := readJSON(t, filepath.Join(root, "fintech_v1.json"))["action_graph_files"].([]any)
+	if len(named) == 0 || len(p.ActionGraphs) != len(named) {
+		t.Fatalf("%d graphs served; the pack names %d", len(p.ActionGraphs), len(named))
+	}
+	for _, n := range named {
+		want, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(n.(string))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := p.ActionGraphs[n.(string)]; !ok || string(got) != string(want) {
+			t.Errorf("graph %v is not served with the bytes on disk", n)
+		}
+	}
 }
 
 // The real pack, through its real manifest: the gate, the required slots, the rule set and the mapping are built from the verified bytes, and the ids are the manifest's.
@@ -556,7 +593,7 @@ func newUndWorld(t *testing.T, more envMap) *undWorld {
 	rec, closeRec, err := buildRecorder(t.Context(), env, clk, ids.New(clk, nil), records)
 	must(t, err)
 	t.Cleanup(func() { closeRec(); closeRecords() })
-	parts, err := buildUnderstanding(env, clk, rec)
+	parts, err := buildUnderstanding(env, clk, rec, undTurnAdmissions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +606,7 @@ func newUndWorld(t *testing.T, more envMap) *undWorld {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		probe.in, probe.err = probe.port.Interpret(ctx, s, orchestrator.Turn{InvestigationID: "inv_01ARZ3NDEKTSV4RRFFQ69G5FAA", CorrelationID: undCorr, Text: undText, RequestID: undRequestID})
+		probe.in, probe.err = probe.port.Interpret(ctx, s, orchestrator.Turn{InvestigationID: "inv_01ARZ3NDEKTSV4RRFFQ69G5FAA", CorrelationID: undCorr, Text: undText, RequestID: undRequestID, InputReceivedRef: "recev_01ARZ3NDEKTSV4RRFFQ69G5FAV"})
 		probe.ctxErr = ctx.Err()
 		rw.WriteHeader(http.StatusNoContent)
 	})}
@@ -815,12 +852,12 @@ func TestAModelServiceFromAnotherCAIsNeverCalled(t *testing.T) {
 func TestAnEmptyRecorderOrNoClockBuildsNothing(t *testing.T) {
 	m := newModelStub(t)
 	env := Env{Getenv: undSettings(copyPack(t), m).get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
-	p, err := buildUnderstanding(env, clock.NewManual(apiEpoch), &orchestratorRecorder{stores: map[string]*investigations.Store{}})
+	p, err := buildUnderstanding(env, clock.NewManual(apiEpoch), &orchestratorRecorder{stores: map[string]*investigations.Store{}}, undAdmissions{})
 	if err == nil {
 		t.Error("a recorder with no tenant login was accepted")
 	}
 	wantNone(t, "an empty recorder", p)
-	p, err = buildUnderstanding(env, nil, undFakeRecorder(t, "ten_aa"))
+	p, err = buildUnderstanding(env, nil, undFakeRecorder(t, "ten_aa"), undAdmissions{})
 	if err == nil || !strings.Contains(err.Error(), "clock") {
 		t.Errorf("no clock: got %v; want a refusal that names the clock", err)
 	}
@@ -951,4 +988,15 @@ func TestAnEmptySessionIsNotTheAbsenceOfOne(t *testing.T) {
 	if _, err := s.Resolve(t.Context(), orchestrator.Session{}); !errors.Is(err, ErrSessionUnavailable) {
 		t.Errorf("got %v; want ErrSessionUnavailable", err)
 	}
+}
+
+// UND-17, A219: the Interpreter port confirms each turn's recorded input, so a build with no admissions is refused and nothing is built.
+func TestNoAdmissionsBuildsNothing(t *testing.T) {
+	m := newModelStub(t)
+	env := Env{Getenv: undSettings(copyPack(t), m).get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
+	p, err := buildUnderstanding(env, clock.NewManual(apiEpoch), undFakeRecorder(t, "ten_aa"), nil)
+	if err == nil || !strings.Contains(err.Error(), "admissions") {
+		t.Errorf("no admissions: got %v; want a refusal that names them", err)
+	}
+	wantNone(t, "no admissions", p)
 }

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"pgregory.net/rapid"
+
 	"github.com/Noemai-org/noema/services/core/understanding"
 	"github.com/Noemai-org/noema/services/core/understanding/intentstore"
 	"github.com/Noemai-org/noema/services/core/understanding/interpreter"
@@ -23,6 +25,8 @@ import (
 const (
 	corr  = "corr_4c21f9"
 	actor = "customer:usr_88213"
+	// rawRef is the object_ref of the recorded INPUT_RECEIVED (SYNTHETIC).
+	rawRef = "req_01J9X3A1B2C3D4E5F6G7H8J9K0"
 )
 
 var session = understanding.Session{PrincipalID: "usr_88213", TenantID: "ten_demo", AuthnRef: "ses_7a1b", PrincipalType: "end_user", AssertedBy: "noema-poc-idp"}
@@ -81,7 +85,7 @@ func proposal(mutate func(m map[string]any)) []byte {
 		"schema_version": "3.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": nil, "tenant_id": session.TenantID, "correlation_id": corr,
 		"created_at":  "2026-10-01T09:47:03Z",
 		"principal":   map[string]any{"principal_id": session.PrincipalID, "principal_type": "unset", "authn_ref": session.AuthnRef, "asserted_by": "unset"},
-		"source":      map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": "raw_01J9X3"},
+		"source":      map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": "unset"},
 		"pack":        map[string]any{"pack_id": "fin", "pack_version": "1.0.0"},
 		"intent_node": "fin.payments.exception.investigate",
 		"slots": map[string]any{
@@ -133,7 +137,7 @@ func newWorld(t *testing.T, out []byte) *world {
 }
 
 func input() interpreter.Input {
-	return interpreter.Input{Session: session, Actor: actor, CorrelationID: corr, Request: understanding.CompileRequest{CanonicalInput: json.RawMessage(`{"synthetic":true}`), PackRef: "fin@1.0.0"}}
+	return interpreter.Input{Session: session, Actor: actor, CorrelationID: corr, RawRef: rawRef, Request: understanding.CompileRequest{CanonicalInput: json.RawMessage(`{"synthetic":true}`), PackRef: "fin@1.0.0"}}
 }
 
 // A normal compile: nothing is recorded by the Interpreter itself (the store appends INTENT_ADMITTED), the saved intent is the admitted one with the session's identity, and
@@ -374,4 +378,157 @@ func TestACauseIsReachableButNeverPrinted(t *testing.T) {
 	if strings.Contains(err.Error(), "int_01J9X3") || strings.Contains(err.Error(), "ten_demo") {
 		t.Errorf("the message prints the cause: %v", err)
 	}
+}
+
+// UND-17 (noema#580; A219; REQ-INT-001, REQ-INT-002; INV-02, INV-12; AGENT-09): the core writes `source.raw_ref` from the recorded INPUT_RECEIVED's object_ref after the schema
+// gate and before the intent is admitted and saved. Whatever the model put there (the unset marker, a plausible-looking ref, nothing) is ignored.
+
+func savedRawRef(t *testing.T, w *world) string {
+	t.Helper()
+	if len(w.save.saved) != 1 {
+		t.Fatalf("saved %d intents, want 1", len(w.save.saved))
+	}
+	var doc struct {
+		Source struct {
+			RawRef string `json:"raw_ref"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal(w.save.saved[0].JSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc.Source.RawRef
+}
+
+func TestTheSavedIntentCarriesTheRecordedInputsObjectRefWhateverTheModelWrote(t *testing.T) {
+	for name, model := range map[string]any{
+		"the unset marker": "unset", "a plausible ref of another input": "req_01J9X3ZZZZZZZZZZZZZZZZZZZZ", "an old-style ref": "raw_01J9X3", "empty": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, proposal(func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = model }))
+			if _, err := w.in.Interpret(context.Background(), input()); err != nil {
+				t.Fatal(err)
+			}
+			if got := savedRawRef(t, w); got != rawRef {
+				t.Fatalf("saved raw_ref %q, want the recorded INPUT_RECEIVED's %q", got, rawRef)
+			}
+			if strings.Contains(string(w.save.saved[0].JSON), `"unset"`) && strings.Contains(string(w.save.saved[0].JSON), `"raw_ref":"unset"`) {
+				t.Error("the unset marker reached the store")
+			}
+		})
+	}
+}
+
+func TestAMissingRawRefMemberIsWrittenToo(t *testing.T) {
+	w := newWorld(t, proposal(func(m map[string]any) { delete(m["source"].(map[string]any), "raw_ref") }))
+	if _, err := w.in.Interpret(context.Background(), input()); err != nil {
+		t.Fatal(err)
+	}
+	if got := savedRawRef(t, w); got != rawRef {
+		t.Fatalf("saved raw_ref %q, want %q", got, rawRef)
+	}
+}
+
+// Only raw_ref changes: the rest of the model's source and the rest of the intent are as compiled.
+func TestOnlyRawRefIsWritten(t *testing.T) {
+	w := newWorld(t, proposal(nil))
+	if _, err := w.in.Interpret(context.Background(), input()); err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(w.save.saved[0].JSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": rawRef}
+	if !reflect.DeepEqual(doc["source"], want) || doc["intent_node"] != "fin.payments.exception.investigate" || doc["intent_id"] != "int_01J9X3" {
+		t.Fatalf("saved intent %v", doc)
+	}
+}
+
+// A RawRef that is empty or not a minted input ID fails closed before the model service is called: nothing is compiled, recorded or saved.
+func TestAnEmptyOrMalformedRawRefFailsClosedBeforeAnythingIsCalled(t *testing.T) {
+	for name, bad := range map[string]string{
+		"empty": "", "the unset marker": "unset", "prefix only": "req_", "too short": "req_01J9X3A1B2C3D4E5F6G7H8J9K", "too long": "req_01J9X3A1B2C3D4E5F6G7H8J9K0X",
+		"lower case": "req_01j9x3a1b2c3d4e5f6g7h8j9k0", "excluded letter": "req_01J9X3A1B2C3D4E5F6G7H8J9KU", "trailing newline": rawRef + "\n", "event id": "recev_01J9X3", "leading space": " " + rawRef,
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, proposal(nil))
+			in := input()
+			in.RawRef = bad
+			_, err := w.in.Interpret(context.Background(), in)
+			if !errors.Is(err, interpreter.ErrInput) {
+				t.Fatalf("err %v, want ErrInput", err)
+			}
+			if len(w.calls.order) != 0 || len(w.save.saved) != 0 {
+				t.Fatalf("calls %v, saved %d: want nothing", w.calls.order, len(w.save.saved))
+			}
+		})
+	}
+}
+
+// Property: for any string the model puts in raw_ref, the stored value is the core's.
+func TestPropertyNoModelRawRefSurvives(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		model := rapid.String().Draw(rt, "model")
+		w := newWorld(t, proposal(func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = model }))
+		if _, err := w.in.Interpret(context.Background(), input()); err != nil {
+			rt.Fatal(err)
+		}
+		if got := savedRawRef(t, w); got != rawRef {
+			rt.Fatalf("saved raw_ref %q for model value %q, want %q", got, model, rawRef)
+		}
+	})
+}
+
+// UND-17 review fix (Security Reviewer on noema#837): a compiled intent whose `source` is missing or not an object, or whose `raw_ref` is not a string, is REFUSED: the core
+// does not pass through what the model wrote. Nothing is recorded as a gate refusal, nothing is saved. (A219, interim, relayed, not yet committed; INV-02, AGENT-09.)
+func TestACompiledIntentWithoutAUsableSourceIsRefusedAndNothingIsSaved(t *testing.T) {
+	for name, mutate := range map[string]func(m map[string]any){
+		"source missing":    func(m map[string]any) { delete(m, "source") },
+		"source null":       func(m map[string]any) { m["source"] = nil },
+		"source an array":   func(m map[string]any) { m["source"] = []any{"raw_ref", rawRef} },
+		"source a string":   func(m map[string]any) { m["source"] = "req_01J9X3A1B2C3D4E5F6G7H8J9K0" },
+		"source a number":   func(m map[string]any) { m["source"] = 7 },
+		"raw_ref a number":  func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = 7 },
+		"raw_ref null":      func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = nil },
+		"raw_ref an object": func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = map[string]any{"a": 1} },
+		"raw_ref an array":  func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = []any{rawRef} },
+		"raw_ref a boolean": func(m map[string]any) { m["source"].(map[string]any)["raw_ref"] = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, proposal(mutate))
+			_, err := w.in.Interpret(context.Background(), input())
+			if !errors.Is(err, interpreter.ErrCompile) {
+				t.Fatalf("err %v, want ErrCompile", err)
+			}
+			if len(w.save.saved) != 0 || len(w.rec.rejected) != 0 || len(w.rec.overrides) != 0 {
+				t.Fatalf("saved %d, rejected %d, overrides %d: want nothing", len(w.save.saved), len(w.rec.rejected), len(w.rec.overrides))
+			}
+		})
+	}
+}
+
+// Property: whatever members the model puts in `source`, the only one the core changes is raw_ref; every other member is stored as compiled.
+func TestPropertyOnlyRawRefOfSourceIsTheCoresToWrite(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		extra := rapid.StringMatching(`[a-z_]{1,12}`).Filter(func(k string) bool { return k != "raw_ref" }).Draw(rt, "key")
+		val := rapid.String().Draw(rt, "value")
+		model := rapid.String().Draw(rt, "model")
+		w := newWorld(t, proposal(func(m map[string]any) {
+			src := m["source"].(map[string]any)
+			src[extra], src["raw_ref"] = val, model
+		}))
+		_, err := w.in.Interpret(context.Background(), input())
+		if err != nil {
+			return // the gate may refuse an unknown member; nothing is then saved
+		}
+		var doc struct {
+			Source map[string]any `json:"source"`
+		}
+		if err := json.Unmarshal(w.save.saved[0].JSON, &doc); err != nil {
+			rt.Fatal(err)
+		}
+		if doc.Source["raw_ref"] != rawRef || doc.Source[extra] != val {
+			rt.Fatalf("source %v: raw_ref must be the core's and %q stored as compiled", doc.Source, extra)
+		}
+	})
 }

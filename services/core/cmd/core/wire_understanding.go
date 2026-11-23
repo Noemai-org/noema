@@ -115,12 +115,14 @@ type UnderstandingParts struct {
 
 // buildUnderstanding builds the half from the settings, the clock and the orchestrator's Recorder, whose per-tenant stores it reuses (the same login, the same signing ring). Every part is
 // required: a missing one is an error that names it. Nothing is dialled here.
-func buildUnderstanding(env Env, clk clock.Clock, recorder *orchestratorRecorder) (UnderstandingParts, error) {
+func buildUnderstanding(env Env, clk clock.Clock, recorder *orchestratorRecorder, admissions orchestrator.Admissions) (UnderstandingParts, error) {
 	switch {
 	case recorder == nil || len(recorder.stores) == 0:
 		return UnderstandingParts{}, errors.New("cmd/core: the Interpreter stores through the orchestrator's logins and needs the orchestrator's Recorder (" + EnvOrchestratorDSNDir + ")")
 	case clk == nil:
 		return UnderstandingParts{}, errors.New("cmd/core: the Interpreter needs a clock")
+	case admissions == nil:
+		return UnderstandingParts{}, errors.New("cmd/core: the Interpreter needs the Record's admissions to confirm each turn's recorded input")
 	case env.Getenv(EnvPackDir) == "":
 		return UnderstandingParts{}, errors.New("cmd/core: the pack needs " + EnvPackDir)
 	case env.Getenv(EnvPackManifest) == "":
@@ -214,7 +216,7 @@ func buildUnderstanding(env Env, clk clock.Clock, recorder *orchestratorRecorder
 	}
 	id, version := view.Ref()
 	packRef := id + "@" + version
-	port, err := interpreterport.New(interpreterport.Config{Sessions: edgeSessions{}, Interpreter: instances, Clock: clk, PackRef: packRef, Required: required})
+	port, err := interpreterport.New(interpreterport.Config{Sessions: edgeSessions{}, Interpreter: instances, Clock: clk, PackRef: packRef, Required: required, Admissions: admissions})
 	if err != nil {
 		return UnderstandingParts{}, refused("Interpreter port", err)
 	}
