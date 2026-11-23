@@ -166,6 +166,9 @@ def merge_lexicons(parts: Sequence[Lexicon]) -> Lexicon:
             for key, value in source.items():
                 if target.setdefault(key, value) != value:  # type: ignore[arg-type]
                     raise ConfigError(f"lexicon {part.lexicon_id}: a {what} is defined with another meaning in another lexicon")
+    for section, merged_section in (("multipliers", multipliers), ("relative_times", times), ("directions", directions)):
+        if not merged_section:  # a supplemental file may omit a section; the merged lexicon may not (C1's and Codex's finding on noema#901). Names the section only, never a value
+            raise ConfigError(f"lexicon.{section}: the merged lexicon holds no entry; a pack's lexicons must together hold a non-empty list")
     words = tuple(sorted({w for part in parts for w in part.currency_words}, key=lambda w: (-len(w), w)))
     ids = [part.lexicon_id for part in parts]
     digest = hashlib.sha256("\n".join(part.digest for part in parts).encode()).hexdigest()
