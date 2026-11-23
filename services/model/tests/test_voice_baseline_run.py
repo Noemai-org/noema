@@ -348,12 +348,12 @@ def check_key(tmp_path: Path, reply: str | None, capsys: pytest.CaptureFixture[s
     key = tmp_path / "key"
     key.write_text(KEY)
     key.chmod(0o600)
-    greeter, seen = Greeter(reply), []  # type: ignore[var-annotated]
+    greeter, seen = Greeter(reply), []
 
     def make(**_: object) -> Connect:
         async def connect(url: str, headers: Mapping[str, str]) -> Connection:
             seen.append((url, dict(headers)))
-            return greeter  # type: ignore[return-value]
+            return greeter
 
         return connect
 
