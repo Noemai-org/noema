@@ -2,7 +2,7 @@
 //
 // The manifest lists the pack files the core loads, each with its SHA-256, and names the ids the core expects of the evidence mapping and the reconciliation rule set, so the core
 // hard-codes none of them (INV-14). Load reads the manifest and every listed file from one mounted directory and refuses the whole pack when anything differs from what the manifest
-// pins: a file changed after CI, a path that escapes the directory, a link in any component, a file of a listed kind that is not listed, an id that is not the manifest's.
+// pins: a file changed after CI, a path that escapes the directory, a link in any component, a file of a listed kind that is not listed, an id that is not the manifest's, an action graph the pack names and the manifest does not pin (or the other way round: A510, no unverified graph is ever served).
 // Nothing is returned for a refused pack, so a half-verified pack never reaches a parser.
 //
 // May import: the standard library only. Packs are data (SoT 51): this package never imports a pack and holds no name of a vertical, a folder or a file of one.
@@ -33,6 +33,8 @@ type Pack struct {
 	ReconRules        []byte
 	EvidenceMappingID string
 	ReconRuleSetID    string
+	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
+	ActionGraphs map[string][]byte
 }
 
 // The kinds of refusal. Callers compare with errors.Is.
@@ -45,9 +47,10 @@ var (
 	ErrHash     = errors.New("packload: a file does not match its pinned SHA-256")
 	ErrUnlisted = errors.New("packload: a file of a listed kind is not listed")
 	ErrID       = errors.New("packload: a file carries another id than the manifest expects")
+	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping` or `recon_rules`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules` or `action_graph`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -69,6 +72,7 @@ const (
 	kindPack     = "pack"
 	kindMapping  = "evidence_mapping"
 	kindRules    = "recon_rules"
+	kindGraph    = "action_graph"
 	kindManifest = "manifest"
 )
 
@@ -134,6 +138,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	}
 	listed := map[string]bool{manifest: true}
 	bytesOf := map[string][]byte{}
+	graphs := map[string][]byte{}
 	for _, f := range doc.Files {
 		listed[*f.Path] = true
 	}
@@ -146,7 +151,11 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 		if hex.EncodeToString(sum[:]) != *f.Sha256 {
 			return Pack{}, refuse(ErrHash, *f.Kind)
 		}
-		bytesOf[*f.Kind] = data
+		if *f.Kind == kindGraph {
+			graphs[*f.Path] = data
+		} else {
+			bytesOf[*f.Kind] = data
+		}
 	}
 	for _, f := range doc.Files {
 		if err := noUnlisted(root, *f.Path, *f.Kind, listed); err != nil {
@@ -158,11 +167,15 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	if err := checkIDs(p); err != nil {
 		return Pack{}, err
 	}
+	if err := checkGraphs(p.Pack, graphs); err != nil {
+		return Pack{}, err
+	}
+	p.ActionGraphs = graphs
 	return p, nil
 }
 
 // decodeManifest reads the manifest exactly as manifest.v1 has it: every required member, none unknown, none repeated, the label SYNTHETIC, a positive version, the expected ids in
-// their shape, and exactly one file of each of the three kinds with its digest and a path that is not listed twice.
+// their shape, exactly one file of each of the three single kinds, any number of action graphs (the pack file's own list decides which, in Load), each with its digest and a path that is not listed twice.
 func decodeManifest(raw []byte) (manifestDoc, error) {
 	bad := refuse(ErrManifest, kindManifest)
 	if repeatsAMember(raw) {
@@ -194,7 +207,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++
@@ -359,4 +372,39 @@ func members(data []byte, idKey, extraKey string) (id, version, extra string, er
 		}
 	}
 	return id, v, extra, nil
+}
+
+// checkGraphs requires the action graphs the manifest pins to be exactly the ones the verified pack file names in `action_graph_files` (A510): a graph the pack names and the manifest does not
+// pin would be served unverified, and a graph pinned for a pack that does not name it is a file nobody asked for. A pack that names none, or has no such member, pins none. The pack file is read
+// only here, from the bytes its digest covers.
+func checkGraphs(packBytes []byte, pinned map[string][]byte) error {
+	bad := refuse(ErrGraph, kindGraph)
+	var doc struct {
+		Named json.RawMessage `json:"action_graph_files"`
+	}
+	if err := json.Unmarshal(packBytes, &doc); err != nil {
+		return bad
+	}
+	var named []string
+	if len(doc.Named) > 0 && string(doc.Named) != "null" {
+		if err := json.Unmarshal(doc.Named, &named); err != nil {
+			return bad
+		}
+	}
+	seen := make(map[string]bool, len(named))
+	for _, n := range named {
+		if seen[n] {
+			return bad
+		}
+		seen[n] = true
+		if _, ok := pinned[n]; !ok {
+			return bad
+		}
+	}
+	for p := range pinned {
+		if !seen[p] {
+			return bad
+		}
+	}
+	return nil
 }
