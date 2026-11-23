@@ -11,7 +11,8 @@ ARG LIBSODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191b
 ARG PGSODIUM_COMMIT=a8b8a2739bab1f7a07445b1c911e2bd1abf67784
 RUN apk add --no-cache build-base git curl
 WORKDIR /build
-RUN curl -fsSL -o libsodium.tar.gz "https://github.com/jedisct1/libsodium/releases/download/${LIBSODIUM_VERSION}-RELEASE/libsodium-${LIBSODIUM_VERSION}.tar.gz" \
+# A530: a transient network failure (a reset, a 5xx, a timeout) is retried; the SHA-256 check below is unchanged, so a retry never relaxes the pin.
+RUN curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors -o libsodium.tar.gz "https://github.com/jedisct1/libsodium/releases/download/${LIBSODIUM_VERSION}-RELEASE/libsodium-${LIBSODIUM_VERSION}.tar.gz" \
  && echo "${LIBSODIUM_SHA256}  libsodium.tar.gz" | sha256sum -c - \
  && tar -xzf libsodium.tar.gz \
  && cd "libsodium-${LIBSODIUM_VERSION}" \

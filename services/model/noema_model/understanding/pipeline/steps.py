@@ -73,6 +73,15 @@ async def classify_node(
     return _chosen(answer, ids), {ids.get(k, k): v for k, v in answer.probabilities.items()}, result.call
 
 
+def _slot_prompt(slot: SlotInfo) -> str:
+    """A required slot is asked for its value. An optional one is asked whether the customer EXPLICITLY asks for one (UND-16, run #6; A533): asked "which value does the message express", a model picked
+    a capability for a status question (rec-0006 of the earlier live run chose a lookup at p 0.78), so the slot is something the customer says, not something the model finds. The wording keys on the
+    pack's `required` flag and names no value, no example and no node (INV-14)."""
+    if slot.required:
+        return f"Which value of '{slot.name}' does the customer's message express?"
+    return f"Does the customer explicitly ask for one of these values of '{slot.name}'? If the customer does not explicitly ask for one, choose {ABSTAIN}."
+
+
 async def enumerated_slots(
     harness: Harness, catalogue: NodeCatalogue, node: NodeInfo, inp: PipelineInput
 ) -> tuple[Mapping[str, str | None], Mapping[str, Mapping[str, float]], CallRecord | None]:
@@ -82,10 +91,7 @@ async def enumerated_slots(
         return {}, {}, None
     questions, maps = [], {}
     for slot in slots:
-        question, ids = choice(
-            slot.name, f"Which value of '{slot.name}' does the customer's message express?",
-            [(v, v) for v in catalogue.vocabulary_for(slot)],
-        )
+        question, ids = choice(slot.name, _slot_prompt(slot), [(v, v) for v in catalogue.vocabulary_for(slot)])
         questions.append(question)
         maps[slot.name] = ids
     result = await harness.decide(

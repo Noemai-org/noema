@@ -21,6 +21,7 @@ from noema_model.understanding.pipeline.types import (
     CandidateSource,
     CandidateSourceError,
     FlagSpec,
+    InputInvalidReason,
     LocaleOption,
     MentionProposal,
     NormalisedSlots,
@@ -34,7 +35,7 @@ from noema_model.understanding.pipeline.types import (
 
 __all__ = (
     "BindingProposal", "CandidateQuery", "CandidateRequestInvalid", "CandidateScopeError", "CandidateSource",
-    "CandidateSourceError", "FlagSpec", "LocaleOption",
+    "CandidateSourceError", "FlagSpec", "InputInvalidReason", "LocaleOption",
     "MentionProposal", "NodeCatalogue", "NormalisedSlots", "Outcome", "PipelineConfig", "PipelineInput",
     "PipelineResult", "Proposal", "ScreenStage", "build_query", "propose_binding", "run_pipeline",
 )
