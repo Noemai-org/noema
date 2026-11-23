@@ -27,6 +27,7 @@ const (
 
 	pgUniqueViolation     = "23505"
 	pgForeignKeyViolation = "23503"
+	pgIntegrityViolation  = "23000"                                 // integrity_constraint_violation: the code the confirmation_request chain trigger raises (migration 0032)
 	dispositionKey        = "decision_record_disposition_fkey"      // migration 0012: (tenant, disposition) must be an ESCALATE decision of the same tenant
 	confirmationEventKey  = "confirmation_spend_event_key"          // migration 0028: UNIQUE (tenant_id, confirmation_event_id)
 	confirmationValid     = "confirmation_spend_confirmation_valid" // migration 0028: the trigger that refuses a confirmation that is unknown, expired or given for another action
@@ -301,10 +302,15 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		}
 		return Result{}, fmt.Errorf("%sinsert decision record: %w", errPrefix, err)
 	}
-	// The confirmation request of a CONFIRM is an event of the same transaction, right after DECISION_MADE (record first, EC-E16): it commits with the decision or not at all.
+	// The confirmation request of a CONFIRM is a row and an event of the same transaction, right after the decision (record first, EC-E16): both commit with the decision or not at all
+	// (A552). The row is written first so that the event carries the expiry the row has, which is the database's clock plus the TTL.
 	if requestID != "" {
+		expires, err := w.insertRequest(ctx, tx, r, requestID, requestBinding, d.IntentVersion())
+		if err != nil {
+			return Result{}, err
+		}
 		if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "CONFIRMATION_REQUESTED",
-			ObjectRef: requestID, Payload: confirmationRequested(r.ConfirmationRequest, requestID, decisionID, requestBinding)}); err != nil {
+			ObjectRef: requestID, Payload: confirmationRequested(r.ConfirmationRequest, requestID, decisionID, requestBinding, expires)}); err != nil {
 			return Result{}, fmt.Errorf("%sappend CONFIRMATION_REQUESTED: %w", errPrefix, err)
 		}
 	}
