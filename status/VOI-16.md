@@ -93,3 +93,13 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 ## Pre-work for the next agent
 - Exact next step: unchanged (Founder: key file, real host in `allowed_hosts`, `--check-key`, `start` on noema#767). No live run starts before noema#824 is merged.
 - Open questions: the spoken answer is charged at the manifest's `answer_s` (only its first audio is read, so the real length is not observed): the Architect may ask for a different rule.
+
+# Session 2026-11-23 · VOI-16 (A587 in noema#824)
+
+## Session summary
+- What changed (noema#824): a run that fails before any session removes the empty report file it created, so the rerun is not refused; only if the file is still empty and the path still names the same file (device and inode), never a report with anything in it. The connector and adapters are now built inside the same guard as the run.
+- Why: A587. Tests: red first at 0dfe3824 (three tests); mutants of the removal (size check, identity check, the call itself) each caught.
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: unchanged (Founder: key file, real host in `allowed_hosts`, `--check-key`, `start` on noema#767).

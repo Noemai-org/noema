@@ -294,13 +294,14 @@ class ReportFile:
     """The report file, created once, owner-only and never over an existing file, and rewritten whole after every session (A568): the new content is written in place and only then is the file cut
     to its length, so the file is never empty and a longer earlier version leaves nothing behind."""
 
-    def __init__(self, descriptor: int) -> None:
+    def __init__(self, descriptor: int, path: Path) -> None:
         self._descriptor = descriptor
+        self._path = path
 
     @classmethod
     def create(cls, path: Path) -> "ReportFile":
         try:
-            return cls(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0), 0o600))
+            return cls(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0), 0o600), path)
         except OSError:
             raise RunnerConfigError("the report cannot be created (an existing report is never overwritten)") from None
 
@@ -311,6 +312,19 @@ class ReportFile:
             written += os.pwrite(self._descriptor, data[written:], written)
         os.ftruncate(self._descriptor, len(data))
         os.fsync(self._descriptor)
+
+    def discard_if_empty(self) -> None:
+        """A587: a run that failed before any session leaves an empty file that would refuse the rerun, so it is removed: only if it is still empty and only if the path still names THIS file (the
+        same device and inode), never a report with anything in it and never somebody else's file."""
+        try:
+            held = os.fstat(self._descriptor)
+            if held.st_size != 0:
+                return
+            present = os.lstat(self._path)
+            if (present.st_dev, present.st_ino) == (held.st_dev, held.st_ino):
+                os.unlink(self._path)
+        except OSError:
+            pass  # the file is gone or cannot be removed: the Founder deletes it, and nothing non-empty was touched
 
     def close(self) -> None:
         os.close(self._descriptor)
@@ -446,13 +460,14 @@ def main(
         report_file = ReportFile.create(report_path)  # before any connection: an existing report refuses the run, so no credit is spent for a report that cannot be kept
     except RunnerConfigError as error:
         return _fail(str(error))
-    connect = make_connector(open_timeout_s=wire.open_timeout_s, close_timeout_s=settings.close_s, ping_interval_s=wire.ping_interval_s, ping_timeout_s=wire.ping_timeout_s,
-                             max_message_bytes=wire.max_message_bytes)
-    capabilities = ProviderCapabilities("intron", PipelineMode.TRANSCRIBE_ONLY, Support.YES, tuple((locale, Support.YES) for locale in voices), tuple((locale, Support.YES) for locale in voices), None, Support.YES, None, False)
-    stt = IntronSpeechToText(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key)
-    tts = IntronTextToSpeech(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key, voices=voices, poll_s=wire.tts_poll_s)
     try:
         try:
+            connect = make_connector(open_timeout_s=wire.open_timeout_s, close_timeout_s=settings.close_s, ping_interval_s=wire.ping_interval_s, ping_timeout_s=wire.ping_timeout_s,
+                                     max_message_bytes=wire.max_message_bytes)
+            capabilities = ProviderCapabilities("intron", PipelineMode.TRANSCRIBE_ONLY, Support.YES, tuple((locale, Support.YES) for locale in voices), tuple((locale, Support.YES) for locale in voices),
+                                                None, Support.YES, None, False)
+            stt = IntronSpeechToText(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key)
+            tts = IntronTextToSpeech(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key, voices=voices, poll_s=wire.tts_poll_s)
             asyncio.run(run_baseline(items=items, stt=stt, tts=tts, settings=settings, bounds_s=bounds, store=store, clock_ms=clock, wall=wall_now, sleep=sleep,
                                      tts_model_version=args["tts_model_version"], on_progress=report_file.write, answer_text=args["answer_text"], targets_ms=int(args["target_ms"])))
         except (BenchError, StoreError):
@@ -460,6 +475,7 @@ def main(
         except OSError:
             return _fail("the report could not be written (the run stopped)")
     finally:
+        report_file.discard_if_empty()  # a run that failed before any session leaves no empty report to block the rerun (A587)
         report_file.close()
     print("baseline-run: done; the report was written")
     return 0
