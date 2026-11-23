@@ -53,3 +53,123 @@ test('REQ-UI-001: a host-supplied investigation displays only the core answer', 
     expect(calls).toBe(1);
   } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
 });
+
+test('A479: live overlay refuses inconsistent conversation ids before polling', async ({ page }) => {
+  const address = Object.values(networkInterfaces()).flat().find((x) => x?.internal && x.family === 'IPv4')?.address;
+  const response = JSON.parse(await readFile('../contracts/fixtures/valid/conversation-response/accepted.json', 'utf8'));
+  response.conversation_ref = 'inv_Different';
+  const files = new Map([['/', ['dist/index.html', 'text/html']], ['/tokens.css', ['dist/tokens.css', 'text/css']], ['/app.js', ['dist/app.js', 'text/javascript']]]);
+  let posts = 0, polls = 0;
+  const server = createServer(async (req, res) => {
+    if (req.url === '/v1/conversations' && req.method === 'POST') { posts++; req.resume(); res.writeHead(202, { 'content-type': 'application/json' }).end(JSON.stringify(response)); return; }
+    if (req.url.startsWith('/v1/investigations/')) { polls++; res.writeHead(500).end(); return; }
+    const entry = files.get(req.url); if (!entry) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'content-type': entry[1] }).end(await readFile(entry[0]));
+  });
+  server.listen(0, address); await once(server, 'listening');
+  const baseUrl = `http://${address}:${server.address().port}`;
+  try {
+    await page.goto(baseUrl);
+    await page.evaluate(async (url) => (await import('/app.js')).configureOverlay({ baseUrl: url, sessionToken: 'synthetic-session', maxPollingMs: 15000 }), baseUrl);
+    await page.getByLabel('Your message').fill('Help me');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('Connection lost.')).toBeVisible();
+    expect(posts).toBe(1); expect(polls).toBe(0);
+  } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('REQ-UI-001: a valid conversation starts polling and shows the supplied answer', async ({ page }) => {
+  const address = Object.values(networkInterfaces()).flat().find((x) => x?.internal && x.family === 'IPv4')?.address;
+  const conversation = JSON.parse(await readFile('../contracts/fixtures/valid/conversation-response/accepted.json', 'utf8'));
+  const answer = await readFile('../contracts/fixtures/valid/investigation-response/completed_with_answer.json');
+  const files = new Map([['/', ['dist/index.html', 'text/html']], ['/tokens.css', ['dist/tokens.css', 'text/css']], ['/app.js', ['dist/app.js', 'text/javascript']]]);
+  let posts = 0, polls = 0;
+  const server = createServer(async (req, res) => {
+    if (req.url === '/v1/conversations' && req.method === 'POST') { posts++; req.resume(); res.writeHead(202, { 'content-type': 'application/json' }).end(JSON.stringify(conversation)); return; }
+    if (req.url === `/v1/investigations/${conversation.investigation_id}`) { polls++; res.writeHead(200, { 'content-type': 'application/json' }).end(answer); return; }
+    const entry = files.get(req.url); if (!entry) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'content-type': entry[1] }).end(await readFile(entry[0]));
+  });
+  server.listen(0, address); await once(server, 'listening');
+  const baseUrl = `http://${address}:${server.address().port}`;
+  try {
+    await page.goto(baseUrl);
+    await page.evaluate(async (url) => (await import('/app.js')).configureOverlay({ baseUrl: url, sessionToken: 'synthetic-session', maxPollingMs: 15000 }), baseUrl);
+    await page.getByLabel('Your message').fill('Help me');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByRole('region', { name: 'Answer' })).toContainText('I opened a case with the payments team.');
+    expect(posts).toBe(1); expect(polls).toBe(1);
+  } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+
+test('A516: a locally invalid message does not lock Send and can be corrected', async ({ page }) => {
+  const address = Object.values(networkInterfaces()).flat().find((x) => x?.internal && x.family === 'IPv4')?.address;
+  const files = new Map([['/', ['dist/index.html', 'text/html']], ['/tokens.css', ['dist/tokens.css', 'text/css']], ['/app.js', ['dist/app.js', 'text/javascript']]]);
+  let posts = 0;
+  const server = createServer(async (req, res) => {
+    if (req.url === '/v1/conversations' && req.method === 'POST') {
+      posts++;
+      req.resume();
+      res.writeHead(400, { 'content-type': 'application/json' }).end('{}');
+      return;
+    }
+    const entry = files.get(req.url);
+    if (!entry) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'content-type': entry[1] }).end(await readFile(entry[0]));
+  });
+  server.listen(0, address); await once(server, 'listening');
+  const baseUrl = `http://${address}:${server.address().port}`;
+  try {
+    await page.goto(baseUrl);
+    await page.evaluate(async (url) => (await import('/app.js')).configureOverlay({ baseUrl: url, sessionToken: 'synthetic-session', maxPollingMs: 15000 }), baseUrl);
+    await page.getByLabel('Your message').fill('x'.repeat(2001));
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('Enter a message between 1 and 2,000 characters.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+    expect(posts).toBe(0);
+    await page.getByLabel('Your message').fill('Help me');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByText('Connection lost.')).toBeVisible();
+    expect(posts).toBe(1);
+  } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('A516: configuring a new conversation context resets the send latch', async ({ page }) => {
+  const address = Object.values(networkInterfaces()).flat().find((x) => x?.internal && x.family === 'IPv4')?.address;
+  const conversation = JSON.parse(await readFile('../contracts/fixtures/valid/conversation-response/accepted.json', 'utf8'));
+  const answer = await readFile('../contracts/fixtures/valid/investigation-response/completed_with_answer.json');
+  const files = new Map([['/', ['dist/index.html', 'text/html']], ['/tokens.css', ['dist/tokens.css', 'text/css']], ['/app.js', ['dist/app.js', 'text/javascript']]]);
+  let posts = 0, polls = 0;
+  const server = createServer(async (req, res) => {
+    if (req.url === '/v1/conversations' && req.method === 'POST') {
+      posts++; req.resume();
+      res.writeHead(202, { 'content-type': 'application/json' }).end(JSON.stringify(conversation));
+      return;
+    }
+    if (req.url === `/v1/investigations/${conversation.investigation_id}`) {
+      polls++;
+      res.writeHead(200, { 'content-type': 'application/json' }).end(answer);
+      return;
+    }
+    const entry = files.get(req.url);
+    if (!entry) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'content-type': entry[1] }).end(await readFile(entry[0]));
+  });
+  server.listen(0, address); await once(server, 'listening');
+  const baseUrl = `http://${address}:${server.address().port}`;
+  try {
+    await page.goto(baseUrl);
+    await page.evaluate(async (url) => (await import('/app.js')).configureOverlay({ baseUrl: url, sessionToken: 'synthetic-session', maxPollingMs: 15000 }), baseUrl);
+    await page.getByLabel('Your message').fill('First conversation');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect(page.getByRole('region', { name: 'Answer' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await page.evaluate(async (url) => (await import('/app.js')).configureOverlay({ baseUrl: url, sessionToken: 'synthetic-session-2', maxPollingMs: 15000 }), baseUrl);
+    await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await page.getByLabel('Your message').fill('Second conversation');
+    await page.getByRole('button', { name: 'Send' }).click();
+    await expect.poll(() => posts).toBe(2);
+    await expect.poll(() => polls).toBe(2);
+  } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
+});

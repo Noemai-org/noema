@@ -18,7 +18,7 @@ export function isSecureInvestigationTarget(url: URL): boolean {
   return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/u.test(url.hostname));
 }
 
-async function boundedText(response: Response, limit: number): Promise<string> {
+export async function boundedText(response: Response, limit: number): Promise<string> {
   if (!response.body) throw unavailable();
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
