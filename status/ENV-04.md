@@ -319,3 +319,8 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Exact next step: read the first stack-check run for `operator-dsn-init`, `core-trust-keys-init`, `tenant-init` (exit 0, `{"keys_registered":1,...}`) and `policy-publish` (`published`).
 - Open questions: tenant-init's superuser login is my reading (A445 to A489 name no login); the Architect should confirm. The migrate one-shot flags (C2).
 - Do not touch: the migrator password's holders (postgres, migrate).
+
+## Session 2026-11-23 (second) · ENV-04
+- Added to the same PR (one more commit): `migrator-password-init` and `migrate` (A484, A521, A527; EL's flags: host, port, database, user, password file mode 0400 owner 65532 one line, `--sslmode` of `disable`, `prefer` or `require`, default `prefer`). The init step is the migration password's second holder after postgres (the Founder's choice); netcheck pins the holders, the volume's reader and every flag, with a mutation for each leak path (argument, environment, a second reader or holder): 237 mutations, all caught. `tenant-init` now waits for `migrate`.
+- Must merge AFTER C2's `cmd/migrate` change (feat/EXE-08-migrate-password-file-v2 is red tests only at e18460d9): with the old `--dsn-file` binary the migrate service fails.
+- Gap I did not close: nothing in Compose runs `create-tenants.sh` (superuser) or `provision-tenants.sh` (migration login) between `migrate` and `tenant-init`/`policy-publish`; policy-publish needs the tenant row and the tenant's logins. Whoever owns those two steps must be named (the second needs the migration password, another holder under A527).

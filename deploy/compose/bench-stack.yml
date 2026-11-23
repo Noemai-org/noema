@@ -26,6 +26,8 @@ volumes:
   # The operator DSN (the superuser's, A527) and the core-trust signing key (A445): each written once by its one-shot at mode 0400 owned by uid 65532. The DSN is read by tenant-init only; the key
   # directory by tenant-init and policy-publish only, read-only. The core mounts neither.
   operator_dsn: {}
+  # The migrate one-shot's password file (A521, A527): written once by migrator-password-init at mode 0400 owned by uid 65532, read by migrate only, read-only.
+  migrator_password: {}
   core_trust_keys: {}
 # The three key values (secrets_local.sh makes them; 64 lower-case hexadecimal characters each). Held by the core-keys-init one-shot ONLY.
 secrets:
@@ -215,6 +217,51 @@ services:
     volumes:
       - ./operator-dsn/init.py:/init/init.py:ro
       - operator_dsn:/out
+  # One-shot, as root, no network (A521, A527): the migration login's password is a host file secret (mode 644 so postgres can read it) and cmd/migrate refuses a password file that is not mode 0400 and
+  # owned by its own user, so this step writes that file into the migrator_password volume (0400, owner 65532), one line, and reads it back as that user. It is the secret's second holder after postgres
+  # (EL and the Architect chose this over a helper in the core image); netcheck pins the two holders. It prints the file name, never the password.
+  migrator-password-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
+    environment:
+      MIGRATOR_PASSWORD_SRC: /run/secrets
+      MIGRATOR_PASSWORD_OUT: /out
+      MIGRATOR_PASSWORD_UID: "65532"
+      MIGRATOR_PASSWORD_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [noema_migrator_password]
+    volumes:
+      - ./migrator-password/init.py:/init/init.py:ro
+      - migrator_password:/out
+  # One-shot (A484, A521): applies the migrations as the migration login and exits. From the core image under its own entrypoint, nonroot, on data_net only. The connection is built from flags and a
+  # password FILE (never an argument, never the environment): host postgres, port 5432, database noema, the migration login, sslmode prefer (the default; the other logins' DSN files name none).
+  # It holds no secret itself. tenant-init and policy-publish wait for it: key_register and the policy tables exist only after the migrations.
+  migrate:
+    image: noema-core:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/usr/local/bin/migrate"]
+    command: ["--host", "postgres", "--port", "5432", "--database", "noema", "--user", "noema_migration_login", "--password-file", "/run/migrator-password/password", "--sslmode", "prefer", "--migrations-dir", "/migrations"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator-password-init:
+        condition: service_completed_successfully
+    volumes:
+      - migrator_password:/run/migrator-password:ro
+      - ../../services/core/migrations:/migrations:ro
   # One-shot, as root, no network (A445): turns the core-trust seed into core-trust.ed25519.1.key (64 hexadecimal characters, mode 0400, owner 65532), the form execution/signing.LoadRing reads, and checks it
   # by reading it as that user. The seed keeps the host user's mode 0600, so DAC_READ_SEARCH (reads, writes nothing) as for core-keys-init; never DAC_OVERRIDE. It is the same script as core-keys-init.
   core-trust-keys-init:
@@ -253,6 +300,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       operator-dsn-init:
         condition: service_completed_successfully
       core-trust-keys-init:

@@ -135,11 +135,13 @@ NETWORKS = {
     "core-keys-init": set(),
     "operator-dsn-init": set(),
     "core-trust-keys-init": set(),
+    "migrator-password-init": set(),
+    "migrate": {"data_net"},
     "tenant-init": {"data_net"},
     "policy-publish": {"data_net"},
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init"}
+SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "migrator-password-init"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
@@ -163,13 +165,13 @@ EXPECTED_SERVICES = {
     "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "tenant-init", "policy-publish"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "migrator-password-init", "migrate", "tenant-init", "policy-publish"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
            "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
            "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}, "bench-runner": {"bench"},
-           "operator-dsn-init": {"bench"}, "core-trust-keys-init": {"bench"}, "tenant-init": {"bench"}, "policy-publish": {"bench"}}
+           "operator-dsn-init": {"bench"}, "core-trust-keys-init": {"bench"}, "migrator-password-init": {"bench"}, "migrate": {"bench"}, "tenant-init": {"bench"}, "policy-publish": {"bench"}}
 
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
@@ -225,13 +227,19 @@ def oneshot_problems(profile, name, svc, held, vols):
     # who holds what
     if SUPERUSER_SECRET in held and name not in ("postgres", OPERATOR_INIT):
         bad.append(f"{profile}: {name} holds {SUPERUSER_SECRET}; only postgres and {OPERATOR_INIT} may (INV-29, A527)")
+    if MIGRATOR_SECRET in held and name not in ("postgres", MIGRATOR_INIT):
+        bad.append(f"{profile}: {name} holds {MIGRATOR_SECRET}; only postgres and {MIGRATOR_INIT} may (INV-29, A527)")
+    if name not in ("postgres", MIGRATOR_INIT) and any(("migrator_password" in str(x).lower() or "migrator-password" in str(x).lower()) and name != MIGRATE for x in list(env_names) + argv):
+        bad.append(f"{profile}: {name} names the migration login's password in its environment or arguments (A527)")
+    if name == MIGRATE and env_names:
+        bad.append(f"{profile}: {MIGRATE} sets environment variables {sorted(env_names)}; the password comes only from the file its flag names, and nothing else needs an environment (A527)")
     if TRUST_KEY_SECRET in held and name != TRUST_KEYS_INIT:
         bad.append(f"{profile}: {name} holds {TRUST_KEY_SECRET}; only {TRUST_KEYS_INIT} may (INV-29, A445)")
     if name not in ("postgres", OPERATOR_INIT) and any("postgres_superuser" in str(x).lower() for x in list(env_names) + argv + [str(v.get("source", "")) for v in vols]):
         bad.append(f"{profile}: {name} names the superuser's password in its environment or arguments (A527)")
-    if name in (TENANT_INIT, POLICY_PUBLISH) and (held or any(re.search(r"(?i)(password|passwd|dsn|key)", k) and not k.endswith("_FILE") for k in env_names)):
+    if name in (TENANT_INIT, POLICY_PUBLISH, MIGRATE) and (held or any(re.search(r"(?i)(password|passwd|dsn|key)", k) and not k.endswith("_FILE") for k in env_names)):
         bad.append(f"{profile}: {name} holds a secret or a credential variable; it reads files only (A527, INV-29)")
-    for volume, writer, readers in ((OPERATOR_VOLUME, OPERATOR_INIT, (TENANT_INIT,)), (TRUST_KEYS_VOLUME, TRUST_KEYS_INIT, (TENANT_INIT, POLICY_PUBLISH))):
+    for volume, writer, readers in ((OPERATOR_VOLUME, OPERATOR_INIT, (TENANT_INIT,)), (TRUST_KEYS_VOLUME, TRUST_KEYS_INIT, (TENANT_INIT, POLICY_PUBLISH)), (MIGRATOR_VOLUME, MIGRATOR_INIT, (MIGRATE,))):
         mounts = [v for v in vols if v.get("source") == volume]
         if mounts and name not in (writer,) + readers:
             bad.append(f"{profile}: {name} mounts the {volume} volume; only {writer} (writes) and {', '.join(readers)} (read-only) may (INV-29, A527)")
@@ -247,6 +255,13 @@ def oneshot_problems(profile, name, svc, held, vols):
             bad.append(f"{profile}: {OPERATOR_INIT} must hold the secret {SUPERUSER_SECRET} and nothing else (A527)")
         if svc.get("network_mode") != "none":
             bad.append(f"{profile}: {OPERATOR_INIT} must have no network (A527)")
+    if name == MIGRATOR_INIT:
+        if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "FOWNER", "SETGID", "SETUID"]:
+            bad.append(f"{profile}: {MIGRATOR_INIT} must drop ALL capabilities and add back only CHOWN, FOWNER, SETUID and SETGID (A527)")
+        if set(held) != {MIGRATOR_SECRET}:
+            bad.append(f"{profile}: {MIGRATOR_INIT} must hold the secret {MIGRATOR_SECRET} and nothing else (A527)")
+        if svc.get("network_mode") != "none":
+            bad.append(f"{profile}: {MIGRATOR_INIT} must have no network (A527)")
     if name == TRUST_KEYS_INIT:
         if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "DAC_READ_SEARCH", "FOWNER", "SETGID", "SETUID"]:
             bad.append(f"{profile}: {TRUST_KEYS_INIT} must drop ALL capabilities and add back only CHOWN, DAC_READ_SEARCH, FOWNER, SETUID and SETGID; never DAC_OVERRIDE (A445)")
@@ -268,7 +283,12 @@ def oneshot_problems(profile, name, svc, held, vols):
         if any(f is None or v is None for f, v in flags) or len({f for f, _ in flags}) != len(flags):
             bad.append(f"{profile}: {name}'s arguments must be flags with one value each, none repeated (A527)")
         given = dict(flags)
-        if name == TENANT_INIT:
+        if name == MIGRATE:
+            if given != MIGRATE_FLAGS:
+                bad.append(f"{profile}: {MIGRATE} must take exactly {MIGRATE_FLAGS}: no password, DSN or DSN file in an argument (A521, A527)")
+            if len([v for v in vols if v.get("type") == "bind" and v.get("target") == "/migrations" and v.get("read_only")]) != 1:
+                bad.append(f"{profile}: {MIGRATE} must mount the migrations folder read-only exactly once at /migrations (A484)")
+        elif name == TENANT_INIT:
             if given != TENANT_INIT_FLAGS or "--tenant" in given:
                 bad.append(f"{profile}: {TENANT_INIT} must take exactly {TENANT_INIT_FLAGS} and no --tenant: tenant rows have one creator (A489)")
         else:
@@ -280,10 +300,11 @@ def oneshot_problems(profile, name, svc, held, vols):
             if given.get("--dsn-file") != f"/run/trust-dsn/{given.get('--tenant')}" or not str(given.get("--tenant", "")).startswith("ten_"):
                 bad.append(f"{profile}: {POLICY_PUBLISH} must read the Trust login file of the tenant it publishes for (A356, A445)")
         deps = svc.get("depends_on") or {}
-        needed = (OPERATOR_INIT, TRUST_KEYS_INIT) if name == TENANT_INIT else (TENANT_INIT, TRUST_DSN_INIT)
+        needed = {MIGRATE: ("postgres", MIGRATOR_INIT), TENANT_INIT: (MIGRATE, OPERATOR_INIT, TRUST_KEYS_INIT), POLICY_PUBLISH: (TENANT_INIT, TRUST_DSN_INIT)}[name]
         for dep in needed:
-            if deps.get(dep, {}).get("condition") != "service_completed_successfully":
-                bad.append(f"{profile}: {name} must wait for {dep} to complete successfully (A527)")
+            want = "service_healthy" if dep == "postgres" else "service_completed_successfully"
+            if deps.get(dep, {}).get("condition") != want:
+                bad.append(f"{profile}: {name} must wait for {dep} ({want}) (A527)")
     if name == "core":
         if (svc.get("depends_on") or {}).get(POLICY_PUBLISH, {}).get("condition") != "service_completed_successfully":
             bad.append(f"{profile}: the core must wait for {POLICY_PUBLISH} to complete successfully, or it starts with no policy in force (A445)")
@@ -333,7 +354,12 @@ TRUST_DSN_INIT, TRUST_DSN_VOLUME, TENANT_LOGIN_SECRET = "trust-dsn-init", "trust
 OPERATOR_INIT, OPERATOR_VOLUME, SUPERUSER_SECRET = "operator-dsn-init", "operator_dsn", "postgres_superuser_password"
 TRUST_KEYS_INIT, TRUST_KEYS_VOLUME, TRUST_KEY_SECRET = "core-trust-keys-init", "core_trust_keys", "core_trust_ed25519_seed_1"
 TENANT_INIT, POLICY_PUBLISH = "tenant-init", "policy-publish"
-ONESHOT_ENTRYPOINTS = {TENANT_INIT: "/usr/local/bin/tenantinit", POLICY_PUBLISH: "/usr/local/bin/policypublish"}
+# A527 (and A521, EL's flags): the migration login's password is held by postgres and by migrator-password-init ONLY. That step writes the one password file into migrator_password, which the migrate
+# one-shot alone mounts (read-only). migrate holds no secret, takes no password in an argument or an environment variable, and runs with exactly the flags below.
+MIGRATOR_INIT, MIGRATOR_VOLUME, MIGRATOR_SECRET, MIGRATE = "migrator-password-init", "migrator_password", "noema_migrator_password", "migrate"
+MIGRATE_FLAGS = {"--host": "postgres", "--port": "5432", "--database": "noema", "--user": "noema_migration_login", "--password-file": "/run/migrator-password/password", "--sslmode": "prefer",
+                 "--migrations-dir": "/migrations"}
+ONESHOT_ENTRYPOINTS = {TENANT_INIT: "/usr/local/bin/tenantinit", POLICY_PUBLISH: "/usr/local/bin/policypublish", MIGRATE: "/usr/local/bin/migrate"}
 TENANT_INIT_FLAGS = {"--dsn-file": "/run/operator-dsn/dsn", "--key-dir": "/run/core-trust-keys", "--key-max-active": "1"}
 POLICY_PUBLISH_FLAGS = ("--tenant", "--pack-dir", "--pack-file", "--dsn-file", "--key-dir", "--key-max-active")
 POLICY_PUBLISH_FIXED = {"--pack-dir": "/run/packs", "--pack-file": "fintech_v1.json", "--key-dir": "/run/core-trust-keys", "--key-max-active": "1"}
@@ -433,7 +459,7 @@ def check(cfg, profile):
             # every three seconds: five-digit ports are digit runs, so a clean run would fail its own scan (Codex P1 on noema#591).
             bad.append(f"{profile}: the model's uvicorn must run with --no-access-log (its access log carries the client port, a digit run the leak scan would report)")
         for flag in ("privileged", "cap_add", "devices"):
-            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT, OPERATOR_INIT, TRUST_KEYS_INIT)):  # each one-shot adds exactly the set its own rule pins, checked by its own rule below
+            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT, OPERATOR_INIT, TRUST_KEYS_INIT, MIGRATOR_INIT)):  # each one-shot adds exactly the set its own rule pins, checked by its own rule below
                 bad.append(f"{profile}: {name} sets {flag}")
         for flag in ("pid", "ipc", "userns_mode"):
             if svc.get(flag) == "host":
@@ -817,6 +843,39 @@ def self_test(configs):
         "policy-publish does not wait for tenant-init": ("bench", lambda c: c["services"]["policy-publish"]["depends_on"].pop("tenant-init")),
         "the core does not wait for policy-publish": ("bench", lambda c: c["services"]["core"]["depends_on"].pop("policy-publish")),
         "policy-publish is dropped": ("bench", lambda c: c["services"].pop("policy-publish")),
+        # A527 (A521): the migrate one-shot and the migration login's password. One mutation per leak path: an argument, the environment, a second reader or holder.
+        "the core holds the migration password": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "noema_migrator_password", "target": "x"})),
+        "tenant-init holds the migration password": ("bench", lambda c: c["services"]["tenant-init"].setdefault("secrets", []).append({"source": "noema_migrator_password", "target": "x"})),
+        "migrate holds the migration password itself": ("bench", lambda c: c["services"]["migrate"].setdefault("secrets", []).append({"source": "noema_migrator_password", "target": "x"})),
+        "operator-dsn-init holds the migration password": ("bench", lambda c: c["services"]["operator-dsn-init"]["secrets"].append({"source": "noema_migrator_password", "target": "x"})),
+        "the model names the migration password": ("bench", lambda c: c["services"]["model"].setdefault("environment", {}).update({"MIGRATOR_PASSWORD_FILE": "/x"})),
+        "migrate takes the password in an argument": ("bench", lambda c: c["services"]["migrate"]["command"].extend(["--password", "x"])),
+        "migrate takes the password in an argument with an equals sign": ("bench", lambda c: c["services"]["migrate"]["command"].append("--password=x")),
+        "migrate takes a DSN in an argument": ("bench", lambda c: c["services"]["migrate"]["command"].extend(["--dsn", "postgres://u:p@postgres/noema"])),
+        "migrate takes a DSN file": ("bench", lambda c: c["services"]["migrate"]["command"].extend(["--dsn-file", "/run/x"])),
+        "migrate reads another password file": ("bench", lambda c: c["services"]["migrate"].update({"command": [("/run/operator-dsn/dsn" if t == "/run/migrator-password/password" else t) for t in c["services"]["migrate"]["command"]]})),
+        "migrate logs in as the superuser": ("bench", lambda c: c["services"]["migrate"].update({"command": [("postgres" if t == "noema_migration_login" else t) for t in c["services"]["migrate"]["command"]]})),
+        "migrate verifies nothing about the server": ("bench", lambda c: c["services"]["migrate"].update({"command": [("allow" if t == "prefer" else t) for t in c["services"]["migrate"]["command"]]})),
+        "migrate carries the password in its environment": ("bench", lambda c: c["services"]["migrate"].setdefault("environment", {}).update({"PGPASSWORD": "x"})),
+        "migrate carries a password file path in its environment": ("bench", lambda c: c["services"]["migrate"].setdefault("environment", {}).update({"MIGRATOR_PASSWORD_FILE": "/run/migrator-password/password"})),
+        "the core mounts the migration password file": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "volume", "source": "migrator_password", "target": "/x", "read_only": True})),
+        "tenant-init mounts the migration password file": ("bench", lambda c: c["services"]["tenant-init"]["volumes"].append({"type": "volume", "source": "migrator_password", "target": "/x", "read_only": True})),
+        "the model mounts the migration password file": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "migrator_password", "target": "/x", "read_only": True})),
+        "migrate mounts the migration password file writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["migrate"]["volumes"] if v.get("source") == "migrator_password"]),
+        "migrate loses its password file": ("bench", lambda c: c["services"]["migrate"].update({"volumes": [v for v in c["services"]["migrate"]["volumes"] if v.get("source") != "migrator_password"]})),
+        "migrate mounts the migrations folder writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["migrate"]["volumes"] if v.get("target") == "/migrations"]),
+        "migrate runs as root": ("bench", lambda c: c["services"]["migrate"].update({"user": "0:0"})),
+        "migrate joins the service network": ("bench", lambda c: c["services"]["migrate"]["networks"].update({"svc_net": None})),
+        "migrate keeps a capability": ("bench", lambda c: c["services"]["migrate"].update({"cap_add": ["NET_ADMIN"]})),
+        "migrate runs a shell": ("bench", lambda c: c["services"]["migrate"].update({"entrypoint": ["/bin/sh"]})),
+        "migrate does not wait for the password file": ("bench", lambda c: c["services"]["migrate"]["depends_on"].pop("migrator-password-init")),
+        "migrate does not wait for the database": ("bench", lambda c: c["services"]["migrate"]["depends_on"].pop("postgres")),
+        "tenant-init does not wait for migrate": ("bench", lambda c: c["services"]["tenant-init"]["depends_on"].pop("migrate")),
+        "migrator-password-init may override file permissions": ("bench", lambda c: c["services"]["migrator-password-init"]["cap_add"].append("DAC_OVERRIDE")),
+        "migrator-password-init loses its secret": ("bench", lambda c: c["services"]["migrator-password-init"].update({"secrets": []})),
+        "migrator-password-init has a network": ("bench", lambda c: c["services"]["migrator-password-init"].update({"network_mode": "bridge"})),
+        "migrator-password-init is dropped": ("bench", lambda c: c["services"].pop("migrator-password-init")),
+        "migrate is dropped": ("bench", lambda c: c["services"].pop("migrate")),
         "the model mounts the per-login emitter secrets": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/emitter_logins", "target": "/x", "read_only": True})),
         "the core sets the Temporal client certificate": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TEMPORAL_TLS_CERT_FILE": "/x"})),
         "the core sets the test-only swap switch": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_WRITE_SWAP_DECISIONS": "1"})),
