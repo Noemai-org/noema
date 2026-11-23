@@ -361,8 +361,11 @@ class SubjectSlot(unittest.TestCase):
         self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
 
     def test_a_subject_slot_that_is_not_a_slot_of_its_node_is_refused(self):
-        for bad in ("no_such_slot", "SUBJECT_RESOURCE", "", "fin.transaction"):
-            self.assertTrue(self.problems(0, bad), f"{bad!r} is accepted")
+        self.assertTrue(self.problems(0, "no_such_slot"))
+        base, graphs = real()
+        for bad in ("SUBJECT_RESOURCE", "", "fin.transaction"):  # not a slot name at all: the contract's pattern refuses it before the pack check runs
+            base["intent_nodes"][0]["subject_slot"] = bad
+            self.assertTrue(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), f"{bad!r} is accepted")
 
     def test_a_subject_slot_that_is_not_a_resource_slot_is_refused(self):
         for bad in ("amount", "counterparty", "when", "question_type", "requested_remedy"):
