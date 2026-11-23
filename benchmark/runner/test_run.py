@@ -178,7 +178,9 @@ class RunCase(unittest.TestCase):
         lc = plain_case()
         with Rig() as rig:
             run_case(rig.env, lc)
-            self.assertEqual(rig.sessions.asked, [(lc.case["principal"]["principal_id"], tuple(lc.case["principal"]["roles"]))])
+            own = (lc.case["principal"]["principal_id"], tuple(lc.case["principal"]["roles"]))
+            self.assertEqual([own], [x for x in rig.sessions.asked if x[1] != ("audit",)])  # the conversation runs as the case's principal, once
+            self.assertEqual(1, len([x for x in rig.sessions.asked if x[1] == ("audit",)]))  # A476: the reconstruction is read by one audit principal of the runner's own
 
     def test_an_unsupported_fault_is_an_error_and_noema_is_never_called(self) -> None:
         lc = pick(lambda x: x.plan is not None and any(f["target"] == "mock-ledger" for f in x.plan["faults"]))

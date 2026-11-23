@@ -20,6 +20,7 @@ from .control import PlanRejected
 from .drivers import driven, split_events
 from .env import EnvironmentUnavailable, RunEnv
 from .faultplan import CLOCK_START, split_plan
+from .evidence import ALLOWED_ROLE as AUDIT_ROLE, probe_principal
 from .reconstruction import ReconstructionError, parse
 from .suite import LoadedCase, Suite
 
@@ -129,7 +130,7 @@ def _execute(env: RunEnv, lc: LoadedCase, turns: _Turns) -> Json:
         turns.sent += 1
         env.api.message(token, conv.conversation_ref, f"{case['case_id']}-t{number}", text=text)
         env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
-    body = env.api.reconstruction(token, conv.correlation_id)
+    body = env.api.reconstruction(env.sessions.token_for(probe_principal(), [AUDIT_ROLE]), conv.correlation_id)  # the route is audit-only (noema#783): an audit principal of the runner's own, never the case's
     env.reconstructions[case["case_id"]] = {"initial": body}
     parsed = parse(body)
     environment = env.oracle.readout(baseline, parsed.record_events)

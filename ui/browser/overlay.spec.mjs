@@ -1,11 +1,14 @@
 import { test as base, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { assertAccessible } from "./flow-a11y.mjs";
 const markup = await readFile("dist/index.html", "utf8");
 const stylesheet = await readFile("dist/tokens.css", "utf8");
 const scanner = await readFile("build/js/privacy.js", "utf8");
 
 async function load(page) {
-  await page.setContent(markup);
+  // These isolated scanner tests inject test CSS and a blob module. The real
+  // delivered policy is exercised separately by browser-build.spec.mjs.
+  await page.setContent(markup.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/u, ""));
   await page.addStyleTag({ content: stylesheet });
 }
 
@@ -24,7 +27,10 @@ async function scan(page, synthetic = false) {
 // Every browser flow uses this fixture. Test data is synthetic.
 const test = base.extend({
   page: async ({ page }, use) => {
-    try { await use(page); } finally { expect(await scan(page)).toEqual([]); }
+    try { await use(page); } finally {
+      expect(await scan(page)).toEqual([]);
+      await assertAccessible(page);
+    }
   },
 });
 
