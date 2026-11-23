@@ -2197,6 +2197,12 @@
     "FRAUD_REVIEW",
     "SETTLEMENT_OPS"
   ],
+  "handoff_routes": [
+    {
+      "reason_code": "NO_RUNNABLE_CAPABILITY",
+      "owner_queue": "PAYMENTS_OPERATIONS"
+    }
+  ],
   "case_reasons": [
     {
       "code": "PAYMENT_STATUS_QUERY",

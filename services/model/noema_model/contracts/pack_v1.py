@@ -9,6 +9,7 @@ from ._base import ContractModel
 from .capability_descriptor_v1 import CapabilityDescriptorV1
 from .clock_v1 import ClockV1
 from .common_v1 import CommonV1PackId, CommonV1SchemaVersion, CommonV1Semver, CommonV1Vertical
+from .enums_v1 import EnumsV1CoreReasonCode
 from .evidence_descriptor_v1 import EvidenceDescriptorV1, EvidenceDescriptorV1FieldType
 from .evidence_source_v1 import EvidenceSourceV1
 from .intent_node_v1 import IntentNodeV1
@@ -65,6 +66,15 @@ class PackV1CaseReasonsItem(ContractModel):
     label: Annotated[str, StringConstraints(min_length=1)] | None = Field(default=None)
 
 
+class PackV1HandoffRoutesItem(ContractModel):
+    """PackV1HandoffRoutesItem Source: pack.v1.json#/properties/handoff_routes/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    reason_code: EnumsV1CoreReasonCode
+    owner_queue: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
+    intent_nodes: Annotated[list[Annotated[str, StringConstraints(min_length=1)]], Field(min_length=1)] | None = Field(default=None)
+
+
 class PackV1Policy(ContractModel):
     """PackV1Policy Source: pack.v1.json#/properties/policy"""
 
@@ -117,6 +127,7 @@ class PackV1(ContractModel):
     case_reasons: Annotated[list[PackV1CaseReasonsItem], Field(min_length=1)] | None = Field(default=None)
     action_graph_files: list[Annotated[str, StringConstraints(pattern='\\A[a-z0-9_]+(/[a-z0-9_]+)*\\.json\\Z')]] | None = Field(default=None)
     routing_allowlist: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]], Field(min_length=1)] | None = Field(default=None)
+    handoff_routes: Annotated[list[PackV1HandoffRoutesItem], Field(min_length=1)] | None = Field(default=None)
     evidence_descriptors: list[EvidenceDescriptorV1] | None = Field(default=None)
     predicate_variables: dict[str, EvidenceDescriptorV1FieldType] | None = Field(default=None)
     understanding: PackV1Understanding | None = Field(default=None)
@@ -129,5 +140,6 @@ PackV1UnderstandingRanking.model_rebuild()
 PackV1UnderstandingRankingWeights.model_rebuild()
 PackV1UnderstandingStateFlags.model_rebuild()
 PackV1CaseReasonsItem.model_rebuild()
+PackV1HandoffRoutesItem.model_rebuild()
 PackV1Policy.model_rebuild()
 PackV1.model_rebuild()

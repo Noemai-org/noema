@@ -428,6 +428,24 @@ def check_routing(pack: dict) -> list[Problem]:
                     out.append(("routing", f"{r['rule_id']}: {key} is a free-form destination"))
                 elif value not in allow:
                     out.append(("routing", f"{r['rule_id']}: {key}={value!r} is not in the routing allowlist"))
+    out += check_handoff_routes(pack, allow)
+    return out
+
+
+def check_handoff_routes(pack: dict, allow: set[str]) -> list[Problem]:
+    """A531 (interim, relayed, not yet committed): a handoff route names a queue of the pack's own allowlist, a reason code at most once, and only intent nodes the pack declares.
+    That the reason code is a core code is the schema's (the CoreReasonCode enum, check `schema`), so it is not checked twice."""
+    out: list[Problem] = []
+    nodes = {n["node_id"] for n in pack["intent_nodes"]}
+    seen: set[str] = set()
+    for route in pack.get("handoff_routes", []):
+        code, queue = route["reason_code"], route["owner_queue"]
+        if code in seen:
+            out.append(("routing", f"handoff route {code!r} is declared twice"))
+        seen.add(code)
+        if queue not in allow:
+            out.append(("routing", f"handoff route {code!r}: queue {queue!r} is not in the routing allowlist"))
+        out += [("routing", f"handoff route {code!r}: intent node {n!r} is not declared by the pack") for n in route.get("intent_nodes", []) if n not in nodes]
     return out
 
 

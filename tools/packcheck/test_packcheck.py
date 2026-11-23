@@ -456,3 +456,48 @@ class GraphParams(unittest.TestCase):
         graphs[G2]["nodes"][0]["params"].append({"name": "priority", "const": "NORMAL"})
         self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
         self.assertNotIn("params", next(n for g in graphs.values() for n in g["nodes"] if n["capability_id"] == "fin.cap.log_complaint_reference"))
+
+
+class HandoffRoutes(unittest.TestCase):
+    """A531 (interim, relayed, not yet committed; REQ-TRU-004, REQ-AG-002). The pack's `handoff_routes`: which reason code goes to a handoff, to a queue of the pack's own
+    routing allowlist, for which intent nodes (absent: all). The route is data; a free-form destination is not representable. All data is SYNTHETIC."""
+
+    ROUTE = {"reason_code": "NO_RUNNABLE_CAPABILITY", "owner_queue": "PAYMENTS_OPERATIONS"}
+
+    def routing(self, base):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "routing" and "handoff" in m]
+
+    def with_routes(self, routes):
+        base, _ = real()
+        base["handoff_routes"] = routes
+        return base
+
+    def test_the_real_pack_routes_no_runnable_capability_to_a_queue_of_its_own_allowlist(self):
+        base, _ = real()
+        routes = {r["reason_code"]: r for r in base.get("handoff_routes", [])}
+        self.assertIn("NO_RUNNABLE_CAPABILITY", routes)
+        self.assertIn(routes["NO_RUNNABLE_CAPABILITY"]["owner_queue"], base["routing_allowlist"])
+        self.assertNotIn("intent_nodes", routes["NO_RUNNABLE_CAPABILITY"])
+
+    def test_a_route_to_a_queue_outside_the_allowlist_is_refused(self):
+        hits = self.routing(self.with_routes([{**self.ROUTE, "owner_queue": "NOT_A_QUEUE"}]))
+        self.assertTrue(any("allowlist" in m for m in hits), hits)
+
+    def test_a_reason_code_routed_twice_is_refused(self):
+        hits = self.routing(self.with_routes([self.ROUTE, dict(self.ROUTE)]))
+        self.assertTrue(any("twice" in m for m in hits), hits)
+
+    def test_an_intent_node_the_pack_does_not_declare_is_refused(self):
+        hits = self.routing(self.with_routes([{**self.ROUTE, "intent_nodes": ["fin.not.a.node"]}]))
+        self.assertTrue(any("intent node" in m for m in hits), hits)
+
+    def test_a_route_for_a_declared_node_and_a_distinct_reason_passes(self):
+        base, _ = real()
+        node = base["intent_nodes"][0]["node_id"]
+        base["handoff_routes"] = [self.ROUTE, {"reason_code": "INSUFFICIENT_EVIDENCE", "owner_queue": base["routing_allowlist"][0], "intent_nodes": [node]}]
+        self.assertEqual(self.routing(base), [])
+        self.assertEqual([p for p in checks.run(PACKS / "fintech_v1.json", pack=base) if p[0] in ("schema", "reasons")], [])
+
+    def test_a_reason_code_that_is_not_a_core_code_is_refused(self):
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=self.with_routes([{**self.ROUTE, "reason_code": "fin.reason.permitted"}]))]
+        self.assertTrue(any("fin.reason.permitted" in m for m in hits), hits)
