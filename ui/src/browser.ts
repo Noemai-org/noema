@@ -7,6 +7,7 @@ import { CustomerAnswer } from "./customer-answer.js";
 import type { InvestigationResponseV1 } from "./contract_types/customer.js";
 import { RESPONSE_FRAME_LIMIT_BYTES } from "./transport-limits.js";
 import { startConversationAndPoll } from "./conversation-start.js";
+import { parseMessageRequestV1 } from "./contract_types/customer.js";
 
 const app = document.getElementById("app");
 const root = app ? hydrateRoot(app, createElement(Overlay)) : undefined;
@@ -18,11 +19,16 @@ function LiveOverlay({ context }: { context: HostContext }) {
   const [lost, setLost] = useState(false);
   const [text, setText] = useState("");
   const [started, setStarted] = useState(false);
+  const [invalidMessage, setInvalidMessage] = useState(false);
   const sending = useRef(false);
   const request = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     request.current = controller;
+    sending.current = false;
+    setStarted(false);
+    setText("");
+    setInvalidMessage(false);
     setState(undefined);
     setLost(false);
     if (!context.investigationId) return () => controller.abort();
@@ -37,13 +43,23 @@ function LiveOverlay({ context }: { context: HostContext }) {
     return () => controller.abort();
   }, [context]);
   const send = () => {
-    if (sending.current || context.investigationId || !text.trim()) return;
+    if (sending.current || context.investigationId) return;
+    let message;
+    try {
+      message = parseMessageRequestV1({ request_id: crypto.randomUUID(), text });
+    } catch {
+      setInvalidMessage(true);
+      return;
+    }
+    const controller = request.current;
+    if (!controller || controller.signal.aborted) return;
     sending.current = true;
     setStarted(true);
+    setInvalidMessage(false);
     setLost(false);
-    void startConversationAndPoll({ ...context, request: { request_id: crypto.randomUUID(), text }, signal: request.current?.signal, onState: setState })
-      .then((failure) => { if (!request.current?.signal.aborted && failure) setLost(true); })
-      .catch(() => { if (!request.current?.signal.aborted) setLost(true); });
+    void startConversationAndPoll({ ...context, request: message, signal: controller.signal, onState: setState })
+      .then((failure) => { if (!controller.signal.aborted && failure) setLost(true); })
+      .catch(() => { if (!controller.signal.aborted) setLost(true); });
   };
   return createElement("main", { className: "overlay", "aria-label": "Noema" },
     createElement("h1", null, "Noema"),
@@ -52,7 +68,8 @@ function LiveOverlay({ context }: { context: HostContext }) {
       state ? createElement("p", { role: "status" }, progressCopy(state.state)) : null,
       state?.state === "answered" && state.last_answer ? createElement(CustomerAnswer, { answer: state.last_answer }) : null),
     createElement("label", { htmlFor: "message" }, "Your message"),
-    createElement("textarea", { id: "message", name: "message", rows: 3, value: text, onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => setText(event.currentTarget.value) }),
+    createElement("textarea", { id: "message", name: "message", rows: 3, maxLength: 2000, value: text, onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => { setText(event.currentTarget.value); setInvalidMessage(false); } }),
+    invalidMessage ? createElement("p", { role: "status" }, "Enter a message between 1 and 2,000 characters.") : null,
     createElement("div", { className: "actions" },
       createElement("button", { type: "button", disabled: Boolean(context.investigationId) || started || !text.trim(), onClick: send }, "Send"),
       createElement("button", { type: "button", disabled: true }, "Push to talk")));
