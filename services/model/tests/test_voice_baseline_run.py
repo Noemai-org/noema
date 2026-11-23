@@ -439,12 +439,15 @@ def test_the_allowlist_is_loaded_as_given(tmp_path: Path) -> None:
     assert wire.allowed_hosts == ("example.invalid", "other.example.invalid")
 
 
-@pytest.mark.parametrize("base_url", ["wss://elsewhere.invalid", "wss://example.invalid.evil.invalid", "wss://example.invalid@evil.invalid", "wss://evil.invalid@example.invalid", "wss://example.invalid:8443", "wss://EXAMPLE.invalid.evil.invalid"])
+@pytest.mark.parametrize("base_url", ["wss://elsewhere.invalid", "wss://example.invalid.evil.invalid", "wss://example.invalid@evil.invalid", "wss://evil.invalid@example.invalid", "wss://example.invalid:8443", "wss://EXAMPLE.invalid.evil.invalid", "ws://example.invalid", "https://example.invalid", "example.invalid", "wss://example.invalid/stt", "wss://example.invalid?x=1"])
 def test_a_base_address_off_the_allowlist_is_refused_before_any_connection_for_a_run_and_for_check_key(tmp_path: Path, capsys: pytest.CaptureFixture[str], base_url: str) -> None:
     key = tmp_path / "key"
     key.write_text(KEY)
     key.chmod(0o600)
     spy = Spy()
+    if os.name != "nt":
+        (tmp_path / "store").mkdir(mode=0o700)  # a good store, so that only the address can be what refuses the run
+        (tmp_path / "store").chmod(0o700)
     run_args = args(tmp_path, **{"base-url": base_url})
     assert main(run_args, {"INTRON_API_KEY_FILE": str(key)}, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s)) == 2 and spy.built == 0
     check = ["--check-key", f"--settings={write_json(tmp_path / 'c.json', SETTINGS_FILE)}", f"--base-url={base_url}"]
@@ -457,7 +460,15 @@ def test_a_base_address_on_the_allowlist_is_not_refused_for_that_reason(tmp_path
     key = tmp_path / "key"
     key.write_text(KEY)
     key.chmod(0o600)
-    spy = Spy()
+    seen: list[str] = []
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            seen.append(url)
+            raise ProviderError(ProviderFailure.UNAVAILABLE)  # reached the connection: the address was accepted
+
+        return connect
+
     check = ["--check-key", f"--settings={write_json(tmp_path / 'c.json', SETTINGS_FILE)}", "--base-url=wss://example.invalid"]
-    main(check, {"INTRON_API_KEY_FILE": str(key)}, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
-    assert spy.built == 1  # it got as far as building the connector
+    code = main(check, {"INTRON_API_KEY_FILE": str(key)}, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    assert code == 1 and capsys.readouterr().out.strip() == "inconclusive" and len(seen) == 1 and seen[0].startswith("wss://example.invalid/")

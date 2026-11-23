@@ -69,3 +69,15 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 - Open questions (Founder): adults-only and the bystander rule (noema#201); the voice names (the Intron Product session).
 - Files to read first: `voice/baseline_run.py`, `bench/README.md`.
 - Do not touch: the settings values (A380), the store's modes, any vendor address in the repository.
+
+# Session 2026-11-23 · VOI-16 (A556 in noema#824)
+
+## Session summary
+- What changed (noema#824): the settings file gains a required `allowed_hosts` (a non-empty list of plain lowercase host names, no default); `--base-url` must be exactly `wss://<one of them>` for a run and for `--check-key`, else the runner refuses before any connection with a fixed message that never echoes the address. The shipped file holds the placeholder `set-by-the-founder.invalid` (the repository must not name the vendor's host: the strict test of noema#632); the Founder sets the real host in the bench copy.
+- Why: A556.
+- Tests: red first at 463e2855; mutants of the pin (scheme, user information and port, the list membership, both call sites, the empty list, number-only hosts) each caught.
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Founder copies `bench/baseline-settings.json` to the bench host, sets `allowed_hosts` to the vendor's streaming host, puts the key file on the runner account, runs `--check-key` and comments `start` on noema#767.
+- Do not touch: the host in the repository (the strict URL test forbids it).

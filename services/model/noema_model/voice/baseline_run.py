@@ -10,15 +10,18 @@ Run it as `python -m noema_model.voice.baseline_run` with the arguments of `main
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import math
 import os
+import re
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from noema_model.platform.clock import SystemClock
 from noema_model.providers.speech.base import AudioChunk, AudioCodec, Locale, PipelineMode, ProviderCapabilities, SpeechProvider, StreamRequest, Support
@@ -49,6 +52,7 @@ class WireSettings:
     ping_timeout_s: float | None
     max_message_bytes: int
     tts_poll_s: float
+    allowed_hosts: tuple[str, ...]  # A556: the hosts the base address may name; the Founder supplies them in the settings file, so the repository never names the vendor's
 
 
 _BASELINE_FLOATS = ("stt_final_s", "response_s", "tts_first_s", "session_s", "read_s", "close_s", "hold_s", "min_pause_s", "budget_minutes")
@@ -56,6 +60,7 @@ _BASELINE_INTS = ("concurrency", "connections_per_minute", "connections_per_sess
 _EXTRA_FLOATS = ("utterance_min_s", "utterance_max_s", "open_timeout_s", "tts_poll_s")
 _EXTRA_NULLABLE = ("ping_interval_s", "ping_timeout_s")
 _EXTRA_INTS = ("max_message_bytes",)
+_HOST = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*")  # a plain lowercase host name: no scheme, port, path, wildcard or space
 
 
 def _load_json(path: Path) -> Any:
@@ -69,10 +74,27 @@ def _number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def _plain_host(host: str) -> bool:
+    if not _HOST.fullmatch(host) or len(host) > 253:
+        return False
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return False  # an address of numbers is not a host name the Founder supplies
+
+
+def pinned_to(base_url: str, allowed_hosts: Sequence[str]) -> bool:
+    """A556: the base address must be `wss://<host>` with a host on the allowlist, exactly: no user information, no port, no path, and a look-alike or a longer host is not the host."""
+    parts = urlsplit(base_url)
+    host = parts.hostname
+    return parts.scheme == "wss" and host is not None and parts.netloc.lower() == host and host in allowed_hosts and parts.path in ("", "/") and not parts.query and not parts.fragment
+
+
 def load_settings(path: Path) -> tuple[BaselineSettings, tuple[float, float], WireSettings]:
     """The settings file: exactly the keys below, every one required, of the right type. The values are the Architect's (A380) and the bench's wire settings (A332), never defaults in code."""
     document = _load_json(path)
-    names = {*_BASELINE_FLOATS, *_BASELINE_INTS, *_EXTRA_FLOATS, *_EXTRA_NULLABLE, *_EXTRA_INTS}
+    names = {*_BASELINE_FLOATS, *_BASELINE_INTS, *_EXTRA_FLOATS, *_EXTRA_NULLABLE, *_EXTRA_INTS, "allowed_hosts"}
     if not isinstance(document, dict) or set(document) != names:
         raise RunnerConfigError("the settings file must hold exactly the required settings")
     for name in (*_BASELINE_FLOATS, *_EXTRA_FLOATS):
@@ -84,9 +106,12 @@ def load_settings(path: Path) -> tuple[BaselineSettings, tuple[float, float], Wi
     for name in (*_BASELINE_INTS, *_EXTRA_INTS):
         if isinstance(document[name], bool) or not isinstance(document[name], int):
             raise RunnerConfigError("a setting has the wrong type")
+    allowed = document["allowed_hosts"]
+    if not isinstance(allowed, list) or not allowed or not all(isinstance(host, str) and _plain_host(host) for host in allowed):
+        raise RunnerConfigError("allowed_hosts must be a non-empty list of plain lowercase host names")
     try:
         baseline = BaselineSettings(**{name: document[name] for name in (*_BASELINE_FLOATS, *_BASELINE_INTS)})
-        wire = WireSettings(**{name: document[name] for name in ("open_timeout_s", "ping_interval_s", "ping_timeout_s", "max_message_bytes", "tts_poll_s")})
+        wire = WireSettings(**{name: document[name] for name in ("open_timeout_s", "ping_interval_s", "ping_timeout_s", "max_message_bytes", "tts_poll_s")}, allowed_hosts=tuple(allowed))
         low, high = float(document["utterance_min_s"]), float(document["utterance_max_s"])
         if not (0 < low <= high):
             raise ValueError
@@ -305,6 +330,8 @@ def _check_key(argv: Sequence[str], environ: Mapping[str, str], make_connector: 
         return _fail("the Intron key file is missing or not safe (INTRON_API_KEY_FILE, owner-only)")
     try:
         settings, _, wire = load_settings(Path(args["settings"]))
+        if not pinned_to(args["base_url"], wire.allowed_hosts):
+            return _fail("the base address is not on the allowlist of the settings file")
         url = stt_url(args["base_url"], Locale.EN_NG)
     except (RunnerConfigError, ValueError):
         return _fail("the settings file or the base address is not valid")
@@ -346,6 +373,8 @@ def main(
         settings, bounds, wire = load_settings(Path(args["settings"]))
         items = load_manifest(Path(args["manifest"]))
         voices = _load_voices(Path(args["voices"]))
+        if not pinned_to(args["base_url"], wire.allowed_hosts):
+            raise RunnerConfigError("the base address is not on the allowlist of the settings file")
         store_root, report_path = Path(args["store"]), Path(args["report"])
         if not str(args["target_ms"]).isdigit() or int(args["target_ms"]) < 1:
             raise RunnerConfigError("target-ms must be a positive whole number")

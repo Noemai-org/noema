@@ -17,5 +17,8 @@
   "ping_interval_s": null,
   "ping_timeout_s": null,
   "max_message_bytes": 4194304,
-  "tts_poll_s": 0.2
+  "tts_poll_s": 0.2,
+  "allowed_hosts": [
+    "set-by-the-founder.invalid"
+  ]
 }
