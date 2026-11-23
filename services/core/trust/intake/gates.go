@@ -35,6 +35,9 @@ type evaluation struct {
 	step *stepScope
 	// policyParams are the winning PERMIT rule's params T11 read, per capability (TRU-14); passed to the Planner.
 	policyParams map[string]map[string]string
+	// first is the capabilities a first evaluation of a write plans (A511: authorized and runnable, sorted), valid once firstRead is true. Read once, by firstCapabilities.
+	first     []string
+	firstRead bool
 }
 
 func (e *evaluation) steps() decide.Steps {

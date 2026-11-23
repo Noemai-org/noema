@@ -197,6 +197,37 @@ class G1Leakscan(unittest.TestCase):
         done = subprocess.run([sys.executable, "-I", str(HERE / "g1_leakscan.py"), str(self.art)], capture_output=True, text=True, check=False)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
+    def test_a_clean_scan_writes_a_stamped_inventory_of_the_files_it_read(self) -> None:
+        # Codex P2 on #875: the package compares this list with the upload list exactly.
+        (self.art / "sub").mkdir()
+        (self.art / "sub" / "b.log").write_text("fine\n", encoding="utf-8")
+        inv = self.root / "inventory.txt"
+        code, text = run(["--workdir", str(self.work), "--root", str(self.root), "--stamp", "a" * 40 + " 44980792", "--inventory", str(inv), str(self.art)])
+        self.assertEqual(code, 0, text)
+        self.assertEqual(inv.read_text(encoding="utf-8"), "stamp: " + "a" * 40 + " 44980792\nartifacts/run.log\nartifacts/sub/b.log\n")
+
+    def test_the_inventory_needs_a_well_formed_stamp_and_is_not_written_on_a_leak_or_a_blind_scan(self) -> None:
+        inv = self.root / "inventory.txt"
+        for bad in (None, "", "onlyone", "a b c", "a\nb c"):
+            args = ["--workdir", str(self.work), "--root", str(self.root), "--inventory", str(inv), str(self.art)] + ([] if bad is None else ["--stamp", bad])
+            self.assertEqual(run(args)[0], 2, repr(bad))
+            self.assertFalse(inv.exists())
+        (self.art / "leak.log").write_text("api_key=" + "ab12cd34ef56ab12cd34" + "\n", encoding="utf-8")
+        inv.write_text("stale\n", encoding="utf-8")
+        self.assertEqual(run(["--workdir", str(self.root / "w2"), "--root", str(self.root), "--stamp", "a b", "--inventory", str(inv), str(self.art)])[0], 1)
+        self.assertFalse(inv.exists(), "a stale inventory must not survive a failed scan")
+        (self.art / "leak.log").unlink()
+        blind = self.root / "blind.py"
+        blind.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+        inv.write_text("stale\n", encoding="utf-8")
+        self.assertEqual(run(["--scanner", str(blind), "--workdir", str(self.root / "w3"), "--root", str(self.root), "--stamp", "a b", "--inventory", str(inv), str(self.art)])[0], 3)
+        self.assertFalse(inv.exists())
+
+    def test_the_inventory_is_what_the_real_scan_read_not_the_planted_files(self) -> None:
+        inv = self.root / "inventory.txt"
+        run(["--workdir", str(self.work), "--root", str(self.root), "--stamp", "a b", "--inventory", str(inv), str(self.art)])
+        self.assertNotIn("planted", inv.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

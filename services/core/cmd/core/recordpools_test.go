@@ -22,7 +22,7 @@ func dsnDir(t *testing.T, files map[string]string) (dir string, env Env) {
 	t.Helper()
 	dir = t.TempDir()
 	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o400); err != nil {
 			t.Fatal(err)
 		}
 	}

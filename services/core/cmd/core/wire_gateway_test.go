@@ -36,10 +36,10 @@ func newGwDirs(t *testing.T, tenants ...string) gwDirs {
 	t.Helper()
 	d := gwDirs{edgeDSN: t.TempDir(), keys: t.TempDir(), readDSN: t.TempDir(), hash: filepath.Join(t.TempDir(), "hash.key")}
 	for _, tn := range tenants {
-		if err := os.WriteFile(filepath.Join(d.edgeDSN, tn), []byte(synthDSN("edge_"+tn)+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(d.edgeDSN, tn), []byte(synthDSN("edge_"+tn)+"\n"), 0o400); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(d.readDSN, tn), []byte(synthDSN("read_"+tn)+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(d.readDSN, tn), []byte(synthDSN("read_"+tn)+"\n"), 0o400); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -152,7 +152,7 @@ func TestAGatewayWithoutTheRecordReaderOrTheSeamIsRefused(t *testing.T) {
 // an error too.
 func TestATenantWithoutAReadLoginAndAMissingKeyAreRefused(t *testing.T) {
 	d := newGwDirs(t, tenA)
-	if err := os.WriteFile(filepath.Join(d.edgeDSN, tenB), []byte(synthDSN("edge_"+tenB)+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(d.edgeDSN, tenB), []byte(synthDSN("edge_"+tenB)+"\n"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 	e := d.env()

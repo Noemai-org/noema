@@ -45,7 +45,10 @@ func TestTheCoreReasonCodesTrustAcceptsAreExactlyTheContractsClosedList(t *testi
 	if _, err := decide.Core("NOT_A_CODE"); err == nil {
 		t.Error("Trust accepts a code no contract lists")
 	}
-	if len(listed) != 20 {
-		t.Errorf("the contract lists %d core codes, want 20: the 17 of v1.2 and the three of A254 (the fourth name of A254, DECLINED_BY_APPROVER, was already one of the 17; A280 confirms 20)", len(listed))
+	if !seen["NO_RUNNABLE_CAPABILITY"] {
+		t.Error("A531: the contract does not list NO_RUNNABLE_CAPABILITY")
+	}
+	if len(listed) != 21 {
+		t.Errorf("the contract lists %d core codes, want 21: the 17 of v1.2, the three of A254 (the fourth name of A254, DECLINED_BY_APPROVER, was already one of the 17; A280 confirms 20) and NO_RUNNABLE_CAPABILITY of A531", len(listed))
 	}
 }

@@ -48,6 +48,7 @@ type Found struct {
 	PrincipalID   string // the actor after its kind ("customer:usr_01" gives "usr_01"); empty when the actor names no person
 	CorrelationID string
 	RequestID     string // the payload's request_id; empty when the event carries none
+	ObjectRef     string // the event's object_ref (for INPUT_RECEIVED, the req_ ID the core minted for the input, A184)
 }
 
 // Reader reads through one pool per tenant, each logged in as that tenant's record_read.
@@ -90,7 +91,7 @@ func (r *Reader) Lookup(ctx context.Context, tenantID, eventID string) (Found, e
 		if row.EventID != eventID {
 			continue
 		}
-		return Found{EventType: row.EventType, TenantID: tenantID, PrincipalID: principalOf(row.Actor), CorrelationID: row.CorrelationID, RequestID: requestOf(row.Payload)}, nil
+		return Found{EventType: row.EventType, TenantID: tenantID, PrincipalID: principalOf(row.Actor), CorrelationID: row.CorrelationID, RequestID: requestOf(row.Payload), ObjectRef: row.ObjectRef}, nil
 	}
 	return Found{}, ErrNotFound
 }

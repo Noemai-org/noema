@@ -31,3 +31,21 @@
 - Exact next step: the adapter maps `DeclinedRequestID` into `recorder.Request` (a small PR after this one); whether the Writer should also require a recorded DECLINE answer (the answer table of 0032) is the Architect's; I started with existence and intent, as proposed.
 - Files to read first: `trust/recorder/inputkey.go` (`resolveState`), `migrations/0032_confirmation_request_answer.sql`, `orchestrator/portadapters/trustpg2/requests.go`.
 - Do not touch: `services/core/migrations/` (no change needed).
+
+# Session 2026-11-23 WAT · TRU-12 (the Recorder adapter maps DeclinedRequestID, A470, A507)
+
+## Session summary
+- What changed (PR links): `orchestrator/portadapters/trust/recorder.go` maps `intake.RecordRequest.DeclinedRequestID` to `recorder.Request.DeclinedRequestID`. `declinedShape` (called first in `outcomeShape`) refuses with `ErrRecordRequest`, before any transaction, a request that names one on any decision but a REJECT with the reason DECLINED_BY_APPROVER, and one whose id is not `cfr_` plus 2 to 32 alphanumerics. PR link: to be added when EL opens it.
+- Why: Founder instruction (interim, relayed, not yet committed; A470, A507, A519). The field (noema#849) and the Writer's tenant and intent check (A507) are on main; the adapter did not hand the id on, so a declined REJECT was stored without its request.
+- Safer readings taken: a REJECT for another reason that names a request is refused (the instruction only lets a declined REJECT carry one; the Writer would accept any REJECT); the adapter checks the id's shape itself, as the Writer does, so a malformed id never opens a transaction.
+- Risks, and how they are contained: fail-closed, adapter-side only; the Writer still reads the request as the tenant and compares its intent. No contract, trust/** or migration change.
+- Tests added (REQ-TRU-009, REQ-STM-001; INV-03): `recorder_declined_test.go`: four tests on the adapter's own fakes (no mocked failure mode): id reaches the Writer unchanged; REJECT without one maps empty (declined and two other reasons); ALLOW, CONFIRM, UNKNOWN, ESCALATE, another REJECT reason and two non-REJECT with the declined reason are refused before any transaction; eight malformed ids refused. Seen failing locally before the change (red commit 2626b45f); CI reading is EL's.
+- Mutants (hand, 5 plus 1 added after a survivor; all killed): mapping dropped; outcome check dropped (survived until the two non-REJECT-with-declined-reason cases were added); reason check dropped; shape check dropped; empty-check inverted.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+- Local run: gofmt, vet, lint, hard_code guard clean; package -race run: the 33 failures are the pgsodium database tests (CI only), none other.
+
+## Pre-work for the next agent
+- Exact next step: EL pushes the green commit and opens the PR.
+- Open questions (owner): whether the Writer should also require a recorded DECLINE answer (Architect, noted in the A507 session).
+- Files to read first: `orchestrator/portadapters/trust/recorder.go` (`declinedShape`), `trust/recorder/inputkey.go`.
+- Do not touch: `trust/recorder`, `trust/intake`.

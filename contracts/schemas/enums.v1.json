@@ -79,7 +79,7 @@
       ]
     },
     "CoreReasonCode": {
-      "description": "The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED) and the last three of the original list are [REC] until the founders confirm them. Pack codes (<vertical>.reason.<name>) are the second tier and live in the pack's catalogue.",
+      "description": "The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED), NO_RUNNABLE_CAPABILITY added by ruling A531 and the last three of the original list are [REC] until the founders confirm them. Pack codes (<vertical>.reason.<name>) are the second tier and live in the pack's catalogue.",
       "type": "string",
       "enum": [
         "PROHIBITED_CAPABILITY",
@@ -101,7 +101,8 @@
         "MODE_NOT_ENABLED",
         "TARGET_FROZEN",
         "CLOCK_BREACHED_UNROUTED",
-        "DISPATCH_BUDGET_EXHAUSTED"
+        "DISPATCH_BUDGET_EXHAUSTED",
+        "NO_RUNNABLE_CAPABILITY"
       ]
     },
     "LimitSetBy": {
