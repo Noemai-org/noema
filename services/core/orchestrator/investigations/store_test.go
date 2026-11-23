@@ -86,6 +86,12 @@ func newStoreWorld(t *testing.T) *storeWorld {
 	return w
 }
 
+// withRef is the session with the reference of the verified session that opened it: Start reads it from the session, never from a parameter (A514, INV-12).
+func withRef(s orchestrator.Session, ref string) orchestrator.Session {
+	s.AuthnRef = ref
+	return s
+}
+
 var sessA = orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_01", Role: "customer"}
 
 // authnA is the authn reference of the verified session of sessA (A149: "ses_" and 32 hex characters of a hash of kid, sub and iat). SYNTHETIC.
@@ -126,11 +132,11 @@ func (w *storeWorld) row(t *testing.T, tenant, inv string) (string, int64) {
 // Idempotent start: the same recorded input gives the same investigation, whatever investigation ID the second caller proposes, and says it already existed.
 func TestStartFindsTheInvestigationOfARecordedInputAndNeverMakesASecond(t *testing.T) {
 	w := newStoreWorld(t)
-	first, created, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11"))
+	first, created, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11"))
 	if err != nil || !created || first.ID != "inv_AA11" || first.State != "RECEIVED" || first.Version != 0 {
 		t.Fatalf("first start: %+v created %v err %v", first, created, err)
 	}
-	again, created, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_BB22", "recev_AA11"))
+	again, created, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_BB22", "recev_AA11"))
 	if err != nil || created || again.ID != "inv_AA11" {
 		t.Fatalf("second start: %+v created %v err %v; want the first investigation and created false", again, created, err)
 	}
@@ -149,7 +155,7 @@ func TestConcurrentStartsOfOneInputMakeOneInvestigation(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			inv, c, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_C"+strings.Repeat("A", i+1), "recev_CC11"))
+			inv, c, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_C"+strings.Repeat("A", i+1), "recev_CC11"))
 			if err != nil || inv.ID == "" {
 				t.Errorf("start %d: %+v %v", i, inv, err)
 			}
@@ -173,14 +179,14 @@ func TestStartRefusesWhatItCannotHonour(t *testing.T) {
 		"no recorded input": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11"}, "a bad input ref": start("inv_AA11", "evt_AA11"),
 		"a newline in the id": start("inv_AA\n11", "recev_AA11"),
 	} {
-		if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, r); !errors.Is(err, investigations.ErrRequest) {
+		if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), r); !errors.Is(err, investigations.ErrRequest) {
 			t.Errorf("%s: %v; want ErrRequest", name, err)
 		}
 	}
-	if _, _, err := w.storeA.Start(ctx(t), orchestrator.Session{TenantID: tenantB, PrincipalID: "usr_01", Role: "customer"}, authnA, start("inv_AA11", "recev_AA11")); err == nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(orchestrator.Session{TenantID: tenantB, PrincipalID: "usr_01", Role: "customer"}, authnA), start("inv_AA11", "recev_AA11")); err == nil {
 		t.Error("a session for another tenant than the login's started an investigation")
 	}
-	if _, _, err := w.storeA.Start(ctx(t), orchestrator.Session{}, authnA, start("inv_AA11", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(orchestrator.Session{}, authnA), start("inv_AA11", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
 		t.Errorf("an empty session: %v; want ErrRequest", err)
 	}
 	var n int
@@ -192,7 +198,7 @@ func TestStartRefusesWhatItCannotHonour(t *testing.T) {
 // Record first and one transaction: a change appends INVESTIGATION_STATE_CHANGED as core-workflows with the investigation's correlation, and the row moves with it.
 func TestAChangeAppendsTheEventAndMovesTheRowTogether(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.storeA.AppendChange(ctx(t), sessA, orchestrator.Change{ID: "inv_AA11", From: "RECEIVED", To: "INTERPRETING", FromVersion: 0, ToVersion: 1}); err != nil {
@@ -216,7 +222,7 @@ func TestAChangeAppendsTheEventAndMovesTheRowTogether(t *testing.T) {
 // appends no event and moves no row.
 func TestAStaleChangeIsRefusedAndWritesNothing(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.storeA.AppendChange(ctx(t), sessA, orchestrator.Change{ID: "inv_AA11", From: "RECEIVED", To: "INTERPRETING", FromVersion: 0, ToVersion: 1}); err != nil {
@@ -245,7 +251,7 @@ func TestAStaleChangeIsRefusedAndWritesNothing(t *testing.T) {
 // EC-E16, the Record comes first: when the append fails the row does not move, and nothing is left behind.
 func TestWhenTheAppendFailsTheRowDoesNotMove(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	w.failing.Store(true)
@@ -267,7 +273,7 @@ func TestWhenTheAppendFailsTheRowDoesNotMove(t *testing.T) {
 // Two writers racing on one version: exactly one wins, the other gets ErrStaleVersion and appends nothing.
 func TestTwoChangesFromOneVersionHaveOneWinner(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	var won, stale atomic.Int32
@@ -296,7 +302,7 @@ func TestTwoChangesFromOneVersionHaveOneWinner(t *testing.T) {
 // Tenant isolation: a login for tenant B neither finds tenant A's investigation nor moves it.
 func TestAnotherTenantsLoginNeitherFindsNorMovesAnInvestigation(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	storeB := &investigations.Store{Pool: w.orchB, Appender: w.storeA.Appender, Inputs: w.inputs}
@@ -317,14 +323,14 @@ var _ orchestrator.Recorder = (*investigations.Store)(nil)
 func TestStartMakesNoInvestigationForAnInputTheRecordDoesNotConfirm(t *testing.T) {
 	w := newStoreWorld(t)
 	w.inputs.refuse["recev_FA11"] = true
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_FA11")); !errors.Is(err, investigations.ErrNoRecordedInput) {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_FA11")); !errors.Is(err, investigations.ErrNoRecordedInput) {
 		t.Fatalf("a fabricated reference: %v; want ErrNoRecordedInput", err)
 	}
 	var n int
 	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM investigation`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("%d rows after a refused start (%v)", n, err)
 	}
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	if got := w.inputs.asked[len(w.inputs.asked)-1]; got != "ten_aa|usr_01|recev_AA11|corr_AA11" {
@@ -335,15 +341,15 @@ func TestStartMakesNoInvestigationForAnInputTheRecordDoesNotConfirm(t *testing.T
 // Reviewer P2 on noema#490: reuse of a recorded input with another correlation is refused, not silently joined to the old investigation.
 func TestStartRefusesAReuseOfARecordedInputWithAnotherCorrelation(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	other := start("inv_AA22", "recev_AA11")
 	other.CorrelationID = "corr_ZZ99"
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, other); !errors.Is(err, investigations.ErrRequest) {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), other); !errors.Is(err, investigations.ErrRequest) {
 		t.Fatalf("another correlation: %v; want ErrRequest", err)
 	}
-	if again, created, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA33", "recev_AA11")); err != nil || created || again.ID != "inv_AA11" {
+	if again, created, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA33", "recev_AA11")); err != nil || created || again.ID != "inv_AA11" {
 		t.Fatalf("the same correlation still finds the first: %+v created %v err %v", again, created, err)
 	}
 }
@@ -352,7 +358,7 @@ func TestStartRefusesAReuseOfARecordedInputWithAnotherCorrelation(t *testing.T) 
 func TestAStoreWithNoInputsPortMakesNothing(t *testing.T) {
 	w := newStoreWorld(t)
 	s := &investigations.Store{Pool: w.orchA, Appender: w.storeA.Appender}
-	if _, _, err := s.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
+	if _, _, err := s.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
 		t.Fatalf("%v; want ErrRequest", err)
 	}
 }
@@ -401,14 +407,14 @@ func TestConfirmWithComparesTheRecordedEventWithTheSessionAndTheRequest(t *testi
 // A243 (interim; migration 0029; REQ-STM-001, REQ-SEC-004; INV-12): the investigation names the principal that started it, so a route can refuse another principal's request.
 func TestAnInvestigationNamesThePrincipalThatStartedItAndAnotherPrincipalCannotStartIt(t *testing.T) {
 	w := newStoreWorld(t)
-	if _, _, err := w.storeA.Start(ctx(t), sessA, authnA, start("inv_AA11", "recev_AA11")); err != nil {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(sessA, authnA), start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := w.storeA.PrincipalOf(ctx(t), sessA, "inv_AA11"); err != nil || got != "usr_01" {
 		t.Fatalf("principal %q, %v; want usr_01", got, err)
 	}
 	other := orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_02", Role: "customer"}
-	if _, _, err := w.storeA.Start(ctx(t), other, authnA, start("inv_BB22", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
+	if _, _, err := w.storeA.Start(ctx(t), withRef(other, authnA), start("inv_BB22", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
 		t.Errorf("another principal's Start of the same input: %v, want ErrRequest", err)
 	}
 	if _, err := w.storeA.PrincipalOf(ctx(t), sessA, "inv_ZZ99"); !errors.Is(err, investigations.ErrNoInvestigation) {

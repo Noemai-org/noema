@@ -45,12 +45,12 @@ type fakeStarter struct {
 	req     investigations.StartRequest
 }
 
-func (f *fakeStarter) Start(ctx context.Context, s orchestrator.Session, authnRef string, r investigations.StartRequest) (orchestrator.Investigation, bool, error) {
+func (f *fakeStarter) Start(ctx context.Context, s orchestrator.Session, r investigations.StartRequest) (orchestrator.Investigation, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	_, f.hadDL = ctx.Deadline()
-	f.sess, f.authn, f.req = s, authnRef, r
+	f.sess, f.authn, f.req = s, s.AuthnRef, r
 	if f.err != nil {
 		return orchestrator.Investigation{}, false, f.err
 	}
@@ -151,7 +151,7 @@ func TestAnAdmittedTurnRunsOnceAsTheIdentitysSession(t *testing.T) {
 	if r.turns[0] != want {
 		t.Fatalf("turn = %+v, want %+v", r.turns[0], want)
 	}
-	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "customer"}) {
+	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "customer", AuthnRef: tn.SessionID, PrincipalType: "customer"}) { // A514: AssertedBy stays empty
 		t.Fatalf("session = %+v", r.sess[0])
 	}
 	if st.req.InvestigationID != invA || st.req.CorrelationID != corrA || st.req.InputReceivedRef != "recev_AAA1" {
