@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/trust-limits.v1.json",
   "title": "Trust limits",
-  "description": "The provisional limits the Trust steps read as pack data, not code, for one pack, and (A544, interim, additive and optional) the routing data of the Reconciler and the Clocks: the escalation reason of a classification, the capabilities a contradiction freeze allows, the reason of a clock phase and the entity a clock's anchor event is read from (Architect ruling A205 Q1, recorded in docs PR #176; AGENT-16: agents do not set thresholds, so no number lives in code). Both are integer basis points (BasisPoints, 0 to 10000; ruling A166), never a fraction. NON-CANONICAL until GOV-06 adopts the PERD 67.3 defaults: (1) ambiguity_absolute_floor_bp is the top score the auto-resolve rule requires (PERD v1.23 line 1772, 'top >= 0.70 (absolute floor [ADOPTED DEC-2026-10-17]', an addition that can only tighten the SoT margin); (2) clock_at_risk_remaining_bp is the share of a clock's duration below which the phase is AT_RISK (PERD v1.23 line 2134, 'AT_RISK means remaining < 25% [REC]'). The auto-resolve margin (0.35) and the maximum number of candidates (4) are not here: they are in the pack's intent nodes (disambiguation). SYNTHETIC configuration (AGENT-25). A change of meaning is a new major version of this contract. (A561, interim) confirmation_ttl_ceiling_ms is a required member, the confirmation TTL ceiling of the PERD: 600000 ms.",
+  "description": "The two provisional limits the Trust steps read as pack data, not code, for one pack (Architect ruling A205 Q1, recorded in docs PR #176; AGENT-16: agents do not set thresholds, so no number lives in code). Both are integer basis points (BasisPoints, 0 to 10000; ruling A166), never a fraction. NON-CANONICAL until GOV-06 adopts the PERD 67.3 defaults: (1) ambiguity_absolute_floor_bp is the top score the auto-resolve rule requires (PERD v1.23 line 1772, 'top >= 0.70 (absolute floor [ADOPTED DEC-2026-10-17]', an addition that can only tighten the SoT margin); (2) clock_at_risk_remaining_bp is the share of a clock's duration below which the phase is AT_RISK (PERD v1.23 line 2134, 'AT_RISK means remaining < 25% [REC]'). The auto-resolve margin (0.35) and the maximum number of candidates (4) are not here: they are in the pack's intent nodes (disambiguation). SYNTHETIC configuration (AGENT-25). A change of meaning is a new major version of this contract.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -33,103 +33,6 @@
       "minimum": 1000,
       "maximum": 5000,
       "$ref": "https://contracts.noema.invalid/intent-slot.v2.json#/$defs/BasisPoints"
-    },
-    "confirmation_ttl_ceiling_ms": {
-      "description": "The ceiling of the time-to-live of a confirmation request, in milliseconds (ruling A561, interim): 600000, the PERD's 10 minutes (PERD v1.23 section 67, the provisional defaults, row 'Grants and confirmations': 'confirmation TTL 10 min', [ADOPTED DEC-2026-10-17, OD-P-31]). A required member with no default. Integer, 1 to 600000: a pack may shorten the ceiling and never lengthen it, so the consumer (the intake and the Writer) refuses a TTL above it. The bound 600000 is the same number as platform/ceilings.MaxConfirmationTTLMillis (a test fails if the two differ).",
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 600000
-    },
-    "escalation_reasons": {
-      "description": "A544 (interim): the pack reason code (`<vertical>.reason.<name>`) a transaction classification is escalated with, as the Reconciler's T10 mapping (PERD v1.23 23.1 and 23.3). A classification not listed is routed nowhere, which is UNKNOWN. Absent means none. At most one entry per classification (checked by packcheck).",
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 12,
-      "items": {
-        "type": "object",
-        "properties": {
-          "classification": {
-            "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/TransactionClassification"
-          },
-          "reason_code": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*$"
-          }
-        },
-        "required": [
-          "classification",
-          "reason_code"
-        ],
-        "additionalProperties": false
-      }
-    },
-    "allowed_under_freeze": {
-      "description": "A544 (interim): the capability IDs Trust may issue a grant for on a target frozen by CONTRADICTORY_STATE (INV-20, PERD v1.23 REQ-RES-002: the escalation case, the evidence record and the routing). Absent means none: nothing is allowed under a freeze.",
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 32,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9]*\\.cap\\.[a-z][a-z0-9_]*$"
-      }
-    },
-    "phase_routes": {
-      "description": "A544 (interim): the pack reason code a clock phase escalates with (PERD v1.23 23.3 T12 and 23.5). A phase not listed is routed nowhere. Absent means none. At most one entry per phase (checked by packcheck).",
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 4,
-      "items": {
-        "type": "object",
-        "properties": {
-          "phase": {
-            "enum": [
-              "NOT_STARTED",
-              "RUNNING",
-              "AT_RISK",
-              "BREACHED"
-            ]
-          },
-          "reason_code": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*$"
-          }
-        },
-        "required": [
-          "phase",
-          "reason_code"
-        ],
-        "additionalProperties": false
-      }
-    },
-    "anchor_entities": {
-      "description": "A544 (interim, A438): where a clock's anchor event is read from: the list entity of the pack's evidence descriptors and the field of its rows that holds the time (PERD v1.23 23.5, REQ-TRU-006). An event not listed has no anchor, so its clock is NOT_STARTED, never assumed. Absent means none. At most one entry per event (checked by packcheck).",
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 16,
-      "items": {
-        "type": "object",
-        "properties": {
-          "event": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_]*$"
-          },
-          "entity": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_]*$"
-          },
-          "field": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_]*$"
-          }
-        },
-        "required": [
-          "event",
-          "entity",
-          "field"
-        ],
-        "additionalProperties": false
-      }
     }
   },
   "required": [
@@ -137,8 +40,7 @@
     "pack_id",
     "label",
     "ambiguity_absolute_floor_bp",
-    "clock_at_risk_remaining_bp",
-    "confirmation_ttl_ceiling_ms"
+    "clock_at_risk_remaining_bp"
   ],
   "additionalProperties": false
 }

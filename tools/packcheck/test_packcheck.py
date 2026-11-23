@@ -488,6 +488,12 @@ class TrustRouting(unittest.TestCase):
         self.assertEqual(self.run_check(), [])
         self.assertEqual(checks.run(PACKS / "fintech_v1.json"), [])
 
+    def test_the_limits_document_is_trust_limits_v2_and_a_v1_document_is_refused(self):
+        """A596 (interim): trust-limits is v2 and there is no compatibility path: the pack's file says 2.0 and packcheck refuses a v1 file."""
+        self.assertEqual(self.limits["schema_version"], "2.0")
+        self.fails(lambda d: d.__setitem__("schema_version", "1.0"), "schema_version")
+        self.fails(lambda d: d.pop("schema_version"), "schema_version")
+
     def test_the_freeze_allows_exactly_the_three_capabilities_the_perd_names(self):
         """REQ-RES-002 [ADOPTED DEC-2026-10-17]: CREATE_ESCALATION_CASE, RECORD_INVESTIGATION_EVIDENCE and ROUTE_TO_INTERNAL_OWNER, and no other."""
         self.assertEqual(sorted(self.limits["allowed_under_freeze"]), ["fin.cap.create_escalation_case", "fin.cap.record_investigation_evidence", "fin.cap.route_to_internal_owner"])

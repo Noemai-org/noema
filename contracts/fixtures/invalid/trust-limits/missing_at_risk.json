@@ -2,6 +2,5 @@
   "schema_version": "1.0",
   "pack_id": "fin",
   "label": "SYNTHETIC",
-  "ambiguity_absolute_floor_bp": 7000,
-  "confirmation_ttl_ceiling_ms": 600000
+  "ambiguity_absolute_floor_bp": 7000
 }

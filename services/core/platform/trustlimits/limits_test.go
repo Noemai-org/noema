@@ -1,7 +1,7 @@
 package trustlimits_test
 
 // TRU-06 / REQ-AMB-003 (the ambiguity absolute floor, PERD line 1772), REQ-TRU-006 (the clock phase AT_RISK, PERD line 2134), AGENT-16: the Trust steps read two provisional
-// limits as pack data (trust-limits.v1): the ambiguity absolute floor and the clock AT_RISK threshold, both integer basis points. There is no default: a document that is not
+// limits as pack data (trust-limits.v2): the ambiguity absolute floor and the clock AT_RISK threshold, both integer basis points. There is no default: a document that is not
 // exactly the contract is an error and the returned Limits is the zero value. Ruling A205 Q1. SYNTHETIC data.
 
 import (
@@ -21,7 +21,7 @@ const (
 )
 
 func doc(floor, atRisk string) string {
-	return `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":` + floor + `,"clock_at_risk_remaining_bp":` + atRisk + `,"confirmation_ttl_ceiling_ms":600000}`
+	return `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":` + floor + `,"clock_at_risk_remaining_bp":` + atRisk + `,"confirmation_ttl_ceiling_ms":600000}`
 }
 
 func mustRefuse(t *testing.T, name, text string) {
@@ -97,13 +97,13 @@ func TestAValueThatIsNotAWholeNumberIsRefused(t *testing.T) {
 
 // No default: a missing member is refused, not read as 0 (0 is not a legal value either).
 func TestAMissingMemberIsRefusedAndNeverDefaulted(t *testing.T) {
-	head := `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC"`
+	head := `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC"`
 	mustRefuse(t, "no floor", head+`,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
 	mustRefuse(t, "no at-risk", head+`,"ambiguity_absolute_floor_bp":7000,"confirmation_ttl_ceiling_ms":600000}`)
 	mustRefuse(t, "neither", head+`}`)
 	mustRefuse(t, "no schema_version", `{"pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
-	mustRefuse(t, "no pack_id", `{"schema_version":"1.0","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
-	mustRefuse(t, "no label", `{"schema_version":"1.0","pack_id":"fin","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
+	mustRefuse(t, "no pack_id", `{"schema_version":"2.0","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
+	mustRefuse(t, "no label", `{"schema_version":"2.0","pack_id":"fin","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
 }
 
 // The contract is closed: another member (the auto-resolve margin and the candidate cap live in the pack's intent nodes, not here) is refused.
@@ -120,10 +120,10 @@ func TestAMemberWrittenTwiceIsRefused(t *testing.T) {
 func TestTheEnvelopeIsChecked(t *testing.T) {
 	for name, text := range map[string]string{
 		"schema_version 2.0": `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
-		"pack_id upper":      `{"schema_version":"1.0","pack_id":"Fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
-		"pack_id newline":    `{"schema_version":"1.0","pack_id":"fin\n","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
-		"pack_id empty":      `{"schema_version":"1.0","pack_id":"","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
-		"label":              `{"schema_version":"1.0","pack_id":"fin","label":"PROVISIONAL","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"pack_id upper":      `{"schema_version":"2.0","pack_id":"Fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"pack_id newline":    `{"schema_version":"2.0","pack_id":"fin\n","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"pack_id empty":      `{"schema_version":"2.0","pack_id":"","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"label":              `{"schema_version":"2.0","pack_id":"fin","label":"PROVISIONAL","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
 	} {
 		mustRefuse(t, name, text)
 	}
@@ -221,8 +221,8 @@ func TestTheErrorTextCarriesNoPartOfTheDocument(t *testing.T) {
 
 // The loader refuses every invalid fixture of the contract and accepts every valid one: the same documents the schema validator is tested with (AGENT-11, REQ-TST-003).
 func TestTheLoaderAgreesWithTheContractFixtures(t *testing.T) {
-	valid, _ := filepath.Glob(fixtureRoot + "valid/trust-limits/*.json")
-	invalid, _ := filepath.Glob(fixtureRoot + "invalid/trust-limits/*.json")
+	valid, _ := filepath.Glob(fixtureRoot + "valid/trust-limits.v2/*.json")
+	invalid, _ := filepath.Glob(fixtureRoot + "invalid/trust-limits.v2/*.json")
 	if len(valid) == 0 || len(invalid) < 10 {
 		t.Fatalf("fixtures not found: %d valid, %d invalid", len(valid), len(invalid))
 	}
@@ -249,7 +249,7 @@ func TestTheLoaderAgreesWithTheContractFixtures(t *testing.T) {
 
 // docWithCeiling is a document whose only variable member is the confirmation TTL ceiling.
 func docWithCeiling(v string) string {
-	return `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":` + v + `}`
+	return `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":` + v + `}`
 }
 
 // A561 (interim; PERD v1.23 section 67, the provisional defaults: "confirmation TTL 10 min", adopted by DEC-2026-10-17, OD-P-31): the confirmation TTL ceiling is a required member of
@@ -281,9 +281,31 @@ func TestTheCeilingComesFromTheDocumentAndMayOnlyTighten(t *testing.T) {
 
 // No default, no clamp: a document without the ceiling, with 0 or less, above ten minutes, or not a whole number is refused.
 func TestAMissingOrIllegalConfirmationCeilingIsRefused(t *testing.T) {
-	mustRefuse(t, "no ceiling", `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`)
+	mustRefuse(t, "no ceiling", `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`)
 	for _, v := range []string{"0", "-1", "600001", "601000", "9223372036854775807", "600000.5", "6e5", `"600000"`, "true", "null", "[]", "{}"} {
 		mustRefuse(t, "ceiling "+v, docWithCeiling(v))
 	}
 	mustRefuse(t, "ceiling twice", strings.TrimSuffix(docWithCeiling("600000"), "}")+`,"confirmation_ttl_ceiling_ms":1}`)
+}
+
+// A596 (interim; AGENT-15, INV-12-style fail closed): trust-limits is v2. A v1 document is refused by Load with no compatibility path, even one that happens to carry every
+// v2 member, and a v2 document without the ceiling is refused with nothing filled in. The refusal text never carries the document.
+func TestAV1DocumentIsRefusedWithNoCompatibilityPath(t *testing.T) {
+	v1WithCeiling := `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`
+	v1Plain := `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`
+	for name, text := range map[string]string{"v1 with the ceiling": v1WithCeiling, "v1 as it was (no ceiling)": v1Plain} {
+		l, err := trustlimits.Load(strings.NewReader(text), "fin")
+		if err == nil {
+			t.Fatalf("%s: Load accepted a v1 document", name)
+		}
+		if l.Loaded() {
+			t.Errorf("%s: a refused document returned a loaded Limits", name)
+		}
+		if _, cerr := l.ConfirmationTTLCeilingMS(); cerr == nil {
+			t.Errorf("%s: the ceiling of a refused document was readable", name)
+		}
+		if strings.Contains(err.Error(), "1.0") || strings.Contains(err.Error(), "600000") {
+			t.Errorf("%s: the refusal quotes the document: %v", name, err)
+		}
+	}
 }
