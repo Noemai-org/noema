@@ -125,9 +125,9 @@ test("A542: a failed confirmation submission unlocks controls and retry resubmit
   await page.evaluate((input) => window.showRetryConfirmation(input), value);
   const accept = page.getByRole("button", { name: "Accept" });
   await accept.click();
-  await expect(accept).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Decline" })).toBeEnabled();
-  await expect(page.getByRole("status")).toContainText("Your response was not sent");
+  await expect(accept).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("I could not confirm whether your response was recorded.");
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(accept).toBeDisabled();
   await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
