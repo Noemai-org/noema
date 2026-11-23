@@ -26,6 +26,10 @@ const js = (await build({ stdin: { contents: `
     const response = await fetch('/confirmation-retry', { method: 'POST' });
     return response.ok ? 'accepted' : 'unavailable';
   } }));
+  window.showThrowingConfirmation = card => root.render(createElement(ConfirmationCard, { card, onResponse: async (...args) => {
+    window.events.push(args);
+    throw new Error('synthetic callback failure');
+  } }));
   window.showExpiredConfirmation = card => root.render(createElement(ConfirmationCard, { card, onResponse: async (...args) => {
     window.events.push(args);
     const response = await fetch('/confirmation-expired', { method: 'POST' });
@@ -158,4 +162,18 @@ test("REQ-UI-002: an already-expired confirmation renders terminally without an 
   await expect(page.getByRole("status")).toContainText("This has changed. Let me check again.");
   await expect(page.getByRole("button", { name: "Accept" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
+});
+
+
+test("A576 REQ-UI-002: a thrown confirmation callback unlocks Accept and Decline", async ({ page }) => {
+  const value = await card("confirmation");
+  await page.goto(origin);
+  await page.evaluate((input) => window.showThrowingConfirmation(input), value);
+  const accept = page.getByRole("button", { name: "Accept" });
+  const decline = page.getByRole("button", { name: "Decline" });
+  await accept.click();
+  await expect(accept).toBeEnabled();
+  await expect(decline).toBeEnabled();
+  await expect(page.getByRole("status")).toContainText("Please try again.");
+  expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
 });
