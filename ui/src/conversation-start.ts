@@ -28,7 +28,7 @@ export async function startConversationAndPoll(input: Input): Promise<"Connectio
     else input.signal?.addEventListener("abort", abortFromHost, { once: true });
     let postTimedOut = false;
     const deadline = setTimeout(() => { postTimedOut = true; postController.abort(); }, input.maxPollingMs);
-    let answer;
+    let answer: ReturnType<typeof parseConversationResponseV1>;
     try {
       const response = await fetch(url, {
         method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${input.sessionToken}` },
