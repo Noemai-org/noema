@@ -59,6 +59,41 @@ class JoblogAllow(unittest.TestCase):
     def test_a_secret_in_a_go_download_line_is_still_found(self) -> None:
         self.assertIn("named_secret_value", kinds("2026-11-23T07:03:50.1Z go: downloading example.org/x v1.0.0 " + "api_" + "key=" + "synthetic" + "0123456789", digits=False, allow=allow()))
 
+    # SR's two bypasses on noema#908 (A154: no digit group longer than the maximum, except the one 14-digit timestamp), each a Luhn-valid 15-digit number built at run time.
+    def card(self) -> str:
+        return luhn_complete("4" + "12345678901234")
+
+    def test_a_hyphen_grouped_card_number_in_the_module_path_is_still_found(self) -> None:
+        card = self.card()
+        grouped = "-".join((card[0:4], card[4:8], card[8:12], card[12:]))
+        line = f"2026-11-23T11:01:20.1234567Z go: downloading example.org/{grouped}/x v1.0.0"
+        self.assertIn("card_number", kinds(line, digits=False), "the line must be a finding without the allow file, or the test proves nothing")
+        self.assertIn("card_number", kinds(line, digits=False, allow=allow()))
+
+    def test_a_card_number_in_the_pseudo_version_prefix_is_still_found(self) -> None:
+        line = f"2026-11-23T11:01:20.1234567Z go: downloading example.org/x v1.0.0-{self.card()}.20240606120523-5a60cdf6a761"
+        self.assertIn("card_number", kinds(line, digits=False), "the line must be a finding without the allow file, or the test proves nothing")
+        self.assertIn("card_number", kinds(line, digits=False, allow=allow()))
+
+    def test_a_card_number_as_a_version_component_the_step_prefix_or_the_log_timestamp_is_never_allowed(self) -> None:
+        # The invariant is that the allow file hides nothing: it does not match these lines at all, so the scan of each is exactly what it is without the file (for the version component, a finding).
+        card = self.card()
+        for name, line in (
+            ("a version component", f"2026-11-23T11:01:20.1234567Z go: downloading example.org/x v1.0.{card}"),
+            ("the step prefix", f"2026-11-23T11:01:20.1234567Z #{card} 3.128 go: downloading example.org/x v1.0.0"),
+            ("the log timestamp", f"{card}Z go: downloading example.org/x v1.0.0"),
+            ("the step seconds", f"2026-11-23T11:01:20.1234567Z #34 {card} go: downloading example.org/x v1.0.0"),
+        ):
+            with self.subTest(name):
+                self.assertFalse(any(a.search(line) for a in allow()), line)
+                self.assertEqual(kinds(line, digits=False, allow=allow()), kinds(line, digits=False), line)
+
+    def test_more_than_twelve_digits_in_the_module_path_are_refused_but_twelve_are_not(self) -> None:
+        ok = "2026-11-23T11:01:20.1234567Z go: downloading example.org/v1234567890/x v1.0.0"
+        long = "2026-11-23T11:01:20.1234567Z go: downloading example.org/a1/b2/c3/d4/e5/f6/g7/h8/i9/j1/k2/l3/m4/x v1.0.0"
+        self.assertTrue(any(a.search(ok) for a in allow()), "twelve digits or fewer pass the path bound")
+        self.assertFalse(any(a.search(long) for a in allow()), "thirteen digits in the path are not allowed")
+
 
 if __name__ == "__main__":
     unittest.main()
