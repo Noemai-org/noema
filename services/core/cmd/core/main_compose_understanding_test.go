@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/Noemai-org/noema/services/core/edge"
+	"github.com/Noemai-org/noema/services/core/edge/edgetest"
 )
 
 // ucSettingNames is every setting of the Understanding half, in the order /readyz names a gap.
@@ -22,6 +25,17 @@ func ucEnv(t *testing.T) envMap {
 	d := newOrchDirs(t, "ten_aa")
 	e := envMap{EnvRecordReadDSNDir: rd, EnvOrchestratorDSNDir: d.dsn, EnvOrchestratorKeyDir: d.keys, EnvOrchestratorKeyMaxActive: "2", EnvReadTimeoutMS: "2000"}
 	return merged(e, undSettings(copyPack(t), newModelStub(t)))
+}
+
+// ucServedEnv is ucEnv with the session settings the protected API needs once a Record reader is configured.
+func ucServedEnv(t *testing.T) envMap {
+	t.Helper()
+	e := ucEnv(t)
+	for k, v := range sessionEnv(t, edgetest.NewIssuer(t)) {
+		e[k] = v
+	}
+	e[edge.EnvTenants] = "ten_aa"
+	return e
 }
 
 func ucBuild(t *testing.T, e envMap) (Components, func(), error) {
@@ -177,7 +191,7 @@ func TestAPresentButInvalidUnderstandingSettingIsFatalEvenWithAMissingOne(t *tes
 
 // The served process starts with a gap and answers 503 naming it; with the complete set /readyz no longer names the interpreter.
 func TestTheProcessStartsWithAnUnderstandingGapAndReadyzNamesItWithoutAValue(t *testing.T) {
-	e := ucEnv(t)
+	e := ucServedEnv(t)
 	delete(e, EnvPackMaxDepth)
 	var sink strings.Builder
 	var log []string
@@ -193,7 +207,7 @@ func TestTheProcessStartsWithAnUnderstandingGapAndReadyzNamesItWithoutAValue(t *
 	if strings.Contains(body, e[EnvPackDir]) || strings.Contains(body, e[EnvModelURL]) {
 		t.Errorf("/readyz carries a value: %s", body)
 	}
-	full := ucEnv(t)
+	full := ucServedEnv(t)
 	p, err = mcProcess(t, full, mcWorkerDeps(&log, nil, true), &sink)
 	if err != nil || p == nil {
 		t.Fatalf("process %v, error %v", p, err)

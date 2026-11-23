@@ -155,6 +155,11 @@ func missing(c Components, api http.Handler) []string {
 			continue
 		}
 		names = append(names, p.name)
+		if p.name == "interpreter" {
+			for _, n := range c.UnderstandingUnbuilt {
+				names = append(names, "interpreter: "+n+" missing")
+			}
+		}
 		if p.name == "trust" {
 			for _, n := range c.TrustUnbuilt {
 				names = append(names, "trust."+n)
@@ -271,6 +276,15 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 		}
 		c.Ports.Recorder = recorder
 		c.Investigations = reader
+	}
+	// The Understanding half (A506, A512): built when its settings are complete, a named gap when some are missing (A486), fatal when one that is present is invalid (A469).
+	if und, gap, err := composeUnderstanding(env, clk, recorder, c.Ports.Admissions); err != nil {
+		closeAll()
+		return Components{}, TrustParts{}, closeAll, err
+	} else if und.Interpreter != nil {
+		c.Understanding, c.Ports.Interpreter = und, und.Interpreter
+	} else {
+		c.UnderstandingUnbuilt = gap
 	}
 	var parts TrustParts
 	if trustRequested(env) {
