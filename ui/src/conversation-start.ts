@@ -20,16 +20,31 @@ export async function startConversationAndPoll(input: Input): Promise<"Connectio
     const body = parseMessageRequestV1(input.request);
     if (!isSecureInvestigationTarget(url) || !input.sessionToken || typeof body.text !== "string" ||
         !Number.isSafeInteger(input.maxPollingMs) || input.maxPollingMs <= 0 || input.maxPollingMs > 2_147_483_647) return "Connection lost.";
-    const response = await fetch(url, {
-      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${input.sessionToken}` },
-      body: JSON.stringify(body), credentials: "omit", cache: "no-store", redirect: "error", signal: input.signal,
-    });
-    const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-    if ((response.status !== 200 && response.status !== 202) || contentType !== "application/json") {
-      await response.body?.cancel();
-      return "Connection lost.";
+    // The host's existing polling budget also bounds the initial POST, including body consumption.
+    // A timed-out POST is never retried: the server may already have accepted it.
+    const postController = new AbortController();
+    const abortFromHost = () => postController.abort();
+    if (input.signal?.aborted) postController.abort();
+    else input.signal?.addEventListener("abort", abortFromHost, { once: true });
+    let postTimedOut = false;
+    const deadline = setTimeout(() => { postTimedOut = true; postController.abort(); }, input.maxPollingMs);
+    let answer;
+    try {
+      const response = await fetch(url, {
+        method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${input.sessionToken}` },
+        body: JSON.stringify(body), credentials: "omit", cache: "no-store", redirect: "error", signal: postController.signal,
+      });
+      const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+      if ((response.status !== 200 && response.status !== 202) || contentType !== "application/json") {
+        await response.body?.cancel();
+        return "Connection lost.";
+      }
+      answer = parseConversationResponseV1(JSON.parse(await boundedText(response, RESPONSE_FRAME_LIMIT_BYTES)));
+      if (postTimedOut) return "Connection lost.";
+    } finally {
+      clearTimeout(deadline);
+      input.signal?.removeEventListener("abort", abortFromHost);
     }
-    const answer = parseConversationResponseV1(JSON.parse(await boundedText(response, RESPONSE_FRAME_LIMIT_BYTES)));
     if (answer.conversation_ref !== answer.investigation_id ||
         answer.stream_url !== `/v1/conversations/${answer.investigation_id}/events` ||
         answer.correlation_id !== `corr_${answer.investigation_id.slice(4)}`) return "Connection lost.";
