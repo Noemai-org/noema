@@ -23,9 +23,6 @@ type PackSource func(env Env) (*trustpack.Pack, error)
 
 var errPackNotConfigured = errors.New("cmd/core: the manifest-verified pack is not available: its settings are not given")
 
-// productionPack is the production PackSource: none. Replacing it is the one change noema#773 makes here.
-func productionPack(Env) (*trustpack.Pack, error) { return nil, errPackNotConfigured }
-
 // UnbuiltAdaptersError names every Trust adapter that could not be built, in the order of the TrustAdapters struct ("Pack" first when there is no pack). Cause is the pack's own error, if any;
 // the text carries names only, never a path, a setting's value or a DSN.
 type UnbuiltAdaptersError struct {
@@ -91,7 +88,7 @@ func trustAdaptersSource(pack PackSource) func(Env, reconstruct.TenantDBs, clock
 		if err != nil {
 			return TrustAdapters{}, fmt.Errorf("cmd/core: the pack's authority: %w", err)
 		}
-		a := TrustAdapters{Capabilities: caps, Scope: scope, Authority: authority, Clock: clk}
+		a := TrustAdapters{Capabilities: caps, Scope: scope, Authority: authority, Clock: clk, PackVersion: p.Ref()}
 		return a, &UnbuiltAdaptersError{Names: unsetAdapters(a)}
 	}
 }

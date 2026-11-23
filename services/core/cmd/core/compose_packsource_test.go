@@ -261,12 +261,12 @@ func TestAGraphTheManifestDoesNotPinIsRefused(t *testing.T) {
 	}
 	_, perr := psrcProduction(t, psrcEnv(dir))
 	psrcNotAList(t, perr)
-	if !errors.Is(perr, packload.ErrGraph) {
-		t.Errorf("error %v; want packload.ErrGraph", perr)
+	if !errors.Is(perr, packload.ErrGraph) && !errors.Is(perr, packload.ErrUnlisted) { // the manifest refuses a graph it does not pin as an unlisted file of a listed kind, or as a graph the pack names and it does not pin
+		t.Errorf("error %v; want packload.ErrUnlisted or packload.ErrGraph", perr)
 	}
 }
 
-// A pack whose digests are right but whose graph the Trust adapters cannot use (a node names a capability the pack does not register) is refused whole, with a fixed text: the
+// A pack whose digests are right but whose graph the Trust adapters cannot use (a member the contract does not have) is refused whole, with a fixed text: the
 // parser's own message may quote the pack, so it stays reachable with errors.Is and never in Error(). INV-16, AGENT-13.
 func TestAVerifiedPackTheTrustAdaptersCannotUseIsRefusedWithAFixedText(t *testing.T) {
 	dir := psrcCopy(t)
@@ -279,7 +279,7 @@ func TestAVerifiedPackTheTrustAdaptersCannotUseIsRefusedWithAFixedText(t *testin
 	if err := json.Unmarshal(raw, &g); err != nil {
 		t.Fatal(err)
 	}
-	g["nodes"].([]any)[0].(map[string]any)["capability_id"] = "synthetic.not_a_registered_capability"
+	g["synthetic_field_the_contract_does_not_have"] = 1 // the strict decoder's own message quotes the member's name
 	out, err := json.Marshal(g)
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestAVerifiedPackTheTrustAdaptersCannotUseIsRefusedWithAFixedText(t *testin
 	if !errors.Is(perr, trustpack.ErrPack) {
 		t.Errorf("error %v; want trustpack.ErrPack reachable", perr)
 	}
-	if strings.Contains(perr.Error(), "synthetic.not_a_registered_capability") || strings.Contains(perr.Error(), dir) {
+	if strings.Contains(perr.Error(), "synthetic_field_the_contract_does_not_have") || strings.Contains(perr.Error(), dir) {
 		t.Errorf("error %q quotes the pack or the directory", perr)
 	}
 }
