@@ -99,7 +99,7 @@ func TestARejectWithoutADeclinedRequestMapsEmpty(t *testing.T) {
 func TestADeclinedRequestOnAnyOtherDecisionIsRefusedBeforeAnyTransaction(t *testing.T) {
 	cases := []struct{ name, outcome, reason string }{
 		{"ALLOW", "ALLOW", ""}, {"CONFIRM", "CONFIRM", ""}, {"UNKNOWN", "UNKNOWN", "INTERNAL_ERROR"}, {"ESCALATE", "ESCALATE", "NO_PERMITTING_RULE"},
-		{"REJECT for another reason", "REJECT", "NOT_AUTHORIZED"},
+		{"REJECT for another reason", "REJECT", "NOT_AUTHORIZED"}, {"UNKNOWN with the declined reason", "UNKNOWN", "DECLINED_BY_APPROVER"}, {"ESCALATE with the declined reason", "ESCALATE", "DECLINED_BY_APPROVER"},
 	}
 	for _, c := range cases {
 		r := dclRequest(t, c.outcome, c.reason)
