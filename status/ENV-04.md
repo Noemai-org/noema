@@ -309,3 +309,41 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Open (for the Architect): the two `MAX_ACTIVE` values. No ruling gives them; I used 2, the overlap of the orchestrator's and the edge's keys (A506). C1's card names the setting but no number.
 - The card's own flag, repeated: the Outcome verdict signer has a directory (A564) but no slice-3 consumer yet.
 - A572: the narrower provisioning login (debt entry above) is debt for C2 with IL, due before the G2 review.
+# Session 2026-11-23 · ENV-04
+
+## Session summary
+- What changed: the bench stack gains `operator-dsn-init`, `core-trust-keys-init`, `tenant-init` and `policy-publish` (A445, A484, A489, A527). `tenant-init` runs `cmd/tenantinit` with the superuser's DSN file (a login that may call `key_register`; the migration login's password stays with the migrate one-shot and postgres alone) and no `--tenant`. `policy-publish` runs `cmd/policypublish` for the bench tenant after it; the core waits for it. The core image now also builds `cmd/tenantinit`. netcheck pins every holder, volume reader and flag with 46 new mutations (205 in all, all caught).
+- Why: the Trust intake needs a registered core-trust key and a policy in force before the stack serves.
+- Risks, and how they are contained: the superuser password gains one holder (`operator-dsn-init`, no network); netcheck refuses any other. Not run on a live stack (no Docker daemon here, `docker compose config` only).
+- Tests added: `deploy/compose/operator-dsn/test_init.py` (6, seen failing first); netcheck mutations.
+- A522: `core-keys-init` is accepted by the first stack-check run, as is `core-trust-keys-init` (same script).
+- Debt entries: none. Conflicts raised: none.
+- Not done: the migrate one-shot and its A527 netcheck rule wait for C2's A521 flags (no PR on origin). #889 was closed because #880 (the 4096 reader) had not landed (Codex P2); reopen the two-line change after #880 merges.
+
+## Pre-work for the next agent
+- Exact next step: read the first stack-check run for `operator-dsn-init`, `core-trust-keys-init`, `tenant-init` (exit 0, `{"keys_registered":1,...}`) and `policy-publish` (`published`).
+- Open questions: tenant-init's superuser login is my reading (A445 to A489 name no login); the Architect should confirm. The migrate one-shot flags (C2).
+- Do not touch: the migrator password's holders (postgres, migrate).
+
+## Session 2026-11-23 (second) · ENV-04
+- Added to the same PR (one more commit): `migrator-password-init` and `migrate` (A484, A521, A527; EL's flags: host, port, database, user, password file mode 0400 owner 65532 one line, `--sslmode` of `disable`, `prefer` or `require`, default `prefer`). The init step is the migration password's second holder after postgres (the Founder's choice); netcheck pins the holders, the volume's reader and every flag, with a mutation for each leak path (argument, environment, a second reader or holder): 237 mutations, all caught. `tenant-init` now waits for `migrate`.
+- Must merge AFTER C2's `cmd/migrate` change (feat/EXE-08-migrate-password-file-v2 is red tests only at e18460d9): with the old `--dsn-file` binary the migrate service fails.
+- Gap I did not close: nothing in Compose runs `create-tenants.sh` (superuser) or `provision-tenants.sh` (migration login) between `migrate` and `tenant-init`/`policy-publish`; policy-publish needs the tenant row and the tenant's logins. Whoever owns those two steps must be named (the second needs the migration password, another holder under A527).
+
+## Session 2026-11-23 (third) · ENV-04
+- The tenant steps are in the same PR (#894): `tenants-create` (create-tenants.sh as the superuser) and `tenants-provision` (provision-tenants.sh as the migration login), from the database image, as 65532, with a one-line libpq password file each (`pgpass`, written by the two init steps beside their other file). Order: migrate, tenants-create, tenants-provision, tenant-init, policy-publish, core. netcheck: 261 mutations, all caught.
+- Reading to confirm (Architect): `tenants-provision` is a second reader of the migration password's volume besides `migrate`, which A527 as I was given it does not name. The alternative (run provision-tenants.sh as the superuser) leaves the script's tested path.
+- Not run on a live stack: libpq as a uid with no passwd entry, `/bin/sh` heredocs on a read-only root with a tmpfs /tmp.
+
+## Session 2026-11-23 (fourth) · ENV-04
+- A536 (amends A527): migrate and tenants-provision are the migration password's two holders besides postgres, each a hardened one-shot, pinned in netcheck. Replaced the `migrator-password-init` step by a private copy of the password (`migrator_password_file`, mode 0400, host user; `secrets_local.sh` makes it, tested) that both one-shots hold and read as the host user, because cmd/migrate refuses a password file that is not 0400 and owned by its own user. `tenants-provision` builds libpq's password file in its tmpfs from that copy. netcheck: 270 mutations, all caught, a mutation per leak path.
+- Fixed the red `compose-scripts` on #894: `test_bench_tenants.py` counted the tenant-list expression once in the overlay and now there are three (postgres and the two tenant one-shots).
+- A540: the statements `provision-tenants.sh` runs are listed in the PR body; it needs no DDL.
+- Not verified without a Docker daemon: that the host user can read the 0400 copy inside the container (same uid), libpq as a uid with no passwd entry, and the tmpfs heredocs on a read-only root. The first stack run decides.
+
+## Debt entry, 2026-11-23 · ENV-04 (A540; register number to be assigned by the Steward)
+- **Shortcut:** `tenants-provision` runs `provision-tenants.sh` as the migration login `noema_migration_login`, so a second one-shot holds the migration password (A536) although the script needs far less than that login can do.
+- **What the script runs** (listed in noema#894): per tenant and power group, one `SELECT ... provision_tenant_login(...)`; per tenant and emitter, one `SELECT ... provision_emitter_login(...)`. No DDL, no `CREATE`, `ALTER`, `GRANT` or `DROP`, no role creation. The caller needs only `USAGE` on schema `public`, `SELECT` on `tenant_login`, and `EXECUTE` on the two functions.
+- **Why it stays for now:** only the migration login holds `EXECUTE` on those functions (migrations 0006 and 0011 grant it `TO CURRENT_USER`, the migrating role). A narrower login needs (1) a role and a secret in `deploy/compose/postgres/init.sh`, which runs before the functions exist and so cannot grant, and (2) a new migration granting `EXECUTE` on both functions and `SELECT` on `tenant_login` to it. The migration is C2's lane.
+- **Payoff when repaid:** `tenants-provision` stops holding the migration password; the password has one holder besides postgres, `migrate`.
+- **Owner:** C2 (the migration) with IL (init.sh role, secret, Compose). **Date:** none given by A540 (not a blocker); the Architect sets it. **Evidence that invalidates it:** a need for DDL in `provision-tenants.sh`, which would keep the migration login.
