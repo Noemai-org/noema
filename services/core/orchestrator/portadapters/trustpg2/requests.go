@@ -179,6 +179,13 @@ func (r Requests) Latest(ctx context.Context, tenantID, principalID, intentID st
 	return out, true, nil
 }
 
+// Lookup is the request the ID names, for this tenant only (A550: the request-by-id read of the confirmation route). It is a read: no event, no write. A request of another tenant (row
+// security hides it, and the tenant is in the predicate too), an unknown ID and a request the store does not hold are the same answer, not found (REQ-TRU-003). A malformed tenant or ID
+// and a context with no deadline are ErrRequestForm. The request is returned as stored: whether it was answered, expired or superseded is the answer path's to decide (A368 (iv)).
+func (r Requests) Lookup(ctx context.Context, tenantID, requestID string) (confirm.Request, bool, error) {
+	return confirm.Request{}, false, ErrRequestNotBuilt // red-commit stub (A550)
+}
+
 // Open stores a new request and returns its ID. The Record event is appended inside the transaction, before the commit: if the append fails, nothing is stored.
 func (r Requests) Open(ctx context.Context, n NewRequest) (string, error) {
 	if err := r.ready(); err != nil {
