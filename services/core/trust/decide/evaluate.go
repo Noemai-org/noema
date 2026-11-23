@@ -33,9 +33,6 @@ func Stop(d Decision) StepResult { return StepResult{kind: kindStop, decision: d
 // FailStep reports that the step could not run (a dependency failure). The evaluation ends with UNKNOWN, never ALLOW (INV-16).
 func FailStep(err error) StepResult { return StepResult{kind: kindFail, err: err} }
 
-// Decision is the decision a Stop result ends the evaluation with; ok is false for a result that continues or fails.
-func (r StepResult) Decision() (d Decision, ok bool) { return r.decision, r.kind == kindStop }
-
 // Err is the step's error for a failed result, or nil.
 func (r StepResult) Err() error { return r.err }
 
@@ -168,3 +165,7 @@ func internalError(intentVersion int) Decision {
 		intentVersion: intentVersion,
 	}
 }
+
+// InternalError is the UNKNOWN INTERNAL_ERROR decision that every failure of the evaluation ends in (INV-16), for a caller that must turn what it has into the same answer when a write it owes
+// the result cannot be made (the Record of an ESCALATE, A534). No authority layer was evaluated.
+func InternalError(intentVersion int) Decision { return internalError(intentVersion) }

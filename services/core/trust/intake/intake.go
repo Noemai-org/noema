@@ -85,16 +85,16 @@ func (s *Service) evaluate(ctx context.Context, r Request, step *stepScope) (Res
 // run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned; a
 // CONFIRM that T13 recorded carries its decision ID and the confirmation request it names; a REJECT of a declined approval (A435) and an ESCALATE (A534) carry their decision ID alone.
 func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
-	for i := range steps {
-		steps[i] = e.recordEscalate(steps[i])
-	}
 	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.bb)
+	if d.Outcome() == decide.Escalate {
+		d, trace = e.recordEscalate(ctx, d, trace)
+	}
 	res := Result{Decision: d, Trace: trace}
 	switch d.Outcome() {
 	case decide.Allow, decide.Confirm:
 		res.DecisionID, res.GrantIDs, res.ConfirmationRequestID = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...), e.late.requestID
 	case decide.Escalate:
-		// A534 (interim, relayed, not yet committed): an ESCALATE was recorded before it was returned (recordEscalate), with no step and no grant; its decision ID is what the action decisions
+		// A534 (interim, relayed, not yet committed): an ESCALATE the evaluation accepted was recorded before it was returned (recordEscalate in run), with no step and no grant; its decision ID is what the action decisions
 		// that follow it name as their disposition.
 		res.DecisionID = e.late.recorded.DecisionID
 	case decide.Reject:

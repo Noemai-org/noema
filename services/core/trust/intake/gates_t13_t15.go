@@ -460,38 +460,35 @@ func (e *evaluation) disposition() string {
 	return e.step.disposition
 }
 
-// recordEscalate wraps a step so that an ESCALATE it ends the evaluation with is recorded through the Recorder before it is returned (A534, interim, relayed, not yet committed; EC-E16):
-// the decision with the evaluated basis, no step, no plan, no confirmation request, no grant. The decision ID of the record is the result's. When the Record fails, or answers what a
-// decision with no step cannot be (no or malformed decision ID, a grant, a request), the step fails and the evaluation ends in UNKNOWN, never in an ESCALATE nobody recorded. Any other result
-// of the step is returned as it is.
-func (e *evaluation) recordEscalate(step decide.StepFunc) decide.StepFunc {
-	return func(ctx context.Context) decide.StepResult {
-		res := step(ctx)
-		d, ok := res.Decision()
-		if !ok || d.Outcome() != decide.Escalate {
-			return res
+// recordEscalate records the ESCALATE that the evaluation has ACCEPTED, through the Recorder, before it is returned (A534, interim, relayed; EC-E16, INV-25): the decision with the evaluated
+// basis, no step, no plan, no confirmation request, no grant. It runs in run, after EvaluateBound, so the decision is the one that is returned: an ESCALATE that Evaluate turned into UNKNOWN
+// (the step may not end in ESCALATE, the context ended, the intent version differs) never reaches it, and the Record holds nothing for it (Codex and C2 on noema#903). When the Record fails,
+// when the context has ended since, or when the Recorder answers what a decision with no step cannot be (no or malformed decision ID, a grant, a request), the result is UNKNOWN
+// INTERNAL_ERROR, never an ESCALATE nobody recorded. The decision ID of the record is the result's.
+func (e *evaluation) recordEscalate(ctx context.Context, d decide.Decision, trace []decide.TraceEntry) (decide.Decision, []decide.TraceEntry) {
+	failed := func() (decide.Decision, []decide.TraceEntry) {
+		if n := len(trace); n > 0 {
+			trace[n-1].Result = decide.StepFailed
 		}
-		if e.intent == nil {
-			return decide.FailStep(errNoIntent)
-		}
-		d, err := e.withBasis(d)
-		if err != nil {
-			return decide.FailStep(err)
-		}
-		digest, err := e.bb.Digest()
-		if err != nil {
-			return decide.FailStep(err)
-		}
-		a := e.intent
-		rec, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
-			IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
-		switch {
-		case err != nil:
-			return decide.FailStep(err)
-		case !decisionIDRe.MatchString(rec.DecisionID), len(rec.GrantIDs) != 0, rec.ConfirmationRequestID != "":
-			return decide.FailStep(errAnswer)
-		}
-		e.late.recorded = RecordResult{DecisionID: rec.DecisionID}
-		return decide.Stop(d)
+		return decide.InternalError(e.version), trace
 	}
+	if e.intent == nil || ctx.Err() != nil {
+		return failed()
+	}
+	d, err := e.withBasis(d)
+	if err != nil {
+		return failed()
+	}
+	digest, err := e.bb.Digest()
+	if err != nil {
+		return failed()
+	}
+	a := e.intent
+	rec, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+	if err != nil || !decisionIDRe.MatchString(rec.DecisionID) || len(rec.GrantIDs) != 0 || rec.ConfirmationRequestID != "" {
+		return failed()
+	}
+	e.late.recorded = RecordResult{DecisionID: rec.DecisionID}
+	return d, trace
 }
