@@ -30,7 +30,7 @@ from noema_model.evidence.transport import HttpResponse
 from tests.support_pipeline import G_A, GOOD_MENTIONS, ROOT, ScriptedModel, harness_for
 
 PACK_FILE = ROOT / "packs" / "fintech_v1.json"
-LEXICON_FILE = ROOT / "packs" / "fintech" / "lexicons" / "fin.lex.en_ng.json"
+LEXICON_DIR = ROOT / "packs" / "fintech" / "lexicons"
 MTLS = {"UVICORN_SSL_CERT_REQS": "2", "UVICORN_SSL_CERTFILE": "/run/tls/model.crt", "UVICORN_SSL_KEYFILE": "/run/tls/model.key", "UVICORN_SSL_CA_CERTS": "/run/tls/ca.crt"}
 ROUTE = "/internal/v1/understanding:compile"
 CANONICAL: dict[str, Any] = {
@@ -45,7 +45,7 @@ def config_doc(tmp_path: Path, **over: Any) -> dict[str, Any]:
     for name in ("client.crt", "client.key", "ca.crt"):
         (tmp_path / name).write_text("synthetic", encoding="utf-8")
     doc: dict[str, Any] = {
-        "pack_file": str(PACK_FILE), "lexicon_file": str(LEXICON_FILE), "out_of_scope_node": "fin.meta.out_of_scope",
+        "pack_file": str(PACK_FILE), "lexicon_dir": str(LEXICON_DIR), "out_of_scope_node": "fin.meta.out_of_scope",
         "timeout_s": 30, "max_proposal_bytes": 65536, "max_request_bytes": 65536,
         "evidence": {"endpoint": "https://core:8080", "timeout_ms": 5000, "max_response_bytes": 65536},
         "evidence_tls": {"cert_file": str(cert), "key_file": str(tmp_path / "client.key"), "ca_file": str(tmp_path / "ca.crt")},
@@ -123,7 +123,7 @@ def test_a_plain_listener_never_gets_a_service_even_with_a_complete_configuratio
 
 # --- the configuration is data with no default (AGENT-16) ----------------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("missing", ["pack_file", "lexicon_file", "out_of_scope_node", "timeout_s", "max_proposal_bytes", "max_request_bytes", "evidence", "evidence_tls"])
+@pytest.mark.parametrize("missing", ["pack_file", "lexicon_dir", "out_of_scope_node", "timeout_s", "max_proposal_bytes", "max_request_bytes", "evidence", "evidence_tls"])
 def test_a_missing_member_refuses_to_start(tmp_path: Path, missing: str) -> None:
     doc = config_doc(tmp_path)
     doc.pop(missing)
@@ -133,7 +133,7 @@ def test_a_missing_member_refuses_to_start(tmp_path: Path, missing: str) -> None
 
 
 @pytest.mark.parametrize("change", [{"extra": 1}, {"timeout_s": 0}, {"timeout_s": -1}, {"timeout_s": True}, {"timeout_s": "30"}, {"max_proposal_bytes": 0}, {"max_request_bytes": 0},
-                                    {"max_request_bytes": 1.5}, {"pack_file": "/no/such/pack.json"}, {"lexicon_file": "/no/such/lexicon.json"}, {"out_of_scope_node": "fin.nope"}])
+                                    {"max_request_bytes": 1.5}, {"pack_file": "/no/such/pack.json"}, {"lexicon_dir": "/no/such/lexicons"}, {"lexicon_file": str(LEXICON_DIR / "fin.lex.en_ng.json")}, {"out_of_scope_node": "fin.nope"}])
 def test_a_value_that_is_unknown_or_out_of_range_refuses_to_start(tmp_path: Path, change: dict[str, Any]) -> None:
     harness, _ = harness_for(ScriptedModel())
     with pytest.raises(ConfigError):
@@ -291,3 +291,11 @@ def test_the_process_hands_its_own_harness_to_the_builder(tmp_path: Path, monkey
     app = create_app(environ=environ_for(tmp_path), evidence_transport=transport)
     assert app.state.compile_service == "built" and len(seen) == 1
     assert seen[0][1] is sentinel and seen[0][2] is transport
+
+
+def test_a_pidgin_request_is_compiled_through_the_route_with_the_lexicons_the_pack_names(tmp_path: Path) -> None:  # UND-16, run #6 (A532): `dis morning` is Pidgin, read from fin.lex.pcm
+    mentions = {**GOOD_MENTIONS, "when": {**GOOD_MENTIONS["when"], "surface_form": "dis morning"}}
+    service, model, evidence = service_for(tmp_path, ScriptedModel(answers=dict(G_A), mentions=mentions))
+    client = TestClient(create_app(environ={}, compile_service=service))
+    answer = client.post(ROUTE, json={"canonical_input": {**CANONICAL, "text": "Wetin happen to the 20k wey I send Tunde dis morning?"}, "pack_ref": "fin@1.0.0"})
+    assert answer.status_code == 200 and len(evidence.requests) == 1

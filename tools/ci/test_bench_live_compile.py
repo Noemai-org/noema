@@ -154,6 +154,68 @@ class CompileWorkflow(unittest.TestCase):
         self.assertRegex(job_block(self.code, "run"), r"(?s)run_id=invalid.*?echo \"run_id=\$run_id\" >> \"\$GITHUB_OUTPUT\"")
         self.assertNotIn("grep -Eq", self.code)
 
+    def step_script(self, prefix: str) -> str:
+        """The run script of one step of the run job, de-indented: the real text, so the tests run it and not a copy."""
+        block = job_block(self.text, "run")
+        step = re.search(r"(?ms)^      - (?:id: \w+\n        )?name: " + re.escape(prefix) + r"[^\n]*\n(.*?)(?=^      - |\Z)", block)
+        assert step, prefix
+        body = re.search(r"(?ms)^        run: \|\n(.*)\Z", step.group(1))
+        assert body, prefix
+        return "\n".join(line[10:] for line in body.group(1).splitlines())
+
+    def run_step(self, prefix: str, summary_text: str | None, manifest: bool = False, **env: str) -> tuple[subprocess.CompletedProcess[str], str]:
+        script = self.step_script(prefix)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "out", "compile-acceptance")
+            (out / "recordings").mkdir(parents=True)
+            if summary_text is not None:
+                (out / "summary.md").write_text(summary_text, encoding="utf-8")
+            if manifest:
+                (out / "recordings" / "manifest.json").write_text('{"calls": 1}', encoding="utf-8")
+            step_summary = Path(tmp, "step-summary.md")
+            r = subprocess.run(["bash", "-c", script], cwd=tmp, capture_output=True, text=True, check=False,
+                               env={"PATH": os.environ["PATH"], "GITHUB_STEP_SUMMARY": str(step_summary), "RUN_ID": "compile-gh1", **env})
+            return r, step_summary.read_text(encoding="utf-8") if step_summary.exists() else ""
+
+    TABLE = "FAILING: G-A G-C G-D G-B G-E\n\n| case | status | problems |\n| G-A | MISSED | requested_remedy: present where none is expected |\n"
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_the_job_summary_shows_the_failing_goldens_after_a_clean_scan_only(self) -> None:
+        # UND-16, run #6: the failing goldens were only in the log. The summary shows the runner's own `summary.md` (ids, statuses, fixed texts), as it shows the manifest: only after a clean scan.
+        clean, shown = self.run_step("Summary", self.TABLE, CODE="1", SCAN="0")
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertIn("FAILING: G-A G-C G-D G-B G-E", shown)
+        self.assertIn("| G-A | MISSED |", shown)
+        dirty, hidden = self.run_step("Summary", self.TABLE, CODE="1", SCAN="1")
+        self.assertEqual(dirty.returncode, 0, dirty.stderr)
+        self.assertNotIn("G-A", hidden)
+        missing, _ = self.run_step("Summary", None, CODE="2", SCAN="0")
+        self.assertEqual(missing.returncode, 0, missing.stderr)  # a run with no summary (bad input, no key) still gets its summary
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_the_result_step_names_the_failing_goldens_in_its_error(self) -> None:
+        failed, _ = self.run_step("Result", self.TABLE, CODE="1", SCAN="0")
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("::error::", failed.stdout)
+        self.assertIn("G-A G-C G-D G-B G-E", failed.stdout)
+        self.assertEqual(self.run_step("Result", self.TABLE, CODE="0", SCAN="0")[0].returncode, 0)
+        self.assertEqual(self.run_step("Result", self.TABLE, CODE="3", SCAN="0")[0].returncode, 1)
+        absent, _ = self.run_step("Result", None, CODE="1", SCAN="0")
+        self.assertEqual(absent.returncode, 1)
+        self.assertIn("::error::", absent.stdout)
+        unscanned, _ = self.run_step("Result", self.TABLE, CODE="1", SCAN="1")
+        self.assertEqual(unscanned.returncode, 1)
+        self.assertNotIn("G-A", unscanned.stdout)  # nothing from an unscanned file is quoted
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_the_quoted_line_cannot_inject_a_workflow_command(self) -> None:
+        hostile = "FAILING: G-A ::set-output name=x::y %0A\n"
+        failed, _ = self.run_step("Result", hostile, CODE="1", SCAN="0")
+        self.assertEqual(failed.returncode, 1)
+        self.assertEqual(failed.stdout.count("::"), 1 + 1, failed.stdout)  # only the `::error::` pair
+        self.assertNotIn("set-output", failed.stdout.replace("::error::", ""))
+        self.assertNotIn("%", failed.stdout)
+
     def test_actions_are_pinned_by_commit_and_nothing_reads_the_heldout_set(self) -> None:
         for use in re.findall(r"uses: (\S+)", self.code):
             self.assertRegex(use, r"^[\w./-]+@[0-9a-f]{40}$", use)
