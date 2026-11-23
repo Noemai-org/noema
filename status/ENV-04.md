@@ -303,3 +303,19 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - noema#874's `checks` job failed on gitleaks (1 leak in my commit): the test literal `EDGE_PASSWORD = "<24 hex characters>"` (a high-entropy value on a name that says PASSWORD). A429 says a PR whose history carries a key-shaped test string is closed and reopened from a fresh branch with the clean tree, with no ignore line and no rewrite; so #874 is closed and this branch carries one commit with a readable placeholder (`synthetic-edge-login-secret`, which still meets the 16-character rule).
 - Codex P1 (the key initializer cannot read secrets that keep the host user's ownership and mode 0600 once every capability is dropped): `core-keys-init` adds `DAC_READ_SEARCH` (reads any file, writes none; never `DAC_OVERRIDE`), netcheck requires exactly that set and has two new mutations (159). Not testable without root and a differently-owned source (CI runs as a non-root user), so the netcheck rule and the first stack-check are the proof; `trust-dsn-init` is unchanged (its secrets are mode 644).
 - A509: the DSN files are mode 0400 owned by uid 65532 (the core's uid): unchanged, tested in `trust-dsn/test_init.py`.
+
+# Session 2026-11-23 · ENV-04
+
+## Session summary
+- What changed: the bench stack gains `operator-dsn-init`, `core-trust-keys-init`, `tenant-init` and `policy-publish` (A445, A484, A489, A527). `tenant-init` runs `cmd/tenantinit` with the superuser's DSN file (a login that may call `key_register`; the migration login's password stays with the migrate one-shot and postgres alone) and no `--tenant`. `policy-publish` runs `cmd/policypublish` for the bench tenant after it; the core waits for it. The core image now also builds `cmd/tenantinit`. netcheck pins every holder, volume reader and flag with 46 new mutations (205 in all, all caught).
+- Why: the Trust intake needs a registered core-trust key and a policy in force before the stack serves.
+- Risks, and how they are contained: the superuser password gains one holder (`operator-dsn-init`, no network); netcheck refuses any other. Not run on a live stack (no Docker daemon here, `docker compose config` only).
+- Tests added: `deploy/compose/operator-dsn/test_init.py` (6, seen failing first); netcheck mutations.
+- A522: `core-keys-init` is accepted by the first stack-check run, as is `core-trust-keys-init` (same script).
+- Debt entries: none. Conflicts raised: none.
+- Not done: the migrate one-shot and its A527 netcheck rule wait for C2's A521 flags (no PR on origin). #889 was closed because #880 (the 4096 reader) had not landed (Codex P2); reopen the two-line change after #880 merges.
+
+## Pre-work for the next agent
+- Exact next step: read the first stack-check run for `operator-dsn-init`, `core-trust-keys-init`, `tenant-init` (exit 0, `{"keys_registered":1,...}`) and `policy-publish` (`published`).
+- Open questions: tenant-init's superuser login is my reading (A445 to A489 name no login); the Architect should confirm. The migrate one-shot flags (C2).
+- Do not touch: the migrator password's holders (postgres, migrate).

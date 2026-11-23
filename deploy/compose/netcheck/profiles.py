@@ -133,9 +133,13 @@ NETWORKS = {
     "grant-keys-init": set(),
     "trust-dsn-init": set(),
     "core-keys-init": set(),
+    "operator-dsn-init": set(),
+    "core-trust-keys-init": set(),
+    "tenant-init": {"data_net"},
+    "policy-publish": {"data_net"},
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init"}
+SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
@@ -159,12 +163,13 @@ EXPECTED_SERVICES = {
     "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "tenant-init", "policy-publish"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
            "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
-           "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}, "bench-runner": {"bench"}}
+           "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}, "bench-runner": {"bench"},
+           "operator-dsn-init": {"bench"}, "core-trust-keys-init": {"bench"}, "tenant-init": {"bench"}, "policy-publish": {"bench"}}
 
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
@@ -211,6 +216,83 @@ BENCH_CORE_SETTINGS = {
 }
 
 
+def oneshot_problems(profile, name, svc, held, vols):
+    """ENV-04: the pins of the operator DSN step, the core-trust key step, tenant-init and policy-publish, and who holds the superuser password, the core-trust seed and their volumes."""
+    bad = []
+    env = svc.get("environment") or {}
+    env_names = set(env.keys()) if isinstance(env, dict) else set()
+    argv = argv_of(svc)
+    # who holds what
+    if SUPERUSER_SECRET in held and name not in ("postgres", OPERATOR_INIT):
+        bad.append(f"{profile}: {name} holds {SUPERUSER_SECRET}; only postgres and {OPERATOR_INIT} may (INV-29, A527)")
+    if TRUST_KEY_SECRET in held and name != TRUST_KEYS_INIT:
+        bad.append(f"{profile}: {name} holds {TRUST_KEY_SECRET}; only {TRUST_KEYS_INIT} may (INV-29, A445)")
+    if name not in ("postgres", OPERATOR_INIT) and any("postgres_superuser" in str(x).lower() for x in list(env_names) + argv + [str(v.get("source", "")) for v in vols]):
+        bad.append(f"{profile}: {name} names the superuser's password in its environment or arguments (A527)")
+    if name in (TENANT_INIT, POLICY_PUBLISH) and (held or any(re.search(r"(?i)(password|passwd|dsn|key)", k) and not k.endswith("_FILE") for k in env_names)):
+        bad.append(f"{profile}: {name} holds a secret or a credential variable; it reads files only (A527, INV-29)")
+    for volume, writer, readers in ((OPERATOR_VOLUME, OPERATOR_INIT, (TENANT_INIT,)), (TRUST_KEYS_VOLUME, TRUST_KEYS_INIT, (TENANT_INIT, POLICY_PUBLISH))):
+        mounts = [v for v in vols if v.get("source") == volume]
+        if mounts and name not in (writer,) + readers:
+            bad.append(f"{profile}: {name} mounts the {volume} volume; only {writer} (writes) and {', '.join(readers)} (read-only) may (INV-29, A527)")
+        if name == writer and len([m for m in mounts if not m.get("read_only")]) != 1:
+            bad.append(f"{profile}: {writer} must mount {volume} writable exactly once (A527)")
+        if name in readers and (len(mounts) != 1 or not mounts[0].get("read_only")):
+            bad.append(f"{profile}: {name} must mount the {volume} volume exactly once, read-only (A527)")
+    # the two init steps
+    if name == OPERATOR_INIT:
+        if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "FOWNER", "SETGID", "SETUID"]:
+            bad.append(f"{profile}: {OPERATOR_INIT} must drop ALL capabilities and add back only CHOWN, FOWNER, SETUID and SETGID (A527)")
+        if set(held) != {SUPERUSER_SECRET}:
+            bad.append(f"{profile}: {OPERATOR_INIT} must hold the secret {SUPERUSER_SECRET} and nothing else (A527)")
+        if svc.get("network_mode") != "none":
+            bad.append(f"{profile}: {OPERATOR_INIT} must have no network (A527)")
+    if name == TRUST_KEYS_INIT:
+        if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "DAC_READ_SEARCH", "FOWNER", "SETGID", "SETUID"]:
+            bad.append(f"{profile}: {TRUST_KEYS_INIT} must drop ALL capabilities and add back only CHOWN, DAC_READ_SEARCH, FOWNER, SETUID and SETGID; never DAC_OVERRIDE (A445)")
+        if set(held) != {TRUST_KEY_SECRET}:
+            bad.append(f"{profile}: {TRUST_KEYS_INIT} must hold the secret {TRUST_KEY_SECRET} and nothing else (A445)")
+    # the two one-shots
+    if name in ONESHOT_ENTRYPOINTS:
+        if svc.get("entrypoint") != [ONESHOT_ENTRYPOINTS[name]]:
+            bad.append(f"{profile}: {name} must run {ONESHOT_ENTRYPOINTS[name]} as its entrypoint")
+        if str(svc.get("user", "")) != "65532:65532":
+            bad.append(f"{profile}: {name} must run as 65532:65532, the core image's nonroot user, never root (A527)")
+        if set((svc.get("networks") or {}).keys() if isinstance(svc.get("networks"), dict) else svc.get("networks") or []) != {"data_net"}:
+            bad.append(f"{profile}: {name} must be on data_net only (A527)")
+        if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or svc.get("cap_add"):
+            bad.append(f"{profile}: {name} must drop ALL capabilities and add none (A527)")
+        if not svc.get("read_only"):
+            bad.append(f"{profile}: {name} must have a read-only root filesystem (A527)")
+        flags = flags_of(argv)
+        if any(f is None or v is None for f, v in flags) or len({f for f, _ in flags}) != len(flags):
+            bad.append(f"{profile}: {name}'s arguments must be flags with one value each, none repeated (A527)")
+        given = dict(flags)
+        if name == TENANT_INIT:
+            if given != TENANT_INIT_FLAGS or "--tenant" in given:
+                bad.append(f"{profile}: {TENANT_INIT} must take exactly {TENANT_INIT_FLAGS} and no --tenant: tenant rows have one creator (A489)")
+        else:
+            if set(given) != set(POLICY_PUBLISH_FLAGS) or "--published-by" in given:
+                bad.append(f"{profile}: {POLICY_PUBLISH} must take exactly {list(POLICY_PUBLISH_FLAGS)}; the publisher is the database role (A474)")
+            for f, want in POLICY_PUBLISH_FIXED.items():
+                if given.get(f) != want:
+                    bad.append(f"{profile}: {POLICY_PUBLISH} {f} is {given.get(f)!r}, not {want!r} (A445)")
+            if given.get("--dsn-file") != f"/run/trust-dsn/{given.get('--tenant')}" or not str(given.get("--tenant", "")).startswith("ten_"):
+                bad.append(f"{profile}: {POLICY_PUBLISH} must read the Trust login file of the tenant it publishes for (A356, A445)")
+        deps = svc.get("depends_on") or {}
+        needed = (OPERATOR_INIT, TRUST_KEYS_INIT) if name == TENANT_INIT else (TENANT_INIT, TRUST_DSN_INIT)
+        for dep in needed:
+            if deps.get(dep, {}).get("condition") != "service_completed_successfully":
+                bad.append(f"{profile}: {name} must wait for {dep} to complete successfully (A527)")
+    if name == "core":
+        if (svc.get("depends_on") or {}).get(POLICY_PUBLISH, {}).get("condition") != "service_completed_successfully":
+            bad.append(f"{profile}: the core must wait for {POLICY_PUBLISH} to complete successfully, or it starts with no policy in force (A445)")
+        for volume in (OPERATOR_VOLUME, TRUST_KEYS_VOLUME):
+            if any(v.get("source") == volume for v in vols):
+                bad.append(f"{profile}: the core mounts {volume}; it holds neither the operator login nor the core-trust key (A527, INV-29)")
+    return bad
+
+
 def settings_order_problems(values):
     """The ordering constraints of A477, which the loaders enforce: the activity timeout and the recovery idle time must each exceed the investigation run timeout, or a live run could be picked
     up twice. A value that is not a whole number is a problem too."""
@@ -243,6 +325,49 @@ NEVER_SET = {"NOEMA_TEMPORAL_TLS_CERT_FILE": "the bench Temporal serves server-s
              "NOEMA_TEMPORAL_TLS_KEY_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client key stays unset (A506)",
              "NOEMA_WRITE_SWAP_DECISIONS": "a test-only switch for the proposer-swap fixture, never a Compose setting (A506)"}
 TRUST_DSN_INIT, TRUST_DSN_VOLUME, TENANT_LOGIN_SECRET = "trust-dsn-init", "trust_dsns", "noema_tenant_login_password"
+# ENV-04 (A445, A484, A489, A527): the tenant-init and policy-publish one-shots. tenant-init registers the core-trust PUBLIC key with key_register, which only the owner and the superuser may call, so
+# its login is the superuser's (the migration login's password belongs to the migrate one-shot and postgres alone, A527). The superuser password is held by postgres and by operator-dsn-init ONLY; that
+# step writes the one DSN file into operator_dsn, which tenant-init alone mounts (read-only). The core-trust seed is held by core-trust-keys-init ONLY; it writes core_trust_keys, which tenant-init and
+# policy-publish alone mount (read-only). The core mounts neither volume. Each of the two runs from the core image under its own entrypoint with exactly the flags below: no --tenant on tenant-init
+# (tenant rows have one creator, A489), no --published-by on policy-publish (the publisher is the database role, A474), and no password, DSN or key in an argument or an environment variable.
+OPERATOR_INIT, OPERATOR_VOLUME, SUPERUSER_SECRET = "operator-dsn-init", "operator_dsn", "postgres_superuser_password"
+TRUST_KEYS_INIT, TRUST_KEYS_VOLUME, TRUST_KEY_SECRET = "core-trust-keys-init", "core_trust_keys", "core_trust_ed25519_seed_1"
+TENANT_INIT, POLICY_PUBLISH = "tenant-init", "policy-publish"
+ONESHOT_ENTRYPOINTS = {TENANT_INIT: "/usr/local/bin/tenantinit", POLICY_PUBLISH: "/usr/local/bin/policypublish"}
+TENANT_INIT_FLAGS = {"--dsn-file": "/run/operator-dsn/dsn", "--key-dir": "/run/core-trust-keys", "--key-max-active": "1"}
+POLICY_PUBLISH_FLAGS = ("--tenant", "--pack-dir", "--pack-file", "--dsn-file", "--key-dir", "--key-max-active")
+POLICY_PUBLISH_FIXED = {"--pack-dir": "/run/packs", "--pack-file": "fintech_v1.json", "--key-dir": "/run/core-trust-keys", "--key-max-active": "1"}
+
+
+def argv_of(svc):
+    """The service's entrypoint and command as one list of strings; a string form is split on whitespace."""
+    out = []
+    for key in ("entrypoint", "command"):
+        v = svc.get(key)
+        out += v.split() if isinstance(v, str) else [str(x) for x in (v or [])]
+    return out
+
+
+def flags_of(argv):
+    """The flags after the entrypoint as a list of (flag, value) pairs; a value-less or doubled flag shows as a pair with None. `--flag=value` splits at the first =."""
+    pairs, i = [], 1
+    while i < len(argv):
+        tok = argv[i]
+        if tok.startswith("-"):
+            if "=" in tok:
+                f, _, v = tok.partition("=")
+                pairs.append((f, v))
+                i += 1
+            elif i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+                pairs.append((tok, argv[i + 1]))
+                i += 2
+            else:
+                pairs.append((tok, None))
+                i += 1
+        else:
+            pairs.append((None, tok))
+            i += 1
+    return pairs
 # The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
 # server certificate, TEMPORAL_TLS_SERVER_CA_CERT the CA the in-process worker trusts, TEMPORAL_TLS_FRONTEND_SERVER_NAME the name it verifies) and the settings the image's CLI reads
 # to reach it (TEMPORAL_TLS, TEMPORAL_TLS_CA, TEMPORAL_TLS_SERVER_NAME). In that template TEMPORAL_TLS_SERVER_CA_CERT is ALSO the root of the internode CLIENT, so setting it makes the
@@ -308,7 +433,7 @@ def check(cfg, profile):
             # every three seconds: five-digit ports are digit runs, so a clean run would fail its own scan (Codex P1 on noema#591).
             bad.append(f"{profile}: the model's uvicorn must run with --no-access-log (its access log carries the client port, a digit run the leak scan would report)")
         for flag in ("privileged", "cap_add", "devices"):
-            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT)):  # the one-shot adds exactly four, checked by its own rule below
+            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT, OPERATOR_INIT, TRUST_KEYS_INIT)):  # each one-shot adds exactly the set its own rule pins, checked by its own rule below
                 bad.append(f"{profile}: {name} sets {flag}")
         for flag in ("pid", "ipc", "userns_mode"):
             if svc.get(flag) == "host":
@@ -385,13 +510,16 @@ def check(cfg, profile):
         if TENANT_LOGIN_SECRET in held and name not in ("postgres", TRUST_DSN_INIT):
             bad.append(f"{profile}: {name} holds {TENANT_LOGIN_SECRET}; only postgres and {TRUST_DSN_INIT} may (INV-29, A356)")
         dsn_mounts = [v for v in vols if v.get("source") == TRUST_DSN_VOLUME]
-        if dsn_mounts and name not in ("core", TRUST_DSN_INIT):
-            bad.append(f"{profile}: {name} mounts the {TRUST_DSN_VOLUME} volume; only the core (read-only) and {TRUST_DSN_INIT} may (INV-29, A356)")
+        if dsn_mounts and name not in ("core", TRUST_DSN_INIT, POLICY_PUBLISH):
+            bad.append(f"{profile}: {name} mounts the {TRUST_DSN_VOLUME} volume; only the core (read-only), {POLICY_PUBLISH} (read-only) and {TRUST_DSN_INIT} may (INV-29, A356)")
         # A506: every DSN and key volume has one writer and one reader; the key values and the emitter secrets have their holders.
         for volume, writer in [(v, TRUST_DSN_INIT) for v in DSN_VOLUMES] + [(v, KEYS_INIT) for v in KEY_VOLUMES]:
             mounts = [v for v in vols if v.get("source") == volume]
-            if mounts and name not in ("core", writer):
-                bad.append(f"{profile}: {name} mounts the {volume} volume; only the core (read-only) and {writer} may (INV-29, A506)")
+            allowed = ("core", writer) + ((POLICY_PUBLISH,) if volume == TRUST_DSN_VOLUME else ())  # policy-publish reads the tenant's Trust login file, read-only (A445)
+            if mounts and name not in allowed:
+                bad.append(f"{profile}: {name} mounts the {volume} volume; only the core (read-only), {writer}{' and ' + POLICY_PUBLISH + ' (read-only)' if volume == TRUST_DSN_VOLUME else ''} may (INV-29, A506)")
+            if name == POLICY_PUBLISH and volume == TRUST_DSN_VOLUME and (len(mounts) != 1 or not mounts[0].get("read_only")):
+                bad.append(f"{profile}: {POLICY_PUBLISH} must mount the {volume} volume exactly once, read-only (A445)")
             if name == writer and len([m for m in mounts if not m.get("read_only")]) != 1:
                 bad.append(f"{profile}: {writer} must mount {volume} writable exactly once (A506)")
             if name == "core" and profile == "bench" and (len(mounts) != 1 or not mounts[0].get("read_only")):
@@ -420,6 +548,8 @@ def check(cfg, profile):
                 bad.append(f"{profile}: {TRUST_DSN_INIT} must hold the secret {TENANT_LOGIN_SECRET} and nothing else (A356)")
             if len([v for v in dsn_mounts if not v.get("read_only")]) != 1:
                 bad.append(f"{profile}: {TRUST_DSN_INIT} must mount {TRUST_DSN_VOLUME} writable exactly once (A356)")
+        if profile == "bench":
+            bad.extend(oneshot_problems(profile, name, svc, held, vols))
         if name == "core" and profile == "bench":
             for setting, value in BENCH_CORE_SETTINGS.items():
                 got = str((svc.get("environment") or {}).get(setting, ""))
@@ -640,6 +770,53 @@ def self_test(configs):
         "core-keys-init may override file permissions": ("bench", lambda c: c["services"]["core-keys-init"]["cap_add"].append("DAC_OVERRIDE")),
         "core-keys-init keeps every capability": ("bench", lambda c: c["services"]["core-keys-init"].pop("cap_drop")),
         "core-keys-init is dropped": ("bench", lambda c: c["services"].pop("core-keys-init")),
+        # ENV-04 (A445, A484, A489, A527): who holds the superuser's password and the core-trust seed, who reads the operator DSN and the core-trust keys, and the exact arguments of the two one-shots.
+        "the core holds the superuser's password": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "postgres_superuser_password", "target": "x"})),
+        "tenant-init holds the superuser's password itself": ("bench", lambda c: c["services"]["tenant-init"].setdefault("secrets", []).append({"source": "postgres_superuser_password", "target": "x"})),
+        "policy-publish holds the superuser's password": ("bench", lambda c: c["services"]["policy-publish"].setdefault("secrets", []).append({"source": "postgres_superuser_password", "target": "x"})),
+        "the model names the superuser's password": ("bench", lambda c: c["services"]["model"].setdefault("environment", {}).update({"POSTGRES_SUPERUSER_PASSWORD_FILE": "/x"})),
+        "operator-dsn-init also holds the core password": ("bench", lambda c: c["services"]["operator-dsn-init"]["secrets"].append({"source": "noema_core_password", "target": "x"})),
+        "operator-dsn-init loses its secret": ("bench", lambda c: c["services"]["operator-dsn-init"].update({"secrets": []})),
+        "operator-dsn-init may override file permissions": ("bench", lambda c: c["services"]["operator-dsn-init"]["cap_add"].append("DAC_OVERRIDE")),
+        "operator-dsn-init has a network": ("bench", lambda c: c["services"]["operator-dsn-init"].update({"network_mode": "bridge"})),
+        "operator-dsn-init is dropped": ("bench", lambda c: c["services"].pop("operator-dsn-init")),
+        "the core holds the core-trust seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_trust_ed25519_seed_1", "target": "x"})),
+        "tenant-init holds the core-trust seed": ("bench", lambda c: c["services"]["tenant-init"].setdefault("secrets", []).append({"source": "core_trust_ed25519_seed_1", "target": "x"})),
+        "core-trust-keys-init also holds an input hash key": ("bench", lambda c: c["services"]["core-trust-keys-init"]["secrets"].append({"source": "input_hash_key", "target": "x"})),
+        "core-trust-keys-init may override file permissions": ("bench", lambda c: c["services"]["core-trust-keys-init"]["cap_add"].append("DAC_OVERRIDE")),
+        "core-trust-keys-init cannot read its seed": ("bench", lambda c: c["services"]["core-trust-keys-init"]["cap_add"].remove("DAC_READ_SEARCH")),
+        "the core mounts the operator DSN": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "volume", "source": "operator_dsn", "target": "/x", "read_only": True})),
+        "policy-publish mounts the operator DSN": ("bench", lambda c: c["services"]["policy-publish"]["volumes"].append({"type": "volume", "source": "operator_dsn", "target": "/x", "read_only": True})),
+        "tenant-init mounts the operator DSN writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["tenant-init"]["volumes"] if v.get("source") == "operator_dsn"]),
+        "tenant-init loses the operator DSN": ("bench", lambda c: c["services"]["tenant-init"].update({"volumes": [v for v in c["services"]["tenant-init"]["volumes"] if v.get("source") != "operator_dsn"]})),
+        "the core mounts the core-trust keys": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "volume", "source": "core_trust_keys", "target": "/x", "read_only": True})),
+        "the model mounts the core-trust keys": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "core_trust_keys", "target": "/x", "read_only": True})),
+        "policy-publish mounts the core-trust keys writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["policy-publish"]["volumes"] if v.get("source") == "core_trust_keys"]),
+        "policy-publish loses the core-trust keys": ("bench", lambda c: c["services"]["policy-publish"].update({"volumes": [v for v in c["services"]["policy-publish"]["volumes"] if v.get("source") != "core_trust_keys"]})),
+        "tenant-init is given a tenant": ("bench", lambda c: c["services"]["tenant-init"]["command"].extend(["--tenant", "ten_alpha"])),
+        "tenant-init is given a tenant with an equals sign": ("bench", lambda c: c["services"]["tenant-init"]["command"].append("--tenant=ten_alpha")),
+        "tenant-init reads another DSN file": ("bench", lambda c: c["services"]["tenant-init"].update({"command": ["--dsn-file", "/run/trust-dsn/ten_alpha", "--key-dir", "/run/core-trust-keys", "--key-max-active", "1"]})),
+        "tenant-init takes the DSN in the argument": ("bench", lambda c: c["services"]["tenant-init"].update({"command": ["--dsn-file=postgres://postgres:pw@postgres/noema", "--key-dir", "/run/core-trust-keys", "--key-max-active", "1"]})),
+        "tenant-init allows three active keys": ("bench", lambda c: c["services"]["tenant-init"].update({"command": ["--dsn-file", "/run/operator-dsn/dsn", "--key-dir", "/run/core-trust-keys", "--key-max-active", "3"]})),
+        "tenant-init runs as root": ("bench", lambda c: c["services"]["tenant-init"].update({"user": "0:0"})),
+        "tenant-init joins the service network": ("bench", lambda c: c["services"]["tenant-init"]["networks"].update({"svc_net": None})),
+        "tenant-init keeps a capability": ("bench", lambda c: c["services"]["tenant-init"].update({"cap_add": ["NET_ADMIN"]})),
+        "tenant-init has a writable root": ("bench", lambda c: c["services"]["tenant-init"].update({"read_only": False})),
+        "tenant-init runs a shell": ("bench", lambda c: c["services"]["tenant-init"].update({"entrypoint": ["/bin/sh"]})),
+        "tenant-init carries the password in its environment": ("bench", lambda c: c["services"]["tenant-init"].setdefault("environment", {}).update({"PGPASSWORD": "x"})),
+        "tenant-init does not wait for the operator DSN": ("bench", lambda c: c["services"]["tenant-init"]["depends_on"].pop("operator-dsn-init")),
+        "tenant-init does not wait for the core-trust key": ("bench", lambda c: c["services"]["tenant-init"]["depends_on"].pop("core-trust-keys-init")),
+        "tenant-init is dropped": ("bench", lambda c: c["services"].pop("tenant-init")),
+        "policy-publish is given a publisher": ("bench", lambda c: c["services"]["policy-publish"]["command"].extend(["--published-by", "x"])),
+        "policy-publish is given a publisher with an equals sign": ("bench", lambda c: c["services"]["policy-publish"]["command"].append("--published-by=x")),
+        "policy-publish loses the tenant": ("bench", lambda c: c["services"]["policy-publish"].update({"command": [t for i, t in enumerate(c["services"]["policy-publish"]["command"]) if t not in ("--tenant", "ten_alpha")]})),
+        "policy-publish reads another tenant's login file": ("bench", lambda c: c["services"]["policy-publish"].update({"command": ["--tenant", "ten_alpha", "--pack-dir", "/run/packs", "--pack-file", "fintech_v1.json", "--dsn-file", "/run/trust-dsn/ten_other", "--key-dir", "/run/core-trust-keys", "--key-max-active", "1"]})),
+        "policy-publish publishes another pack file": ("bench", lambda c: c["services"]["policy-publish"].update({"command": ["--tenant", "ten_alpha", "--pack-dir", "/run/packs", "--pack-file", "other.json", "--dsn-file", "/run/trust-dsn/ten_alpha", "--key-dir", "/run/core-trust-keys", "--key-max-active", "1"]})),
+        "policy-publish mounts the Trust logins writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["policy-publish"]["volumes"] if v.get("source") == "trust_dsns"]),
+        "policy-publish runs as root": ("bench", lambda c: c["services"]["policy-publish"].update({"user": "0:0"})),
+        "policy-publish does not wait for tenant-init": ("bench", lambda c: c["services"]["policy-publish"]["depends_on"].pop("tenant-init")),
+        "the core does not wait for policy-publish": ("bench", lambda c: c["services"]["core"]["depends_on"].pop("policy-publish")),
+        "policy-publish is dropped": ("bench", lambda c: c["services"].pop("policy-publish")),
         "the model mounts the per-login emitter secrets": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/emitter_logins", "target": "/x", "read_only": True})),
         "the core sets the Temporal client certificate": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TEMPORAL_TLS_CERT_FILE": "/x"})),
         "the core sets the test-only swap switch": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_WRITE_SWAP_DECISIONS": "1"})),

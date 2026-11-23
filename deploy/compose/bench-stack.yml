@@ -23,6 +23,10 @@ volumes:
   orchestrator_keys: {}
   edge_keys: {}
   input_hash: {}
+  # The operator DSN (the superuser's, A527) and the core-trust signing key (A445): each written once by its one-shot at mode 0400 owned by uid 65532. The DSN is read by tenant-init only; the key
+  # directory by tenant-init and policy-publish only, read-only. The core mounts neither.
+  operator_dsn: {}
+  core_trust_keys: {}
 # The three key values (secrets_local.sh makes them; 64 lower-case hexadecimal characters each). Held by the core-keys-init one-shot ONLY.
 secrets:
   core_workflows_ed25519_seed_1:
@@ -31,6 +35,9 @@ secrets:
     file: ./secrets/core_edge_ed25519_seed_1
   input_hash_key:
     file: ./secrets/input_hash_key
+  # The core-trust Ed25519 seed (A445, interim; secrets_local.sh makes it). Held by the core-trust-keys-init one-shot ONLY.
+  core_trust_ed25519_seed_1:
+    file: ./secrets/core_trust_ed25519_seed_1
 services:
   core:
     environment:
@@ -121,6 +128,8 @@ services:
         condition: service_completed_successfully
       core-keys-init:
         condition: service_completed_successfully
+      policy-publish:
+        condition: service_completed_successfully
       hostility-proxy:
         condition: service_healthy
       standin:
@@ -182,6 +191,112 @@ services:
       - orchestrator_keys:/out/orchestrator
       - edge_keys:/out/edge
       - input_hash:/out/input-hash
+  # One-shot, as root, no network (A527): turns the superuser's password secret into the one DSN file tenant-init reads (mode 0400, owner 65532). The migration login's password is not here: it belongs to
+  # the migrate one-shot and postgres alone. It prints the file name, never the password. If it fails, tenant-init does not run.
+  operator-dsn-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    # The same capabilities as trust-dsn-init: CHOWN and FOWNER give the file to the core's user and set its mode; SETUID and SETGID read it back as that user. The secret is read through its mode
+    # (secrets_local.sh keeps the password secrets at 644 for postgres), so no read capability is needed.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
+    environment:
+      OPERATOR_DSN_SRC: /run/secrets
+      OPERATOR_DSN_OUT: /out
+      OPERATOR_DSN_UID: "65532"
+      OPERATOR_DSN_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [postgres_superuser_password]
+    volumes:
+      - ./operator-dsn/init.py:/init/init.py:ro
+      - operator_dsn:/out
+  # One-shot, as root, no network (A445): turns the core-trust seed into core-trust.ed25519.1.key (64 hexadecimal characters, mode 0400, owner 65532), the form execution/signing.LoadRing reads, and checks it
+  # by reading it as that user. The seed keeps the host user's mode 0600, so DAC_READ_SEARCH (reads, writes nothing) as for core-keys-init; never DAC_OVERRIDE. It is the same script as core-keys-init.
+  core-trust-keys-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
+    environment:
+      CORE_KEYS_SRC: /run/secrets
+      CORE_KEYS_FILES: "core_trust_ed25519_seed_1=/out/core-trust/core-trust.ed25519.1.key"
+      CORE_KEYS_UID: "65532"
+      CORE_KEYS_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [core_trust_ed25519_seed_1]
+    volumes:
+      - ./core-keys/init.py:/init/init.py:ro
+      - core_trust_keys:/out/core-trust
+  # One-shot (A484, A489): registers the core-trust PUBLIC key in signing_key (key_register) and creates no tenant row. It runs from the core image under its own entrypoint, as the image's nonroot user,
+  # on data_net only, with the superuser DSN file and the key directory read-only. There is no --tenant: tenant rows have one creator, create-tenants.sh. It prints two counts, never a key.
+  tenant-init:
+    image: noema-core:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/usr/local/bin/tenantinit"]
+    command: ["--dsn-file", "/run/operator-dsn/dsn", "--key-dir", "/run/core-trust-keys", "--key-max-active", "1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      operator-dsn-init:
+        condition: service_completed_successfully
+      core-trust-keys-init:
+        condition: service_completed_successfully
+    volumes:
+      - operator_dsn:/run/operator-dsn:ro
+      - core_trust_keys:/run/core-trust-keys:ro
+  # One-shot (A445): publishes the pack's policy for the bench tenant, signed by core-trust and recorded as POLICY_PUBLISHED, so the Trust intake finds a policy in force. It runs from the core image
+  # under its own entrypoint, as nonroot, on data_net only, with the tenant's Trust login DSN file and the key directory read-only. It runs after tenant-init (the public key must be registered) and the
+  # core waits for it. The publisher is the database role of the DSN (A474); there is no --published-by.
+  policy-publish:
+    image: noema-core:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/usr/local/bin/policypublish"]
+    command:
+      - --tenant
+      - "${STANDIN_TENANT_ID:-ten_alpha}"
+      - --pack-dir
+      - /run/packs
+      - --pack-file
+      - fintech_v1.json
+      - --dsn-file
+      - "/run/trust-dsn/${STANDIN_TENANT_ID:-ten_alpha}"
+      - --key-dir
+      - /run/core-trust-keys
+      - --key-max-active
+      - "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      trust-dsn-init:
+        condition: service_completed_successfully
+      tenant-init:
+        condition: service_completed_successfully
+    volumes:
+      - ../../packs:/run/packs:ro
+      - trust_dsns:/run/trust-dsn:ro
+      - core_trust_keys:/run/core-trust-keys:ro
   postgres:
     environment:
       NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
