@@ -4,7 +4,7 @@ cmd/tenantinit registers the core-trust public key with `key_register`, which on
 is held by the migrate one-shot and postgres alone (A527). A DSN holds a password and Compose cannot give a file the owner or mode the loader needs, so this step runs once, as root, in a container
 with no network: it reads the file secret `postgres_superuser_password`, writes one file `dsn` into OPERATOR_DSN_OUT at mode 0400 owned by OPERATOR_DSN_UID:OPERATOR_DSN_GID (the core image's user,
 never root), and checks it by reading it as that user. Any problem exits non-zero and leaves no file behind, so the stack does not start with a login the next step cannot load. A folder that holds
-anything but this file is refused. It prints the file name only, never the password. SYNTHETIC local values."""
+anything but this file is refused. It prints file names only, never the password. It also writes `pgpass` (libpq's password file, one line) for the create-tenants one-shot, which passes no password and reads PGPASSFILE. SYNTHETIC local values."""
 import os
 import re
 import stat
@@ -13,6 +13,8 @@ import sys
 SRC = os.environ.get("OPERATOR_DSN_SRC", "/run/secrets")
 OUT = os.environ.get("OPERATOR_DSN_OUT", "/out")
 NAME = "dsn"
+PGPASS = "pgpass"  # libpq's password file for the psql one-shot: PGPASSFILE names it; one line, host:port:database:login:password
+NAMES = (NAME, PGPASS)
 HOST, PORT, DATABASE, LOGIN = "postgres", "5432", "noema", "postgres"
 PASSWORD = re.compile(r"^[A-Za-z0-9._~-]{16,}$")  # nothing that is a separator in a URL, so the DSN means what it says without quoting
 WRITTEN: list[str] = []
@@ -77,28 +79,30 @@ def main() -> None:
         fail("the output folder cannot be read")
     for entry in entries:
         full = os.path.join(OUT, entry)
-        if entry != NAME or os.path.islink(full) or not os.path.isfile(full):
+        if entry not in NAMES or os.path.islink(full) or not os.path.isfile(full):
             fail("the output folder holds an entry this step does not write")
     dsn = f"postgres://{LOGIN}:{password}@{HOST}:{PORT}/{DATABASE}\n"
-    dst = os.path.join(OUT, NAME)
-    try:
-        os.unlink(dst)
-    except FileNotFoundError:
-        pass
-    fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
-    WRITTEN.append(dst)
-    try:
-        os.write(fd, dsn.encode("utf-8"))
-        os.fchown(fd, uid, gid)
-        os.fchmod(fd, 0o400)
-    finally:
-        os.close(fd)
-    st = os.stat(dst)
-    if stat.S_IMODE(st.st_mode) != 0o400 or st.st_uid != uid:
-        fail(f"{NAME} is not mode 0400 owned by {uid}")
-    if read_as(dst, uid, gid) != dsn.encode("utf-8"):
-        fail(f"{NAME} cannot be read as user {uid}")
-    print(f"operator-dsn-init: {NAME} written, mode 0400, owner {uid}, readable by that user")
+    pgpass_line = f"{HOST}:{PORT}:{DATABASE}:{LOGIN}:{password}\n"
+    for name, data in ((NAME, dsn), (PGPASS, pgpass_line)):
+        dst = os.path.join(OUT, name)
+        try:
+            os.unlink(dst)
+        except FileNotFoundError:
+            pass
+        fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+        WRITTEN.append(dst)
+        try:
+            os.write(fd, data.encode("utf-8"))
+            os.fchown(fd, uid, gid)
+            os.fchmod(fd, 0o400)
+        finally:
+            os.close(fd)
+        st = os.stat(dst)
+        if stat.S_IMODE(st.st_mode) != 0o400 or st.st_uid != uid:
+            fail(f"{name} is not mode 0400 owned by {uid}")
+        if read_as(dst, uid, gid) != data.encode("utf-8"):
+            fail(f"{name} cannot be read as user {uid}")
+        print(f"operator-dsn-init: {name} written, mode 0400, owner {uid}, readable by that user")
 
 
 if __name__ == "__main__":

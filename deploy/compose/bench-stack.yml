@@ -284,6 +284,65 @@ services:
     volumes:
       - ./core-keys/init.py:/init/init.py:ro
       - core_trust_keys:/out/core-trust
+  # One-shot (A353, A489): creates the tenant rows (the one creator of a tenant row), as the operator's SUPERUSER, which is the only role that may insert one (row-level security on `tenant`). It runs the
+  # repository's create-tenants.sh from the database image (psql; no new image) as 65532 on data_net only. The script takes its connection from libpq's settings and passes no password: PGPASSFILE names the
+  # one-line `pgpass` file operator-dsn-init wrote. The environment names paths and tenants, never a password.
+  tenants-create:
+    image: noema-postgres:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=1m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/bin/sh", "/scripts/create-tenants.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: noema
+      PGUSER: postgres
+      PGPASSFILE: /run/operator-dsn/pgpass
+      NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      operator-dsn-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./postgres/create-tenants.sh:/scripts/create-tenants.sh:ro
+      - operator_dsn:/run/operator-dsn:ro
+  # One-shot (DEBT-04; provision-tenants.sh): maps each tenant's logins to the tenant and the powers, as the MIGRATION login, the way the script documents and its own tests run it. Same image, user and
+  # network as tenants-create. The password reaches it only through the one-line `pgpass` file migrator-password-init wrote, which makes it the second reader of that volume after migrate: the secret
+  # itself is still held by postgres and that step alone (A527; the reader is an extension of A527 that the Architect should confirm). It runs after the tenant rows exist.
+  tenants-provision:
+    image: noema-postgres:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=1m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/bin/sh", "/scripts/provision-tenants.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: noema
+      PGUSER: noema_migration_login
+      PGPASSFILE: /run/migrator-password/pgpass
+      NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
+      NOEMA_EMITTERS: "${NOEMA_EMITTERS:-core-edge}"
+    depends_on:
+      tenants-create:
+        condition: service_completed_successfully
+    volumes:
+      - ./postgres/provision-tenants.sh:/scripts/provision-tenants.sh:ro
+      - migrator_password:/run/migrator-password:ro
   # One-shot (A484, A489): registers the core-trust PUBLIC key in signing_key (key_register) and creates no tenant row. It runs from the core image under its own entrypoint, as the image's nonroot user,
   # on data_net only, with the superuser DSN file and the key directory read-only. There is no --tenant: tenant rows have one creator, create-tenants.sh. It prints two counts, never a key.
   tenant-init:
@@ -300,7 +359,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
+      tenants-provision:
         condition: service_completed_successfully
       operator-dsn-init:
         condition: service_completed_successfully

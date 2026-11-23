@@ -38,6 +38,15 @@ class MigratorPassword(unittest.TestCase):
         self.assertEqual(st.st_uid, os.getuid())
         self.assertEqual(f.read_text(encoding="utf-8"), PASSWORD + "\n")
 
+    def test_a_libpq_password_file_is_written_beside_it_for_the_provision_one_shot(self) -> None:
+        # provision-tenants.sh runs as the migration login and passes no password: PGPASSFILE names this file (mode 0400, owner the target user, one line).
+        self.assertEqual(run(self.src, self.out).returncode, 0)
+        f = self.out / "pgpass"
+        st = f.stat()
+        self.assertEqual(stat.S_IMODE(st.st_mode), 0o400)
+        self.assertEqual(st.st_uid, os.getuid())
+        self.assertEqual(f.read_text(encoding="utf-8"), f"postgres:5432:noema:noema_migration_login:{PASSWORD}\n")
+
     def test_it_never_prints_the_password(self) -> None:
         r = run(self.src, self.out)
         self.assertNotIn(PASSWORD, r.stdout + r.stderr)

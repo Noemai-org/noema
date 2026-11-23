@@ -39,6 +39,15 @@ class OperatorDSN(unittest.TestCase):
         self.assertEqual(st.st_uid, os.getuid())
         self.assertEqual(f.read_text(encoding="utf-8"), f"postgres://postgres:{PASSWORD}@postgres:5432/noema\n")
 
+    def test_a_libpq_password_file_is_written_beside_it_for_the_psql_one_shot(self) -> None:
+        # create-tenants.sh takes its connection from libpq's own settings and passes no password: PGPASSFILE names this file (mode 0400, owner the target user, one line).
+        self.assertEqual(run(self.src, self.out).returncode, 0)
+        f = self.out / "pgpass"
+        st = f.stat()
+        self.assertEqual(stat.S_IMODE(st.st_mode), 0o400)
+        self.assertEqual(st.st_uid, os.getuid())
+        self.assertEqual(f.read_text(encoding="utf-8"), f"postgres:5432:noema:postgres:{PASSWORD}\n")
+
     def test_it_never_prints_the_password(self) -> None:
         r = run(self.src, self.out)
         self.assertNotIn(PASSWORD, r.stdout + r.stderr)
