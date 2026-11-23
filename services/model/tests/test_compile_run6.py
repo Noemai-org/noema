@@ -221,7 +221,7 @@ def test_a_pidgin_request_compiles_with_the_merged_lexicon_and_without_the_pidgi
 
 def through_service_with(compiler: PipelineCompiler, canonical: dict[str, Any]) -> dict[str, Any]:
     service = CompileService(compiler, Packs(), max_proposal_bytes=65536, timeout_s=30.0, max_request_bytes=65536)
-    return cast(dict[str, Any], run(service.run(canonical, "fin@1.0.0", None)))
+    return run(service.run(canonical, "fin@1.0.0", None))
 
 
 # --- 2. the optional slot is asked as an explicit request (A533) ---------------------------------------------------------------------------------
