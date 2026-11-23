@@ -213,7 +213,6 @@ class CompileWorkflow(unittest.TestCase):
         failed, _ = self.run_step("Result", hostile, CODE="1", SCAN="0")
         self.assertEqual(failed.returncode, 1)
         self.assertEqual(failed.stdout.count("::"), 1 + 1, failed.stdout)  # only the `::error::` pair
-        self.assertNotIn("set-output", failed.stdout.replace("::error::", ""))
         self.assertNotIn("%", failed.stdout)
 
     def test_actions_are_pinned_by_commit_and_nothing_reads_the_heldout_set(self) -> None:

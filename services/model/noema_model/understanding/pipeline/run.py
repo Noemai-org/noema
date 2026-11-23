@@ -21,6 +21,7 @@ from noema_model.understanding.pipeline.types import (
     CandidateSource,
     CandidateSourceError,
     Gate,
+    InputInvalidReason,
     MentionProposal,
     Normalise,
     NormalisedSlots,
@@ -43,10 +44,11 @@ def _stopped(
     outcome: Outcome, calls: list[CallRecord], flags: tuple[str, ...] = (), errors: tuple[str, ...] = (),
     proposal: Proposal | None = None, normalised: NormalisedSlots | None = None,
     signals: Mapping[str, bool] | None = None, screen_not_run: tuple[ScreenStage, ...] = (),
+    input_invalid: InputInvalidReason | None = None,
 ) -> PipelineResult:
     return PipelineResult(
         outcome=outcome, proposal=proposal, normalised=normalised, ambiguity_flags=flags, gate_errors=errors,
-        query=None, resolution=None, injection_signals=signals or {}, calls=tuple(calls), screen_not_run=screen_not_run,
+        query=None, resolution=None, injection_signals=signals or {}, calls=tuple(calls), screen_not_run=screen_not_run, input_invalid=input_invalid,
     )
 
 
@@ -90,7 +92,7 @@ async def run_pipeline(
     gate: Gate,
 ) -> PipelineResult:
     if inp.channel == "voice" and not inp.transcript_is_final:
-        return _stopped(Outcome.REJECTED_AT_GATE, [], errors=(GATE_INPUT_INVALID,))  # REQ-INP-001: only final transcripts
+        return _stopped(Outcome.REJECTED_AT_GATE, [], errors=(GATE_INPUT_INVALID,), input_invalid=InputInvalidReason.NOT_FINAL_TRANSCRIPT)  # REQ-INP-001: only final transcripts
     calls: list[CallRecord] = []
 
     # 1. The node.
@@ -162,7 +164,7 @@ async def run_pipeline(
         # The read contract requires a time window (REQ-CTX-006), so a request with none is invalid input: it is refused at
         # the gate and nothing is read. NO_TRANSACTION_MATCH (REQ-AMB-002) is for a search that ran and came back empty.
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
-                        proposal=proposal, normalised=normalised, signals=signals)
+                        proposal=proposal, normalised=normalised, signals=signals, input_invalid=InputInvalidReason.NO_TIME_WINDOW)
     try:
         candidates = await source.fetch(query)
     except CandidateScopeError:
@@ -170,7 +172,7 @@ async def run_pipeline(
                         proposal=proposal, normalised=normalised, signals=signals)
     except CandidateRequestInvalid:
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
-                        proposal=proposal, normalised=normalised, signals=signals)
+                        proposal=proposal, normalised=normalised, signals=signals, input_invalid=InputInvalidReason.CANDIDATE_REQUEST_INVALID)
     except CandidateSourceError:
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_EVIDENCE_UNAVAILABLE,),
                         proposal=proposal, normalised=normalised, signals=signals)

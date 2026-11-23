@@ -24,7 +24,10 @@ through a benchmark run and a founder decision (AGENT-16).
 
 Token order, initials ("T. Adeyemi") and "first name only" are handled by the engine, not by data.
 
+## `fin.lex.*.json`
+
+Amounts, numerals and relative times (REQ-INT-003), one file per language, named by the intent node's `lexicon_refs` and merged by the compiler (`load_pack_lexicons`; the files must agree on the offset and the currency, and a word or phrase two of them define must mean the same). `fin.lex.en_ng.json` is English; `fin.lex.pcm.json` is Nigerian Pidgin and holds only `dis morning` for now (UND-16, run #6; A532: a Pidgin phrase is never put in the English file). Every entry is a `[synthetic seed]`. The lexicon files are not pinned in the manifest; the run record pins their merged digest (`lexicon_sha256`).
+
 ## Not here yet
 
-`fin.lex.en_ng`, `fin.lex.pcm`, `fin.lex.yo`, `fin.lex.ha`, `fin.lex.ig` (amounts, numerals and relative times, REQ-INT-003) are
-named by the intent node and belong to UND-05.
+`fin.lex.yo`, `fin.lex.ha`, `fin.lex.ig` (named by the intent node, no file; skipped by the loader) and the numerals as words belong to UND-06.

@@ -17,7 +17,7 @@ import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -332,7 +332,7 @@ def test_the_public_answer_is_the_same_for_every_reason_and_names_none() -> None
     from tests.test_compile_route import CANONICAL as ROUTE_CANONICAL, PACK_REF
     bodies = []
     for reason in InputInvalidReason:
-        client = TestClient(create_app(environ={}, compile_service=Refusing(reason)))
+        client = TestClient(create_app(environ={}, compile_service=cast(Any, Refusing(reason))))
         answer = client.post("/internal/v1/understanding:compile", json={"canonical_input": ROUTE_CANONICAL, "pack_ref": PACK_REF})
         assert answer.status_code == 422 and answer.json()["error"]["code"] == "INPUT_INVALID"
         assert all(name.value not in answer.text for name in InputInvalidReason)

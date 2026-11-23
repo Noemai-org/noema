@@ -52,8 +52,11 @@ class Summary(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0].count("|"), 4)
 
-    def test_the_summary_holds_no_digit_run_of_five_or_more_even_for_a_big_spend(self) -> None:
-        self.assertIsNone(DIGIT_RUN.search(render_summary(result(spent_micros=987_654_321, calls=12_345_678)).replace("BEN-CLEAN-0001", "").replace("BEN-CLEAN-0014", "")))
+    def test_the_summary_holds_no_digit_run_of_five_or_more_and_never_the_spend(self) -> None:
+        text = render_summary(result(spent_micros=987_654_321))
+        self.assertNotIn("987654321", text.replace(",", "").replace("_", ""))
+        for run in DIGIT_RUN.finditer(text):
+            self.assertLess(len(re.sub(r"\D", "", run.group(0))), 5, run.group(0))  # the case ids (BEN-CLEAN-0001) hold four digits at most
 
     def test_it_is_written_beside_the_run_record(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

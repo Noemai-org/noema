@@ -13,7 +13,7 @@ model. v0 reads digits only ("20k", "20,000", "20 thousand naira"); numeral word
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, localcontext
@@ -142,8 +142,67 @@ class Lexicon:
                    _amount_pattern(currency_words, tuple(multipliers)))
 
 
+_MERGE_SECTIONS = (("multipliers", "word"), ("times", "phrase"), ("directions", "word"))
+
+
+def merge_lexicons(parts: Sequence[Lexicon]) -> Lexicon:
+    """One lexicon from the lexicons of one pack (UND-16, run #6; A532). They must agree on the offset and the currency; a word or phrase that two of them define must mean the same in both. Anything else is
+    refused, never resolved by order: a language is never mapped onto another by a merge. Each language keeps its own file; the entry for a Pidgin phrase is in the Pidgin file."""
+    if not parts:
+        raise ConfigError("lexicon: there is nothing to merge")
+    first = parts[0]
+    for other in parts[1:]:
+        if (other.utc_offset_minutes, other.currency_code, other.minor_per_major) != (first.utc_offset_minutes, first.currency_code, first.minor_per_major):
+            raise ConfigError(f"lexicon {other.lexicon_id}: the offset and the currency are not those of {first.lexicon_id}")
+    multipliers: dict[str, int] = {}
+    times: dict[str, RelativeTime] = {}
+    directions: dict[str, str] = {}
+    for part in parts:
+        for target, source, what in ((multipliers, part.multipliers, "word"), (times, part.times, "phrase"), (directions, part.directions, "word")):
+            for key, value in source.items():
+                if target.setdefault(key, value) != value:  # type: ignore[arg-type]
+                    raise ConfigError(f"lexicon {part.lexicon_id}: a {what} is defined with another meaning in another lexicon")
+    words = tuple(sorted({w for part in parts for w in part.currency_words}, key=lambda w: (-len(w), w)))
+    ids = [part.lexicon_id for part in parts]
+    digest = hashlib.sha256("\n".join(part.digest for part in parts).encode()).hexdigest()
+    return Lexicon("+".join(ids), "+".join(part.version for part in parts), first.utc_offset_minutes, first.currency_code, first.minor_per_major, words, multipliers, times, directions, digest,
+                   _amount_pattern(words, tuple(multipliers)))
+
+
+_REF = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*")
+
+
+def load_pack_lexicons(pack: Mapping[str, Any], directory: Path) -> Lexicon:
+    """The lexicon of a pack: the files its nodes name in `lexicon_refs`, in the order they are first named, merged (UND-16, run #6; A532).
+
+    A ref is a plain id, never a path: the file is `<directory>/<ref>.json` and its own `lexicon_id` must be the ref. A ref with no file is skipped, as the refs for the languages with no lexicon yet always were
+    (`yo`, `ha`, `ig` at this point); a pack none of whose refs has a file is refused. A file the pack does not name is never read."""
+    refs: list[str] = []
+    for node in require_mapping(pack, "pack").get("intent_nodes") or []:
+        for ref in require_mapping(node, "pack.intent_nodes[]").get("lexicon_refs") or []:
+            if not isinstance(ref, str) or _REF.fullmatch(ref) is None:
+                raise ConfigError("pack.lexicon_refs: expected plain lexicon ids")
+            if ref not in refs:
+                refs.append(ref)
+    parts: list[Lexicon] = []
+    for ref in refs:
+        path = directory / f"{ref}.json"
+        if not path.is_file():
+            continue
+        part = Lexicon.from_file(path)
+        if part.lexicon_id != ref:
+            raise ConfigError(f"lexicon {ref}: the file holds another lexicon id")
+        parts.append(part)
+    if not parts:
+        raise ConfigError("pack: none of its lexicon_refs has a lexicon file")
+    return merge_lexicons(parts)
+
+
 def _items(src: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
-    value = src.get(key)
+    """The entries of one section. A section may be absent (a lexicon of one language adds only what that language needs, UND-16); a section that is there is a non-empty list."""
+    if key not in src:
+        return []
+    value = src[key]
     if not isinstance(value, list) or not value:
         raise ConfigError(f"lexicon.{key}: expected a non-empty list")
     return [require_mapping(v, f"lexicon.{key}[]") for v in value]
@@ -221,4 +280,4 @@ class Normaliser:
         return proposal.mentions["counterparty"].surface_form.strip() if said else None
 
 
-__all__ = ("Lexicon", "Normaliser", "RelativeTime", "MARK")
+__all__ = ("Lexicon", "Normaliser", "RelativeTime", "MARK", "load_pack_lexicons", "merge_lexicons")
