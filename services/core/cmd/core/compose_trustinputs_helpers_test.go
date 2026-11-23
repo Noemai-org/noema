@@ -18,8 +18,11 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
+	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpack"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/db"
 	"github.com/Noemai-org/noema/services/core/platform/packload"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile/mapping"
@@ -158,3 +161,20 @@ func tiDeadline(t *testing.T) context.Context {
 
 // tiScreen is the injection screen of the payload reader: a recording screen that finds nothing (the same test double the payload reader's tests use).
 func tiScreen() ScreenDeps { return spDeps(&spScreen{}) }
+
+// tiDBPools is one real trust_rw login per tenant over a migrated database (CI only: it needs pgsodium).
+func tiDBPools(t *testing.T, tenants ...string) map[string]*pgxpool.Pool {
+	t.Helper()
+	admin, dsn := testpg.NewDatabase(t)
+	if _, err := db.Migrate(tiDeadline(t), admin, migrations.FS); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]*pgxpool.Pool{}
+	for _, tenant := range tenants {
+		if _, err := admin.Exec(tiDeadline(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic bank')`, tenant); err != nil {
+			t.Fatal(err)
+		}
+		out[tenant] = testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant)
+	}
+	return out
+}
