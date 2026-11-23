@@ -238,16 +238,16 @@ def _run_cases(run: Path) -> set[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="benchmark.runner.evidence")
+    p = argparse.ArgumentParser(prog="benchmark.runner.evidence", allow_abbrev=False)
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("fault-plans", "probes"):
-        s = sub.add_parser(name)
+        s = sub.add_parser(name, allow_abbrev=False)
         s.add_argument("--suite", type=Path, required=True)
         s.add_argument("--run", type=Path, required=True, help="the runner's output directory (results/ and correlations.json)")
         s.add_argument("--out", type=Path, required=True)
         s.add_argument("--sha", help="the dispatch commit SHA (40 lowercase hexadecimal); stamped into the evidence file; with --run-id, both or neither")
         s.add_argument("--run-id", help="the workflow run id (digits); stamped into the evidence file")
-    access = sub.add_parser("record-access")
+    access = sub.add_parser("record-access", allow_abbrev=False)
     access.add_argument("--probes", type=Path, required=True, help="negative-probes.json written by the probes command")
     access.add_argument("--log", type=Path, required=True, help="the core's log (JSON lines), collected after the run")
     access.add_argument("--tenant-id", required=True)

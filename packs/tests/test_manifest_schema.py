@@ -64,7 +64,14 @@ class ManifestSchema(unittest.TestCase):
 
     def test_kinds_are_a_closed_list(self):
         kinds = schema()["properties"]["files"]["items"]["properties"]["kind"]["enum"]
-        self.assertEqual(sorted(kinds), ["evidence_mapping", "pack", "recon_rules"])
+        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "pack", "recon_rules"])  # A510: the action graphs are pinned too
+
+    def test_the_action_graph_kind_may_repeat_and_an_old_manifest_without_it_still_validates(self):
+        doc = good()
+        self.assertEqual(errors(doc), [])  # a manifest of the three earlier kinds is still valid: the change is additive
+        for name in ("g_one", "g_two", "g_three"):
+            doc["files"].append({"kind": "action_graph", "path": f"fintech/graph/{name}.json", "sha256": HEX})
+        self.assertEqual(errors(doc), [])
 
     def test_each_bad_manifest_is_refused(self):
         def put(path, value):

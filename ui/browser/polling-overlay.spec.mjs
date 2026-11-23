@@ -4,11 +4,12 @@ import { networkInterfaces } from 'node:os';
 import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { scanVisibleText } from '../build/js/privacy.js';
+import { assertAccessible } from './flow-a11y.mjs';
 
 // Local contract server, not the core. All inputs are synthetic.
 const test = base.extend({ page: async ({ page }, use) => {
   try { await use(page); } finally {
-    const fields = await page.evaluate(() => {
+    try { const fields = await page.evaluate(() => {
       const root = document.body;
       const values = [root.textContent ?? ''];
       for (const element of [root, ...root.querySelectorAll('*')]) {
@@ -17,7 +18,8 @@ const test = base.extend({ page: async ({ page }, use) => {
       }
       return values;
     });
-    expect(fields.flatMap(scanVisibleText)).toEqual([]);
+    expect(fields.flatMap(scanVisibleText)).toEqual([]); }
+    finally { await assertAccessible(page); }
   }
 } });
 

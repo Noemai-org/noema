@@ -4,13 +4,14 @@ import { networkInterfaces } from "node:os";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { scanVisibleText } from "../build/js/privacy.js";
+import { assertAccessible } from "./flow-a11y.mjs";
 
 // Synthetic local static server; not the core. No unlisted paths are served.
 const files = new Map([["/", ["dist/index.html", "text/html"]], ["/tokens.css", ["dist/tokens.css", "text/css"]], ["/app.js", ["dist/app.js", "text/javascript"]]]);
 const test = base.extend({
   page: async ({ page }, use) => {
     try { await use(page); } finally {
-      const fields = await page.evaluate(() => {
+      try { const fields = await page.evaluate(() => {
         const root = document.body;
         const values = [root.textContent ?? ""];
         for (const element of [root, ...root.querySelectorAll("*")]) {
@@ -19,7 +20,8 @@ const test = base.extend({
         }
         return values;
       });
-      expect(fields.flatMap(scanVisibleText)).toEqual([]);
+      expect(fields.flatMap(scanVisibleText)).toEqual([]); }
+      finally { await assertAccessible(page); }
     }
   },
 });

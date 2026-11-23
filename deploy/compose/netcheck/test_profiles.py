@@ -67,6 +67,31 @@ class LiveFindings(unittest.TestCase):
         declared = {"core", "model", "ui", "postgres", "temporal", "trust-dsn-init-2"}
         self.assertEqual(matrix.live_findings("bench", declared, declared - {"trust-dsn-init-2"}), ["bench: trust-dsn-init-2 should be running and is not"])
 
+    # A477 (interim): the bench settings of the gateway, the worker and recovery, with the ordering constraints the loaders enforce (the activity timeout and the recovery idle time must exceed the run
+    # timeout, or a live run could be picked up twice). The table is checked by number against the resolved configuration, and in itself.
+    def test_the_a477_values_are_in_the_table_and_obey_their_ordering(self) -> None:
+        want = {'NOEMA_INPUT_DEDUP_WINDOW': '5m', 'NOEMA_INPUT_RECORD_TIMEOUT': '5s', 'NOEMA_INVESTIGATION_QUEUE': '64', 'NOEMA_INVESTIGATION_WORKERS': '1', 'NOEMA_INVESTIGATION_RUN_TIMEOUT_MS': '180000', 'NOEMA_INVESTIGATION_START_TIMEOUT_MS': '30000', 'NOEMA_EDGE_KEY_MAX_ACTIVE': '2', 'NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS': '240000', 'NOEMA_TEMPORAL_SHUTDOWN_DRAIN_MS': '30000', 'NOEMA_STM_RECOVERY_IDLE_MS': '240000', 'NOEMA_STM_RECOVERY_BATCH_SIZE': '50'}
+        for name, value in want.items():
+            self.assertEqual(profiles.BENCH_CORE_SETTINGS.get(name), value, name)
+        self.assertEqual(profiles.settings_order_problems(profiles.BENCH_CORE_SETTINGS), [])
+
+    # A506 (interim): the rows the final composition reads, each checked by value; the grant lifetime must not exceed the record lifetime (EL's loader refuses it if it does).
+    def test_the_a506_rows_are_in_the_table_and_the_lifetimes_are_ordered(self) -> None:
+        want = {'NOEMA_RECORD_READ_DSN_DIR': '/run/record-read-dsn', 'NOEMA_ORCHESTRATOR_DSN_DIR': '/run/orchestrator-dsn', 'NOEMA_EDGE_DSN_DIR': '/run/edge-dsn', 'NOEMA_ORCHESTRATOR_KEY_DIR': '/run/orchestrator-keys', 'NOEMA_EDGE_KEY_DIR': '/run/edge-keys', 'NOEMA_INPUT_HASH_KEY_FILE': '/run/input-hash/key', 'NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE': '2', 'NOEMA_TEMPORAL_NAMESPACE': 'default', 'NOEMA_TEMPORAL_TASK_QUEUE': 'noema-investigations', 'NOEMA_TEMPORAL_TLS_CA_FILE': '/run/tls/ca.crt', 'NOEMA_TRUST_ESCALATION_GRAPH': 'fin.graph.escalate', 'NOEMA_TRUST_GRANT_LIFETIME_MS': '600000', 'NOEMA_TRUST_RECORD_LIFETIME_MS': '600000', 'NOEMA_TRUST_TX_TIMEOUT_MS': '10000'}
+        for name, value in want.items():
+            self.assertEqual(profiles.BENCH_CORE_SETTINGS.get(name), value, name)
+        self.assertEqual(profiles.settings_order_problems(profiles.BENCH_CORE_SETTINGS), [])
+        for grant, record in (("600001", "600000"), ("x", "600000"), ("600000", "")):
+            bad = dict(profiles.BENCH_CORE_SETTINGS, NOEMA_TRUST_GRANT_LIFETIME_MS=grant, NOEMA_TRUST_RECORD_LIFETIME_MS=record)
+            self.assertTrue(profiles.settings_order_problems(bad), (grant, record))
+
+    def test_a_table_that_breaks_an_ordering_is_found(self) -> None:
+        table = dict(profiles.BENCH_CORE_SETTINGS)
+        for name, value in (("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS", "180000"), ("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS", "100000"), ("NOEMA_STM_RECOVERY_IDLE_MS", "180000"), ("NOEMA_STM_RECOVERY_IDLE_MS", "1"),
+                             ("NOEMA_INVESTIGATION_RUN_TIMEOUT_MS", "240000"), ("NOEMA_INVESTIGATION_RUN_TIMEOUT_MS", "x")):
+            bad = dict(table, **{name: value})
+            self.assertTrue(profiles.settings_order_problems(bad), (name, value))
+
     def test_the_run_profiles_are_exactly_the_ones_with_a_live_check(self) -> None:
         self.assertEqual(set(matrix.LIVE_PROFILES), {"ci", "bench", "demo"})
         self.assertNotIn("dev", matrix.LIVE_PROFILES)  # dev is the stack every other check runs on
