@@ -8,6 +8,6 @@
 - Tests added (REQ-TRU-004, REQ-PLN-002; INV-03, INV-02): `trust/intake/first_evaluation_runnable_test.go`.
 
 ## Pre-work for the next agent
-- Exact next step: GREEN in `trust/intake/steps_t13_t15.go` (`planRequest`, `validPlan`); the composition (EL) sets `Ports.Runnable` to the `runnable` adapter and builds `plangraphs.PlanContexts`.
+- Exact next step: GREEN in `trust/intake/gates_t13_t15.go` (`planRequest`, `validPlan`); the composition (EL) sets `Ports.Runnable` to the `runnable` adapter and builds `plangraphs.PlanContexts`.
 - Files to read first: `trust/intake/ports_continuation.go`, `orchestrator/portadapters/plangraphs/types.go`.
 - Do not touch: `packs/fintech/graph/*.json` (A510).
