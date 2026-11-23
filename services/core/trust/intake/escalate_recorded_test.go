@@ -107,3 +107,43 @@ func TestA534AContinuationPassesItsDispositionIntoTheRecordRequest(t *testing.T)
 		}
 	}
 }
+
+// Codex and C2 on noema#903 (INV-25, EC-E16): the Record is of the decision that is RETURNED. An ESCALATE that the evaluation does not accept, because the context ended or because the step
+// that returned it may not end the evaluation in ESCALATE, is UNKNOWN to the caller, and nothing is recorded for it: no Record call, hence no row and no event.
+func TestA534NothingIsRecordedForAnEscalateTheEvaluationDoesNotAccept(t *testing.T) {
+	// (1) a step that returns an ESCALATE it may not produce (T5 can only REJECT): the evaluation turns it into UNKNOWN
+	f := newFake13()
+	f.rec = RecordResult{DecisionID: "dec_synth0007"}
+	ev := newEval13(t, f)
+	steps := ev.lateSteps()
+	steps[decide.T5Scope-1] = func(context.Context) decide.StepResult {
+		r, err := ev.resolved()
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		return escalateCore(r, "NO_RUNNABLE_CAPABILITY", passed())
+	}
+	res := ev.run(tctx(t), steps)
+	if res.Decision.Outcome() != decide.Unknown || res.DecisionID != "" || len(f.recReqs) != 0 {
+		t.Errorf("an ESCALATE from T5: %s, ID %q, Record called %d times; want UNKNOWN, no ID and no Record", res.Decision.Outcome(), res.DecisionID, len(f.recReqs))
+	}
+
+	// (2) the context ends while the step runs: Evaluate answers UNKNOWN whatever the step returned
+	f = newFake13()
+	f.rec = RecordResult{DecisionID: "dec_synth0007"}
+	ev = newEval13(t, f)
+	cctx, cancel := context.WithCancel(tctx(t))
+	steps = ev.lateSteps()
+	steps[decide.T12Clocks-1] = func(context.Context) decide.StepResult {
+		r, err := ev.resolved()
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		cancel()
+		return escalateCore(r, "NO_RUNNABLE_CAPABILITY", passed())
+	}
+	res = ev.run(cctx, steps)
+	if res.Decision.Outcome() != decide.Unknown || res.DecisionID != "" || len(f.recReqs) != 0 {
+		t.Errorf("an ESCALATE as the context ends: %s, ID %q, Record called %d times; want UNKNOWN, no ID and no Record", res.Decision.Outcome(), res.DecisionID, len(f.recReqs))
+	}
+}
