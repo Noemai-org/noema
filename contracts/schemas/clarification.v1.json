@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/clarification.v1.json",
   "title": "Clarification request",
-  "description": "PERD REQ-AMB-004. A CLARIFY decision carries this object. Labels are produced from pack templates by core, never by a model, and hold only user-verifiable details (amount, local time, last four digits, a masked display name). No label has more than four consecutive digits. Whether labels can distinguish the options is checked by core (identical displayed details mean ESCALATE). Added by DEC-2026-10-20 D4: an optional mode field, and an attribute field that ATTRIBUTE mode requires. Existing fields are unchanged and every earlier document stays valid.",
+  "description": "PERD REQ-AMB-004. A CLARIFY decision carries this object. Labels are produced from pack templates by core, never by a model, and hold only user-verifiable details (amount, local time, last four digits, a masked display name). No label has more than four consecutive digits. Whether labels can distinguish the options is checked by core (identical displayed details mean ESCALATE). Added by DEC-2026-10-20 D4: an optional mode field, and an attribute field that ATTRIBUTE mode requires. Existing fields are unchanged. Added in place by A275 (before any consumer): none_option_id, required, so an earlier document without it no longer validates.",
   "type": "object",
   "properties": {
     "clarification_id": {
@@ -30,7 +30,7 @@
         "properties": {
           "option_id": {
             "type": "string",
-            "pattern": "^[a-z0-9_]{1,32}$"
+            "pattern": "^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$"
           },
           "label": {
             "type": "string",
@@ -49,6 +49,11 @@
     "allow_none": {
       "type": "boolean",
       "const": true
+    },
+    "none_option_id": {
+      "description": "A275: the ID of the 'None of these' choice, minted by core, unique per clarification and never equal to an option_id of the same clarification (not expressible in JSON Schema; tools/contracts/validate.py checks it). The UI submits it as option_id (PERD section 39.2) and never invents a sentinel.",
+      "type": "string",
+      "pattern": "^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$"
     },
     "expires_at": {
       "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
@@ -81,6 +86,7 @@
     "question_key",
     "options",
     "allow_none",
+    "none_option_id",
     "expires_at",
     "round"
   ],

@@ -9,10 +9,10 @@ import (
 
 // ReconstructionV3Item is generated from reconstruction.v3.json#$defs/Item.
 type ReconstructionV3Item struct {
-	RecordEventId CommonV1RecordEventId     `json:"record_event_id"`
-	ObjectRef     string                    `json:"object_ref"`
-	Basis         ReconstructionV3ItemBasis `json:"basis"`
-	Facts         ReconstructionV3ItemFacts `json:"facts"`
+	RecordEventId CommonV1RecordEventId                     `json:"record_event_id"`
+	ObjectRef     string                                    `json:"object_ref"`
+	Basis         ReconstructionV3ItemBasis                 `json:"basis"`
+	Facts         map[string]ReconstructionV3ItemFactsValue `json:"facts"`
 }
 
 var ReconstructionV3ItemShape = objectShape{name: "ReconstructionV3Item", props: map[string]bool{"record_event_id": true, "object_ref": true, "basis": true, "facts": true}, required: []string{"record_event_id", "object_ref", "basis", "facts"}, nonNull: map[string]bool{"record_event_id": true, "object_ref": true, "basis": true, "facts": true}, closed: true}
@@ -30,6 +30,15 @@ func (t *ReconstructionV3Item) UnmarshalJSON(b []byte) error {
 	_ = raw
 	*t = ReconstructionV3Item(a)
 	return nil
+}
+
+func (t ReconstructionV3Item) MarshalJSON() ([]byte, error) {
+	type alias ReconstructionV3Item
+	a := alias(t)
+	if a.Facts == nil {
+		a.Facts = map[string]ReconstructionV3ItemFactsValue{}
+	}
+	return json.Marshal(a)
 }
 
 // ReconstructionV3ItemBasis is generated from reconstruction.v3.json#$defs/Item/properties/basis.
@@ -53,62 +62,6 @@ func (e *ReconstructionV3ItemBasis) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	return fmt.Errorf("contracts: ReconstructionV3ItemBasis: %q is not one of its values", s)
-}
-
-// ReconstructionV3ItemFacts is generated from reconstruction.v3.json#$defs/Item/properties/facts.
-// (A272) Only free-text members carry the digit-run pattern: the fact `text` and each item of `reason_codes`. References, `disclosed_refs`, resolved targets, `*_id` facts and minted `<prefix>_<ULID>` IDs are served as w...
-type ReconstructionV3ItemFacts struct {
-	Text        *string                                   `json:"text,omitempty"`
-	ReasonCodes *[]string                                 `json:"reason_codes,omitempty"`
-	Extra       map[string]ReconstructionV3ItemFactsValue `json:"-"`
-}
-
-var ReconstructionV3ItemFactsShape = objectShape{name: "ReconstructionV3ItemFacts", props: map[string]bool{"text": true, "reason_codes": true}, required: []string{}, nonNull: map[string]bool{"text": true, "reason_codes": true}, closed: false}
-
-func (t *ReconstructionV3ItemFacts) UnmarshalJSON(b []byte) error {
-	raw, err := ReconstructionV3ItemFactsShape.check(b)
-	if err != nil {
-		return err
-	}
-	type alias ReconstructionV3ItemFacts
-	var a alias
-	if err := json.Unmarshal(b, &a); err != nil {
-		return fmt.Errorf("contracts: ReconstructionV3ItemFacts: %w", err)
-	}
-	a.Extra = map[string]ReconstructionV3ItemFactsValue{}
-	for k, v := range raw {
-		if ReconstructionV3ItemFactsShape.props[k] {
-			continue
-		}
-		var x ReconstructionV3ItemFactsValue
-		if err := json.Unmarshal(v, &x); err != nil {
-			return fmt.Errorf("contracts: ReconstructionV3ItemFacts.%s: %w", k, err)
-		}
-		a.Extra[k] = x
-	}
-	*t = ReconstructionV3ItemFacts(a)
-	return nil
-}
-
-func (t ReconstructionV3ItemFacts) MarshalJSON() ([]byte, error) {
-	type alias ReconstructionV3ItemFacts
-	a := alias(t)
-	b, err := json.Marshal(a)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-	for k, v := range t.Extra {
-		x, err := json.Marshal(v)
-		if err != nil {
-			return nil, err
-		}
-		m[k] = x
-	}
-	return json.Marshal(m)
 }
 
 // ReconstructionV3ItemFactsValue is generated from reconstruction.v3.json#$defs/Item/properties/facts/additionalProperties.

@@ -32,7 +32,7 @@ def runner_command(suite: Path, out: Path, run_id: str, only_file: Path, passthr
 
 def scoring_command(subset: Path, results: Path, run_id: str, out: Path) -> list[str]:
     return [sys.executable, "-m", "benchmark.scoring", "--cases", str(subset / "cases"), "--oracles", str(subset / "oracles"), "--results", str(results),
-            "--pack", str(PACK), "--manifest", str(subset / "manifest.json"), "--run-id", run_id, "--out", str(out)]
+            "--pack", str(PACK), "--manifest", str(subset / "manifest.json"), "--run-id", run_id, "--out", str(out), "--story-table"]
 
 
 def _refused(argv: list[str]) -> list[str]:

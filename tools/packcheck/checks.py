@@ -1,12 +1,15 @@
 """packcheck: every pack check, with one code path for the command line, the tests and CI (SoT 15.4, REQ-CAP-001, REQ-AG-001, REQ-AG-002).
 
-Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, reasons, templates, conformance.
+Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, roles, reasons, templates, conformance.
 Not checked here: 'a capability has no benchmark cases' (AGENT-06): no benchmark case set exists yet.
 """
 from __future__ import annotations
 
+import fnmatch
+import hashlib
 import importlib.util
 import json
+import os
 import re
 import sys
 from fractions import Fraction
@@ -213,6 +216,95 @@ def check_predicates(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     return out
 
 
+def slot_type(slot: dict) -> predicate.Type:
+    """The predicate type of an intent node's slot: a Reference with a closed vocabulary is an Enum of it, any other slot is opaque (compared only with null or, for a Reference, a string)."""
+    if slot["type"] == "Reference":
+        return ("Enum", frozenset(slot["vocabulary"])) if slot.get("vocabulary") else predicate.REF
+    return (slot["type"],)
+
+
+def check_write_when(pack: dict) -> list[Problem]:
+    """A364 (interim, relayed): an intent node's `write_when` is a predicate over the node's own slots (an absent slot is null): it parses, is Boolean and names only those slots."""
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        if "write_when" not in n:
+            continue
+        where = f"{n['node_id']}.write_when"
+        try:
+            t = predicate.check(n["write_when"], predicate.Scope({}, {s["name"]: slot_type(s) for s in n["slots"]}))
+        except predicate.PredicateError as exc:
+            out.append(("predicate", f"{where}: {exc}"))
+            continue
+        if t != predicate.BOOL:
+            out.append(("predicate", f"{where}: must be Boolean, found {t[0]}"))
+    return out
+
+
+def check_subject_slot(pack: dict) -> list[Problem]:
+    """A520 (interim; DEBT-54): an intent node's optional `subject_slot` names a Resource slot of the SAME node, the slot whose resolved reference is the subject of the intent (the
+    core reads the name from the pack, INV-14). A node with no such slot declares none."""
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        if "subject_slot" not in n:
+            continue
+        name = n["subject_slot"]
+        slot = next((s for s in n["slots"] if s["name"] == name), None)
+        if slot is None:
+            out.append(("subject", f"{n['node_id']}: subject_slot {name!r} is not a slot of the node"))
+        elif slot["type"] != "Resource":
+            out.append(("subject", f"{n['node_id']}: subject_slot {name!r} must be a Resource slot, found {slot['type']}"))
+    return out
+
+
+def check_graph_params(pack: dict, graphs: dict[str, dict], pack_dir: Path) -> list[Problem]:
+    """A369 (interim, relayed): a node that declares `params` declares exactly the inputs of its capability (every required input covered, no extra), once each; its slots and map keys
+    are the intent nodes' own, its map values are `case_reasons`, its facts are declared predicate variables and its policy params are carried by a PERMIT rule of the capability (and
+    an owner_queue is in the routing allowlist). A node without `params` declares none (absent means no params)."""
+    out: list[Problem] = []
+    out += [("reasons", f"case_reasons: duplicate code {c!r}") for c in sorted({r["code"] for r in pack.get("case_reasons", [])}) if [x["code"] for x in pack["case_reasons"]].count(c) > 1]
+    codes = {r["code"] for r in pack.get("case_reasons", [])}
+    slots = {s["name"]: s for n in pack["intent_nodes"] for s in n["slots"]}
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    allow = set(pack.get("routing_allowlist", []))
+    for g in graphs.values():
+        for n in g["nodes"]:
+            if "params" not in n:
+                continue
+            where = f"{g['graph_id']}.{n['node_id']}"
+            names = [p["name"] for p in n["params"]]
+            out += [("graph", f"{where}: declares param {d!r} more than once") for d in sorted({x for x in names if names.count(x) > 1})]
+            cap = caps.get(n["capability_id"])
+            if cap is None:
+                continue
+            path = pack_dir / cap["input_schema"]
+            if not path.is_file():
+                out.append(("graph", f"{where}: the input schema {cap['input_schema']} of {cap['capability_id']} does not exist"))
+                continue
+            schema = validate.load_strict(path)
+            out += [("graph", f"{where}: required input {r!r} of {cap['capability_id']} has no param") for r in schema.get("required", []) if r not in names]
+            out += [("graph", f"{where}: param {x!r} is not an input of {cap['capability_id']}") for x in sorted(set(names)) if x not in schema.get("properties", {})]
+            for p in n["params"]:
+                if "slot" in p and p["slot"] not in slots:
+                    out.append(("graph", f"{where}: param {p['name']!r}: {p['slot']!r} is not a slot of any intent node"))
+                if "map" in p:
+                    m = p["map"]
+                    if m["from"] not in slots:
+                        out.append(("graph", f"{where}: param {p['name']!r}: {m['from']!r} is not a slot of any intent node"))
+                    else:
+                        vocab = set(slots[m["from"]].get("vocabulary", []))
+                        out += [("graph", f"{where}: param {p['name']!r}: map key {k!r} is not in the vocabulary of slot {m['from']!r}") for k in m["values"] if k not in vocab]
+                    out += [("graph", f"{where}: param {p['name']!r}: map value {v!r} is not in case_reasons") for v in m["values"].values() if v not in codes]
+                if "fact" in p and p["fact"] not in pack.get("predicate_variables", {}):
+                    out.append(("graph", f"{where}: param {p['name']!r}: fact {p['fact']!r} is not a declared predicate variable"))
+                if "policy_param" in p:
+                    carriers = [r for r in pack["policy"]["rules"] if r["effect"] == "PERMIT" and cap["capability_id"] in r["applies_to"] and p["policy_param"] in r.get("params", {})]
+                    if not carriers:
+                        out.append(("graph", f"{where}: param {p['name']!r}: no PERMIT rule of {cap['capability_id']} carries policy param {p['policy_param']!r}"))
+                    if p["policy_param"] == "owner_queue":
+                        out += [("graph", f"{where}: policy owner_queue {r['params']['owner_queue']!r} of {r['rule_id']} is not in routing_allowlist") for r in carriers if r["params"]["owner_queue"] not in allow]
+    return out
+
+
 def check_graphs(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     out: list[Problem] = []
     caps = {c["capability_id"]: c for c in pack["capabilities"]}
@@ -264,6 +356,14 @@ def check_graphs(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     return out
 
 
+def check_graph_permits(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """Every capability a graph node names has a PERMIT rule in the policy (REQ-TRU-005; PERD 23.3 T11). Trust asks the policy for each capability of a plan, and a
+    capability with no PERMIT ends NO_PERMITTING_RULE, so such a node could never be planned. Whether a rule's condition holds is decided at run time, not here."""
+    permitted = {c for r in pack["policy"]["rules"] if r["effect"] == "PERMIT" for c in r["applies_to"]}
+    return [("graph", f"{g['graph_id']}.{n['node_id']}: capability {n['capability_id']} has no PERMIT rule in the policy")
+            for g in graphs.values() for n in g["nodes"] if n["capability_id"] not in permitted]
+
+
 def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
     """A graph, never a list of endpoints (PERD v1.19 REQ-AG-001, DEC-2026-10-31 D9; roots and connectedness committed in
     DEC-2026-11-03-action-graph-shape D1 to D4). Edges naming unknown nodes are reported by check_graphs and ignored here."""
@@ -300,6 +400,20 @@ def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
     return out
 
 
+A1_ROLES = frozenset({"customer", "ops", "approver", "audit"})
+
+
+def check_approver_roles(pack: dict) -> list[Problem]:
+    """A377 (interim, relayed): ROLE:<role> names one of the four A1 roles. Read from a policy rule's approver_requirement and a trust profile's approvals."""
+    out: list[Problem] = []
+    found = [(f"{r['rule_id']}.approver_requirement", (r.get("params") or {}).get("approver_requirement")) for r in pack["policy"]["rules"]]
+    found += [(f"{t['profile_id']}.approvals", a) for t in pack["trust_profiles"] for a in t.get("approvals", [])]
+    for where, value in found:
+        if isinstance(value, str) and value.startswith("ROLE:") and value[len("ROLE:"):] not in A1_ROLES:
+            out.append(("roles", f"{where}: {value!r} names a role outside {sorted(A1_ROLES)}"))
+    return out
+
+
 def check_routing(pack: dict) -> list[Problem]:
     """REQ-AG-002: routing targets come only from the pack's allowlist; free-form destinations are not representable."""
     out: list[Problem] = []
@@ -314,6 +428,24 @@ def check_routing(pack: dict) -> list[Problem]:
                     out.append(("routing", f"{r['rule_id']}: {key} is a free-form destination"))
                 elif value not in allow:
                     out.append(("routing", f"{r['rule_id']}: {key}={value!r} is not in the routing allowlist"))
+    out += check_handoff_routes(pack, allow)
+    return out
+
+
+def check_handoff_routes(pack: dict, allow: set[str]) -> list[Problem]:
+    """A531 (interim, relayed, not yet committed): a handoff route names a queue of the pack's own allowlist, a reason code at most once, and only intent nodes the pack declares.
+    That the reason code is a core code is the schema's (the CoreReasonCode enum, check `schema`), so it is not checked twice."""
+    out: list[Problem] = []
+    nodes = {n["node_id"] for n in pack["intent_nodes"]}
+    seen: set[str] = set()
+    for route in pack.get("handoff_routes", []):
+        code, queue = route["reason_code"], route["owner_queue"]
+        if code in seen:
+            out.append(("routing", f"handoff route {code!r} is declared twice"))
+        seen.add(code)
+        if queue not in allow:
+            out.append(("routing", f"handoff route {code!r}: queue {queue!r} is not in the routing allowlist"))
+        out += [("routing", f"handoff route {code!r}: intent node {n!r} is not declared by the pack") for n in route.get("intent_nodes", []) if n not in nodes]
     return out
 
 
@@ -368,6 +500,11 @@ def required_template_keys(pack: dict, pack_dir: Path) -> list[str]:
     return [f"{o['outcome_id']}/{c}" for o in pack["outcome_definitions"] for c in classes]
 
 
+# The parts of the customer's answer besides its summary (A271): a template for a part is keyed <outcome_id>/<classification>/<part>. The closed list is the Go loader's
+# (services/core/explanation Parts); a test in that package compares the two. A part is optional for now: coverage of every part is required when the Founder-approved wording lands.
+TEMPLATE_PARTS = ("found", "not_known_what", "not_known_why", "advice_do", "advice_do_not", "next_what", "next_when")
+
+
 def check_templates(pack: dict, pack_dir: Path) -> list[Problem]:
     """REQ-EXP-002: one JSON file per locale, <pack>/templates/<locale>.json, an object keyed <outcome_id>/<classification> whose values are
     non-empty text. A missing file, a missing key, an empty text, a key that is not required and a file that is not JSON each fail, and each
@@ -390,9 +527,10 @@ def check_templates(pack: dict, pack_dir: Path) -> list[Problem]:
             continue
         for key in sorted(required - doc.keys()):
             out.append(("templates", f"{loc}: no template for {key}"))
-        for key in sorted(doc.keys() - required):
-            out.append(("templates", f"{loc}: template key {key} is not an outcome/classification of this pack"))
-        for key in sorted(k for k in doc.keys() & required if not isinstance(doc[k], str) or not doc[k].strip()):
+        allowed = required | {f"{k}/{p}" for k in required for p in TEMPLATE_PARTS}
+        for key in sorted(doc.keys() - allowed):
+            out.append(("templates", f"{loc}: template key {key} is not an outcome/classification (or one of its parts) of this pack"))
+        for key in sorted(k for k in doc.keys() & allowed if not isinstance(doc[k], str) or not doc[k].strip()):
             out.append(("templates", f"{loc}: the template for {key} is empty"))
     return out
 
@@ -409,6 +547,178 @@ def check_conformance(pack: dict) -> list[Problem]:
     for c in pack["capabilities"]:
         if not c["prohibited"] and c["risk_class"] != "R0_read":
             out.append(("conformance", f"{c['capability_id']}: a conformance pack executes no write capability"))
+    return out
+
+
+MANIFEST_SCHEMA = ROOT / "packs/schemas/manifest.v1.json"
+# Where each kind of file the manifest lists lives, relative to the pack directory: (folder, glob). A kind is every file the glob finds under the
+# folder (recursively), so a second mapping or rule set cannot sit beside the pinned one unlisted. Only a kind with an entry in the manifest is
+# checked for unlisted files; the manifest must list exactly one file of each of these.
+MANIFEST_KINDS = {
+    "pack": ("", "fintech_v*.json"),
+    "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
+    "recon_rules": ("fintech/recon_rules", "*.json"),
+    "action_graph": ("fintech/graph", "*.json"),  # A510
+}
+# The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
+SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
+WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
+
+
+def _shown(rel: str) -> str:
+    return rel if rel.isprintable() else repr(rel)
+
+
+def _manifest_path_problem(rel: str) -> str | None:
+    """Why a manifest path is unsafe, or None. Independent of the schema: this is the rule that keeps a read inside the pack directory."""
+    if rel.startswith("/") or rel.startswith("\\") or WINDOWS_DRIVE.match(rel) or os.path.isabs(rel):
+        return "escapes the pack directory (absolute path)"
+    if ".." in rel.split("/") or ".." in rel.split("\\"):
+        return "escapes the pack directory ('..' component)"
+    parts = rel.split("/")
+    if rel == "" or "\\" in rel or "\x00" in rel or "\n" in rel or "~" in rel[:1] or any(p in ("", ".") for p in parts):
+        return "is not a plain relative path"
+    return None
+
+
+def _symlink_in(root: Path, rel: str) -> str | None:
+    """The first component of root/rel that is a symlink (the root itself is the caller's mount and is not examined)."""
+    cur = root
+    for part in rel.split("/"):
+        cur = cur / part
+        if cur.is_symlink():
+            return str(cur.relative_to(root))
+    return None
+
+
+def _manifest_id(doc: dict, id_key: str) -> str | None:
+    value, version = doc.get(id_key), doc.get("version")
+    if not isinstance(value, str) or isinstance(version, bool) or not isinstance(version, int):
+        return None
+    return f"{value}@{version}"
+
+
+def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Problem]:
+    """A510: the action graphs the manifest pins are exactly the ones the verified pack file names in `action_graph_files`, so no graph is served unpinned and none is pinned for nothing."""
+    if pack_file is None:
+        return []
+    try:
+        body = json.loads(pack_file.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return [("manifest", "the pack file is not valid JSON, so the graphs it names cannot be read")]
+    named = body.get("action_graph_files") if isinstance(body, dict) else None
+    if named is None:
+        named = []
+    if not isinstance(named, list) or not all(isinstance(n, str) for n in named):
+        return [("manifest", "the pack file's action_graph_files is not a list of paths")]
+    out: list[Problem] = []
+    if len(set(named)) != len(named):
+        out.append(("manifest", "the pack file names an action graph twice"))
+    pinned_paths = {f["path"] for f in pinned}
+    for rel in sorted(set(named) - pinned_paths):
+        out.append(("manifest", f"{_shown(rel)} is an action graph the pack names and the manifest does not pin"))
+    for rel in sorted(pinned_paths - set(named)):
+        out.append(("manifest", f"{_shown(rel)} is pinned as an action graph and the pack does not name it"))
+    return out
+
+
+def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
+    """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
+    evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
+    an id the manifest names is not the id the file carries, or a path escapes the pack directory (`..`, absolute, a symlink). `root` is the pack
+    directory (`packs/`); paths are relative to it. Never reads a path that failed the escape rules."""
+    try:
+        doc = validate.load_strict(manifest_path)
+    except ValueError as exc:
+        return [("manifest", f"{manifest_path.name} is not valid JSON: {exc}")]
+    # The escape rules run first and name the path; the schema also refuses these paths, so its duplicate complaint about the same path is dropped.
+    out: list[Problem] = []
+    named: set[tuple[str, ...]] = set()
+    raw = doc.get("files") if isinstance(doc, dict) else None
+    for i, f in enumerate(raw if isinstance(raw, list) else []):
+        why = _manifest_path_problem(f["path"]) if isinstance(f, dict) and isinstance(f.get("path"), str) else None
+        if why:
+            out.append(("manifest", f"{_shown(f['path'])} {why}"))
+            named.add(("files", str(i), "path"))
+    errs = sorted(validate.StrictValidator(validate.load_strict(MANIFEST_SCHEMA)).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
+    errs = [e for e in errs if tuple(map(str, e.absolute_path)) not in named]
+    if errs or out:
+        return out + [("manifest", f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}") for e in errs]
+    files = doc["files"]
+    by_kind: dict[str, list[dict]] = {k: [f for f in files if f["kind"] == k] for k in MANIFEST_KINDS}
+    for kind, entries in by_kind.items():
+        if kind in SINGLE_KINDS and len(entries) != 1:
+            out.append(("manifest", f"the manifest must list exactly one {kind} file, it lists {len(entries)}"))
+    seen: set[str] = set()
+    readable: dict[str, Path] = {}
+    for f in files:
+        rel = f["path"]
+        if rel in seen:
+            out.append(("manifest", f"{rel} is listed twice"))
+            continue
+        seen.add(rel)
+        why = _manifest_path_problem(rel)
+        if why:
+            out.append(("manifest", f"{_shown(rel)} {why}"))
+            continue
+        folder, glob = MANIFEST_KINDS[f["kind"]]
+        parent = Path(rel).parent.as_posix().removeprefix(".")
+        inside = parent == folder or (folder != "" and parent.startswith(folder + "/"))
+        if not inside or not fnmatch.fnmatch(Path(rel).name, glob):
+            out.append(("manifest", f"{rel} is listed as {f['kind']} but a {f['kind']} file lives at {(folder + '/') if folder else ''}{glob}"))
+        link = _symlink_in(root, rel)
+        if link:
+            out.append(("manifest", f"{rel}: {link} is a symlink, which escapes the pack directory by design; a pinned file is a plain file"))
+            continue
+        path = root / rel
+        if not path.exists():
+            out.append(("manifest", f"{rel} does not exist"))
+            continue
+        if not path.is_file():
+            out.append(("manifest", f"{rel} is not a regular file"))
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != f["sha256"]:
+            out.append(("manifest", f"{rel}: sha256 is {digest}, the manifest pins {f['sha256']}"))
+        readable[f["kind"]] = path
+    for kind, (folder, glob) in MANIFEST_KINDS.items():
+        base = root / folder
+        if not base.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+            if folder == "":
+                dirnames[:] = []  # the pack folder itself: only its own files, not the whole tree
+            for name in sorted(dirnames + filenames):
+                full = Path(dirpath) / name
+                if full.is_symlink():
+                    if folder == "" and not fnmatch.fnmatch(name, glob):
+                        continue  # the pack folder holds other things; only a link that looks like a pack file counts
+                elif name in dirnames or not fnmatch.fnmatch(name, glob):
+                    continue
+                rel = full.relative_to(root).as_posix()
+                if rel in seen:
+                    continue
+                suffix = " (a symlink)" if full.is_symlink() else ""
+                out.append(("manifest", f"{rel}{suffix} is a {kind} file and is not listed in the manifest"))
+    out += _graph_set_problems(by_kind["action_graph"], readable.get("pack"))
+    expected = doc["expected"]
+    for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id")):
+        path = readable.get(kind)
+        if path is None:
+            continue
+        rel = path.relative_to(root).as_posix() if not path.is_symlink() else path.name
+        try:
+            body = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            out.append(("manifest", f"{rel} is not valid JSON, so its id cannot be read"))
+            continue
+        carried = _manifest_id(body, id_key) if isinstance(body, dict) else None
+        if carried is None:
+            out.append(("manifest", f"{rel} carries no usable {id_key} and integer version"))
+        elif carried != expected[want_key]:
+            out.append(("manifest", f"{rel} carries {carried}, the manifest expects {want_key} {expected[want_key]}"))
+        if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
+            out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
     return out
 
 
@@ -432,8 +742,8 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs)
-    problems += check_graphs(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
+    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     if templates == "enforce":

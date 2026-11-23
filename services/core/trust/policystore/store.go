@@ -24,12 +24,27 @@ var (
 	ErrNotNewer = errors.New(errPrefix + "the version is not higher than the active one")
 )
 
+// storeError is a failure of the store as callers see it (A347, AGENT-13): a fixed public text, with the cause kept for errors.Is and errors.As and never printed. The tenant's ID, the
+// policy ID and the version, and the driver's message (SQLSTATE text, server and login details) are not in the text. kind, when set, is the sentinel errors.Is finds; cause may be nil.
+type storeError struct {
+	kind  error
+	text  string
+	cause error
+}
+
+func (e *storeError) Error() string { return e.text }
+
+func (e *storeError) Unwrap() error { return e.cause }
+
+func (e *storeError) Is(target error) bool { return e.kind != nil && errors.Is(e.kind, target) }
+
 var (
 	tenantRe      = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
 	correlationRe = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
 	policyIDRe    = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
 	versionRe     = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(\.[1-9][0-9]{0,8})?$`)
-	publisherRe   = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
+	// documentHashRe is the form of a document hash (policy.DocumentHash); the database checks the same form (policy_publication_document_hash_form, migration 0035).
+	documentHashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 // Queryer is the read side: a pool, a connection or a transaction.
@@ -43,7 +58,7 @@ type Request struct {
 	CorrelationID string // the correlation of the administrative action
 	PolicyID      string
 	Version       string // dotted numeric, two or three components: "3.1"
-	PublishedBy   string // the administrator's principal ID, for example adm_synth01
+	DocumentHash  string // sha256: and 64 lower-case hex digits, the hash of the policy document (policy.DocumentHash); required: the database refuses a publication without it
 }
 
 // Store writes publications. The Appender writes the Record event in the caller's transaction.
@@ -51,34 +66,38 @@ type Store struct {
 	Appender *chain.Appender
 }
 
-// Publish records the version and writes POLICY_PUBLISHED, in the caller's transaction (tx). If the version is not higher than the active one the database
+// Publish records the version and writes POLICY_PUBLISHED, in the caller's transaction (tx). The event's actor is admin:<the authenticated database role that published> (A474, INV-12; see below), and its payload names the policy, the version and the document_hash the row stores
+// (ruling on noema#771, INTERIM: relayed by the Founder in session, not yet committed, AGENTS section 2.3); the hash is a typed sha256 value, which the Record's payload guard accepts whole. If the version is not higher than the active one the database
 // refuses it (ErrNotNewer) and nothing is written. The caller commits or rolls back.
 func (s *Store) Publish(ctx context.Context, tx pgx.Tx, r Request) error {
 	if _, ok := ctx.Deadline(); !ok {
 		return errors.New(errPrefix + "the context needs a deadline")
 	}
 	if s == nil || s.Appender == nil {
-		return fmt.Errorf("%s: the store is not configured", ErrRequest)
+		return &storeError{kind: ErrRequest, text: ErrRequest.Error() + ": the store is not configured"}
 	}
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !policyIDRe.MatchString(r.PolicyID), !versionRe.MatchString(r.Version),
-		!publisherRe.MatchString(r.PublishedBy):
-		return fmt.Errorf("%w: a tenant, correlation, policy ID, version or publisher is outside its pattern", ErrRequest)
+		!documentHashRe.MatchString(r.DocumentHash):
+		return fmt.Errorf("%w: a tenant, correlation, policy ID, version or document hash is outside its pattern", ErrRequest)
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by)
-		VALUES ($1, $2, $3, policy_version_key($3), $4)`, r.TenantID, r.PolicyID, r.Version, r.PublishedBy)
+	// The publisher is the authenticated database role (A474, INV-12): the database fills it in, in this statement, from session_user (the login that connected; SET ROLE does not change it,
+	// and it is the identity every guard on this table reads), and RETURNING hands that same value back for the Record event. Go never reads it first and passes it back, and no caller supplies it.
+	var publisher string
+	err := tx.QueryRow(ctx, `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, document_hash)
+		VALUES ($1, $2, $3, policy_version_key($3), session_user::text, $4) RETURNING published_by`, r.TenantID, r.PolicyID, r.Version, r.DocumentHash).Scan(&publisher)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && (pe.Code == "23000" || pe.Code == "23505") {
-		return fmt.Errorf("%w: %s@%s", ErrNotNewer, r.PolicyID, r.Version)
+		return &storeError{kind: ErrNotNewer, text: ErrNotNewer.Error(), cause: err}
 	}
 	if err != nil {
-		return fmt.Errorf("%sinsert publication: %w", errPrefix, err)
+		return &storeError{text: errPrefix + "the publication could not be recorded", cause: err}
 	}
 	ref := "pol_" + underscored(r.PolicyID) + "_" + underscored(r.Version)
-	_, err = s.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: "admin:" + r.PublishedBy,
-		EventType: "POLICY_PUBLISHED", ObjectRef: ref, Payload: map[string]any{"policy_id": r.PolicyID, "version": r.Version, "published_by": r.PublishedBy}})
+	_, err = s.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: "admin:" + publisher,
+		EventType: "POLICY_PUBLISHED", ObjectRef: ref, Payload: map[string]any{"policy_id": r.PolicyID, "version": r.Version, "document_hash": r.DocumentHash}})
 	if err != nil {
-		return fmt.Errorf("%sappend POLICY_PUBLISHED: %w", errPrefix, err)
+		return &storeError{text: errPrefix + "the publication could not be appended to the Record", cause: err}
 	}
 	return nil
 }
@@ -98,7 +117,7 @@ func Active(ctx context.Context, q Queryer, tenantID, policyID string) (string, 
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("%sread active version: %w", errPrefix, err)
+		return "", &storeError{text: errPrefix + "the active version could not be read", cause: err}
 	}
 	return policyID + "@" + v, nil
 }

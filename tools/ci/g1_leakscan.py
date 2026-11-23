@@ -2,7 +2,7 @@
 """The G1 leak scan with a planted canary (Security Reviewer's criterion 8 on noema#436; A154, A184).
 
 A scan that finds nothing must not be read as clean: it may be blind. So this plants one canary where the scanner must find it, and only then trusts the scan of the artifacts:
-  1. a fresh canary (`CANARY-` and 24 hex characters) is made and written to a canary file and to a planted file, both under a work directory that is never one of the scanned paths;
+  1. the pinned canary (`CANARY-` and a fixed synthetic tail, A354) is used and written to a canary file and to a planted file, both under a work directory that is never one of the scanned paths;
   2. the probe: leakscan over the planted files must FAIL, and must report EACH KIND that was planted: the canary, a ten-digit account number, a Luhn-valid card number, a secret-shaped
      value (`api_key=...`), a JWT-shaped value and a bearer token (Security Reviewer's condition on noema#591: a canary alone proves the scanner runs, not that its rules work). A kind that
      is not reported means a rule is broken, and the result is NOT RUN (exit 3), never a pass. The probe uses the same scanner, flags and allow file as the real scan;
@@ -10,7 +10,7 @@ A scan that finds nothing must not be read as clean: it may be blind. So this pl
      nowhere in the artifacts. A scan that looked at nothing (leakscan exit 2) is NOT RUN as well.
 It never prints a found value (leakscan prints only file, line, kind, length and a fingerprint) and never prints the canary. The criterion has no exceptions beyond the allow file, which lets a line through the digit-run rule only (never secrets or the canary); the workflow passes tools/ci/g1_leakscan.allow, which names three integer fields.
 
-Usage: g1_leakscan.py [--scanner PATH] [--workdir DIR] [--allow FILE] PATH [PATH ...]
+Usage: g1_leakscan.py [--scanner PATH] [--workdir DIR] [--allow FILE] [--inventory FILE --stamp 'SHA RUN' [--root DIR]] PATH [PATH ...]
 Exit: 0 clean (and the scanner proved itself), 1 a leak was found in the artifacts, 2 usage error, 3 NOT RUN (the scanner is blind or looked at nothing)."""
 import argparse
 import re
@@ -22,12 +22,16 @@ import tempfile
 from pathlib import Path
 
 
+# The planted canary: one fixed SYNTHETIC value (A354), built from split literals so that this file is not itself a finding. Its SHA-256 is asserted by tools/ci/test_g1_leakscan.py, so a change
+# of it is a visible diff. The scan reports its KIND ("canary") and never prints the value.
+CANARY = "CANARY-" + "g1stack-" + "7f3a" + "c9d2" + "e41b" + "58a6"
+
 # One finding line of leakscan: `<path>:<line>: <kind> (length ...)`. The kind is read on its own, so a finding of another kind in the same planted file does not count.
 FINDING = re.compile(r"^(?P<name>.*?):\d+: (?P<kind>[a-z_]+) \(length")
 
 
-def scan(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None = None) -> tuple[int, str]:
-    extra = ["--allow", str(allow)] if allow else []
+def scan(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None = None, digits: bool = True, list_to: tuple[Path, Path] | None = None) -> tuple[int, str]:
+    extra = (["--allow", str(allow)] if allow else []) + ([] if digits else ["--no-digit-rule"]) + (["--list-scanned", str(list_to[0]), "--list-root", str(list_to[1])] if list_to else [])
     done = subprocess.run([sys.executable, "-I", str(scanner), "--canary", str(canary_file), *extra, *map(str, paths)], capture_output=True, text=True, check=False)
     return done.returncode, (done.stdout + done.stderr).strip()
 
@@ -41,11 +45,14 @@ def _luhn_complete(body: str) -> str:
     return body + str((10 - total % 10) % 10)
 
 
-def planted_values(canary: str) -> dict[str, str]:
-    """One line per kind the real scan must be able to report, each with a fresh random value. Keys are leakscan's own kind names."""
+DIGIT_KINDS = ("account_number",)  # found by the digit rules that --no-digit-rule turns off; the Luhn card-number rule stays on, so its kind is still planted and still required
+
+
+def planted_values(canary: str, digits: bool = True) -> dict[str, str]:
+    """One line per kind the real scan must be able to report, each with a fresh random value. Keys are leakscan's own kind names. With the digit-run rule off, the kinds that rule finds are not planted."""
     ten = str(secrets.randbelow(9 * 10**9) + 10**9)
     card = _luhn_complete("4" + "".join(secrets.choice("0123456789") for _ in range(14)))
-    return {
+    plants = {
         "canary": f"a planted line that carries {canary} so that the scanner must find it",
         "account_number": f"planted account {ten}",
         "card_number": f"planted card {card}",
@@ -53,34 +60,44 @@ def planted_values(canary: str) -> dict[str, str]:
         "jwt": "planted token eyJ" + secrets.token_hex(6) + "." + secrets.token_hex(6) + "." + secrets.token_hex(6),
         "bearer_token": "Authorization: Bearer " + secrets.token_hex(12),
     }
+    return plants if digits else {k: v for k, v in plants.items() if k not in DIGIT_KINDS}
 
 
-def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = None) -> int:
+def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = None, digits: bool = True, inventory: tuple[Path, Path, str] | None = None) -> int:
+    """`inventory` is (file, root, stamp): after a clean real scan, the file holds `stamp: <stamp>` and the names the scanner read, relative to the root (Codex P2 on #875)."""
+    if inventory:
+        inventory[0].unlink(missing_ok=True)
     for path in paths:
         if workdir == path or workdir in path.parents or path in workdir.parents:
             print("refused: the work directory must not be, contain or lie inside a scanned path")
             return 2
-    canary = "CANARY-" + secrets.token_hex(12)
+    canary = CANARY
     planted = workdir / "planted"
     planted.mkdir(parents=True, exist_ok=True)
     canary_file = workdir / "canary.txt"
     canary_file.write_text(canary + "\n", encoding="utf-8")
-    plants = planted_values(canary)
+    plants = planted_values(canary, digits)
     for kind, line in plants.items():
         (planted / f"planted-{kind}.txt").write_text(line + "\n", encoding="utf-8")
-    code, text = scan(scanner, canary_file, [planted], allow)
+    code, text = scan(scanner, canary_file, [planted], allow, digits)
     reported = {(m.group("name"), m.group("kind")) for m in map(FINDING.match, text.splitlines()) if m}  # (the planted file's kind, the kind the scanner named), read separately
     missing = [kind for kind in plants if (f"planted-{kind}.txt", kind) not in {(Path(p).name, k) for p, k in reported}]
     if code != 1 or missing or canary in text:
         print(f"NOT RUN: the scanner did not report every planted kind (exit {code}; not reported: {', '.join(missing) or 'none'}); a scan that finds nothing, or whose rules are broken, cannot be read as clean")
         return 3
     print(f"probe: every planted kind was found ({', '.join(plants)}): the scanner can see")
-    code, text = scan(scanner, canary_file, paths, allow)
+    listed = workdir / "scanned.txt"
+    code, text = scan(scanner, canary_file, paths, allow, digits, *(((listed, inventory[1]),) if inventory else ()))
     if canary in text:
         print("refused: the scanner printed the canary")
         return 3
     print(text)
     if code == 0:
+        if inventory:
+            if not listed.is_file():
+                print("NOT RUN: the scanner did not list the files it read, so there is no inventory to compare with the upload")
+                return 3
+            inventory[0].write_text(f"stamp: {inventory[2]}\n" + listed.read_text(encoding="utf-8"), encoding="utf-8")
         return 0
     if code == 1:
         print("LEAK SCAN FAILED: findings in the artifacts (see the lines above: file, line, kind, length, fingerprint)")
@@ -94,8 +111,22 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--scanner", type=Path, default=Path(__file__).resolve().parent / "leakscan.py")
     p.add_argument("--workdir", type=Path)
     p.add_argument("--allow", type=Path, help="leakscan's allow file: regular expressions of lines skipped for the digit-run rule only (never for secrets or canaries)")
+    p.add_argument("--no-digit-rule", action="store_true", help="the runner's own job log: the generic digit-run and account rules are off (it holds image versions, run ids, byte counts); every other rule, the Luhn card number included, is probed and applied")
+    p.add_argument("--inventory", type=Path, help="write the stamped inventory of the files the real scan read (for the package's row 12); needs --stamp")
+    p.add_argument("--stamp", help="`<dispatch sha> <run id>`, the first line of the inventory after `stamp: `")
+    p.add_argument("--root", type=Path, default=Path("."), help="the directory the inventory's names are relative to (default: the current directory)")
     p.add_argument("paths", nargs="+", type=Path)
     a = p.parse_args(argv)
+    inventory = None
+    if a.inventory:
+        parts = (a.stamp or "").split(" ")
+        if len(parts) != 2 or not all(parts) or any(not x.isprintable() or x != x.strip() for x in parts):
+            print("refused: --inventory needs --stamp '<dispatch sha> <run id>' (two words)")
+            return 2
+        inventory = (a.inventory.resolve(), a.root.resolve(), a.stamp)
+    elif a.stamp:
+        print("refused: --stamp is only for --inventory")
+        return 2
     paths = [x.resolve() for x in a.paths]
     missing = [str(x) for x in paths if not x.exists()]
     if missing:
@@ -103,10 +134,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if a.workdir:
         a.workdir.mkdir(parents=True, exist_ok=True)
-        return run(a.scanner, a.workdir.resolve(), paths, a.allow)
+        return run(a.scanner, a.workdir.resolve(), paths, a.allow, not a.no_digit_rule, inventory)
     work = Path(tempfile.mkdtemp(prefix="g1-leakscan-"))
     try:
-        return run(a.scanner, work.resolve(), paths, a.allow)
+        return run(a.scanner, work.resolve(), paths, a.allow, not a.no_digit_rule, inventory)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

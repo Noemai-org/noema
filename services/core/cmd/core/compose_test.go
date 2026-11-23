@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 )
 
@@ -42,6 +43,12 @@ func full() Components {
 	return Components{
 		Ports:   orchestrator.Ports{Interpreter: p, Evidence: p, Trust: p, Explainer: p, Recorder: p, Admissions: p},
 		Records: &failingDBs{},
+		// The investigation reader (A243): GET /v1/investigations/{id} is part of the slice, so a composition without it is not complete.
+		Investigations: &fakeReader{},
+		// The Input Gateway: POST /v1/conversations is part of the slice too, so a composition without it is not complete.
+		Gateway: &inputgateway.Gateway{},
+		// The confirmation route (POST /v1/confirmations/{id}, A341, noema#754) is part of the slice too.
+		Confirmations: &confirmationRouteConfig{},
 	}
 }
 
@@ -63,6 +70,7 @@ func TestAnyMissingComponentMeansNoCompositionAndNamesWhatIsMissing(t *testing.T
 		"interpreter": func(c *Components) { c.Ports.Interpreter = nil }, "evidence": func(c *Components) { c.Ports.Evidence = nil },
 		"trust": func(c *Components) { c.Ports.Trust = nil }, "explainer": func(c *Components) { c.Ports.Explainer = nil },
 		"recorder": func(c *Components) { c.Ports.Recorder = nil }, "admissions": func(c *Components) { c.Ports.Admissions = nil }, "record reader": func(c *Components) { c.Records = nil },
+		"investigations": func(c *Components) { c.Investigations = nil },
 	}
 	for name, drop := range cases {
 		c := full()

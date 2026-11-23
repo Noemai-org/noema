@@ -84,7 +84,10 @@ jobs:
           [ "$PRIOR" -ge 326693 ] || { echo "prior_spent_micros must be at least 326693 (already spent, noema#338): a run may not start with an unknown spend"; exit 2; }
           case "$HARD_STOP_USD" in 1|2|3|4|5) ;; *) echo "hard_stop_usd must be a whole number from 1 to 5"; exit 2;; esac
           mkdir -p out
-          /tmp/venv/bin/python -m benchmark.compile_acceptance --dry-run --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/dry-run --run-id "$run_id" | tee out/dry-run.txt
+          # A dry run calls no provider, so the runner exits 3 (NOT RUN, A285). Here that is "dry run complete"; any other code, including 0, fails the job, so the paid job never starts without a cost.
+          code=0
+          /tmp/venv/bin/python -m benchmark.compile_acceptance --dry-run --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/dry-run --run-id "$run_id" | tee out/dry-run.txt || code=${PIPESTATUS[0]}
+          [ "$code" -eq 3 ] || { echo "the dry run must exit 3 (NOT RUN); it exited $code"; exit 1; }
           { echo "## bench-live-compile dry run (no provider call, no secret)"; echo; echo '```'; cat out/dry-run.txt; echo '```'; echo; echo "Approve the \`run\` job only if this cost is inside the Founders' ceiling."; } >> "$GITHUB_STEP_SUMMARY"
   run:
     needs: dry-run

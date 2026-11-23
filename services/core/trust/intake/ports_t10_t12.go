@@ -32,7 +32,8 @@ type Reconciler interface {
 }
 
 // PolicyQuery is one policy evaluation: who, what, over which sealed evidence, at which clock reading (Unix seconds). The adapter finds the intent's
-// admitted_at (AT_ADMISSION rules, INV-09) from the intent store itself.
+// admitted_at (AT_ADMISSION rules, INV-09) from the intent store itself. T11 sends one query for each capability of the authorized set (A306), so the adapter evaluates the
+// rules that apply to CapabilityID and answers for that capability alone; the intake combines the answers (policy_combine.go) and holds no policy logic.
 type PolicyQuery struct {
 	TenantID      string
 	IntentID      string
@@ -57,6 +58,9 @@ type PolicyEvaluation struct {
 	PermitMatched bool
 	// ReevaluateAt is the time a WAIT is re-evaluated, Unix seconds, computed by the adapter from the rule's wait parameter; zero for any other effect.
 	ReevaluateAt int64
+	// PermitParams are the params of the winning PERMIT rule of the capability asked about (policy.Applied.Params, as strings), set whenever PermitMatched is true and
+	// that rule has params; nil otherwise. T11 keeps them per capability for the plan request (TRU-14). A deny never carries them.
+	PermitParams map[string]string
 }
 
 // Policies evaluates the tenant's active policy set. A condition that cannot be evaluated is an error, never a result (policy.ErrCondition).

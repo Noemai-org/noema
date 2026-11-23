@@ -7,5 +7,6 @@
   "missing_claim_probes.json": "required",
   "missing_harness_block.json": "required",
   "unknown_category.json": "enum",
-  "bad_kill_point.json": "pattern"
+  "bad_kill_point.json": "pattern",
+  "classification_is_a_receipt_state.json": "enum"
 }

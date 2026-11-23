@@ -20,7 +20,7 @@ from noema_model.providers.speech.base import (
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.providers.speech.tts import SynthesisRequest
 from noema_model.voice.answer import DeliveryMode, deliver_answer
-from tests.support import run
+from tests.support import MASKING, run
 
 GUARD_S = 5.0  # a hang is a test failure, not a stuck CI job
 CAPS = ProviderCapabilities("fake", PipelineMode.TRANSCRIBE_ONLY, Support.YES, (), tuple((loc, Support.YES) for loc in Locale),
@@ -72,7 +72,7 @@ class Synth:
 
 
 def deliver(stream: Stream, deadline_s: float = 0.05):  # type: ignore[no-untyped-def]
-    return run(asyncio.wait_for(deliver_answer(Synth(stream), REQUEST, deadline_s=deadline_s), timeout=GUARD_S))
+    return run(asyncio.wait_for(deliver_answer(Synth(stream), REQUEST, deadline_s=deadline_s, masking=MASKING), timeout=GUARD_S))
 
 
 def test_a_timeout_closes_the_custom_iterator_and_still_delivers_the_text() -> None:
@@ -100,7 +100,7 @@ def test_a_caller_cancellation_closes_the_custom_iterator() -> None:
     stream = Stream(chunks=1, then="hang")
 
     async def cancelled() -> None:
-        task = asyncio.ensure_future(deliver_answer(Synth(stream), REQUEST, deadline_s=30.0))
+        task = asyncio.ensure_future(deliver_answer(Synth(stream), REQUEST, deadline_s=30.0, masking=MASKING))
         await asyncio.sleep(0.05)  # let the synthesis start and block
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -149,6 +149,6 @@ def test_any_other_error_raised_by_the_close_is_still_reported() -> None:
 
 def test_a_close_that_never_returns_is_still_abandoned_after_the_bound_and_the_audio_is_kept() -> None:
     stream = Stream(chunks=2, close_hangs=True)
-    result = run(asyncio.wait_for(deliver_answer(Synth(stream), REQUEST, deadline_s=5.0, cleanup_s=0.05), timeout=GUARD_S))
+    result = run(asyncio.wait_for(deliver_answer(Synth(stream), REQUEST, deadline_s=5.0, masking=MASKING, cleanup_s=0.05), timeout=GUARD_S))
     assert stream.closed
     assert result.mode is DeliveryMode.SPEAK and len(result.audio) == 2 and result.failure is None  # the bound expiring is not a provider failure

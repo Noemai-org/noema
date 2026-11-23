@@ -105,7 +105,7 @@ func TestItFindsTheInputReceivedOfTheTenantWithItsIdentity(t *testing.T) {
 	w := newWorld(t)
 	id := w.append(t, w.edgeA, tenantA, input("corr_AA11", "customer:usr_01", map[string]any{"channel": "text", "request_id": reqID}))
 	got, err := w.reader.Lookup(ctx(t), tenantA, id)
-	want := admission.Found{EventType: "INPUT_RECEIVED", TenantID: tenantA, PrincipalID: "usr_01", CorrelationID: "corr_AA11", RequestID: reqID}
+	want := admission.Found{EventType: "INPUT_RECEIVED", TenantID: tenantA, PrincipalID: "usr_01", CorrelationID: "corr_AA11", RequestID: reqID, ObjectRef: "inp_AA11"}
 	if err != nil || got != want {
 		t.Fatalf("got %+v (%v), want %+v", got, err, want)
 	}

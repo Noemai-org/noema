@@ -25,9 +25,11 @@ const (
 	emitter    = "core-trust"
 	timeLayout = "2006-01-02T15:04:05.000Z"
 
-	pgUniqueViolation    = "23505"
-	confirmationEventKey = "confirmation_spend_event_key"          // migration 0028: UNIQUE (tenant_id, confirmation_event_id)
-	confirmationValid    = "confirmation_spend_confirmation_valid" // migration 0028: the trigger that refuses a confirmation that is unknown, expired or given for another action
+	pgUniqueViolation     = "23505"
+	pgForeignKeyViolation = "23503"
+	dispositionKey        = "decision_record_disposition_fkey"      // migration 0012: (tenant, disposition) must be an ESCALATE decision of the same tenant
+	confirmationEventKey  = "confirmation_spend_event_key"          // migration 0028: UNIQUE (tenant_id, confirmation_event_id)
+	confirmationValid     = "confirmation_spend_confirmation_valid" // migration 0028: the trigger that refuses a confirmation that is unknown, expired or given for another action
 )
 
 // Errors of Write. Callers compare with errors.Is.
@@ -46,12 +48,43 @@ var (
 	// ErrConfirmationNotValid is returned when the confirmation an ALLOW names does not exist for the tenant, has expired by the database's clock, or was given for another action than
 	// the one the ALLOW's step carries (the eight values of SoT 43.2a). The caller cannot tell which: the three are one answer, so no outward answer tells an attacker which.
 	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
+	// ErrDeclinedRequestNotValid is returned when the declined request a REJECT DECLINED_BY_APPROVER names is not a confirmation request of this tenant and of this decision's intent (A507).
+	// The caller cannot tell which: an absent request, another tenant's and another intent's are one answer.
+	ErrDeclinedRequestNotValid = errors.New(errPrefix + "the declined request is not valid for this decision")
 	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
 	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
+	// ErrWritesDisabled is returned when the tenant's kill switch is on and the decision would issue grants (REQ-EXE-008, REQ-OPS-002; the contract's WRITES_DISABLED, errors.v3).
+	// Nothing is written: no decision record, no grant, no event. A decision with no write step is not refused.
+	ErrWritesDisabled = errors.New(errPrefix + "the tenant's kill switch is on: no grant is issued")
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
 	// confirmation is used once). Nothing is written; the caller rolls back.
 	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
+	// ErrDispositionNotValid is returned when a decision names a disposition that is not an existing ESCALATE decision of the same tenant (REQ-TRU-010). The caller cannot tell
+	// which of the three it is: a missing decision, another tenant's and one with another outcome are one answer. Nothing is written.
+	ErrDispositionNotValid = errors.New(errPrefix + "the disposition is not an existing escalation decision of the tenant")
+	// ErrStepOutsideEscalation is returned when a decision that names its ESCALATE disposition carries a step whose capability is not one of the pack's escalation plan (REQ-TRU-010,
+	// INV-25): an escalation disposition authorises the escalation plan's write steps and nothing else. Nothing is written.
+	ErrStepOutsideEscalation = errors.New(errPrefix + "a step is not a capability of the escalation plan")
 )
+
+// EscalationSet is the capability IDs of the pack's escalation plan: the only writes an ESCALATE disposition authorises (REQ-TRU-010). The composition root builds it from pack
+// data; this package holds no capability ID of its own (INV-14, SoT 51). The zero value is the empty set, under which no step is allowed after a disposition.
+type EscalationSet struct{ ids map[string]struct{} }
+
+// NewEscalationSet builds a set from capability IDs.
+func NewEscalationSet(ids ...string) EscalationSet {
+	s := EscalationSet{ids: make(map[string]struct{}, len(ids))}
+	for _, id := range ids {
+		s.ids[id] = struct{}{}
+	}
+	return s
+}
+
+// Contains reports whether the capability is one of the escalation plan.
+func (s EscalationSet) Contains(capabilityID string) bool {
+	_, ok := s.ids[capabilityID]
+	return ok
+}
 
 // IDs makes the decision ID.
 type IDs interface {
@@ -65,6 +98,7 @@ type Writer struct {
 	Appender       *chain.Appender
 	Clock          clock.Clock
 	IDs            IDs
+	Escalation     EscalationSet // the pack's escalation plan capabilities, from the composition root (REQ-TRU-010); empty means no step may follow a disposition
 	RecordLifetime time.Duration // how long a record is usable after issued_at (ruling A13); from configuration, never a literal here
 }
 
@@ -82,12 +116,25 @@ type Request struct {
 	ConfirmationPlanHash  contracts.CommonV1Hash // the plan hash the confirmation was given for (A230); the writer refuses an ALLOW whose steps carry another
 	ConfirmationEventID   string                 // the given confirmation an ALLOW follows (cfe_...); empty when none was required. The writer spends it once, in this transaction
 	Steps                 []grants.Step          // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
+	// ConfirmationRequest is the request a CONFIRM decision creates, written with the decision in one transaction (EC-E16); nil for a CONFIRM that names an already open request,
+	// and for every other outcome (any other outcome that carries one is ErrRequest).
+	ConfirmationRequest *NewConfirmationRequest
+	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on; empty for every other decision, and any other outcome that names one is ErrRequest
+	// (A366). With a confirmation an ALLOW follows, it is the confirmation state of the decision, which the single-decision key of the input tuple includes.
+	DeclinedRequestID string
+	// ConfirmationBindingEvidenceHash is the evidence component of the binding of the confirmation an ALLOW follows (A435): the content digest of the evidence the decision used, which the
+	// writer needs to recompute that binding (the contract's field is still named evidence_set_hash). It is NOT the grant's evidence_set_hash: a step's EvidenceSetHash stays the snapshot's
+	// set hash, and neither the grant nor the Decision Record carries this value. Required, in the Hash form, for an ALLOW that follows a confirmation; named with no confirmation it is ErrRequest.
+	ConfirmationBindingEvidenceHash contracts.CommonV1Hash
 }
 
 // Result is what was written.
 type Result struct {
 	Record contracts.DecisionRecordV2
 	Grants []contracts.DecisionGrantV1
+	// ConfirmationRequestID is the cfr_ ID the writer minted for Request.ConfirmationRequest; empty when none was asked for, and empty when a stored decision of the same input was
+	// returned (A186): that decision's request, if it created one, is in the Record.
+	ConfirmationRequestID string
 }
 
 var (
@@ -120,7 +167,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	// the spend unless the confirmation was given for exactly this binding.
 	var binding string
 	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" {
-		if binding, err = bindingOf(r, policy); err != nil {
+		if binding, err = bindingOf(r, basis); err != nil {
 			return Result{}, fmt.Errorf("%w: the confirmation's binding cannot be computed: %v", ErrRequest, err)
 		}
 	}
@@ -129,16 +176,58 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key.lockName()); err != nil {
 		return Result{}, fmt.Errorf("%slock the input: %w", errPrefix, err)
 	}
-	stored, found, err := w.lookup(ctx, tx, key, r, basis)
+	// REQ-EXE-008, REQ-OPS-002: while the tenant's kill switch is on, no grant is issued. The switch is read here, on the caller's transaction (Write holds no other connection), at the
+	// write itself and before the first statement that writes, so a refusal leaves nothing behind. It is the tenant of the request, which the database ties to the login, and only a
+	// decision with steps is refused: a read, an explanation or a refusal has no grant and records as before. A switch that cannot be read is an error, never "off".
+	if len(r.Steps) > 0 {
+		var killed bool
+		if err := tx.QueryRow(ctx, `SELECT kill_switch FROM tenant WHERE tenant_id = $1`, r.TenantID).Scan(&killed); err != nil {
+			return Result{}, fmt.Errorf("%sread the kill switch: %w", errPrefix, err)
+		}
+		if killed {
+			return Result{}, ErrWritesDisabled
+		}
+	}
+	state, err := resolveState(ctx, tx, r)
+	if errors.Is(err, errUnresolved) {
+		// a confirmation that is not recorded for the tenant: the one answer the spend gives, unless the input already has an ALLOW, which a retry naming it contradicts (A233, INV-21)
+		if err := w.otherState(ctx, tx, key, d.Outcome(), noState); err != nil {
+			return Result{}, err
+		}
+		return Result{}, ErrConfirmationNotValid
+	}
+	if errors.Is(err, errDeclinedUnowned) {
+		return Result{}, ErrDeclinedRequestNotValid
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	stored, found, err := w.lookup(ctx, tx, key, state, r, basis)
 	if err != nil {
 		return Result{}, err
 	}
 	if found {
 		return stored, nil
 	}
+	if r.DispositionDecisionID != "" {
+		if err := requireEscalationDisposition(ctx, tx, r); err != nil {
+			return Result{}, err
+		}
+	}
 	decisionID, err := w.IDs.ID("dec")
 	if err != nil || !decisionRe.MatchString(decisionID) {
 		return Result{}, fmt.Errorf("%w: decision id: %v", ErrRequest, err)
+	}
+	// A CONFIRM that creates a request: Trust mints the ID and computes the binding hash here, never from the caller (SoT 43.2a). This is the new-decision path only, so a stored
+	// decision returned above creates no second request.
+	var requestID, requestBinding string
+	if r.ConfirmationRequest != nil {
+		if requestID, err = w.IDs.ID("cfr"); err != nil || !requestRe.MatchString(requestID) {
+			return Result{}, fmt.Errorf("%w: confirmation request id: %v", ErrRequest, err)
+		}
+		if requestBinding, err = bindingOfRequest(r.ConfirmationRequest); err != nil {
+			return Result{}, fmt.Errorf("%w: the binding cannot be computed: %v", ErrRequest, err)
+		}
 	}
 	now := w.Clock.Now().UTC()
 	rec := contracts.DecisionRecordV2{
@@ -175,10 +264,18 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	actor := emitter // no authenticated person causes a decision event; a person's identity comes only from the session, never from a request field (INV-12)
 	decisionMade := map[string]any{"decision_id": decisionID, "decision_outcome": string(d.Outcome()), "reason_codes": reasonStrings(d), "policy_id": r.PolicyID,
 		"policy_version": policy, "sig_key_id": rec.Sig.KeyId}
+	if r.DispositionDecisionID != "" {
+		decisionMade["disposition_decision_id"] = r.DispositionDecisionID // the ESCALATE disposition this decision links (A503): the Record shows the link without the decision table
+	}
 	if binding != "" {
 		// PERD 32.2 has no spend event type, so the spend is shown by the two events of the same transaction: the decision names the confirmation it spent and the binding it was spent against,
 		// and each grant names the event it follows. A decision with no confirmation carries neither member.
 		decisionMade["confirmation_event_id"], decisionMade["confirmation_binding_hash"] = r.ConfirmationEventID, binding
+	}
+	if requestID != "" {
+		decisionMade["confirmation_request_id"] = requestID
+	} else if state != "" {
+		decisionMade["confirmation_request_id"] = state // the request this decision rests on (A366): an ALLOW's spent confirmation resolved it, a REJECT's was declined
 	}
 	if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "DECISION_MADE", ObjectRef: decisionID,
 		Payload: decisionMade}); err != nil {
@@ -188,10 +285,25 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if r.DispositionDecisionID != "" {
 		disposition = &r.DispositionDecisionID
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)`,
-		decisionID, r.TenantID, string(raw), string(d.Outcome()), disposition, string(r.IntentHash), string(versions), rec.Sig.KeyId, rec.Sig.Value); err != nil {
+	var rests *string // the confirmation state of the key (A366, migration 0034): NULL for a decision that rests on no confirmation
+	if state != "" {
+		rests = &state
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value, confirmation_request_id)
+		VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
+		decisionID, r.TenantID, string(raw), string(d.Outcome()), disposition, string(r.IntentHash), string(versions), rec.Sig.KeyId, rec.Sig.Value, rests); err != nil {
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && pg.Code == pgForeignKeyViolation && pg.ConstraintName == dispositionKey {
+			return Result{}, ErrDispositionNotValid // the database's own refusal, behind the check above
+		}
 		return Result{}, fmt.Errorf("%sinsert decision record: %w", errPrefix, err)
+	}
+	// The confirmation request of a CONFIRM is an event of the same transaction, right after DECISION_MADE (record first, EC-E16): it commits with the decision or not at all.
+	if requestID != "" {
+		if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "CONFIRMATION_REQUESTED",
+			ObjectRef: requestID, Payload: confirmationRequested(r.ConfirmationRequest, requestID, decisionID, requestBinding)}); err != nil {
+			return Result{}, fmt.Errorf("%sappend CONFIRMATION_REQUESTED: %w", errPrefix, err)
+		}
 	}
 	// A given confirmation is spent once, by the ALLOW it authorised, in this transaction. The decision row above is newly written (a stored one was returned
 	// earlier), so a retry never reaches this insert. The unique key is the single-use rule; a second spend is the typed error and the caller rolls back.
@@ -208,7 +320,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 			return Result{}, fmt.Errorf("%sspend the confirmation: %w", errPrefix, err)
 		}
 	}
-	res := Result{Record: rec}
+	res := Result{Record: rec, ConfirmationRequestID: requestID}
 	for i, s := range r.Steps {
 		s.TenantID, s.CorrelationID, s.DecisionID, s.IntentHash, s.PolicyID = r.TenantID, r.CorrelationID, decisionID, r.IntentHash, r.PolicyID
 		s.ConfirmationEventID = r.ConfirmationEventID // the grant follows the confirmation the decision spent; the caller's own claim on the step is not used
@@ -216,7 +328,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		if err != nil {
 			return Result{}, fmt.Errorf("%sgrant %d: %w", errPrefix, i, err)
 		}
-		graw, err := json.Marshal(g)
+		graw, err := signedPart(g)
 		if err != nil {
 			return Result{}, fmt.Errorf("%smarshal grant: %w", errPrefix, err)
 		}
@@ -239,12 +351,28 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	return res, nil
 }
 
+// signedPart is the grant document as it is stored in decision_grant.json: the document without its sig member. That is the part the signature covers and the form Execution
+// decodes (controller.Grant, strictly, and rebuilds its canonical JSON from it). The signature itself is stored in sig_key_id and sig_value, and lookup puts it back.
+func signedPart(g contracts.DecisionGrantV1) ([]byte, error) {
+	raw, err := json.Marshal(g)
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	delete(doc, "sig")
+	return json.Marshal(doc)
+}
+
 // check refuses what cannot be honoured before anything is written, and returns the evaluated basis and the bound policy.
 func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !intentRe.MatchString(r.IntentID), !hashRe.MatchString(string(r.IntentHash)),
 		r.Evaluated == nil, r.DispositionDecisionID != "" && !decisionRe.MatchString(r.DispositionDecisionID),
-		r.ConfirmationEventID != "" && !confirmRe.MatchString(r.ConfirmationEventID):
+		r.ConfirmationEventID != "" && !confirmRe.MatchString(r.ConfirmationEventID),
+		r.DeclinedRequestID != "" && (r.Decision.Outcome() != decide.Reject || !requestRe.MatchString(r.DeclinedRequestID)):
 		return decide.Basis{}, "", ErrRequest
 	}
 	d := r.Decision
@@ -257,11 +385,26 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if len(r.Steps) > 0 && d.Outcome() != decide.Allow {
 		return decide.Basis{}, "", ErrGrantsNeedAllow
 	}
+	if r.DispositionDecisionID != "" {
+		// An ESCALATE disposition authorises the escalation plan's write steps and nothing else (REQ-TRU-010, INV-25). The set is the pack's, injected; an empty set allows no step.
+		for _, s := range r.Steps {
+			if !w.Escalation.Contains(s.CapabilityID) {
+				return decide.Basis{}, "", ErrStepOutsideEscalation
+			}
+		}
+	}
 	if r.ConfirmationPlanHash != "" && r.ConfirmationEventID == "" {
 		return decide.Basis{}, "", fmt.Errorf("%w: a plan hash is named with no confirmation", ErrRequest)
 	}
+	if r.ConfirmationBindingEvidenceHash != "" && r.ConfirmationEventID == "" {
+		return decide.Basis{}, "", fmt.Errorf("%w: the evidence value of a binding is named with no confirmation", ErrRequest)
+	}
 	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" && !planMatches(r) {
 		return decide.Basis{}, "", ErrConfirmationPlanMismatch
+	}
+	// A435: the evidence component of the binding of the confirmation an ALLOW follows. It is needed, in the contract's form, exactly there; it is named nowhere else.
+	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" && !hashRe.MatchString(string(r.ConfirmationBindingEvidenceHash)) {
+		return decide.Basis{}, "", fmt.Errorf("%w: an ALLOW after a confirmation names no well-formed evidence value of its binding", ErrRequest)
 	}
 	if !d.HasCompleteBasis() {
 		return decide.Basis{}, "", ErrNoEvaluatedBasis
@@ -285,7 +428,29 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if !ok {
 		return decide.Basis{}, "", fmt.Errorf("%w: no single policy is bound: name one policy the basis holds", ErrRequest)
 	}
+	if r.ConfirmationRequest != nil {
+		if err := w.checkRequest(r, basis); err != nil {
+			return decide.Basis{}, "", err
+		}
+	}
 	return basis, policy, nil
+}
+
+// requireEscalationDisposition checks, before anything is written, that the disposition a decision names is an existing ESCALATE decision of the same tenant (REQ-TRU-010). A
+// missing decision, another tenant's and one with another outcome are one answer. The database's foreign key (migration 0012) says the same behind it.
+func requireEscalationDisposition(ctx context.Context, tx pgx.Tx, r Request) error {
+	var outcome string
+	err := tx.QueryRow(ctx, `SELECT outcome FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`, r.TenantID, r.DispositionDecisionID).Scan(&outcome)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrDispositionNotValid
+	}
+	if err != nil {
+		return fmt.Errorf("%sread the disposition: %w", errPrefix, err)
+	}
+	if outcome != string(decide.Escalate) {
+		return ErrDispositionNotValid
+	}
+	return nil
 }
 
 func stamp(t time.Time) contracts.CommonV1Timestamp {

@@ -6,8 +6,11 @@ Checks a pack before it is loaded (PCK-01, PCK-02, PCK-04; SoT 15.4, REQ-CAP-001
 
 - `python tools/packcheck validate [--conformance] <pack.json>`: exit 1 on any problem. Checks: schema, references, capabilities, predicates (parse and type-check against the pack's evidence descriptors and predicate variables), graphs, routing, reason-code namespaces, and the conformance caps.
 - Graphs load as `action-graph.v2.json` and must be a graph, never a list of endpoints (PCK-04; PERD v1.19 REQ-AG-001, DEC-2026-10-31 D9): every root names a node; every non-root node has an incoming edge; every node has a postcondition; every WRITE node has a precondition; a graph of more than one node is connected by its edges.
+- Roles (A377, interim, relayed): `ROLE:<role>` in a policy rule's `approver_requirement` or a trust profile's `approvals` must name one of the A1 roles (customer, ops, approver, audit); check name `roles`.
 - `checks.py` holds every check (one code path for the command line, the tests and CI); `predicate.py` parses and type-checks predicates.
 - Tests: `test_packcheck.py`, `test_predicate.py`; each crafted bad pack in `packs/fixtures/bad_packs/` names the check that must fail.
+
+- `python tools/packcheck manifest <manifest.json> [<pack-dir>]` (PCK-02, A333): the pack manifest. Fails on a changed SHA-256, a missing file, an unlisted file of a listed kind (the action graphs included), an action graph the pack names and the manifest does not pin or the other way round (A510), an id the manifest names that the file does not carry, and a path that escapes the pack directory (`..`, absolute, symlink). `check_manifest` in `checks.py`; tests in `test_manifest.py`; schema `packs/schemas/manifest.v1.json`.
 
 ## Constraints
 

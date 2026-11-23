@@ -1,0 +1,18 @@
+# evidence/injection
+
+**What it does.** The advisory injection detector of the Evidence layer (EVD-06 slice 2, ruling A292). It matches enterprise strings (a narration, a beneficiary name, a case note) against a list of RE2 patterns that is pack data, and when one matches it raises `SECURITY_EVENT` of kind `INJECTION_DETECTED` on the Record. It is a heuristic signal on top of the real control, which is the typed, delimited data block of REQ-CTX-007 (not built here).
+
+**REQs.** REQ-CTX-007 (the detector and its audit event), REQ-SEC-007 (packs are data), REQ-AUD-001 (the event is on the Record first). SoT §29 (detection is advisory), AGENT-09, AGENT-13, AGENT-16. Benchmark family B6; edge cases EC-X02, EC-X03, EC-X04; US-09.
+
+**Pack data.** `packs/fintech/context/injection_patterns.v1.json` (SYNTHETIC): `pack_id`, `version`, `label`, `note` and `patterns` (each `id`, `regex`, `note`). `injection.Parse(data, "fin.ctx.injection_patterns@1", limits)` loads it strictly: a closed object, no repeated member (in any case), no pattern id repeated, every regex compiles under Go RE2, no regex able to match the empty string, and the number and length of patterns, the size and the nesting bounded. The bounds, and the 256-character field cap, are `Limits` the caller reads from configuration; this package holds none (AGENT-16). The home of the cap in configuration is an open question (see `status/EVD-06.md`).
+
+**API.**
+- `Detector.Detect(fields) []Finding` and `Detector.Scan(fields) Result`. A `Finding` is the field NAME, the pattern ID and a bool (the field was cut to the cap); never the matched text or any part of the value. `Result` adds the pack id and the names of every field that was cut, matched or not.
+- `Screener{Detector, Recorder}.Screen(ctx, subject, fields)`: detects, and records one event for the screen when there is a finding. A Record failure is returned as `ErrRecord` and the findings are returned with it: the caller must not let it block or change the read.
+- `Recorder` is the port; `RecordRecorder{Pool, Appender, Timeout}` is the adapter. It appends as the emitter `core-evidence` through the tenant's own evidence login, one transaction per event; nothing is stored unless the append commits (EC-E16). The payload is the pack id, the field names and the pattern ids.
+
+**How a value is screened.** Control and format characters are removed and white space made plain, then the value is cut to the cap, then the patterns run. Reading stops once the cap is reached, so a 1 MiB value costs the work of its first characters; RE2 matches in linear time. A phrase after the cap is not seen, as it is not in a prompt. Detection is heuristic: it does not see look-alike letters, other languages or paraphrase, and it can flag a harmless string (for example one that quotes an instruction). Recall is reported, not gated.
+
+**Not here.** The data block, the cap and the stripping applied to a prompt (REQ-CTX-007's control); calling the screener from the evidence read path; wiring the recorder in the composition; the home of the limits in configuration.
+
+**Tests.** From `services/core/`: `go test ./evidence/injection -skip '^TestDB'` runs everything that needs no database. The `TestDB...` tests need the PostgreSQL server with pgsodium that CI provides (`go test ./evidence/injection`).
