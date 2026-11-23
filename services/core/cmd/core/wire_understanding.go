@@ -57,7 +57,7 @@ var (
 	// ErrNoInterpreterForTenant marks a tenant that has no orchestrator login, and so no Interpreter: nothing is asked of the model service or any database, and no other tenant's Interpreter
 	// is used (A320, INV-12). The text names no tenant (A347).
 	ErrNoInterpreterForTenant = errors.New("cmd/core: no Interpreter is configured for this tenant")
-	// ErrSessionUnavailable marks a call whose context carries no verified session, or one that is not the orchestrator Session's (INV-12). The text names no tenant, principal or role.
+	// ErrSessionUnavailable marks a call whose orchestrator Session is not whole (INV-12, A514). The text names no tenant, principal or role.
 	ErrSessionUnavailable = errors.New("cmd/core: the verified session is not available to the Interpreter")
 )
 
@@ -268,19 +268,26 @@ func (t tenantInterpreters) Interpret(ctx context.Context, in interpreter.Input)
 	return i.Interpret(ctx, in)
 }
 
-// edgeSessions resolves the orchestrator's Session to the Interpreter's from the verified session the edge put in the request's context (INV-12, AGENT-10, A149, A333). The orchestrator's
-// Session carries no authentication reference, principal type or issuer, and this adapter does not widen it: it takes those from the verified session and nothing else, and only when that
-// session is the one the orchestrator names (tenant, principal and role all equal). With no verified session in the context, or one that differs, there is no answer. The authentication
-// reference is the session's AuthnRef, a hash of the token's kid, sub and iat and never the token. The actor the Record writes is of the session's principal type.
+// edgeSessions resolves the orchestrator's Session to the Interpreter's (INV-12, AGENT-10, A149, A333, A514). Since noema#882 every caller fills the Session from a verified source: the
+// gateway start from the verified token (its tenant, principal, session reference and principal type), a recovery from the stored investigation row. This adapter therefore builds the
+// Interpreter's session from the orchestrator Session alone and never reads the request's context (a recovery has no request, and nothing a client sent may reach the answer). It refuses,
+// with one fixed error that names none of the values, a Session that is not whole: no tenant or principal, a role outside the four of ruling A1, an authentication reference that is not a
+// session reference (`ses_` and 32 lower-case hex digits, the SessionId of contracts common.v1; never a token), or a principal type that is not the one the edge derives from the role. No
+// role or type is ever defaulted. The issuer (AssertedBy) is passed through as given: empty when it was not stored (A514). The actor the Record writes is of the session's principal type.
 type edgeSessions struct{}
 
-func (edgeSessions) Resolve(ctx context.Context, s orchestrator.Session) (interpreterport.Resolved, error) {
-	p, ok := session.FromContext(ctx)
-	if !ok || p.Tenant != s.TenantID || p.ID != s.PrincipalID || string(p.Role) != s.Role {
+var (
+	sessionPlainRe    = regexp.MustCompile(`\A[^\s\x00-\x1f\x7f]+\z`)
+	sessionAuthnRefRe = regexp.MustCompile(`\Ases_[0-9a-f]{32}\z`)
+)
+
+func (edgeSessions) Resolve(_ context.Context, s orchestrator.Session) (interpreterport.Resolved, error) {
+	pt, known := session.PrincipalTypeOf(s.Role)
+	if !known || s.PrincipalType != pt || !sessionPlainRe.MatchString(s.TenantID) || !sessionPlainRe.MatchString(s.PrincipalID) || !sessionAuthnRefRe.MatchString(s.AuthnRef) {
 		return interpreterport.Resolved{}, ErrSessionUnavailable
 	}
 	return interpreterport.Resolved{
-		Session:   understanding.Session{PrincipalID: p.ID, TenantID: p.Tenant, AuthnRef: p.AuthnRef, PrincipalType: p.PrincipalType, AssertedBy: p.AssertedBy},
-		ActorKind: p.PrincipalType,
+		Session:   understanding.Session{PrincipalID: s.PrincipalID, TenantID: s.TenantID, AuthnRef: s.AuthnRef, PrincipalType: s.PrincipalType, AssertedBy: s.AssertedBy},
+		ActorKind: s.PrincipalType,
 	}, nil
 }
