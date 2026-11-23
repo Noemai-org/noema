@@ -26,6 +26,11 @@ const js = (await build({ stdin: { contents: `
     const response = await fetch('/confirmation-retry', { method: 'POST' });
     return response.ok ? 'accepted' : 'unavailable';
   } }));
+  window.showExpiredConfirmation = card => root.render(createElement(ConfirmationCard, { card, onResponse: async (...args) => {
+    window.events.push(args);
+    const response = await fetch('/confirmation-expired', { method: 'POST' });
+    return response.status === 409 ? 'expired' : 'unavailable';
+  } }));
 `, resolveDir: process.cwd(), loader: "js" }, bundle: true, format: "iife", platform: "browser", write: false, define: { "process.env.NODE_ENV": '"production"' } })).outputFiles[0].text;
 
 const test = base.extend({ page: async ({ page }, use) => {
@@ -50,6 +55,7 @@ test.beforeAll(async () => {
     if (req.url === "/") res.writeHead(200, { "content-type": "text/html" }).end('<!doctype html><div id="app"></div><script src="/cards.js"></script>');
     else if (req.url === "/cards.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);
     else if (req.url === "/retry-submit" || req.url === "/confirmation-retry") res.writeHead(++attempts === 1 ? 503 : 202).end();
+    else if (req.url === "/confirmation-expired") res.writeHead(409, { "content-type": "application/json" }).end(JSON.stringify({ error: { code: "CONFIRMATION_EXPIRED", message: "Expired.", retryable: false, correlation_id: "corr_4c21f9" } }));
     else res.writeHead(404).end();
   });
   server.listen(0, address);
@@ -130,4 +136,17 @@ test("A542: a failed confirmation submission unlocks controls and retry resubmit
     [value.confirmation_request_id, "ACCEPT"],
     [value.confirmation_request_id, "ACCEPT"],
   ]);
+});
+
+
+test("REQ-UI-002 US-18: server-expired confirmation becomes terminal and offers no retry", async ({ page }) => {
+  const value = await card("confirmation");
+  await page.goto(origin);
+  await page.evaluate((input) => window.showExpiredConfirmation(input), value);
+  await page.getByRole("button", { name: "Accept" }).click();
+  await expect(page.getByRole("button", { name: "Accept" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("This has changed. Let me check again.");
+  expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
 });
