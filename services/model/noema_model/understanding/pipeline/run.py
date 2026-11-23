@@ -161,10 +161,9 @@ async def run_pipeline(
         return PipelineResult(Outcome.PROPOSED, proposal, normalised, proposal.ambiguity_flags, (), None, None, signals, tuple(calls))
     query = build_query(inp, normalised, search.resource_kind, config)
     if query.time_window is None:
-        # The read contract requires a time window (REQ-CTX-006), so a request with none is invalid input: it is refused at
-        # the gate and nothing is read. NO_TRANSACTION_MATCH (REQ-AMB-002) is for a search that ran and came back empty.
-        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
-                        proposal=proposal, normalised=normalised, signals=signals, input_invalid=InputInvalidReason.NO_TIME_WINDOW)
+        # A535 (interim): no default window and no refusal (AGENT-16). The Evidence read needs a window (REQ-CTX-006), so with none nothing is read and there is no resolution; the
+        # proposal carries the resource slot UNRESOLVED and the time slot as the lexicon read it, and Trust asks the customer (CLARIFY). NO_TRANSACTION_MATCH (REQ-AMB-002) stays for a search that ran and came back empty.
+        return PipelineResult(Outcome.PROPOSED, proposal, normalised, proposal.ambiguity_flags, (), None, None, signals, tuple(calls))
     try:
         candidates = await source.fetch(query)
     except CandidateScopeError:

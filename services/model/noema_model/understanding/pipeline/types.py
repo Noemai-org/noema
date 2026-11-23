@@ -35,7 +35,6 @@ class InputInvalidReason(StrEnum):
     """Why a request was refused as invalid input (UND-16, run #6). A closed set, internal to the model service: it is never part of an answer, which stays `INPUT_INVALID` for every one of them (AGENT-13).
     It names a class and never carries a piece of the request."""
 
-    NO_TIME_WINDOW = "NO_TIME_WINDOW"  # the read contract needs a window (REQ-CTX-006) and the lexicon read none
     NOT_FINAL_TRANSCRIPT = "NOT_FINAL_TRANSCRIPT"  # REQ-INP-001
     CANDIDATE_REQUEST_INVALID = "CANDIDATE_REQUEST_INVALID"  # the Evidence API refused the query as invalid
     UNKNOWN_PACK = "UNKNOWN_PACK"

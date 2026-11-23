@@ -26,7 +26,7 @@ Token order, initials ("T. Adeyemi") and "first name only" are handled by the en
 
 ## `fin.lex.*.json`
 
-Amounts, numerals and relative times (REQ-INT-003), one file per language, named by the intent node's `lexicon_refs` and merged by the compiler (`load_pack_lexicons`; the files must agree on the offset and the currency, and a word or phrase two of them define must mean the same). `fin.lex.en_ng.json` is English; `fin.lex.pcm.json` is Nigerian Pidgin and holds only `dis morning` for now (UND-16, run #6; A532: a Pidgin phrase is never put in the English file). Every entry is a `[synthetic seed]`. The lexicon files are not pinned in the manifest; the run record pins their merged digest (`lexicon_sha256`).
+Amounts, numerals and relative times (REQ-INT-003), one file per language, named by the intent node's `lexicon_refs` and merged by the compiler (`load_pack_lexicons`; the files must agree on the offset and the currency, and a word or phrase two of them define must mean the same). `fin.lex.en_ng.json` is English; `fin.lex.pcm.json` is Nigerian Pidgin and holds only `dis morning` for now (UND-16, run #6; A532: a Pidgin phrase is never put in the English file). Every entry is a `[synthetic seed]`, and both files are SYNTHETIC (AGENT-25, A538): invented for the POC, not reviewed by a native speaker. The lexicon files are not pinned in the manifest; the run record pins their merged digest (`lexicon_sha256`).
 
 ## Not here yet
 

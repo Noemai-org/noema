@@ -2,7 +2,7 @@
   "lexicon_id": "fin.lex.pcm",
   "version": "1.0.0",
   "mark": "[synthetic seed]",
-  "note": "Nigerian Pidgin (pcm), minimal v0: only the phrases the G1 inputs (BEN-CLEAN-0001, BEN-CLEAN-0027, BEN-TMO-0001) hold that the English lexicon has no phrase for (UND-16, run #6; A532). It is merged with fin.lex.en_ng by the pack's lexicon_refs and must agree with it on the offset and the currency; the English file is never given a Pidgin phrase. Every entry is a [synthetic seed]: invented for the POC, not reviewed by a native speaker (OQ-12), and every window and offset is a starting value that moves only through a benchmark run and a founder decision (AGENT-16). Numerals, directions and the rest of Pidgin are UND-06's.",
+  "note": "SYNTHETIC. Nigerian Pidgin (pcm), minimal v0 (A538): only the phrases the G1 inputs (BEN-CLEAN-0001, BEN-CLEAN-0027, BEN-TMO-0001) hold that the English lexicon has no phrase for (UND-16, run #6; A532). It is merged with fin.lex.en_ng by the pack's lexicon_refs and must agree with it on the offset and the currency; the English file is never given a Pidgin phrase. Every entry is a [synthetic seed]: invented for the POC, not reviewed by a native speaker (OQ-12), and every window and offset is a starting value that moves only through a benchmark run and a founder decision (AGENT-16). Numerals, directions and the rest of Pidgin are UND-06's.",
   "utc_offset_minutes": 60,
   "currency": {"code": "NGN", "minor_per_major": 100, "words": ["n"], "mark": "[synthetic seed]"},
   "relative_times": [
