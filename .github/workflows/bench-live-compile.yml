@@ -174,6 +174,8 @@ jobs:
             # The manifest is published only after a clean scan: the summary is public like the artifact, and a scan that found something must not leave the finding's text there.
             if [ "$SCAN" = 0 ] && [ -f out/compile-acceptance/recordings/manifest.json ]; then echo; echo '```json'; cat out/compile-acceptance/recordings/manifest.json; echo '```'; fi
             if [ "$SCAN" != 0 ]; then echo "The manifest and the recordings are not shown: the leak scan did not pass."; fi
+            # The runner's own summary (ids, statuses and fixed texts; no utterance, no proposal) names the failing goldens and the failed record-only inputs, so nobody has to read the log. Shown only after a clean scan, like the manifest.
+            if [ "$SCAN" = 0 ] && [ -f out/compile-acceptance/summary.md ]; then echo; cat out/compile-acceptance/summary.md; fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the recordings and the run record (only if the leak scan is clean)
         if: always() && steps.scan.outputs.scan == '0'
@@ -193,5 +195,10 @@ jobs:
           case "$CODE" in
             0) exit 0 ;;
             3) echo "::error::NOT RUN: no provider call was made. That is not a pass."; exit 1 ;;
-            *) echo "::error::The run ended with exit code $CODE."; exit 1 ;;
+            *)
+              # Name the failing goldens in the annotation: the one `FAILING:` line of the runner's summary, from a file the leak scan has already passed, cut to ids and spaces so it cannot carry a workflow command.
+              failing=""
+              if [ -f out/compile-acceptance/summary.md ]; then failing="$(sed -n 's/^FAILING: //p' out/compile-acceptance/summary.md | head -n 1 | tr -cd 'A-Za-z0-9 -' | cut -c1-200)"; fi
+              echo "::error::The run ended with exit code $CODE. Failing goldens: ${failing:-unknown}."
+              exit 1 ;;
           esac

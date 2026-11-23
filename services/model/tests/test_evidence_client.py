@@ -467,7 +467,8 @@ def test_a_contract_breaking_answer_is_a_dependency_error_and_nothing_is_ranked(
     assert pipeline(FakeSource(raises=CandidateResponseInvalid("x"))).gate_errors == ("DEPENDENCY_UNAVAILABLE",)
 
 
-def test_with_no_time_window_nothing_is_read_and_the_request_is_input_invalid() -> None:
+def test_with_no_time_window_nothing_is_read_and_the_turn_is_proposed_unresolved() -> None:
+    """A535 (interim) replaces the earlier refusal at the gate: no default window, no refusal. Nothing is read, because the Evidence contract needs a window, and the turn carries no resolution."""
     from dataclasses import replace
     source = FakeSource((candidate("a"),))
 
@@ -476,7 +477,7 @@ def test_with_no_time_window_nothing_is_read_and_the_request_is_input_invalid() 
 
     harness, _ = harness_for(good_model())
     result = run(run_pipeline(make_input(), pipeline_config(), harness, source, no_window, no_errors))
-    assert source.queries == [] and result.outcome is Outcome.REJECTED_AT_GATE and result.gate_errors == ("INPUT_INVALID",)
+    assert source.queries == [] and result.outcome is Outcome.PROPOSED and result.gate_errors == ()
     assert result.resolution is None and result.query is None  # no search ran, so there is no resolution to report
     assert "NO_TRANSACTION_MATCH" not in result.ambiguity_flags  # that code is for a search that came back empty (REQ-AMB-002)
 

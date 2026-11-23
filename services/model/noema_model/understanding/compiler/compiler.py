@@ -20,6 +20,7 @@ from noema_model.understanding.compiler.lexicon import Lexicon, Normaliser
 from noema_model.understanding.compiler.service import InputInvalid, ProviderUnavailable, ScreenNotRun
 from noema_model.understanding.pipeline import (
     CandidateSource,
+    InputInvalidReason,
     Outcome,
     PipelineConfig,
     PipelineInput,
@@ -69,10 +70,10 @@ class PipelineCompiler:
         """`open_intent` is not read: it is unvalidated input and no turn of the first slice continues an earlier intent (README, precondition 3)."""
         config = self._packs.get(pack_ref)
         if config is None:
-            raise InputInvalid
+            raise InputInvalid(InputInvalidReason.UNKNOWN_PACK)
         if canonical_input.get("channel") != "text":
             # A voice request needs the low-confidence rule for a key slot, which is a founder decision (AGENT-16); it is not invented here.
-            raise InputInvalid
+            raise InputInvalid(InputInvalidReason.NOT_TEXT_CHANNEL)
         now = _instant(canonical_input.get("received_at"))
         inp = PipelineInput(
             correlation_id=str(canonical_input["correlation_id"]),
@@ -91,7 +92,9 @@ class PipelineCompiler:
             if GATE_TENANT_SCOPE in result.gate_errors:
                 raise TenantScopeMismatch
             if GATE_INPUT_INVALID in result.gate_errors:
-                raise InputInvalid
+                if result.input_invalid is None:
+                    raise ValueError("a turn refused as invalid input names its reason")  # a bug, never a guess at a class
+                raise InputInvalid(result.input_invalid)
             if result.screen_not_run:
                 raise ScreenNotRun(tuple(stage.value for stage in result.screen_not_run))  # A437: internal class; to every caller still a ProviderUnavailable
             raise ProviderUnavailable  # a provider, the schema of its reply or the Evidence API failed: a rejection, never a guess (REQ-INT-002)
@@ -100,13 +103,13 @@ class PipelineCompiler:
 
 def _instant(value: Any) -> datetime:
     if not isinstance(value, str):
-        raise InputInvalid
+        raise InputInvalid(InputInvalidReason.BAD_RECEIVED_AT)
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as err:
-        raise InputInvalid from err
+        raise InputInvalid(InputInvalidReason.BAD_RECEIVED_AT) from err
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise InputInvalid
+        raise InputInvalid(InputInvalidReason.BAD_RECEIVED_AT)
     return parsed
 
 
