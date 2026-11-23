@@ -139,6 +139,10 @@
       "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate",
       "description": "A364 (interim, relayed): a predicate in the pack's predicate language over this node's slots, evaluated on the admitted intent's resolved slots (an absent slot is null). True means the intent needs write evaluation. Optional; absent means it never does. packcheck checks that it parses, is Boolean and uses only this node's slot names; an unevaluable one is an error at run time, never a silent false."
     },
+    "subject_slot": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName",
+      "description": "A520 (interim; DEBT-54): the name of the slot of THIS node whose resolved reference is the subject of the intent, for the epoch of its resolution (A345 S1). Optional; absent means the node has no subject (a node with no Resource slot). packcheck checks that it names a Resource slot of this node. The core reads the name from the pack and never writes it in code (INV-14)."
+    },
     "examples": {
       "type": "array",
       "items": {

@@ -54,6 +54,7 @@
           "references": "capability"
         }
       ],
+      "subject_slot": "subject_resource",
       "disambiguation": {
         "strategy": "ranked_candidates",
         "auto_resolve_margin": 0.35,
