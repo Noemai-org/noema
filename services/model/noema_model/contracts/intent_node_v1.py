@@ -9,6 +9,15 @@ from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
 from .common_v1 import CommonV1PackId, CommonV1Predicate, CommonV1Semver, CommonV1SlotName, CommonV1Vertical
 
+class IntentNodeV1DisambiguationAttributeOrderItem(ContractModel):
+    """IntentNodeV1DisambiguationAttributeOrderItem Source: intent-node.v1.json#/properties/disambiguation/properties/attribute_order/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    name: CommonV1SlotName
+    question_key: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')]
+    label_template: Annotated[str, StringConstraints(min_length=1, max_length=160)]
+
+
 class IntentNodeV1DisambiguationStrategy(StrEnum):
     """IntentNodeV1DisambiguationStrategy Source: intent-node.v1.json#/properties/disambiguation/properties/strategy"""
 
@@ -45,6 +54,9 @@ class IntentNodeV1Disambiguation(ContractModel):
     auto_resolve_margin: Annotated[int | float, Field(ge=0, le=1)]
     max_candidates_before_escalate: Annotated[int, Field(ge=1)]
     matcher_ref: Annotated[str, StringConstraints(pattern='\\A[a-z0-9_]+(/[a-z0-9_]+)*\\.json\\Z')] | None = Field(default=None)
+    options_key: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')] | None = Field(default=None)
+    display_template: Annotated[str, StringConstraints(min_length=1, max_length=160)] | None = Field(default=None)
+    attribute_order: Annotated[list[IntentNodeV1DisambiguationAttributeOrderItem], Field(min_length=1, max_length=8)] | None = Field(default=None)
 
 
 class IntentNodeV1SlotsItem(ContractModel):
@@ -80,5 +92,6 @@ class IntentNodeV1(ContractModel):
 
 
 IntentNodeV1Disambiguation.model_rebuild()
+IntentNodeV1DisambiguationAttributeOrderItem.model_rebuild()
 IntentNodeV1SlotsItem.model_rebuild()
 IntentNodeV1.model_rebuild()

@@ -4,5 +4,7 @@
   "unknown_slot_type.json": "enum",
   "upper_case_node_id.json": "pattern",
   "write_when_not_a_string.json": "type",
-  "write_when_empty.json": "minLength"
+  "write_when_empty.json": "minLength",
+  "options_key_not_a_template_id.json": "pattern",
+  "attribute_order_empty.json": "minItems"
 }
