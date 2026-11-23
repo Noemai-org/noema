@@ -2324,6 +2324,12 @@
       "NO_CANDIDATES": "NO_TRANSACTION_MATCH",
       "AMBIGUOUS": "MULTIPLE_TRANSACTIONS_MATCH",
       "TOO_MANY_CANDIDATES": "MULTIPLE_TRANSACTIONS_MATCH"
-    }
+    },
+    "slot_gates": [
+      {
+        "slot": "requested_remedy",
+        "assertion_threshold_bp": 9000
+      }
+    ]
   }
 }

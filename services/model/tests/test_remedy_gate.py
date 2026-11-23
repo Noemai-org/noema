@@ -25,7 +25,7 @@ from noema_model.platform.config import ConfigError
 from noema_model.understanding.compiler.packconfig import load_pipeline_config
 from noema_model.understanding.pipeline import run_pipeline
 from noema_model.understanding.pipeline.templates import SLOT_GATE_V1
-from tests.support import run
+from tests.support import run, timeout_error
 from tests.support_pipeline import (
     G_A,
     GOOD_MENTIONS,
@@ -74,7 +74,7 @@ def model_for(*, gate: bool | None, p: float, pick: str | None = LOOKUP) -> Scri
 
 def remedy(result: Any) -> Any:
     assert result.proposal is not None
-    return result.proposal.reference_slots.get(SLOT)
+    return result.proposal.reference_slots[SLOT]  # the key is always there for a gated slot: a value, or None for absent
 
 
 # --- stage 1: one fixed question, in one call with the other enumerated slots ---------------------------------------------------------------------
@@ -82,12 +82,13 @@ def remedy(result: Any) -> Any:
 def test_the_gate_is_one_yes_no_in_the_fixed_words_and_the_slot_is_not_asked_as_a_choice_first() -> None:
     model = model_for(gate=True, p=0.95)
     piped(model)
-    first = next(c for c in decide_calls(model) if GATE in c)
-    assert first[GATE]["kind"] == "yes_no"
-    assert first[GATE]["prompt"] == SLOT_GATE_V1 == "Does the customer explicitly ask for something to be done for them?"
-    assert SLOT not in first  # the capability is not offered in the gate's call, abstention or not
-    assert "question_type" in first  # the required slot is still asked with the others, in its old words
-    assert first["question_type"]["prompt"] == "Which value of 'question_type' does the customer's message express?"
+    calls = decide_calls(model)
+    gate_call = next(c for c in calls if GATE in c)
+    assert gate_call[GATE]["kind"] == "yes_no"
+    assert gate_call[GATE]["prompt"] == SLOT_GATE_V1 == "Does the customer explicitly ask for something to be done for them?"
+    slots_call = next(c for c in calls if "question_type" in c)  # the required slot is still asked, in its old words, and without the gated one
+    assert slots_call["question_type"]["prompt"] == "Which value of 'question_type' does the customer's message express?"
+    assert SLOT not in slots_call and SLOT not in gate_call  # the capability is not offered with abstention, as a choice, in the first stage
 
 
 def test_the_gate_wording_names_no_slot_no_value_and_no_example() -> None:
@@ -115,6 +116,14 @@ def test_a_gate_that_says_no_leaves_the_slot_absent_and_asks_no_pick() -> None:
     result = piped(model)
     assert remedy(result) is None
     assert not any(SLOT in call for call in decide_calls(model))  # no second question was ever put to the model
+
+
+@pytest.mark.parametrize(("bp", "at", "below"), [(9500, 0.95, 0.9499), (7000, 0.7, 0.6999), (2900, 0.29, 0.2899), (1, 0.0001, 0.0)])
+def test_exactly_at_any_threshold_passes_whatever_the_binary_value_of_the_probability(bp: int, at: float, below: float) -> None:
+    """0.7 as a double lies below 7/10: read as the decimal the provider wrote, "exactly at the threshold" still passes, and one hair below does not."""
+    config = dataclasses.replace(GATED, slot_gates={SLOT: bp})
+    assert remedy(piped(model_for(gate=True, p=at), config)) == LOOKUP
+    assert remedy(piped(model_for(gate=True, p=below), config)) is None
 
 
 def test_the_threshold_is_the_packs_and_not_a_constant_in_the_core() -> None:
@@ -147,6 +156,21 @@ def test_an_answer_outside_the_options_leaves_the_slot_absent_and_does_not_stop_
     assert result.outcome.name == "PROPOSED"
 
 
+class FailsOnThePick(ScriptedModel):
+    """A provider that answers the gate and then cannot answer the pick: not an answer outside the options, a failure to answer."""
+
+    async def complete(self, request: Any) -> Any:
+        if request.schema_name == "harness_decide" and f'"question_id":"{SLOT}"' in request.user.replace(" ", ""):
+            self.requests.append(request)
+            raise timeout_error()
+        return await super().complete(request)
+
+
+def test_a_provider_that_cannot_answer_the_pick_still_stops_the_turn() -> None:
+    result = piped(FailsOnThePick(answers={**G_A, GATE: True}, mentions=GOOD_MENTIONS, probability=0.95))
+    assert result.outcome.name == "REJECTED_AT_GATE"  # fail closed: only an answer outside the options is "absent"
+
+
 def test_the_pick_call_is_accounted_for() -> None:
     result = piped(model_for(gate=True, p=0.95))
     plain = piped(model_for(gate=False, p=0.95))
@@ -165,14 +189,15 @@ def test_a_slot_that_is_not_gated_keeps_the_optional_slot_question_exactly() -> 
     model = ScriptedModel(answers={**G_A, SLOT: LOOKUP}, mentions=GOOD_MENTIONS)
     result = piped(model, pipeline_config())  # no slot_gates: the earlier behaviour (A533), prompt and abstention
     calls = decide_calls(model)
-    assert len(calls) >= 1 and GATE not in calls[0]
-    assert "explicitly ask" in calls[0][SLOT]["prompt"] and any(o["option_id"] == ABSTAIN for o in calls[0][SLOT]["options"])
+    assert all(GATE not in call for call in calls)
+    asked = next(call for call in calls if SLOT in call)
+    assert "explicitly ask" in asked[SLOT]["prompt"] and any(o["option_id"] == ABSTAIN for o in asked[SLOT]["options"])
     assert remedy(result) == LOOKUP
 
 
 def test_a_required_slot_cannot_be_gated() -> None:
     with pytest.raises(ConfigError):
-        load_pipeline_config(_pack_with_gates([{"slot": "question_type", "assertion_threshold_bp": 9000}]), ROOT / "packs" / "fintech", out_of_scope_node=OUT_OF_SCOPE)
+        load_pipeline_config(_pack_with_gates([{"slot": "question_type", "assertion_threshold_bp": 9000}]), ROOT / "packs", out_of_scope_node=OUT_OF_SCOPE)
 
 
 # --- the harness: a pick may leave out the abstention, nothing else may -------------------------------------------------------------------
@@ -201,7 +226,7 @@ def test_an_ordinary_choice_still_needs_the_abstention() -> None:
 # --- the pack declares it, and the loader reads it as data ---------------------------------------------------------------------------------
 
 def _pack_with_gates(gates: Any) -> dict[str, Any]:
-    pack = copy.deepcopy(PACK)
+    pack: dict[str, Any] = copy.deepcopy(PACK)
     if gates is None:
         pack["understanding"].pop("slot_gates", None)
     else:
@@ -210,7 +235,7 @@ def _pack_with_gates(gates: Any) -> dict[str, Any]:
 
 
 def _load(pack: dict[str, Any]) -> Any:
-    return load_pipeline_config(pack, ROOT / "packs" / "fintech", out_of_scope_node=OUT_OF_SCOPE)
+    return load_pipeline_config(pack, ROOT / "packs", out_of_scope_node=OUT_OF_SCOPE)
 
 
 def test_the_real_pack_gates_the_optional_slot_at_the_architects_interim_value() -> None:

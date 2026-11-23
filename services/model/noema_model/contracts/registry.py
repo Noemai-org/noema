@@ -257,6 +257,7 @@ TYPES: dict[str, Any] = {
     "pack.v1#Understanding/properties/proposable_flags/items": pack_v1.PackV1UnderstandingProposableFlagsItem,
     "pack.v1#Understanding/properties/ranking": pack_v1.PackV1UnderstandingRanking,
     "pack.v1#Understanding/properties/ranking/properties/weights": pack_v1.PackV1UnderstandingRankingWeights,
+    "pack.v1#Understanding/properties/slot_gates/items": pack_v1.PackV1UnderstandingSlotGatesItem,
     "pack.v1#Understanding/properties/state_flags": pack_v1.PackV1UnderstandingStateFlags,
     "plan.v1": plan_v1.PlanV1,
     "policy-rule.v1": policy_rule_v1.PolicyRuleV1,

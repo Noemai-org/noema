@@ -180,6 +180,7 @@ var Types = map[string]func() any{
 	"pack.v1#Understanding/properties/proposable_flags/items":     func() any { return new(PackV1UnderstandingProposableFlagsItem) },
 	"pack.v1#Understanding/properties/ranking":                    func() any { return new(PackV1UnderstandingRanking) },
 	"pack.v1#Understanding/properties/ranking/properties/weights": func() any { return new(PackV1UnderstandingRankingWeights) },
+	"pack.v1#Understanding/properties/slot_gates/items":           func() any { return new(PackV1UnderstandingSlotGatesItem) },
 	"pack.v1#Understanding/properties/state_flags":                func() any { return new(PackV1UnderstandingStateFlags) },
 	"plan.v1":                                                      func() any { return new(PlanV1) },
 	"policy-rule.v1":                                               func() any { return new(PolicyRuleV1) },

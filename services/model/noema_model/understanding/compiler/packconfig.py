@@ -22,6 +22,7 @@ from noema_model.understanding.resolution.config import exact_number
 _FLAG = re.compile(r"[A-Z][A-Z0-9_]*")
 _LOCALE = re.compile(r"[a-z]{2,3}(-[A-Za-z0-9]{2,8})*")
 _MEMBERS = frozenset({"ranking", "proposable_flags", "locales", "material_flags", "intent_unclear_flag", "out_of_scope_flag", "state_flags"})
+_OPTIONAL_MEMBERS = frozenset({"slot_gates"})  # UND-18: a pack that gates nothing may leave it out
 _MARGIN_KEYS = ("auto_resolve_margin", "max_candidates_before_escalate")
 
 
@@ -84,6 +85,41 @@ def _state_flags(source: Mapping[str, Any]) -> Mapping[ResolutionState, str]:
     return out
 
 
+def _slot_gates(source: Mapping[str, Any], pack: Mapping[str, Any]) -> Mapping[str, int]:
+    """`understanding.slot_gates` (UND-18, ruling A603): slot name to its threshold in integer basis points (1 to 10000; a bool or a float is refused). A gate names an optional slot that has a closed list of
+    values in some node, once; anything else fails here, at load, never at the first request. Absent means the pack gates nothing."""
+    if "slot_gates" not in source:
+        return {}
+    raw = source["slot_gates"]
+    if not isinstance(raw, list) or not raw:
+        raise ConfigError("understanding.slot_gates: expected a non-empty list")
+    slots: dict[str, list[Mapping[str, Any]]] = {}
+    for node in pack.get("intent_nodes") or []:
+        for slot in require_mapping(node, "intent_nodes[]").get("slots") or []:
+            item = require_mapping(slot, "intent_nodes[].slots[]")
+            slots.setdefault(require_str(item, "name", "slot"), []).append(item)
+    out: dict[str, int] = {}
+    for index, entry in enumerate(raw):
+        where = f"understanding.slot_gates[{index}]"
+        item = require_mapping(entry, where)
+        reject_unknown(item, frozenset({"slot", "assertion_threshold_bp"}), where)
+        name = require_str(item, "slot", where)
+        threshold = item.get("assertion_threshold_bp")
+        if isinstance(threshold, bool) or not isinstance(threshold, int) or not 1 <= threshold <= 10_000:
+            raise ConfigError(f"{where}.assertion_threshold_bp: expected a whole number of basis points from 1 to 10000")
+        if name in out:
+            raise ConfigError(f"{where}.slot: a slot is gated twice")
+        declared = slots.get(name)
+        if not declared:
+            raise ConfigError(f"{where}.slot: no node declares such a slot")
+        if any(s.get("required") is True for s in declared):
+            raise ConfigError(f"{where}.slot: only an optional slot may be gated")
+        if any(s.get("vocabulary") is None and s.get("references") is None for s in declared):
+            raise ConfigError(f"{where}.slot: the slot has no closed list of values")
+        out[name] = threshold
+    return out
+
+
 def _candidate_node(pack: Mapping[str, Any]) -> Mapping[str, Any]:
     nodes = [
         require_mapping(n, "intent_nodes[]") for n in (pack.get("intent_nodes") or [])
@@ -120,7 +156,7 @@ def load_pipeline_config(pack: Mapping[str, Any], pack_dir: Path, *, out_of_scop
     """The pipeline's configuration from the loaded pack JSON and the folder it came from. Raises ConfigError for anything missing, repeated, unknown or out of shape."""
     src = require_mapping(pack, "pack")
     block = require_mapping(src.get("understanding"), "understanding")
-    reject_unknown(block, _MEMBERS, "understanding")
+    reject_unknown(block, _MEMBERS | _OPTIONAL_MEMBERS, "understanding")
     missing = sorted(_MEMBERS - set(block))
     if missing:
         raise ConfigError(f"understanding: missing {missing}")
@@ -144,4 +180,5 @@ def load_pipeline_config(pack: Mapping[str, Any], pack_dir: Path, *, out_of_scop
         out_of_scope_flag=_flag(block["out_of_scope_flag"], "understanding.out_of_scope_flag"),
         native_yes_threshold=None,
         state_flags=_state_flags(block),
+        slot_gates=_slot_gates(block, src),
     )

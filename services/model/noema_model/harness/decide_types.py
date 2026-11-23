@@ -38,9 +38,13 @@ class Option:
 
 @dataclass(frozen=True, slots=True)
 class ChoiceQuestion:
+    """`pick_only` marks the second stage of a gated slot (UND-18, ruling A603): the question is asked only after a yes/no gate has passed, and then it has NO abstention, because the abstention was
+    the fragile part. Every other choice question keeps the mandatory abstention (PERD §19.1); a pick must not carry it, so the two kinds cannot be confused."""
+
     question_id: str
     prompt: str
     options: tuple[Option, ...]
+    pick_only: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +126,10 @@ def validate_questions(questions: tuple[Question, ...]) -> None:
             ids = [o.option_id for o in question.options]
             if len(set(ids)) != len(ids) or not all(_ID.match(i) and o.label for i, o in zip(ids, question.options, strict=True)):
                 raise HarnessRejection(Reason.QUESTION_INVALID)
-            if ABSTAIN not in ids:
+            if question.pick_only:
+                if ABSTAIN in ids:
+                    raise HarnessRejection(Reason.QUESTION_INVALID)
+            elif ABSTAIN not in ids:
                 raise HarnessRejection(Reason.NO_ABSTENTION)
             if len(ids) < 2:
                 raise HarnessRejection(Reason.QUESTION_INVALID)

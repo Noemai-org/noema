@@ -21,9 +21,10 @@ type PackV1Understanding struct {
 	IntentUnclearFlag string                                   `json:"intent_unclear_flag"`
 	OutOfScopeFlag    string                                   `json:"out_of_scope_flag"`
 	StateFlags        PackV1UnderstandingStateFlags            `json:"state_flags"`
+	SlotGates         *[]PackV1UnderstandingSlotGatesItem      `json:"slot_gates,omitempty"`
 }
 
-var PackV1UnderstandingShape = objectShape{name: "PackV1Understanding", props: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true}, required: []string{"ranking", "proposable_flags", "locales", "material_flags", "intent_unclear_flag", "out_of_scope_flag", "state_flags"}, nonNull: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true}, closed: true}
+var PackV1UnderstandingShape = objectShape{name: "PackV1Understanding", props: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true, "slot_gates": true}, required: []string{"ranking", "proposable_flags", "locales", "material_flags", "intent_unclear_flag", "out_of_scope_flag", "state_flags"}, nonNull: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true, "slot_gates": true}, closed: true}
 
 func (t *PackV1Understanding) UnmarshalJSON(b []byte) error {
 	raw, err := PackV1UnderstandingShape.check(b)
@@ -151,6 +152,29 @@ func (t *PackV1UnderstandingRankingWeights) UnmarshalJSON(b []byte) error {
 	}
 	_ = raw
 	*t = PackV1UnderstandingRankingWeights(a)
+	return nil
+}
+
+// PackV1UnderstandingSlotGatesItem is generated from pack.v1.json#$defs/Understanding/properties/slot_gates/items.
+type PackV1UnderstandingSlotGatesItem struct {
+	Slot                 string `json:"slot"`
+	AssertionThresholdBp int64  `json:"assertion_threshold_bp"`
+}
+
+var PackV1UnderstandingSlotGatesItemShape = objectShape{name: "PackV1UnderstandingSlotGatesItem", props: map[string]bool{"slot": true, "assertion_threshold_bp": true}, required: []string{"slot", "assertion_threshold_bp"}, nonNull: map[string]bool{"slot": true, "assertion_threshold_bp": true}, closed: true}
+
+func (t *PackV1UnderstandingSlotGatesItem) UnmarshalJSON(b []byte) error {
+	raw, err := PackV1UnderstandingSlotGatesItemShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias PackV1UnderstandingSlotGatesItem
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: PackV1UnderstandingSlotGatesItem: %w", err)
+	}
+	_ = raw
+	*t = PackV1UnderstandingSlotGatesItem(a)
 	return nil
 }
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from fractions import Fraction
+from types import MappingProxyType
 from typing import Protocol
 
 from noema_model.harness import CallRecord
@@ -76,6 +77,8 @@ class PipelineConfig:
     out_of_scope_flag: str
     native_yes_threshold: Fraction | None
     state_flags: Mapping[ResolutionState, str]
+    slot_gates: Mapping[str, int] = MappingProxyType({})
+    """UND-18 (A603): slot name to the threshold, in integer basis points, at which a gate's yes counts. Pack data; empty when the pack gates nothing."""
 
 
 @dataclass(frozen=True, slots=True)

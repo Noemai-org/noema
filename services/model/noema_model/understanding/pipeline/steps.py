@@ -7,6 +7,7 @@ to be a legal identifier. The abstention is always offered and is always honoure
 
 from collections.abc import Mapping, Sequence
 from fractions import Fraction
+from types import MappingProxyType
 
 from noema_model.harness import (
     ABSTAIN,
@@ -17,12 +18,14 @@ from noema_model.harness import (
     DecisionTask,
     GenerateRequest,
     Harness,
+    HarnessRejection,
     Option,
     YesNoAnswer,
     YesNoQuestion,
 )
+from noema_model.harness.errors import Reason
 from noema_model.understanding.pipeline.catalogue import NodeCatalogue, NodeInfo, SlotInfo
-from noema_model.understanding.pipeline.templates import SLOT_MENTIONS_V1
+from noema_model.understanding.pipeline.templates import SLOT_GATE_V1, SLOT_MENTIONS_V1, SLOT_PICK_V1
 from noema_model.understanding.pipeline.types import FlagSpec, LocaleOption, MentionProposal, PipelineInput
 
 NONE_LABEL = "None of these, or not sure"
@@ -82,11 +85,17 @@ def _slot_prompt(slot: SlotInfo) -> str:
     return f"Does the customer explicitly ask for one of these values of '{slot.name}'? If the customer does not explicitly ask for one, choose {ABSTAIN}."
 
 
+def gated_slots(node: NodeInfo, gates: Mapping[str, int]) -> tuple[SlotInfo, ...]:
+    """The node's slots the pack gates (UND-18, A603): optional, with a closed list of values, named in `understanding.slot_gates`. A required slot is never gated (the loader refuses a pack that says so)."""
+    return tuple(s for s in node.slots if s.name in gates and not s.required and (s.vocabulary is not None or s.references is not None))
+
+
 async def enumerated_slots(
-    harness: Harness, catalogue: NodeCatalogue, node: NodeInfo, inp: PipelineInput
+    harness: Harness, catalogue: NodeCatalogue, node: NodeInfo, inp: PipelineInput, gates: Mapping[str, int] = MappingProxyType({})
 ) -> tuple[Mapping[str, str | None], Mapping[str, Mapping[str, float]], CallRecord | None]:
-    """Task 2: the closed-vocabulary slots, such as question_type and requested_remedy."""
-    slots = [s for s in node.slots if s.vocabulary is not None or s.references is not None]
+    """Task 2: the closed-vocabulary slots, such as question_type. A gated slot is not asked here as a choice: it is asked as a gate (`gate_slots`) and picked only if the gate passes (`pick_gated`)."""
+    gated = {s.name for s in gated_slots(node, gates)}
+    slots = [s for s in node.slots if (s.vocabulary is not None or s.references is not None) and s.name not in gated]
     if not slots:
         return {}, {}, None
     questions, maps = [], {}
@@ -104,6 +113,73 @@ async def enumerated_slots(
         values[answer.question_id] = _chosen(answer, maps[answer.question_id])
         probabilities[answer.question_id] = {maps[answer.question_id].get(k, k): v for k, v in answer.probabilities.items()}
     return values, probabilities, result.call
+
+
+def _decimal(p: float) -> Fraction:
+    """A provider's probability as the decimal it wrote, not as its binary value: 0.7 is exactly 7/10 (the double nearest to 0.7 lies a hair below it, and would make "exactly at the threshold" fail)."""
+    return Fraction(repr(p))  # repr is the shortest decimal that reads back as the same float: '0.7', '1e-05'
+
+
+def gate_asserted(answer: YesNoAnswer, threshold_bp: int) -> bool:
+    """Whether a gate's yes stands (UND-18, A603). The comparison is exact: the probability of yes, as the decimal the provider wrote, against `threshold_bp / 10000`, never rounded. Unlike `asserted`, a model that selected
+    "yes" is not taken at its word: a yes it gives at a low probability is the doubt the gate exists for, and a false assertion is the harmful error, so doubt abstains. A model that
+    selected "no" is a no whatever its probability says."""
+    if answer.yes is False:
+        return False
+    return _decimal(answer.p_yes) >= Fraction(threshold_bp, 10_000)
+
+
+async def gate_slots(
+    harness: Harness, node: NodeInfo, inp: PipelineInput, gates: Mapping[str, int]
+) -> tuple[tuple[str, ...], Mapping[str, Mapping[str, float]], CallRecord | None]:
+    """Stage 1 of every gated slot: one yes/no question, in the one fixed sentence (`SLOT_GATE_V1`), whether the customer explicitly asks for something to be done. Returns the slots whose gate passed,
+    the probability of yes per gate (kept for the log, key `<slot>_gate`) and the call."""
+    slots = gated_slots(node, gates)
+    if not slots:
+        return (), {}, None
+    questions = tuple(YesNoQuestion(f"{s.name}_gate", SLOT_GATE_V1) for s in slots)
+    result = await harness.decide(
+        DecideRequest(DecisionTask.ENUMERATED_SLOT, _state(inp), questions, inp.locale_hint, inp.correlation_id)
+    )
+    passed: list[str] = []
+    probabilities: dict[str, Mapping[str, float]] = {}
+    for slot, answer in zip(slots, result.answers, strict=True):
+        assert isinstance(answer, YesNoAnswer)
+        probabilities[f"{slot.name}_gate"] = {"yes": answer.p_yes}
+        if gate_asserted(answer, gates[slot.name]):
+            passed.append(slot.name)
+    return tuple(passed), probabilities, result.call
+
+
+async def pick_gated(
+    harness: Harness, catalogue: NodeCatalogue, node: NodeInfo, inp: PipelineInput, passed: Sequence[str]
+) -> tuple[Mapping[str, str | None], Mapping[str, Mapping[str, float]], tuple[CallRecord, ...]]:
+    """Stage 2: the pick, only for the slots whose gate passed, with NO abstention. An answer outside the options (the harness refuses it as OUTPUT_MISMATCH) leaves the slot absent and does
+    not stop the turn; any other refusal (a provider that cannot answer) still does, as everywhere else. Every call made is returned, the refused one too."""
+    slots = [s for s in node.slots if s.name in passed]
+    if not slots:
+        return {}, {}, ()
+    questions, maps = [], {}
+    for slot in slots:
+        options = [(v, v) for v in catalogue.vocabulary_for(slot)]
+        ids = {f"o{i}": value for i, (value, _) in enumerate(options)}
+        questions.append(ChoiceQuestion(slot.name, SLOT_PICK_V1, tuple(Option(f"o{i}", label) for i, (_, label) in enumerate(options)), pick_only=True))
+        maps[slot.name] = ids
+    try:
+        result = await harness.decide(
+            DecideRequest(DecisionTask.ENUMERATED_SLOT, _state(inp), tuple(questions), inp.locale_hint, inp.correlation_id)
+        )
+    except HarnessRejection as rejection:
+        if rejection.reason is not Reason.OUTPUT_MISMATCH:
+            raise
+        return {s.name: None for s in slots}, {}, (rejection.call,) if rejection.call is not None else ()
+    values: dict[str, str | None] = {}
+    probabilities: dict[str, Mapping[str, float]] = {}
+    for answer in result.answers:
+        assert isinstance(answer, ChoiceAnswer)
+        values[answer.question_id] = maps[answer.question_id][answer.selected]
+        probabilities[answer.question_id] = {maps[answer.question_id].get(k, k): v for k, v in answer.probabilities.items()}
+    return values, probabilities, (result.call,)
 
 
 async def propose_flags(
