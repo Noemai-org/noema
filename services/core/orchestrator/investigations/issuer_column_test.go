@@ -97,15 +97,13 @@ func TestAnIssuerOutsideItsFormIsRefusedByTheStoreAndByTheDatabase(t *testing.T)
 			t.Errorf("the database accepted %s", name)
 		}
 	}
-	if _, err := w.admin.Exec(ctx(t), insertIssuer, tenantA, "inv_DB22", "recev_DB22", issuerA); err != nil {
-		t.Fatalf("the control insert with a good issuer: %v", err)
-	}
-	if _, err := w.admin.Exec(ctx(t), `DELETE FROM investigation WHERE investigation_id = 'inv_DB22'`); err != nil {
-		t.Logf("cleanup: %v", err)
-	}
 	var n int
 	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM investigation WHERE asserted_by IS NOT NULL`).Scan(&n); err != nil || n != 0 {
 		t.Errorf("%d rows hold an issuer after only refused writes (%v)", n, err)
+	}
+	// The control comes last: the table is insert-only, so its row cannot be removed, and the count above has already been taken.
+	if _, err := w.admin.Exec(ctx(t), insertIssuer, tenantA, "inv_DB22", "recev_DB22", issuerA); err != nil {
+		t.Fatalf("the control insert with a good issuer: %v", err)
 	}
 }
 
