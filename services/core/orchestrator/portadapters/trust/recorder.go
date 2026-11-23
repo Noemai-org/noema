@@ -49,6 +49,7 @@ const (
 var (
 	recDecisionRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
 	recHashRe     = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
+	recRequestRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
 )
 
 // TxBeginner opens a transaction as the tenant's own database login (the composition holds one pool per tenant, as noema#535 does). The adapter commits or rolls it back.
@@ -235,12 +236,15 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	}
 	return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), PolicyID: f.PolicyID,
 		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, ConfirmationBindingEvidenceHash: binding, Steps: steps,
-		ConfirmationRequest: newRequest(r.ConfirmationRequest), DispositionDecisionID: r.DispositionDecisionID}, nil
+		ConfirmationRequest: newRequest(r.ConfirmationRequest), DispositionDecisionID: r.DispositionDecisionID, DeclinedRequestID: r.DeclinedRequestID}, nil
 }
 
 // outcomeShape is A456 (interim, relayed, not yet committed): the port serves every outcome. An ALLOW names its plan hash (a read has no steps but has its plan and its hash, A205
 // Q3; a write's steps are the intake's to count). Every other outcome has no plan hash and no step, so no grant (INV-03), and only a CONFIRM carries a confirmation request.
 func outcomeShape(r intake.RecordRequest) error {
+	if err := declinedShape(r); err != nil {
+		return err
+	}
 	if r.Decision.Outcome() == decide.Allow {
 		if !recHashRe.MatchString(r.PlanHash) {
 			return ErrRecordRequest
@@ -260,4 +264,29 @@ func newRequest(c *intake.NewConfirmationRequest) *recorder.NewConfirmationReque
 	}
 	return &recorder.NewConfirmationRequest{PrincipalID: c.PrincipalID, IntentHash: c.IntentHash, CapabilityID: c.CapabilityID, TargetRef: c.TargetRef, ParamsHash: c.ParamsHash,
 		ConfirmationBindingEvidenceHash: c.ConfirmationBindingEvidenceHash, PlanHash: c.PlanHash, PolicyVersion: c.PolicyVersion, Requirement: c.Requirement, RequesterID: c.RequesterID, ExpiresAt: c.ExpiresAt}
+}
+
+// declinedShape is A470 and A507 (interim, relayed, not yet committed): only a REJECT for DECLINED_BY_APPROVER may name the confirmation request it rests on, and the name has the shape
+// of a confirmation request id. Any other decision that names one is refused before a transaction opens (INV-03: no other outcome rests on a confirmation); the Writer then checks that the
+// request is the tenant's and the decision's intent's.
+func declinedShape(r intake.RecordRequest) error {
+	if r.DeclinedRequestID == "" {
+		return nil
+	}
+	if r.Decision.Outcome() != decide.Reject || !hasReason(r.Decision, "DECLINED_BY_APPROVER") {
+		return fmt.Errorf("%w: only a decline by the approver names a declined request", ErrRecordRequest)
+	}
+	if !recRequestRe.MatchString(r.DeclinedRequestID) {
+		return fmt.Errorf("%w: the declined request id is malformed", ErrRecordRequest)
+	}
+	return nil
+}
+
+func hasReason(d decide.Decision, code string) bool {
+	for _, rc := range d.Reasons() {
+		if rc.String() == code {
+			return true
+		}
+	}
+	return false
 }
