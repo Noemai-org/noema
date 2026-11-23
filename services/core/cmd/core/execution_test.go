@@ -124,6 +124,10 @@ func TestATenantWithOnlyOneOfTheTwoLoginsIsRefused(t *testing.T) {
 
 func TestABadReceiptKeyDirectoryRefusesToStartAndNeverEchoesASecret(t *testing.T) {
 	d := newExecDirs(t, "ten_aa")
+	key := filepath.Join(d.keys, "core-execution.ed25519.1.key")
+	if err := os.Remove(key); err != nil { // newExecDirs wrote it 0o400; a non-root runner cannot rewrite a read-only file in place
+		t.Fatal(err)
+	}
 	writeKey(t, d.keys, "core-execution.ed25519.1.key", aSeed, 0o644) // group and other bits: refused
 	parts, _, err := buildExecution(t.Context(), execEnv(d, "2"))
 	if err == nil || parts != nil || !strings.Contains(err.Error(), EnvExecutionKeyDir) || strings.Contains(err.Error(), aSeed) {
