@@ -403,3 +403,21 @@ def test_the_proposed_manifest_loads_fits_the_budget_and_covers_the_five_locales
     assert voices[Locale.PCM].language == "pcm" and voices[Locale.PCM].accent == "pidgin" and voices[Locale.EN_NG].language == "en" and voices[Locale.EN_NG].accent == "yoruba"
     for locale in (Locale.YO, Locale.HA, Locale.IG):
         assert voices[locale].language == locale.value
+
+
+@pytest.mark.parametrize(("failure", "word"), [(ProviderFailure.REJECTED, "rejected"), (ProviderFailure.UNAVAILABLE, "inconclusive"), (ProviderFailure.RATE_LIMITED, "inconclusive")])
+def test_a_refusal_at_the_handshake_is_rejected_only_when_the_vendor_refused_the_key(tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: ProviderFailure, word: str) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            raise ProviderError(failure)
+
+        return connect
+
+    argv = ["--check-key", f"--settings={write_json(tmp_path / 'settings.json', SETTINGS_FILE)}", "--base-url=wss://example.invalid"]
+    code = main(argv, {"INTRON_API_KEY_FILE": str(key)}, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    out = capsys.readouterr()
+    assert out.out.strip() == word and code == (1) and KEY not in out.out + out.err

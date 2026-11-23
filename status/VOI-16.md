@@ -53,3 +53,19 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 ## Pre-work for the next agent
 - Exact next step: when noema#816 and noema#824 merge, open the runner PR from `main` with these commits (tests first); then, when the key file is in place and the Founder writes `start` on noema#767, run it once and post the report.
 - Do not touch: the settings values of A380.
+
+# Session 2026-11-23 · VOI-16 (the runner entry point, in noema#824)
+
+## Session summary
+- What changed (noema#824): `voice/baseline_run.py` gains `--check-key` (A487, output accepted in A523): one speech-to-text connection with the key, nothing sent, closed, one word printed (accepted, rejected or inconclusive; exit 0, 1, 1; refusals before any connection exit 2). Only an authentication error message or a handshake refusal typed REJECTED is "rejected"; a dropped, silent or unknown reply is "inconclusive". An item whose generated audio is outside the 5 to 15 second condition is skipped before any speech-to-text call, counted as `skipped_out_of_bounds`, and the run goes on. `bench/manifest.proposed.json` and `bench/voices.proposed.json` are proposals (A523), described in `bench/README.md`.
+- Why: A487 (check the key without audio), A380 (the measurement condition), the Founder's instruction of 22 Nov to write the manifest and voices files marked proposed.
+- Risks, and how they are contained: the manifest's Yoruba, Hausa and Igbo phrases are written by the Voice Engineer, not a native speaker (REQ-VOI-007 asks for one); the voice gender is a placeholder (the documentation names no voices); the accent values for yo, ha and ig are the accents the documentation's text-to-speech table lists under those languages. Nothing has run against the real endpoint.
+- Tests added (REQ-VOI-001, REQ-VOI-004, REQ-NFR-003): 8 red at 457002af (model job read: 8 failed, 3183 passed), plus `test_a_refusal_at_the_handshake_is_rejected_only_when_the_vendor_refused_the_key`. Five mutants of the new code each fail a test.
+- Debt entries for the Steward to register (text): (1) the #640 deviation: the Intron speech-to-text adapter observes the audio sender's exception and drops it instead of reporting it with fixed redacted codes, because the adapter takes no telemetry argument and adding one widens its interface; owner Voice; removal condition: the voice route passes a telemetry sink (A381, after the baseline); (2) the baseline runner has never run against Intron's real endpoints; owner Voice and the Founder; removal condition: the first live run reported in noema#767 and the wire modules corrected in one place if the first call shows a field spelled differently.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Founder runs `--check-key` with the key file, the settings file and the base address (prints one word), then writes the single "start" comment on noema#767; Voice runs the baseline once and posts the report.
+- Open questions (Founder): adults-only and the bystander rule (noema#201); the voice names (the Intron Product session).
+- Files to read first: `voice/baseline_run.py`, `bench/README.md`.
+- Do not touch: the settings values (A380), the store's modes, any vendor address in the repository.

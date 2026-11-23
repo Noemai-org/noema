@@ -26,6 +26,7 @@ from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.providers.speech.intron_connect import websocket_connector
 from noema_model.providers.speech.intron_key import KeyFileError, key_reader
 from noema_model.providers.speech.intron_stt import Connect, IntronSpeechToText
+from noema_model.providers.speech.intron_wire import stt_url
 from noema_model.providers.speech.intron_tts import IntronTextToSpeech, Voice
 from noema_model.providers.speech.tts import SpeechSynthesizer, SynthesisRequest
 from noema_model.voice.baseline import AudioStore, BaselineSettings, ManifestItem, StoreError, build_report, downsample_pcm16, pause_s, plan_budget, word_error_rate
@@ -180,7 +181,8 @@ async def run_baseline(
     wers: list[float] = []
     generation_s = stt_s = spoken_s = 0.0
     failures_in_a_row = 0
-    ran = 0
+    ran = skipped = 0
+    low, high = bounds_s
     for index, item in enumerate(plan.kept):
         if index:
             await sleep(pause_s(settings))
@@ -196,6 +198,9 @@ async def run_baseline(
             assert item.file is not None
             pcm = store.read(item.speaker_ref, item.file)
         utterance = Utterance(label=item.label, locale=item.locale, frames=_frames(pcm), origin=item.origin)
+        if not (low <= utterance.duration_s <= high):
+            skipped += 1  # the measurement condition is the Founder's (A241): audio outside it is never sent and is counted, and the run goes on
+            continue
         core = _StandIn(item.script if item.origin is AudioOrigin.TEAM_RECORDING else None, answer_text)
         try:
             async with asyncio.timeout(settings.session_s):
@@ -213,12 +218,13 @@ async def run_baseline(
         failures_in_a_row = failures_in_a_row + 1 if result.failure is not None else 0
         if result.failure is ProviderFailure.RATE_LIMITED or failures_in_a_row >= _STOP_AFTER_FAILURES:
             break
-    not_run = len(plan.kept) - ran
+    not_run = len(plan.kept) - ran - skipped
     if not results:
-        return {"sessions": {"total": 0, "complete": 0, "incomplete": 0}, "not_run": not_run, "dropped_from_manifest": len(plan.dropped)}
+        return {"sessions": {"total": 0, "complete": 0, "incomplete": 0}, "not_run": not_run, "skipped_out_of_bounds": skipped, "dropped_from_manifest": len(plan.dropped)}
     report = build_report(results, wers=wers, target_ms=targets_ms, spent={"generation_s": generation_s, "stt_s": stt_s, "spoken_s": spoken_s}, budget_s=settings.budget_minutes * 60.0,
                           dropped=len(plan.dropped))
     report["not_run"] = not_run
+    report["skipped_out_of_bounds"] = skipped
     return report
 
 
@@ -249,6 +255,66 @@ def _load_voices(path: Path) -> dict[Locale, Voice]:
     return voices
 
 
+def _verdict(raw: object) -> str:
+    """accepted, rejected or inconclusive, from the first message the server sent. Only an authentication error is a rejection: anything unknown is not."""
+    try:
+        kind = json.loads(raw)["message_type"] if isinstance(raw, str) else None
+    except (ValueError, KeyError, TypeError, RecursionError):
+        return "inconclusive"
+    if kind == "SESSION_CREATED":
+        return "accepted"
+    if kind == "AUTHENTICATION_ERROR":
+        return "rejected"
+    return "inconclusive"
+
+
+async def _probe(connect: Connect, url: str, key: str, open_timeout_s: float, close_s: float) -> str:
+    connection = None
+    try:
+        async with asyncio.timeout(open_timeout_s):
+            connection = await connect(url, {"Authorization": f"Bearer {key}"})
+            return _verdict(await connection.recv())
+    except ProviderError as error:
+        return "rejected" if error.kind is ProviderFailure.REJECTED else "inconclusive"  # the handshake refusal of 401 and 403 is the vendor refusing the key
+    except (TimeoutError, OSError):
+        return "inconclusive"  # a dropped or silent connection says nothing about the key
+    finally:
+        if connection is not None:
+            try:
+                async with asyncio.timeout(close_s):
+                    await connection.close()
+            except (TimeoutError, OSError):
+                pass  # the answer is already known; a close that fails or stalls changes nothing about it
+
+
+def _check_key(argv: Sequence[str], environ: Mapping[str, str], make_connector: Callable[..., Connect]) -> int:
+    """`--check-key` (A487, accepted in A523): opens one speech-to-text connection with the key, sends nothing (no audio), closes, and prints one word: accepted, rejected or inconclusive.
+    Exit 0 accepted, 1 rejected or inconclusive, 2 refused before any connection. The Founder runs it; the key, the path and the address are never printed."""
+    parser = argparse.ArgumentParser(prog="baseline-run", add_help=False, exit_on_error=False)
+    parser.add_argument("--check-key", action="store_true", required=True)
+    for name in ("settings", "base-url"):
+        parser.add_argument(f"--{name}", required=True)
+    try:
+        args = vars(parser.parse_args(list(argv)))
+    except (argparse.ArgumentError, SystemExit):
+        return _fail("--check-key needs --settings and --base-url and nothing else")
+    key = key_reader(environ)
+    try:
+        secret = key()
+    except KeyFileError:
+        return _fail("the Intron key file is missing or not safe (INTRON_API_KEY_FILE, owner-only)")
+    try:
+        settings, _, wire = load_settings(Path(args["settings"]))
+        url = stt_url(args["base_url"], Locale.EN_NG)
+    except (RunnerConfigError, ValueError):
+        return _fail("the settings file or the base address is not valid")
+    connect = make_connector(open_timeout_s=wire.open_timeout_s, close_timeout_s=settings.close_s, ping_interval_s=wire.ping_interval_s, ping_timeout_s=wire.ping_timeout_s,
+                             max_message_bytes=wire.max_message_bytes)
+    word = asyncio.run(_probe(connect, url, secret, wire.open_timeout_s, settings.close_s))
+    print(word)
+    return 0 if word == "accepted" else 1
+
+
 def main(
     argv: Sequence[str],
     environ: Mapping[str, str],
@@ -258,7 +324,9 @@ def main(
     clock_ms: Callable[[], int] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> int:
-    """Exit 0 ran (see the report), 2 refused before any connection. Nothing the key, the audio or a transcript is ever printed."""
+    """Exit 0 ran (see the report), 2 refused before any connection (`--check-key` is described at `_check_key`). Nothing the key, the audio or a transcript is ever printed."""
+    if "--check-key" in argv:
+        return _check_key(argv, environ, make_connector)
     parser = argparse.ArgumentParser(prog="baseline-run", add_help=False, exit_on_error=False)
     for name in _ARGUMENTS:
         parser.add_argument(f"--{name}", required=True)

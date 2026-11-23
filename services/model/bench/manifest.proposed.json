@@ -1,0 +1,218 @@
+[
+  {
+    "label": "en-NG-01",
+    "locale": "en-NG",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 5.8,
+    "answer_s": 3.0,
+    "script": "Please send ten thousand naira to Tunde Bello from my savings account before noon today."
+  },
+  {
+    "label": "en-NG-02",
+    "locale": "en-NG",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.9,
+    "answer_s": 3.0,
+    "script": "Good morning, I want to check the balance on my current account and see the last three transactions."
+  },
+  {
+    "label": "en-NG-03",
+    "locale": "en-NG",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 8.5,
+    "answer_s": 3.0,
+    "script": "I did not authorise the charge of two thousand five hundred naira on my card yesterday. Please open a dispute for it."
+  },
+  {
+    "label": "en-NG-04",
+    "locale": "en-NG",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.9,
+    "answer_s": 3.0,
+    "script": "Kindly transfer fifty thousand naira to Amaka Eze for the school fees and send me a confirmation message."
+  },
+  {
+    "label": "en-NG-05",
+    "locale": "en-NG",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.2,
+    "answer_s": 3.0,
+    "script": "What is the status of the complaint I raised last week about the failed airtime purchase?"
+  },
+  {
+    "label": "en-NG-06",
+    "locale": "en-NG",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 7.3,
+    "answer_s": 3.0,
+    "script": "I need to change the daily limit on my transfers from one hundred thousand to two hundred thousand naira."
+  },
+  {
+    "label": "pcm-01",
+    "locale": "pcm",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 5.8,
+    "answer_s": 3.0,
+    "script": "Abeg, I wan send ten thousand naira give Tunde, make you do am before afternoon."
+  },
+  {
+    "label": "pcm-02",
+    "locale": "pcm",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.5,
+    "answer_s": 3.0,
+    "script": "How far, wetin be my balance for my current account, and wetin I do last three times?"
+  },
+  {
+    "label": "pcm-03",
+    "locale": "pcm",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 7.7,
+    "answer_s": 3.0,
+    "script": "Dem collect two thousand five hundred naira from my card, but I no do am. Abeg open complain for me."
+  },
+  {
+    "label": "pcm-04",
+    "locale": "pcm",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.9,
+    "answer_s": 3.0,
+    "script": "I wan transfer fifty thousand naira give Amaka for school fees, then send message when e don go."
+  },
+  {
+    "label": "pcm-05",
+    "locale": "pcm",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.2,
+    "answer_s": 3.0,
+    "script": "Wetin happen to the complain wey I put last week about the airtime wey no enter?"
+  },
+  {
+    "label": "pcm-06",
+    "locale": "pcm",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.2,
+    "answer_s": 3.0,
+    "script": "Abeg increase my daily transfer limit from one hundred thousand naira to two hundred thousand naira."
+  },
+  {
+    "label": "yo-01",
+    "locale": "yo",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.5,
+    "answer_s": 3.0,
+    "script": "E jowo, I want to send ten thousand naira to Tunde Bello from my savings account today."
+  },
+  {
+    "label": "yo-02",
+    "locale": "yo",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 7.3,
+    "answer_s": 3.0,
+    "script": "Good morning, mo fe check owo ti o wa ninu account mi, and show me the last three transactions."
+  },
+  {
+    "label": "yo-03",
+    "locale": "yo",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 8.1,
+    "answer_s": 3.0,
+    "script": "I did not make the two thousand five hundred naira charge on my card. E jowo open a dispute for me."
+  },
+  {
+    "label": "yo-04",
+    "locale": "yo",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 7.3,
+    "answer_s": 3.0,
+    "script": "Please transfer fifty thousand naira to Amaka Eze for school fees, and send me a message when e se."
+  },
+  {
+    "label": "ha-01",
+    "locale": "ha",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.9,
+    "answer_s": 3.0,
+    "script": "Don Allah, I want to send ten thousand naira to Musa Bello from my savings account before noon."
+  },
+  {
+    "label": "ha-02",
+    "locale": "ha",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 7.3,
+    "answer_s": 3.0,
+    "script": "Good morning, ina so in duba kudi na a cikin account dina, and show me the last three transactions."
+  },
+  {
+    "label": "ha-03",
+    "locale": "ha",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 8.5,
+    "answer_s": 3.0,
+    "script": "I did not make the charge of two thousand five hundred naira on my card. Don Allah open a dispute for it."
+  },
+  {
+    "label": "ha-04",
+    "locale": "ha",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.9,
+    "answer_s": 3.0,
+    "script": "Please transfer fifty thousand naira to Amina Yusuf for school fees, and send me a confirmation, na gode."
+  },
+  {
+    "label": "ig-01",
+    "locale": "ig",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.9,
+    "answer_s": 3.0,
+    "script": "Biko, I want to send ten thousand naira to Tunde Bello from my savings account before noon today."
+  },
+  {
+    "label": "ig-02",
+    "locale": "ig",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.5,
+    "answer_s": 3.0,
+    "script": "Good morning, achoro m ileba ego di n'account m, and show me the last three transactions, biko."
+  },
+  {
+    "label": "ig-03",
+    "locale": "ig",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 8.1,
+    "answer_s": 3.0,
+    "script": "I did not make the charge of two thousand five hundred naira on my card. Biko open a dispute for me."
+  },
+  {
+    "label": "ig-04",
+    "locale": "ig",
+    "origin": "SYNTHETIC",
+    "speaker_ref": "synthetic",
+    "audio_s": 6.5,
+    "answer_s": 3.0,
+    "script": "Please transfer fifty thousand naira to Ngozi Eze for school fees and send me a confirmation, daalu."
+  }
+]
