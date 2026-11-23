@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "fin",
+  "label": "SYNTHETIC",
+  "ambiguity_absolute_floor_bp": 7000,
+  "clock_at_risk_remaining_bp": 2500,
+  "escalation_reasons": [
+    {
+      "classification": "CONTRADICTORY_STATE",
+      "reason_code": "fin.reason.contradictory_state"
+    }
+  ],
+  "allowed_under_freeze": [
+    "fin.cap.create_escalation_case"
+  ],
+  "phase_routes": [
+    {
+      "phase": "LATE",
+      "reason_code": "fin.reason.sla_breached"
+    }
+  ],
+  "anchor_entities": [
+    {
+      "event": "complaint_logged",
+      "entity": "complaint_ref",
+      "field": "effective_at"
+    }
+  ]
+}

@@ -21,5 +21,19 @@
   "at_risk_zero.json": "minimum",
   "floor_below_7000.json": "minimum",
   "at_risk_below_1000.json": "minimum",
-  "at_risk_above_5000.json": "maximum"
+  "at_risk_above_5000.json": "maximum",
+  "routing_class_unknown.json": "enum",
+  "routing_class_lowercase.json": "enum",
+  "routing_reason_not_a_pack_code.json": "pattern",
+  "routing_reason_missing.json": "required",
+  "routing_item_unknown_member.json": "additionalProperties",
+  "routing_list_empty.json": "minItems",
+  "freeze_capability_not_an_id.json": "pattern",
+  "freeze_list_empty.json": "minItems",
+  "freeze_capability_repeated.json": "uniqueItems",
+  "phase_unknown.json": "enum",
+  "phase_reason_not_a_pack_code.json": "pattern",
+  "anchor_field_missing.json": "required",
+  "anchor_event_uppercase.json": "pattern",
+  "anchor_list_empty.json": "minItems"
 }
