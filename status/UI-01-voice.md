@@ -27,3 +27,6 @@ Node 22: the full Node suite and six Chromium Playwright checks pass locally, in
 ## A505 · voice security follow-up
 - The push-to-talk component shows the visible `Recording` status while capture is active and removes it when capture stops. The host must supply a maximum recording duration; no production default is assumed (#860).
 - Technical debt — owner: Frontend Engineer, with Voice Engineer review. `ScriptProcessorNode` is deprecated; replace it with `AudioWorklet` in a follow-up while preserving PCM16 mono framing, the recording deadline, cleanup and privacy tests. This POC does not claim physical-device or live voice-sink acceptance.
+
+## 23 Nov · synthetic host and sink
+- A515: a synthetic browser host passes 20,000 ms explicitly to the component; no value is defaulted by UI code. Chromium's synthetic microphone feeds a synthetic in-memory sink while the visible Recording indicator is asserted, then the test releases the control. The sink interface is documented in ui/overlay/VOICE-CAPTURE.md. Node 22 full suite passes with one real-core test skipped. No live voice route or Android-device result is claimed.
