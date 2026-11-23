@@ -34,3 +34,14 @@ func TestAMemberTheContractDoesNotHaveIsStillRefused(t *testing.T) {
 	mustRefuse(t, "an unknown member next to the routing members", strings.Replace(routed, `"allowed_under_freeze"`, `"allowed_always":["x"],"allowed_under_freeze"`, 1))
 	mustRefuse(t, "a routing member of the wrong type", strings.Replace(routed, `"allowed_under_freeze":["fin.cap.create_escalation_case"]`, `"allowed_under_freeze":"fin.cap.create_escalation_case"`, 1))
 }
+
+// JSON Schema cannot say "one entry per classification, phase or event" (uniqueItems compares whole items), so Load does, and packcheck says it again for the pack.
+func TestOneEntryPerClassificationPhaseAndEventAndNoEmptyList(t *testing.T) {
+	dupClass := `{"classification":"CONTRADICTORY_STATE","reason_code":"fin.reason.contradictory_state"}`
+	mustRefuse(t, "a classification routed twice", strings.Replace(routed, dupClass, dupClass+`,{"classification":"CONTRADICTORY_STATE","reason_code":"fin.reason.execution_outcome_unknown"}`, 1))
+	dupPhase := `{"phase":"BREACHED","reason_code":"fin.reason.sla_breached"}`
+	mustRefuse(t, "a phase routed twice", strings.Replace(routed, dupPhase, dupPhase+`,{"phase":"BREACHED","reason_code":"fin.reason.sla_at_risk"}`, 1))
+	dupEvent := `{"event":"complaint_logged","entity":"complaint_ref","field":"effective_at"}`
+	mustRefuse(t, "an event with two anchors", strings.Replace(routed, dupEvent, dupEvent+`,{"event":"complaint_logged","entity":"case","field":"effective_at"}`, 1))
+	mustRefuse(t, "an empty freeze list", strings.Replace(routed, `["fin.cap.create_escalation_case"]`, `[]`, 1))
+}
