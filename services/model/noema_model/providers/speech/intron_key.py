@@ -37,12 +37,12 @@ def key_reader(environ: Mapping[str, str]) -> Callable[[], str]:
                 raise KeyFileError("the Intron key file must be readable by its owner only")
             if os.name != "nt" and info.st_uid != getattr(os, "geteuid")():
                 raise KeyFileError("the Intron key file must be owned by the user that reads it")  # the SEC-09 loader pattern (SR on #689)
-            raw = os.read(descriptor, MAX_KEY_BYTES + 1)
+            raw = os.read(descriptor, MAX_KEY_BYTES + 2)  # the ceiling counts the key, not its one optional trailing newline
         except OSError:
             raise KeyFileError("the Intron key file cannot be read") from None
         finally:
             os.close(descriptor)
-        if len(raw) > MAX_KEY_BYTES:
+        if len(raw.removesuffix(b"\n")) > MAX_KEY_BYTES:
             raise KeyFileError("the Intron key file is too large to be a key")
         try:
             key = raw.decode("ascii").removesuffix("\n")

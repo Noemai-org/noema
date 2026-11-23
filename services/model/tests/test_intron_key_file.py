@@ -80,7 +80,7 @@ def test_a_symbolic_link_is_refused(tmp_path: Path) -> None:
 
 
 @POSIX
-@pytest.mark.parametrize("content", ["", "\n", "   \n", "two\nlines", "has space", "a" * 513, "tab\tin"])
+@pytest.mark.parametrize("content", ["", "\n", "   \n", "two\nlines", "has space", "a" * 4097, "a" * 4097 + "\n", "tab\tin"])
 def test_an_empty_or_malformed_or_oversized_key_is_refused_without_echoing_it(tmp_path: Path, content: str) -> None:
     path = write(tmp_path, content)
     with pytest.raises(KeyFileError) as caught:
@@ -153,6 +153,14 @@ def test_a_key_longer_than_512_bytes_up_to_the_ceiling_is_accepted(tmp_path: Pat
     path.write_text(token + "\n")
     path.chmod(0o600)
     assert key_reader({ENV_KEY_FILE: str(path)})() == token
+
+
+@pytest.mark.parametrize("ending", ["", "\n"])
+def test_a_key_of_exactly_the_ceiling_is_accepted_with_or_without_its_newline(tmp_path: Path, ending: str) -> None:
+    path = tmp_path / "intron_api_key"
+    path.write_text("a" * 4096 + ending)
+    path.chmod(0o600)
+    assert key_reader({ENV_KEY_FILE: str(path)})() == "a" * 4096
 
 
 def test_a_file_beyond_the_ceiling_is_still_refused_without_echoing_it(tmp_path: Path) -> None:
