@@ -463,7 +463,9 @@ class G1StackWorkflow(unittest.TestCase):
         line = re.search(r"python3 -I tools/ci/g1_leakscan\.py ([^\n]*)", job.group(1))
         assert line
         self.assertIn("--no-digit-rule", line.group(1))
-        self.assertNotIn("--allow", line.group(1), "no allow rule is used for the job log: the digit rule is off, not worked around")
+        # The one allow file the job log may use is its own, with the single Go-download line shape (run 45128374794; test_the_job_log_scan_uses_its_own_allow_file_and_not_the_artifact_one);
+        # the standing allow file of the artifact scans is never used for it.
+        self.assertEqual(re.findall(r"--allow (\S+)", line.group(1)), ["tools/ci/g1_joblog.allow"])
         self.assertEqual(len(re.findall(r"python3 -I tools/ci/g1_leakscan\.py --no-digit-rule", self.text)), 1, "only the job log is scanned without the digit rule")
 
     # A388: Playwright against the running stack, after the stack is up, opt-in until the wiring merges. FE owns the specs.
@@ -620,6 +622,51 @@ class G1StackWorkflow(unittest.TestCase):
         assert result
         self.assertIn("FILES_MATCH: ${{ steps.files.outputs.files_match }}", result.group(0))
         self.assertIn('[ "${FILES_MATCH:-missing}" = 0 ]', result.group(0))
+
+    def test_the_summary_step_succeeds_in_stack_check_mode_where_no_run_files_exist(self) -> None:
+        # Found by the first stack-check run on main (23 Nov): the last line of the Summary group was `[ -f score/scorecard.json ] && {...}`, which exits 1 when the file is absent, and a stack-check
+        # run has none, so the step failed a healthy stack. The step is run here, as written, in an empty output directory.
+        step = re.search(r"(?ms)- name: Summary\n.*?        run: \|\n(.*?)(?=^      # |^      - name:)", self.text)
+        assert step, "no Summary step"
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "benchmark", "out").mkdir(parents=True)
+            env = {"PATH": os.environ.get("PATH", ""), "MODE": "stack-check", "CODE": "0", "RUN_ID": "g1-stack-ghtest", "READYZ": "503", "NETCHECK": "0"}
+            r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("STACK-CHECK", Path(tmp, "benchmark", "out", "summary.md").read_text(encoding="utf-8"))
+
+    def test_the_stack_check_keeps_the_readyz_answer_that_names_every_missing_component(self) -> None:
+        # /readyz is 503 until every component is built and names each one that is not (names only, never a value: services/core/cmd/core/compose.go). The status alone told nobody what was missing,
+        # so the first line is the status and the rest is the body, capped, in the run output that is shown only after a clean leak scan.
+        block = re.search(r'(?s)if \[ "\$MODE" = stack-check \]; then(.*?)\n          else\n', self.script)
+        assert block
+        self.assertIn("print(r.status)", block.group(1))
+        self.assertRegex(block.group(1), r"r\.read\(\d+\)")
+        self.assertIn('readyz="$(head -n 1 benchmark/out/joblog/readyz.log)"', block.group(1))
+
+    def test_the_job_log_scan_shows_why_the_log_could_not_be_read(self) -> None:
+        # The first two stack-check runs ended with "the job log could not be read" after 60 s and no reason: the read's stderr went to /dev/null. gh prints an HTTP status line and no log text
+        # on a failure, so it is kept in a file and shown when the read fails.
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        read = re.search(r"gh api [^\n]*actions/jobs/\$id/logs\"[^\n]*", job.group(1))
+        assert read, "the log read was not found"
+        self.assertNotIn("2>/dev/null", read.group(0))
+        # The reason the first three runs could not read the log (run 45127413024): gh refuses to print a response with terminal escape sequences, and a job log has them. The scanner must see them.
+        self.assertIn("--allow-escape-sequences", read.group(0))
+        self.assertIn("joblog-read.err", job.group(1))
+        self.assertRegex(job.group(1), r"head -c \d+ \"?\$RUNNER_TEMP/joblog-read\.err")
+
+    def test_the_job_log_scan_uses_its_own_allow_file_and_not_the_artifact_one(self) -> None:
+        # Run 45128374794: the first scan that could read the log failed on a Go pseudo-version in a `go: downloading` line (a false card number). Only that line shape is allowed, in a file of its own,
+        # so the artifact scans keep the standing allow file and the job-log scan keeps every other rule.
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py[^\n]*g1-stack\.log\"", job.group(1))
+        assert scan
+        self.assertIn("--allow tools/ci/g1_joblog.allow", scan.group(0))
+        self.assertNotIn("g1_leakscan.allow", scan.group(0))
 
 
 if __name__ == "__main__":

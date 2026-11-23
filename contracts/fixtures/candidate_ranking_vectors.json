@@ -1,0 +1,1184 @@
+{
+ "label": "SYNTHETIC",
+ "note": "Shared golden vectors for the candidate ranker (REQ-AMB-003, A555/A559/A560/A566). Integer basis points, no float. Loaded by the Go suite (services/core/platform/candidaterank) and the Python reference suite. The margin, the floor and the tie are decided on the exact unrounded weighted sums, never on floored scores; floor division applies only to the scores that are reported (A566), so a reported margin is the floor of the exact margin. The *_fractional cases carry a score that is not a whole number of basis points (top 9000.00 against 5500.25 is a margin of 3499.75 and is AMBIGUOUS, although the floored scores differ by exactly 3500). Every other case has a whole-number score. Where the Python reference (exact fractions) and the Go ranker could differ, the Go value is the authority.",
+ "version": 1,
+ "config": {
+  "label": "SYNTHETIC",
+  "weights_bp": {
+   "amount": 3500,
+   "recipient": 2500,
+   "temporal": 2000,
+   "relationship": 1000,
+   "type_direction": 1000
+  },
+  "floor_bp": 7000,
+  "margin_bp": 3500,
+  "max_above_floor": 4,
+  "amount_tolerance_bp": 100,
+  "time_tolerance_seconds": 7200
+ },
+ "amount_ramps": [
+  {
+   "name": "exact",
+   "wanted_minor": 100000,
+   "candidate_minor": 100000,
+   "want_bp": 10000
+  },
+  {
+   "name": "one_minor_off",
+   "wanted_minor": 100000,
+   "candidate_minor": 100001,
+   "want_bp": 9990
+  },
+  {
+   "name": "half_tolerance",
+   "wanted_minor": 100000,
+   "candidate_minor": 100500,
+   "want_bp": 5000
+  },
+  {
+   "name": "last_inside",
+   "wanted_minor": 100000,
+   "candidate_minor": 100999,
+   "want_bp": 10
+  },
+  {
+   "name": "at_tolerance",
+   "wanted_minor": 100000,
+   "candidate_minor": 101000,
+   "want_bp": 0
+  },
+  {
+   "name": "past_tolerance",
+   "wanted_minor": 100000,
+   "candidate_minor": 101001,
+   "want_bp": 0
+  },
+  {
+   "name": "below_one_off",
+   "wanted_minor": 100000,
+   "candidate_minor": 99999,
+   "want_bp": 9990
+  },
+  {
+   "name": "zero_wanted_zero_cand",
+   "wanted_minor": 0,
+   "candidate_minor": 0,
+   "want_bp": 10000
+  },
+  {
+   "name": "zero_wanted_nonzero_cand",
+   "wanted_minor": 0,
+   "candidate_minor": 5,
+   "want_bp": 0
+  },
+  {
+   "name": "currency_differs",
+   "wanted_minor": 100000,
+   "candidate_minor": 100000,
+   "candidate_currency": "USD",
+   "want_bp": 0
+  },
+  {
+   "name": "no_amount_said",
+   "wanted_minor": null,
+   "candidate_minor": 100000,
+   "want_bp": 0
+  }
+ ],
+ "temporal_ramps": [
+  {
+   "name": "inside",
+   "occurred_at": "2026-11-20T09:30:00Z",
+   "want_bp": 10000
+  },
+  {
+   "name": "at_start",
+   "occurred_at": "2026-11-20T09:00:00Z",
+   "want_bp": 10000
+  },
+  {
+   "name": "at_end",
+   "occurred_at": "2026-11-20T10:00:00Z",
+   "want_bp": 10000
+  },
+  {
+   "name": "gap_1801s_after",
+   "occurred_at": "2026-11-20T10:30:01Z",
+   "want_bp": 7498
+  },
+  {
+   "name": "gap_1h_before",
+   "occurred_at": "2026-11-20T08:00:00Z",
+   "want_bp": 5000
+  },
+  {
+   "name": "gap_1us_before",
+   "occurred_at": "2026-11-20T08:59:59.999999Z",
+   "want_bp": 9999
+  },
+  {
+   "name": "gap_just_under_tolerance",
+   "occurred_at": "2026-11-20T11:59:59.999999Z",
+   "want_bp": 0
+  },
+  {
+   "name": "gap_at_tolerance",
+   "occurred_at": "2026-11-20T12:00:00Z",
+   "want_bp": 0
+  },
+  {
+   "name": "gap_past_tolerance",
+   "occurred_at": "2026-11-20T12:00:01Z",
+   "want_bp": 0
+  },
+  {
+   "name": "no_window_said",
+   "occurred_at": "2026-11-20T09:00:00Z",
+   "no_window": true,
+   "want_bp": 0
+  }
+ ],
+ "scores": [
+  {
+   "name": "all_features",
+   "features_bp": {
+    "amount": 10000,
+    "recipient": 10000,
+    "temporal": 10000,
+    "relationship": 10000,
+    "type_direction": 10000
+   },
+   "want_bp": 10000
+  },
+  {
+   "name": "amount_only",
+   "features_bp": {
+    "amount": 10000,
+    "recipient": 0,
+    "temporal": 0,
+    "relationship": 0,
+    "type_direction": 0
+   },
+   "want_bp": 3500
+  },
+  {
+   "name": "nothing",
+   "features_bp": {
+    "amount": 0,
+    "recipient": 0,
+    "temporal": 0,
+    "relationship": 0,
+    "type_direction": 0
+   },
+   "want_bp": 0
+  },
+  {
+   "name": "just_below_floor",
+   "features_bp": {
+    "amount": 10000,
+    "recipient": 10000,
+    "temporal": 4999,
+    "relationship": 0,
+    "type_direction": 0
+   },
+   "want_bp": 6999
+  },
+  {
+   "name": "exactly_floor",
+   "features_bp": {
+    "amount": 10000,
+    "recipient": 10000,
+    "temporal": 5000,
+    "relationship": 0,
+    "type_direction": 0
+   },
+   "want_bp": 7000
+  },
+  {
+   "name": "just_above_floor",
+   "features_bp": {
+    "amount": 10000,
+    "recipient": 10000,
+    "temporal": 5005,
+    "relationship": 0,
+    "type_direction": 0
+   },
+   "want_bp": 7001
+  },
+  {
+   "name": "floors_not_rounds",
+   "features_bp": {
+    "amount": 9999,
+    "recipient": 0,
+    "temporal": 0,
+    "relationship": 0,
+    "type_direction": 0
+   },
+   "want_bp": 3499
+  }
+ ],
+ "resolutions": [
+  {
+   "name": "no_candidates",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [],
+   "want": {
+    "state": "NO_CANDIDATES",
+    "ranked": [],
+    "top_bp": 0,
+    "second_bp": 0,
+    "margin_bp": 0,
+    "above_floor": 0,
+    "why_not": [],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "margin_3499",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_top",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_second",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6004,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_top",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_second",
+      "score_bp": 5501
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 5501,
+    "margin_bp": 3499,
+    "above_floor": 1,
+    "why_not": [
+     "MARGIN_NOT_MET"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "margin_3500",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_top",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_second",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6000,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_top",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_second",
+      "score_bp": 5500
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 5500,
+    "margin_bp": 3500,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_top"
+   }
+  },
+  {
+   "name": "margin_3501",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_top",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_second",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 5996,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_top",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_second",
+      "score_bp": 5499
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 5499,
+    "margin_bp": 3501,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_top"
+   }
+  },
+  {
+   "name": "floor_6999",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 1996,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 6999
+     }
+    ],
+    "top_bp": 6999,
+    "second_bp": 0,
+    "margin_bp": 6999,
+    "above_floor": 0,
+    "why_not": [
+     "BELOW_FLOOR"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "floor_7000",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2000,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 7000
+     }
+    ],
+    "top_bp": 7000,
+    "second_bp": 0,
+    "margin_bp": 7000,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_only"
+   }
+  },
+  {
+   "name": "floor_7001",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2004,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 7001
+     }
+    ],
+    "top_bp": 7001,
+    "second_bp": 0,
+    "margin_bp": 7001,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_only"
+   }
+  },
+  {
+   "name": "four_above_floor",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_f0",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_f1",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2004,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_f2",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2008,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_f3",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2012,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_f3",
+      "score_bp": 7003
+     },
+     {
+      "id": "cand_f2",
+      "score_bp": 7002
+     },
+     {
+      "id": "cand_f1",
+      "score_bp": 7001
+     },
+     {
+      "id": "cand_f0",
+      "score_bp": 7000
+     }
+    ],
+    "top_bp": 7003,
+    "second_bp": 7002,
+    "margin_bp": 1,
+    "above_floor": 4,
+    "why_not": [
+     "MARGIN_NOT_MET"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "five_above_floor",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_f0",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_f1",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2004,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_f2",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2008,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_f3",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2012,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_f4",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2016,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "TOO_MANY_CANDIDATES",
+    "ranked": [
+     {
+      "id": "cand_f4",
+      "score_bp": 7004
+     },
+     {
+      "id": "cand_f3",
+      "score_bp": 7003
+     },
+     {
+      "id": "cand_f2",
+      "score_bp": 7002
+     },
+     {
+      "id": "cand_f1",
+      "score_bp": 7001
+     },
+     {
+      "id": "cand_f0",
+      "score_bp": 7000
+     }
+    ],
+    "top_bp": 7004,
+    "second_bp": 7003,
+    "margin_bp": 1,
+    "above_floor": 5,
+    "why_not": [
+     "MARGIN_NOT_MET",
+     "TOO_MANY_ABOVE_FLOOR"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "tie_at_top_newer_first",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_b",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_a",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:35:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_c",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_a",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_b",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_c",
+      "score_bp": 9000
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 9000,
+    "margin_bp": 0,
+    "above_floor": 3,
+    "why_not": [
+     "TIE_AT_TOP",
+     "MARGIN_NOT_MET"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "material_flag",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": true,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 9000
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 0,
+    "margin_bp": 9000,
+    "above_floor": 1,
+    "why_not": [
+     "MATERIAL_FLAG"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "low_asr",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": true
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 9000
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 0,
+    "margin_bp": 9000,
+    "above_floor": 1,
+    "why_not": [
+     "LOW_ASR_CONFIDENCE"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "no_alias_no_direction_outside_window",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T00:00:00Z",
+     "recipient_bp": 10000,
+     "alias_match": null,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 6000
+     }
+    ],
+    "top_bp": 6000,
+    "second_bp": 0,
+    "margin_bp": 6000,
+    "above_floor": 0,
+    "why_not": [
+     "BELOW_FLOOR"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "margin_3499_75_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_top",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_second",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6001,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_top",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_second",
+      "score_bp": 5500
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 5500,
+    "margin_bp": 3499,
+    "above_floor": 1,
+    "why_not": [
+     "MARGIN_NOT_MET"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "margin_3500_25_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_top",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_second",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 5999,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_top",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_second",
+      "score_bp": 5499
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 5499,
+    "margin_bp": 3500,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_top"
+   }
+  },
+  {
+   "name": "floor_6999_75_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 1999,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 6999
+     }
+    ],
+    "top_bp": 6999,
+    "second_bp": 0,
+    "margin_bp": 6999,
+    "above_floor": 0,
+    "why_not": [
+     "BELOW_FLOOR"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "floor_7000_25_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2001,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 7000
+     }
+    ],
+    "top_bp": 7000,
+    "second_bp": 0,
+    "margin_bp": 7000,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_only"
+   }
+  },
+  {
+   "name": "floored_equal_exact_differs_is_not_a_tie",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_a",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6001,
+     "alias_match": true,
+     "direction": "OUT"
+    },
+    {
+     "id": "cand_b",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6002,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_b",
+      "score_bp": 5500
+     },
+     {
+      "id": "cand_a",
+      "score_bp": 5500
+     }
+    ],
+    "top_bp": 5500,
+    "second_bp": 5500,
+    "margin_bp": 0,
+    "above_floor": 0,
+    "why_not": [
+     "MARGIN_NOT_MET",
+     "BELOW_FLOOR"
+    ],
+    "resolved_id": null
+   }
+  }
+ ]
+}
