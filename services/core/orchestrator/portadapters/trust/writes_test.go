@@ -9,6 +9,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"reflect"
 	"regexp"
 	"testing"
 
@@ -22,7 +23,8 @@ type tableRule struct {
 	asked   []string
 }
 
-func (r *tableRule) MayWrite(node string) (bool, error) {
+func (r *tableRule) MayWrite(_ context.Context, a intake.AdmittedIntent) (bool, error) {
+	node := a.IntentNode
 	r.asked = append(r.asked, node)
 	v, ok := r.answers[node]
 	if !ok {
@@ -34,7 +36,7 @@ func (r *tableRule) MayWrite(node string) (bool, error) {
 // badRule answers true and an error together, which a rule must not do: the adapter must still fail closed.
 type badRule struct{ err error }
 
-func (r badRule) MayWrite(string) (bool, error) { return true, r.err }
+func (r badRule) MayWrite(context.Context, intake.AdmittedIntent) (bool, error) { return true, r.err }
 
 // badSwitch answers true and an error together, which a switch must not do: the adapter must still fail closed.
 type badSwitch struct{ err error }
@@ -189,5 +191,37 @@ func TestTheWritesAdapterSourceNamesNoIndustryOrIntent(t *testing.T) {
 	})
 	if literals == 0 {
 		t.Fatal("the scan found no string literal in writes.go: it scans nothing")
+	}
+}
+
+// okSwitch is a switch that is on for every tenant.
+type okSwitch struct{}
+
+func (okSwitch) Enabled(context.Context, string) (bool, error) { return true, nil }
+
+// slotRule records the intent it is asked about, slot values included (A543).
+type slotRule struct{ got []intake.AdmittedIntent }
+
+func (r *slotRule) MayWrite(_ context.Context, a intake.AdmittedIntent) (bool, error) {
+	r.got = append(r.got, a)
+	return a.Slots["requested_remedy"] != "", nil
+}
+
+// A543 (interim, relayed, not yet committed): the adapter gives the rule the intent with its resolved slot values, so the pack's `write_when` is evaluated over what the stored intent says.
+func TestNeedsWriteGivesTheRuleTheIntentWithItsResolvedSlotValues(t *testing.T) {
+	rule := &slotRule{}
+	w := newWrites(t, okSwitch{}, rule)
+	a := admitted("fin.payments.exception.investigate")
+	a.Slots = map[string]string{"question_type": "STATUS_QUERY", "requested_remedy": "fin.cap.lookup_transaction"}
+	may, err := w.NeedsWrite(tctx(t), a)
+	if err != nil || !may {
+		t.Fatalf("NeedsWrite: %v %v, want true", may, err)
+	}
+	if len(rule.got) != 1 || !reflect.DeepEqual(rule.got[0].Slots, a.Slots) || rule.got[0].IntentNode != a.IntentNode || rule.got[0].IntentID != a.IntentID {
+		t.Errorf("the rule was given %+v, want the intent with its slot values", rule.got)
+	}
+	a.Slots = nil
+	if may, err := w.NeedsWrite(tctx(t), a); err != nil || may {
+		t.Errorf("with no slot value the answer is %v %v, want false and no error", may, err)
 	}
 }

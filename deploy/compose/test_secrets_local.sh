@@ -60,6 +60,16 @@ done
 for f in core_workflows_ed25519_seed_1 core_edge_ed25519_seed_1 input_hash_key; do
   cmp -s "$work/$f.first" "$work/secrets/$f" || fail "a second run replaced secrets/$f"
 done
+# The migration password's private copy (A536): migrate and tenants-provision hold it, run as the host user that made it, and read it as a regular file of that user at mode 0400 (cmd/migrate refuses
+# anything else); postgres keeps reading the mode-644 original. The copy is the same value, made again whenever the original changes, and never printed.
+[ -s "$work/secrets/migrator_password_file" ] || fail "secrets/migrator_password_file was not made"
+[ "$(stat -c %a "$work/secrets/migrator_password_file")" = "400" ] || fail "secrets/migrator_password_file is not mode 400"
+cmp -s "$work/secrets/noema_migrator_password" "$work/secrets/migrator_password_file" || fail "the private copy differs from the migration password"
+[ "$(wc -l < "$work/secrets/migrator_password_file")" = "1" ] || fail "the private copy is not one line"
+printf '%s\n' "synthetic-rotated-migrator-password-0123456789" > "$work/secrets/noema_migrator_password"
+( cd "$work" && sh secrets_local.sh >/dev/null ) || fail "the second run failed"
+cmp -s "$work/secrets/noema_migrator_password" "$work/secrets/migrator_password_file" || fail "the private copy was not made again after the original changed"
+[ "$(stat -c %a "$work/secrets/migrator_password_file")" = "400" ] || fail "the private copy is not mode 400 after a second run"
 # The mTLS material for the core and the model service (noema#555) is made too, kept on a second run, and leaves no CA key behind.
 for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key; do
   [ -s "$work/secrets/tls/$f" ] || fail "secrets/tls/$f was not made"

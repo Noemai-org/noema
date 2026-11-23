@@ -20,7 +20,7 @@ Which provider serves each task is harness configuration (`decide.<task>` routes
 
 The pipeline owns none of these, and none is faked here:
 
-- `CandidateSource`: implemented by `noema_model.evidence.EvidenceClient`, written to `candidates-request.v1.json` and `candidates-response.v1.json`. The pipeline never imports it (it imports no HTTP); the service wires it in. The contract requires a time window, so a request with none is refused at the gate as `INPUT_INVALID`, nothing is read and no resolution is reported: `NO_TRANSACTION_MATCH` is for a search that ran and came back empty (REQ-AMB-002).
+- `CandidateSource`: implemented by `noema_model.evidence.EvidenceClient`, written to `candidates-request.v1.json` and `candidates-response.v1.json`. The pipeline never imports it (it imports no HTTP); the service wires it in. The contract requires a time window, so with none (A535, interim: no default window and no refusal) nothing is read, no resolution is reported and the turn is `PROPOSED` with the resource slot unresolved for Trust to ask about: `NO_TRANSACTION_MATCH` is for a search that ran and came back empty (REQ-AMB-002).
 - `Normalise`: the deterministic lexicon, whose values win over a model's (REQ-INT-003, UND-05).
 - `Gate`: the schema gate on the assembled Intent Object (REQ-INT-001). Waiting on generated contract types (CON-03).
 

@@ -46,7 +46,11 @@ type AdmittedIntent struct {
 	// RequestedCapability is the capability the stored intent asks for (A370): the value of the node's capability Reference slot, read by the adapter from the stored document and the pack,
 	// never from the request. Empty for an intent that asks for none. T4 and the authorized set read it; Verify holds it to the stored one.
 	RequestedCapability string
-	View                decide.IntentView
+	// Slots are the RESOLVED slot values of the stored intent, by slot name (A543, interim, relayed): the value in its canonical text form (a Reference's value, a Resource's reference). A
+	// slot that is absent, unresolved or ambiguous has no entry, which a pack predicate reads as null. The adapter reads them from the stored document, never from the request (AGENT-09),
+	// and the intake passes the intent to the Writes port as it read it, so the node's `write_when` is evaluated over exactly these values.
+	Slots map[string]string
+	View  decide.IntentView
 }
 
 // Intents reads admitted intents. Get returns ErrNotFound for an unknown intent and for another tenant's, the same answer for both.
