@@ -93,7 +93,7 @@ function ClarificationView({ card, now, onChoice }: ClarificationProps) {
 interface ConfirmationProps {
   card: OverlayCardV1ConfirmationCard;
   now?: number;
-  onResponse?: (confirmationId: string, response: "ACCEPT" | "DECLINE") => void;
+  onResponse?: (confirmationId: string, response: "ACCEPT" | "DECLINE") => void | "accepted" | "expired" | "unavailable" | Promise<void | "accepted" | "expired" | "unavailable">;
 }
 
 export function ConfirmationCard(props: Omit<ConfirmationProps, "card"> & { card: unknown }) {
@@ -110,13 +110,38 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
   const expired = useExpired(card.expires_at, now);
   const [showPolicy, setShowPolicy] = useState(false);
   const lock = useRef(false);
+  const inFlight = useRef(false);
+  const selected = useRef<"ACCEPT" | "DECLINE" | null>(null);
   const [locked, setLocked] = useState(false);
+  const [retry, setRetry] = useState(false);
   const current = () => !expired && cardExpiry(card.expires_at, now ?? clock()) === "active";
+  const submit = async () => {
+    if (!onResponse || !selected.current || !current() || inFlight.current) return;
+    inFlight.current = true;
+    setRetry(false);
+    try {
+      const result = await onResponse(card.confirmation_request_id, selected.current);
+      if (result === "unavailable") {
+        lock.current = false;
+        setLocked(false);
+        setRetry(true);
+      } else if (result === "expired") {
+        setRetry(false);
+      }
+    } catch {
+      lock.current = false;
+      setLocked(false);
+      setRetry(true);
+    } finally {
+      inFlight.current = false;
+    }
+  };
   const response = (value: "ACCEPT" | "DECLINE") => () => {
     if (!onResponse || lock.current || !current()) return;
+    selected.current = value;
     lock.current = true;
     setLocked(true);
-    onResponse(card.confirmation_request_id, value);
+    void submit();
   };
   return h("section", { "aria-label": "Confirmation" },
     h("p", null, card.action), h("p", null, card.target), h("p", null, card.evidence_summary),
@@ -124,6 +149,8 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
     h("button", { type: "button", disabled: expired || locked || !onResponse, onClick: response("DECLINE") }, "Decline"),
     h("button", { type: "button", disabled: expired, onClick: () => setShowPolicy(!showPolicy), "aria-expanded": showPolicy }, "Policy details"),
     showPolicy ? h("p", null, card.policy_version) : null,
+    retry && !expired ? h("button", { type: "button", onClick: () => { if (retry) { lock.current = true; setLocked(true); void submit(); } } }, "Try again") : null,
+    retry ? h("p", { role: "status" }, "Your response was not sent. You can try again.") : null,
     expired ? h("p", { role: "status" }, expiredText) : null,
   );
 }
