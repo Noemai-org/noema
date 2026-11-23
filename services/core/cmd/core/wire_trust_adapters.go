@@ -21,10 +21,10 @@ const EnvTrustEscalationGraph = "NOEMA_TRUST_ESCALATION_GRAPH"
 // PackSource gives the manifest-verified pack (A333, noema#773). Production has none until the pack load is on main: it must never read an unverified pack.
 type PackSource func(env Env) (*trustpack.Pack, error)
 
-var errPackNotOnMain = errors.New("cmd/core: the manifest-verified pack is not available: its load is not on main")
+var errPackNotConfigured = errors.New("cmd/core: the manifest-verified pack is not available: its settings are not given")
 
 // productionPack is the production PackSource: none. Replacing it is the one change noema#773 makes here.
-func productionPack(Env) (*trustpack.Pack, error) { return nil, errPackNotOnMain }
+func productionPack(Env) (*trustpack.Pack, error) { return nil, errPackNotConfigured }
 
 // UnbuiltAdaptersError names every Trust adapter that could not be built, in the order of the TrustAdapters struct ("Pack" first when there is no pack). Cause is the pack's own error, if any;
 // the text carries names only, never a path, a setting's value or a DSN.
@@ -66,12 +66,12 @@ func unsetAdapters(a TrustAdapters) []string {
 func trustAdaptersSource(pack PackSource) func(Env, reconstruct.TenantDBs, clock.Clock) (TrustAdapters, error) {
 	return func(env Env, _ reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error) {
 		p, err := pack(env)
-		if err != nil && !errors.Is(err, errPackNotOnMain) {
+		if err != nil && !errors.Is(err, errPackNotConfigured) {
 			return TrustAdapters{}, fmt.Errorf("cmd/core: the pack: %w", err) // a pack that cannot be loaded or verified is a startup error, never a named gap (INV-16)
 		}
 		if err != nil || p == nil {
 			if err == nil {
-				err = errPackNotOnMain
+				err = errPackNotConfigured
 			}
 			return TrustAdapters{}, &UnbuiltAdaptersError{Names: append([]string{"Pack"}, unsetAdapters(TrustAdapters{Clock: clk})...), Cause: err}
 		}
