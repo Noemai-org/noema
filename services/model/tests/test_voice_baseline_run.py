@@ -140,12 +140,12 @@ def test_sessions_are_paced_between_each_other_and_not_after_the_last(tmp_path: 
 def test_a_quota_refusal_ends_the_run_and_the_rest_of_the_manifest_is_not_sent(tmp_path: Path) -> None:
     report, stt, _, _, _ = go(tmp_path, [synthetic("u1"), synthetic("u2"), synthetic("u3")], ["send ten thousand naira", ProviderFailure.RATE_LIMITED])
     assert stt.calls == 2 and report["failures"] == {"RATE_LIMITED": 1} and report["sessions"] == {"total": 2, "complete": 1, "incomplete": 1}
-    assert report["not_run"] == 1
+    assert report["not_run"] == 1 and report["ended"] == "rate_limited"
 
 
 def test_two_failures_in_a_row_end_the_run(tmp_path: Path) -> None:
     report, stt, _, _, _ = go(tmp_path, [synthetic(f"u{i}") for i in range(5)], [ProviderFailure.UNAVAILABLE, ProviderFailure.UNAVAILABLE])
-    assert stt.calls == 2 and report["not_run"] == 3
+    assert stt.calls == 2 and report["not_run"] == 3 and report["ended"] == "two_failures_in_a_row"
 
 
 def test_one_failure_between_successes_does_not_end_the_run(tmp_path: Path) -> None:
@@ -507,11 +507,36 @@ def test_audio_the_vendor_generated_beyond_what_the_manifest_declared_is_charged
 
 
 @POSIX
-def test_the_spoken_answer_is_charged_before_a_session_so_a_run_never_overspends(tmp_path: Path) -> None:
+def test_the_spoken_answer_is_part_of_what_a_session_needs_so_a_run_never_overspends(tmp_path: Path) -> None:
     clock = Clock()
     stt = Stt(clock, [])
-    report = run_with(tmp_path, [synthetic("u1")], stt, Tts(clock), lambda r: None, budget_minutes=0.2)  # 12 s: generated 6 and sent 6 fit, the 2 s answer does not
+    report = run_with(tmp_path, [synthetic("u1")], stt, LongTts(clock), lambda r: None, budget_minutes=21.5 / 60)  # 21.5 s: generated 10 and sent 10 fit (20), with the 2 s answer (22) they do not
     assert stt.calls == 0 and report["ended"] == "budget_exhausted"
+
+
+class FirstLongTts(Tts):
+    """The first generation is ten seconds (declared six), the later ones six."""
+
+    def __init__(self, clock: Clock) -> None:
+        super().__init__(clock)
+        self.generations = 0
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text == "send ten thousand naira":
+            self.generations += 1
+            self.requests.append(request.text)
+            yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000 * (10 if self.generations == 1 else 6))
+        else:
+            async for chunk in super().synthesize(request):
+                yield chunk
+
+
+@POSIX
+def test_the_answer_of_an_earlier_session_is_already_charged_when_a_later_one_asks_for_room(tmp_path: Path) -> None:
+    clock = Clock()
+    stt = Stt(clock, [])
+    report = run_with(tmp_path, [synthetic("u1"), synthetic("u2")], stt, FirstLongTts(clock), lambda r: None, budget_minutes=35.5 / 60)  # u1 takes 22 s with its answer; u2 needs 14 more: 36 > 35.5
+    assert stt.calls == 1 and report["ended"] == "budget_exhausted" and report["sessions"] == {"total": 1, "complete": 1, "incomplete": 0}
 
 
 @POSIX

@@ -81,3 +81,15 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 ## Pre-work for the next agent
 - Exact next step: the Founder copies `bench/baseline-settings.json` to the bench host, sets `allowed_hosts` to the vendor's streaming host, puts the key file on the runner account, runs `--check-key` and comments `start` on noema#767.
 - Do not touch: the host in the repository (the strict URL test forbids it).
+
+# Session 2026-11-23 · VOI-16 (A568 in noema#824)
+
+## Session summary
+- What changed (noema#824): the budget is charged with the audio the vendor actually generated and the audio sent (plus the answer to speak, which must fit before a session starts), so a run that would overspend ends with `ended: budget_exhausted` and nothing is sent; the report file is created before any connection (owner-only, never over an existing file) and rewritten whole after every session, so a read failure or an unexpected error never discards the sessions already measured; `ended` names why a run stopped. A store read failure now ends the run with its report instead of raising.
+- Why: A568.
+- Tests: red first at a033d93c; nine mutants of the new code each caught (two survived the first tests and have tests now).
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: unchanged (Founder: key file, real host in `allowed_hosts`, `--check-key`, `start` on noema#767). No live run starts before noema#824 is merged.
+- Open questions: the spoken answer is charged at the manifest's `answer_s` (only its first audio is read, so the real length is not observed): the Architect may ask for a different rule.

@@ -197,9 +197,13 @@ async def run_baseline(
     wall: Callable[[], datetime],
     sleep: Callable[[float], Awaitable[None]],
     tts_model_version: str,
+    on_progress: Callable[[dict[str, object]], None],
     answer_text: str,
     targets_ms: int,
 ) -> dict[str, object]:
+    """Run the manifest and return the report. `on_progress` receives the report so far after EVERY session, and the final report at the end, so a failure part-way never discards what was measured
+    (A568); `ended` says why the run stopped: complete, budget_exhausted, rate_limited, two_failures_in_a_row, generation_or_store_failed or store_read_failed. The budget is charged with what was
+    actually generated and sent, never with what the manifest declared (A568)."""
     plan = plan_budget(items, budget_minutes=settings.budget_minutes)
     budget = AudioBudget(total_s=settings.budget_minutes * 60.0)
     results: list[SessionResult] = []
@@ -208,6 +212,20 @@ async def run_baseline(
     failures_in_a_row = 0
     ran = skipped = 0
     low, high = bounds_s
+
+    def snapshot(state: str) -> dict[str, object]:
+        spent = {"generation_s": generation_s, "stt_s": stt_s, "spoken_s": spoken_s}
+        if results:
+            report = build_report(results, wers=wers, target_ms=targets_ms, spent=spent, budget_s=settings.budget_minutes * 60.0, dropped=len(plan.dropped))
+        else:
+            report = {"sessions": {"total": 0, "complete": 0, "incomplete": 0}, "dropped_from_manifest": len(plan.dropped),
+                      "budget": {**spent, "total_s": generation_s + stt_s + spoken_s, "of_s": settings.budget_minutes * 60.0}}
+        report["not_run"] = len(plan.kept) - ran - skipped
+        report["skipped_out_of_bounds"] = skipped
+        report["ended"] = state
+        return report
+
+    ended = "complete"
     for index, item in enumerate(plan.kept):
         if index:
             await sleep(pause_s(settings))
@@ -217,21 +235,36 @@ async def run_baseline(
                 pcm = await _generate(tts, item.script, item.locale, tts_model_version, settings.session_s)
                 store.write(item.speaker_ref, f"{item.label}.pcm", pcm, wall())
             except (ProviderError, TimeoutError, StoreError):
-                break  # a generation or a store failure ends the run: the plan stops at the first one
-            generation_s += len(pcm) / 2 / _STT_RATE_HZ
+                ended = "generation_or_store_failed"  # the plan stops at the first one
+                break
+            generated_s = len(pcm) / 2 / _STT_RATE_HZ
+            generation_s += generated_s
+            try:
+                budget.charge(generated_s)  # what the vendor generated, not what the manifest declared
+            except BenchError:
+                ended = "budget_exhausted"
+                break
         else:
             assert item.file is not None
-            pcm = store.read(item.speaker_ref, item.file)
+            try:
+                pcm = store.read(item.speaker_ref, item.file)
+            except StoreError:
+                ended = "store_read_failed"  # the report so far is kept, never lost
+                break
         utterance = Utterance(label=item.label, locale=item.locale, frames=_frames(pcm), origin=item.origin)
         if not (low <= utterance.duration_s <= high):
             skipped += 1  # the measurement condition is the Founder's (A241): audio outside it is never sent and is counted, and the run goes on
             continue
+        if budget.spent_s + utterance.duration_s + item.answer_s > budget.total_s:
+            ended = "budget_exhausted"  # the audio to send and the answer to speak must both fit before anything is sent
+            break
+        budget.charge(item.answer_s)  # the spoken answer is TTS audio generated for this session (the manifest's length: only its first audio is read)
         core = _StandIn(item.script if item.origin is AudioOrigin.TEAM_RECORDING else None, answer_text)
         try:
             async with asyncio.timeout(settings.session_s):
                 result = await measure_session(stt=stt, tts=tts, core=core, utterance=utterance, stt_request=_request(item.locale), tts_model_version=tts_model_version, clock_ms=clock_ms,
                                                deadline_s=settings.stt_final_s, core_deadline_s=settings.response_s, tts_deadline_s=settings.tts_first_s, cleanup_s=settings.close_s,
-                                               bounds_s=bounds_s, budget=budget)
+                                               bounds_s=bounds_s, budget=budget)  # charges the audio sent to speech-to-text
         except TimeoutError:
             result = _lost(item, ProviderFailure.TIMEOUT, clock_ms)
         ran += 1
@@ -241,20 +274,46 @@ async def run_baseline(
         if core.wer is not None and result.failure is None:
             wers.append(core.wer)
         failures_in_a_row = failures_in_a_row + 1 if result.failure is not None else 0
-        if result.failure is ProviderFailure.RATE_LIMITED or failures_in_a_row >= _STOP_AFTER_FAILURES:
+        on_progress(snapshot("in_progress"))
+        if result.failure is ProviderFailure.RATE_LIMITED:
+            ended = "rate_limited"
             break
-    not_run = len(plan.kept) - ran - skipped
-    if not results:
-        return {"sessions": {"total": 0, "complete": 0, "incomplete": 0}, "not_run": not_run, "skipped_out_of_bounds": skipped, "dropped_from_manifest": len(plan.dropped)}
-    report = build_report(results, wers=wers, target_ms=targets_ms, spent={"generation_s": generation_s, "stt_s": stt_s, "spoken_s": spoken_s}, budget_s=settings.budget_minutes * 60.0,
-                          dropped=len(plan.dropped))
-    report["not_run"] = not_run
-    report["skipped_out_of_bounds"] = skipped
-    return report
+        if failures_in_a_row >= _STOP_AFTER_FAILURES:
+            ended = "two_failures_in_a_row"
+            break
+    final = snapshot(ended)
+    on_progress(final)
+    return final
 
 
 def _request(locale: Locale) -> StreamRequest:
     return StreamRequest(model_version="not reported", locale_hint=locale)  # Intron reports no model version (A182 asks for one in the technical session)
+
+
+class ReportFile:
+    """The report file, created once, owner-only and never over an existing file, and rewritten whole after every session (A568): the new content is written in place and only then is the file cut
+    to its length, so the file is never empty and a longer earlier version leaves nothing behind."""
+
+    def __init__(self, descriptor: int) -> None:
+        self._descriptor = descriptor
+
+    @classmethod
+    def create(cls, path: Path) -> "ReportFile":
+        try:
+            return cls(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0), 0o600))
+        except OSError:
+            raise RunnerConfigError("the report cannot be created (an existing report is never overwritten)") from None
+
+    def write(self, report: dict[str, object]) -> None:
+        data = json.dumps(report, indent=2, sort_keys=True).encode("utf-8")
+        written = 0
+        while written < len(data):
+            written += os.pwrite(self._descriptor, data[written:], written)
+        os.ftruncate(self._descriptor, len(data))
+        os.fsync(self._descriptor)
+
+    def close(self) -> None:
+        os.close(self._descriptor)
 
 
 _ARGUMENTS = ("settings", "manifest", "store", "report", "base-url", "voices", "tts-model-version", "answer-text", "target-ms")
@@ -383,22 +442,25 @@ def main(
         store = AudioStore(store_root, wall_now)
     except (RunnerConfigError, StoreError) as error:
         return _fail(str(error))
+    try:
+        report_file = ReportFile.create(report_path)  # before any connection: an existing report refuses the run, so no credit is spent for a report that cannot be kept
+    except RunnerConfigError as error:
+        return _fail(str(error))
     connect = make_connector(open_timeout_s=wire.open_timeout_s, close_timeout_s=settings.close_s, ping_interval_s=wire.ping_interval_s, ping_timeout_s=wire.ping_timeout_s,
                              max_message_bytes=wire.max_message_bytes)
     capabilities = ProviderCapabilities("intron", PipelineMode.TRANSCRIBE_ONLY, Support.YES, tuple((locale, Support.YES) for locale in voices), tuple((locale, Support.YES) for locale in voices), None, Support.YES, None, False)
     stt = IntronSpeechToText(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key)
     tts = IntronTextToSpeech(capabilities=capabilities, connect=connect, base_url=args["base_url"], api_key=key, voices=voices, poll_s=wire.tts_poll_s)
     try:
-        report = asyncio.run(run_baseline(items=items, stt=stt, tts=tts, settings=settings, bounds_s=bounds, store=store, clock_ms=clock, wall=wall_now, sleep=sleep,
-                                          tts_model_version=args["tts_model_version"], answer_text=args["answer_text"], targets_ms=int(args["target_ms"])))
-    except (BenchError, StoreError):
-        return _fail("the run was refused")
-    try:
-        descriptor = os.open(report_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(report, handle, indent=2, sort_keys=True)
-    except OSError:
-        return _fail("the report could not be written (an existing report is never overwritten)")
+        try:
+            asyncio.run(run_baseline(items=items, stt=stt, tts=tts, settings=settings, bounds_s=bounds, store=store, clock_ms=clock, wall=wall_now, sleep=sleep,
+                                     tts_model_version=args["tts_model_version"], on_progress=report_file.write, answer_text=args["answer_text"], targets_ms=int(args["target_ms"])))
+        except (BenchError, StoreError):
+            return _fail("the run was refused (the report written so far is kept)")
+        except OSError:
+            return _fail("the report could not be written (the run stopped)")
+    finally:
+        report_file.close()
     print("baseline-run: done; the report was written")
     return 0
 
