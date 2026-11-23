@@ -70,7 +70,9 @@ func buildRecoverySurface(env Env, c Components, seams SurfaceSeams, rec *orches
 			absent = append(absent, name)
 			continue
 		}
-		given++
+		if name != recovery.EnvRunTimeoutMS { // the run timeout is shared with the workers: it alone does not ask for recovery
+			given++
+		}
 		max := int64(1 << 31)
 		if name == recovery.EnvBatchSize {
 			max = 1<<31 - 1

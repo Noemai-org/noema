@@ -150,7 +150,7 @@ func TestReadyzOfTheProductionBuildNamesWhatIsMissingAndLeaksNothing(t *testing.
 	}
 	defer closer()
 	code, body, raw := readyz(t, composeReadiness(c, nil))
-	want := wantReason("interpreter", "evidence", "trust", "explainer", "edge chain", "input gateway", "confirmation route")
+	want := wantReason("interpreter", "evidence", "trust", "explainer", "edge chain", "input gateway", "confirmation route", "events route")
 	if code != http.StatusServiceUnavailable || body["status"] != "not_ready" || body["reason"] != want || len(body) != 2 {
 		t.Fatalf("status %d, body %s; want 503, not_ready and %q", code, raw, want)
 	}

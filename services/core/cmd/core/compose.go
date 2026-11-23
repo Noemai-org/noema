@@ -93,6 +93,9 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 		}
 		routes = append(routes, confirmationRoute(cfg))
 	}
+	if c.Events != nil {
+		routes = append(routes, edge.Route{Pattern: events.Route, Roles: rolesCustomer, Handler: c.Events})
+	}
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,
@@ -145,6 +148,7 @@ func missing(c Components, api http.Handler) []string {
 		{"record logins", recordLoginsPresent(c)},
 		{"input gateway", c.Gateway != nil},
 		{"confirmation route", c.Confirmations != nil},
+		{"events route", c.Events != nil},
 	}
 	var names []string
 	for _, p := range parts {
@@ -522,22 +526,34 @@ func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSourc
 	if err != nil {
 		return p, err
 	}
+	c, surf, closeSurfaces, err := buildSurfaces(ctx, env, clk, ids, c, d.Surfaces, logger)
+	if err != nil {
+		closeSurfaces()
+		closeComponents()
+		return p, err
+	}
 	rw, err := buildComposedWorker(ctx, env, d)
 	if err != nil {
+		closeSurfaces()
 		closeComponents()
 		return p, err
 	}
 	api, err := buildAPI(c, env, clk, ids)
 	if err != nil {
 		rw.Stop()
+		closeSurfaces()
 		closeComponents()
 		return p, err
 	}
-	p.Components, p.Trust, p.Worker, p.API = c, parts, rw, api
-	p.Handler = newMux(processReadinessGap(c, api, rw, workerMissing(env)), api)
+	p.Components, p.Trust, p.Worker, p.API, p.Surfaces = c, parts, rw, api, surf
+	p.Handler = newMux(withSurfaceReadiness(processReadinessGap(c, api, rw, workerMissing(env)), surf), api)
 	p.Close = func() {
 		rw.Stop()
+		closeSurfaces()
 		closeComponents()
+	}
+	if surf.Recovery != nil {
+		surf.Recovery.Start(ctx)
 	}
 	return p, nil
 }
