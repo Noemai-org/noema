@@ -36,7 +36,7 @@ func newOrchDirs(t *testing.T, tenants ...string) orchDirs {
 	t.Helper()
 	d := orchDirs{dsn: t.TempDir(), keys: t.TempDir()}
 	for _, tenant := range tenants {
-		if err := os.WriteFile(filepath.Join(d.dsn, tenant), []byte(synthDSN("workflows_"+tenant)+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(d.dsn, tenant), []byte(synthDSN("workflows_"+tenant)+"\n"), 0o400); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -174,7 +174,7 @@ func TestTheKeyOverlapIsAPositiveIntegerWithNoDefault(t *testing.T) {
 func TestOneOrchestratorLoginInTwoTenantFilesIsRefused(t *testing.T) {
 	d := newOrchDirs(t)
 	for _, tenant := range []string{"ten_aa", "ten_bb"} {
-		if err := os.WriteFile(filepath.Join(d.dsn, tenant), []byte(synthDSN("workflows_shared")), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(d.dsn, tenant), []byte(synthDSN("workflows_shared")), 0o400); err != nil {
 			t.Fatal(err)
 		}
 	}
