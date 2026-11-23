@@ -7,8 +7,10 @@ package investigations_test
 // signing extension, so they run in CI only. All data is SYNTHETIC.
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -174,4 +176,38 @@ func newLegacyAdminWithout(t *testing.T, prefix string) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	return admin
+}
+
+// The form of the stored issuer is the contract's asserted_by pattern: the migration's CHECK carries the pattern of intent-object.v2 and of understanding.Session.Valid. A DB-free guard,
+// so a drift between the contract and the column is seen without Postgres.
+func TestTheMigrationsIssuerCheckCarriesTheContractsAssertedByPattern(t *testing.T) {
+	raw, err := os.ReadFile("../../../../contracts/schemas/intent-object.v2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Properties struct {
+			Principal struct {
+				Properties struct {
+					AssertedBy struct {
+						Pattern string `json:"pattern"`
+					} `json:"asserted_by"`
+				} `json:"properties"`
+			} `json:"principal"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	pattern := doc.Properties.Principal.Properties.AssertedBy.Pattern
+	if pattern == "" {
+		t.Fatal("the contract has no asserted_by pattern")
+	}
+	sql, err := fs.ReadFile(migrations.FS, "0039_investigation_verified_issuer.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sql), "asserted_by ~ '"+pattern+"'") {
+		t.Errorf("migration 0039 does not carry the contract's pattern %s in its CHECK", pattern)
+	}
 }
