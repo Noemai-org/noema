@@ -72,8 +72,9 @@ func TestAConfirmLeavesExactlyOneOpenRequestRow(t *testing.T) {
 	if ttl := r.expiresAt.Sub(r.requestedAt); ttl < 599*time.Second || ttl > 601*time.Second {
 		t.Errorf("the request lives %v, want the request's TTL of 600 seconds on the database clock", ttl)
 	}
-	if time.Since(r.requestedAt) > time.Minute || time.Since(r.requestedAt) < -time.Minute {
-		t.Errorf("requested_at %v is not the database's now()", r.requestedAt)
+	var near bool
+	if err := w.admin.QueryRow(ctx(t), `SELECT abs(extract(epoch FROM (now() - requested_at))) < 60 FROM confirmation_request WHERE confirmation_request_id = $1`, r.id).Scan(&near); err != nil || !near {
+		t.Errorf("requested_at %v is not the database's now() (%v)", r.requestedAt, err)
 	}
 	cr := w.eventsOf(t, "CONFIRMATION_REQUESTED")
 	if len(cr) != 1 {

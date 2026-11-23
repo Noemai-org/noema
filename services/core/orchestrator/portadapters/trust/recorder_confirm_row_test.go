@@ -5,7 +5,6 @@ package trustport
 
 import (
 	"testing"
-	"time"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg2"
 )
@@ -24,7 +23,11 @@ func TestAConfirmThroughTheRealAdapterLeavesExactlyOneOpenRequest(t *testing.T) 
 	if err != nil || !found {
 		t.Fatalf("the store does not find the request: %v %v", found, err)
 	}
-	if rec.Request.ID != got.ConfirmationRequestID || rec.Answer != nil || !time.Unix(rec.Request.ExpiresAt, 0).After(time.Now()) {
+	var open bool // not expired on the database's clock
+	if err := w.admin.QueryRow(recCtx(t), `SELECT expires_at > now() FROM confirmation_request WHERE confirmation_request_id = $1`, got.ConfirmationRequestID).Scan(&open); err != nil || !open {
+		t.Errorf("the request is not open on the database clock: %v %v", open, err)
+	}
+	if rec.Request.ID != got.ConfirmationRequestID || rec.Answer != nil {
 		t.Errorf("the stored request %+v (answered: %v), want the open request %s", rec.Request, rec.Answer != nil, got.ConfirmationRequestID)
 	}
 	// the decision and its request commit together: the replay returns the stored decision and creates no second request
