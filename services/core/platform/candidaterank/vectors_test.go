@@ -247,6 +247,11 @@ func TestTheVectorsCoverBothThresholdsOnEachSide(t *testing.T) {
 		"margin_3499": "AMBIGUOUS", "margin_3500": "AUTO_RESOLVED", "margin_3501": "AUTO_RESOLVED",
 		"floor_6999": "AMBIGUOUS", "floor_7000": "AUTO_RESOLVED", "floor_7001": "AUTO_RESOLVED",
 		"four_above_floor": "AMBIGUOUS", "five_above_floor": "TOO_MANY_CANDIDATES",
+		// A566: the comparisons are made on the exact sums, so a fractional score at a threshold decides on its exact value: 9000.00 against 5500.25 is a margin of 3499.75 (AMBIGUOUS)
+		// although the floored scores differ by exactly 3500; 5499.75 is 3500.25 (AUTO_RESOLVED); 6999.75 is below the floor and 7000.25 above it; two scores that floor alike are no tie.
+		"margin_3499_75_fractional": "AMBIGUOUS", "margin_3500_25_fractional": "AUTO_RESOLVED",
+		"floor_6999_75_fractional": "AMBIGUOUS", "floor_7000_25_fractional": "AUTO_RESOLVED",
+		"floored_equal_exact_differs_is_not_a_tie": "AMBIGUOUS",
 	}
 	for name, state := range want {
 		if have[name] != state {

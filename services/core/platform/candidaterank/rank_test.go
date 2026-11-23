@@ -212,7 +212,8 @@ func TestThePacksOwnThresholdsAreTheOnesTheVectorsUse(t *testing.T) {
 	}
 }
 
-// INV-21, A560: no float in the package's code (type, literal or conversion).
+// INV-21, A560, A566: no float in the package's code: no float type, no float literal, no rounding function, no float parsing or formatting (strconv.ParseFloat, strconv.FormatFloat,
+// strconv.AppendFloat) and no big.Float or big.NewFloat.
 func TestThePackageHoldsNoFloat(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
@@ -234,6 +235,12 @@ func TestThePackageHoldsNoFloat(t *testing.T) {
 				case *ast.SelectorExpr:
 					if id, ok := x.X.(*ast.Ident); ok && id.Name == "math" && (x.Sel.Name == "Floor" || x.Sel.Name == "Round" || x.Sel.Name == "Ceil") {
 						t.Errorf("%s: math.%s", name, x.Sel.Name)
+					}
+					if id, ok := x.X.(*ast.Ident); ok && id.Name == "strconv" && (x.Sel.Name == "ParseFloat" || x.Sel.Name == "FormatFloat" || x.Sel.Name == "AppendFloat") {
+						t.Errorf("%s: strconv.%s", name, x.Sel.Name)
+					}
+					if id, ok := x.X.(*ast.Ident); ok && id.Name == "big" && (x.Sel.Name == "Float" || x.Sel.Name == "NewFloat" || x.Sel.Name == "ParseFloat") {
+						t.Errorf("%s: big.%s", name, x.Sel.Name)
 					}
 				}
 				return true

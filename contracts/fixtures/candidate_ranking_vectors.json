@@ -1,6 +1,6 @@
 {
  "label": "SYNTHETIC",
- "note": "Shared golden vectors for the candidate ranker (REQ-AMB-003, A555/A559/A560). Integer basis points, floor division, no float. Loaded by the Go suite (services/core/platform/candidaterank) and the Python reference suite. Every case is built so the exact score is a whole number of basis points, so the two implementations agree; where they could differ (below one basis point) the Go value is the authority.",
+ "note": "Shared golden vectors for the candidate ranker (REQ-AMB-003, A555/A559/A560/A566). Integer basis points, no float. Loaded by the Go suite (services/core/platform/candidaterank) and the Python reference suite. The margin, the floor and the tie are decided on the exact unrounded weighted sums, never on floored scores; floor division applies only to the scores that are reported (A566), so a reported margin is the floor of the exact margin. The *_fractional cases carry a score that is not a whole number of basis points (top 9000.00 against 5500.25 is a margin of 3499.75 and is AMBIGUOUS, although the floored scores differ by exactly 3500). Every other case has a whole-number score. Where the Python reference (exact fractions) and the Go ranker could differ, the Go value is the authority.",
  "version": 1,
  "config": {
   "label": "SYNTHETIC",
@@ -919,6 +919,262 @@
     "margin_bp": 6000,
     "above_floor": 0,
     "why_not": [
+     "BELOW_FLOOR"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "margin_3499_75_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_top",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_second",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6001,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_top",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_second",
+      "score_bp": 5500
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 5500,
+    "margin_bp": 3499,
+    "above_floor": 1,
+    "why_not": [
+     "MARGIN_NOT_MET"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "margin_3500_25_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_top",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 10000,
+     "alias_match": true,
+     "direction": "IN"
+    },
+    {
+     "id": "cand_second",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 5999,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_top",
+      "score_bp": 9000
+     },
+     {
+      "id": "cand_second",
+      "score_bp": 5499
+     }
+    ],
+    "top_bp": 9000,
+    "second_bp": 5499,
+    "margin_bp": 3500,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_top"
+   }
+  },
+  {
+   "name": "floor_6999_75_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 1999,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 6999
+     }
+    ],
+    "top_bp": 6999,
+    "second_bp": 0,
+    "margin_bp": 6999,
+    "above_floor": 0,
+    "why_not": [
+     "BELOW_FLOOR"
+    ],
+    "resolved_id": null
+   }
+  },
+  {
+   "name": "floor_7000_25_fractional",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_only",
+     "amount_minor": 100000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 2001,
+     "alias_match": true,
+     "direction": "IN"
+    }
+   ],
+   "want": {
+    "state": "AUTO_RESOLVED",
+    "ranked": [
+     {
+      "id": "cand_only",
+      "score_bp": 7000
+     }
+    ],
+    "top_bp": 7000,
+    "second_bp": 0,
+    "margin_bp": 7000,
+    "above_floor": 1,
+    "why_not": [],
+    "resolved_id": "cand_only"
+   }
+  },
+  {
+   "name": "floored_equal_exact_differs_is_not_a_tie",
+   "target": {
+    "amount_minor": 100000,
+    "currency": "NGN",
+    "window": [
+     "2026-11-20T09:00:00Z",
+     "2026-11-20T10:00:00Z"
+    ],
+    "expected_direction": "OUT"
+   },
+   "context": {
+    "material_flag": false,
+    "key_slot_low_asr": false
+   },
+   "candidates": [
+    {
+     "id": "cand_a",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6001,
+     "alias_match": true,
+     "direction": "OUT"
+    },
+    {
+     "id": "cand_b",
+     "amount_minor": 500000,
+     "currency": "NGN",
+     "occurred_at": "2026-11-20T09:30:00Z",
+     "recipient_bp": 6002,
+     "alias_match": true,
+     "direction": "OUT"
+    }
+   ],
+   "want": {
+    "state": "AMBIGUOUS",
+    "ranked": [
+     {
+      "id": "cand_b",
+      "score_bp": 5500
+     },
+     {
+      "id": "cand_a",
+      "score_bp": 5500
+     }
+    ],
+    "top_bp": 5500,
+    "second_bp": 5500,
+    "margin_bp": 0,
+    "above_floor": 0,
+    "why_not": [
+     "MARGIN_NOT_MET",
      "BELOW_FLOOR"
     ],
     "resolved_id": null

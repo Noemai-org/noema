@@ -1,8 +1,9 @@
 """The Python reference ranker against the shared golden vectors (REQ-AMB-003, INV-21; rulings A555, A559, A560, interim, relayed).
 
 The same file, contracts/fixtures/candidate_ranking_vectors.json, is loaded by the Go suite (platform/candidaterank). The Python ranker is exact rational arithmetic (fractions, never a float); the Go
-ranker is integer basis points with floor division and is the authority. Every vector is built so its exact score is a whole number of basis points, so both give the same answer; the
-expected value in basis points is the floor of the exact one. All data is SYNTHETIC.
+ranker is integer scaled arithmetic (no float) and is the authority. Both decide the margin, the floor and the tie on the exact unrounded sums and floor only the reported scores (A566), so the
+*_fractional vectors (a score that is not a whole number of basis points, at the margin and at the floor) give the same answer in both; the expected value in basis points is the floor of the
+exact one. All data is SYNTHETIC.
 """
 
 import json
