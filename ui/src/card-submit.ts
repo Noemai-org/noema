@@ -16,7 +16,7 @@ export function isSecureTarget(url: URL): boolean {
   return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/u.test(url.hostname));
 }
 
-const ERROR_BODY_LIMIT_BYTES = 16 * 1024;
+const ERROR_BODY_LIMIT_BYTES = 65_536;
 
 // Read only a bounded, contract-validated error envelope. The server message is never returned to the UI.
 async function errorCode(response: Response): Promise<string | null> {
