@@ -121,18 +121,12 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
     try {
       const result = await onResponse(card.confirmation_request_id, selected.current);
       if (result === "unavailable") {
-        selected.current = null;
-        lock.current = false;
-        setLocked(false);
         setRetry(true);
       } else if (result === "expired") {
         setRetry(false);
         setServerExpired(true);
       }
     } catch {
-      selected.current = null;
-      lock.current = false;
-      setLocked(false);
       setRetry(true);
     } finally {
       inFlight.current = false;
@@ -151,7 +145,8 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
     h("button", { type: "button", disabled: expired || locked || !onResponse, onClick: response("DECLINE") }, "Decline"),
     h("button", { type: "button", disabled: isExpired, onClick: () => setShowPolicy(!showPolicy), "aria-expanded": showPolicy }, "Policy details"),
     showPolicy ? h("p", null, card.policy_version) : null,
-    retry && !isExpired ? h("p", { role: "status" }, "The response could not be completed. Please try again.") : null,
+    retry && !isExpired ? h("p", { role: "status" }, "I could not confirm whether your response was recorded. Retry the same response.") : null,
+    retry && !isExpired ? h("button", { type: "button", onClick: () => { if (retry) { setRetry(false); void submit(); } } }, "Try again") : null,
     isExpired ? h("p", { role: "status" }, expiredText) : null,
   );
 }
