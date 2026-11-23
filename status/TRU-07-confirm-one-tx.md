@@ -1,0 +1,11 @@
+# Session 2026-11-23 12:10 WAT · TRU-07 (C1, ruling A552: the CONFIRM decision and its confirmation_request row are one transaction)
+
+## Session summary
+- What changed (PR links): tests first so far (the PR is Draft). A552 (interim, relayed by the Founder, not yet committed to `docs`): the Writer writes the `confirmation_request` row of a CONFIRM in the same transaction as the decision and its two events (the store's tx-bound insert; the expiry is the database clock plus the TTL; the supersede chain is kept; the request id comes back with the decision). `Requests.Open` of `trustpg2` has no non-test caller: it stops being a public creator.
+- Why: before this the Writer wrote the events and returned a request id, but no row existed unless the store's `Open` was called, which nothing in production calls (found in noema#885: the Writer's CONFIRM path writes no `confirmation_request` row). That blocks EL's A519 end-to-end test and the A542 decline linkage.
+- Tests added (REQ-TRU-009, REQ-TRU-003; INV-25, EC-E16): `trust/recorder/confirmrequest_row_test.go` (a CONFIRM leaves exactly one open request row with the eight bound values, the recomputed binding hash, the expiry on the database clock and the same expiry in the event; a rollback and a refused second request leave neither decision nor row; a fresh request after the expiry supersedes the expired one and the chain stays linear, with one 1.2 s real-time wait for the one-second TTL; a repeated CONFIRM and a CONFIRM with no request write no second row), `orchestrator/portadapters/trust/recorder_confirm_row_test.go` (the real adapter: exactly one open request that the confirmation store reads back as the request the result named), `orchestrator/portadapters/trustpg2/no_creator_test.go` (no non-test creator).
+
+## Pre-work for the next agent
+- Exact next step: GREEN in `trust/recorder/recorder.go` (insert the row after the decision row, before CONFIRMATION_REQUESTED; supersede the head of the action's chain; `RETURNING expires_at` into the event; `ErrConfirmationRequestOpen`); move `Open` and `NewRequest` of `trustpg2` into a test-only file.
+- Files to read first: `migrations/0032_confirmation_request_answer.sql`, `trust/recorder/confirmrequest.go`, `orchestrator/portadapters/trustpg2/requests.go`.
+- Do not touch: `services/core/migrations/` (0032 has everything this needs).
