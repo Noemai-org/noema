@@ -51,9 +51,9 @@ test("A515: host supplies the limit and synthetic sink receives frames while Rec
 test("A516: capture stops and tracks close when the browser window loses focus", async ({ page, context }) => {
   const address = Object.values(networkInterfaces()).flat().find(x => x?.internal && x.family === "IPv4")?.address;
   if (!address) throw new Error("Local test interface unavailable");
-  const server = createServer((_req, res) => res.writeHead(200, { "content-type": "text/html" }).end('<!doctype html><div id="app"></div><script src="/voice.js"></script>'));
-  server.on("request", (req, res) => {
+  const server = createServer((req, res) => {
     if (req.url === "/voice.js") res.writeHead(200, { "content-type": "text/javascript" }).end(bundle);
+    else res.writeHead(200, { "content-type": "text/html" }).end('<!doctype html><div id="app"></div><script src="/voice.js"></script>');
   });
   server.listen(0, address); await once(server, "listening");
   const origin = `http://${address}:${server.address().port}`;
@@ -63,7 +63,7 @@ test("A516: capture stops and tracks close when the browser window loses focus",
       const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getUserMedia = async (constraints) => {
         const stream = await original(constraints);
-        (window as any).captureTracks = stream.getTracks();
+        window.captureTracks = stream.getTracks();
         return stream;
       };
     });
@@ -74,7 +74,7 @@ test("A516: capture stops and tracks close when the browser window loses focus",
     await expect.poll(() => page.evaluate(() => window.frameSizes.length)).toBeGreaterThan(0);
     await page.evaluate(() => window.dispatchEvent(new Event("blur")));
     await expect(page.getByText("Recording", { exact: true })).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() => (window as any).captureTracks.every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.captureTracks.every((track) => track.readyState === "ended"))).toBe(true);
     const count = await page.evaluate(() => window.frameSizes.length);
     await page.waitForTimeout(150);
     expect(await page.evaluate(() => window.frameSizes.length)).toBe(count);
