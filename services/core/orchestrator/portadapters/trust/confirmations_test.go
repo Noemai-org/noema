@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math/rand"
+	"reflect"
 	"testing"
 	"time"
 
@@ -407,7 +408,7 @@ func TestStatusAsksThePlannerWithTheRequestOfTheAdmittedIntent(t *testing.T) {
 			if _, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh()); err != nil {
 				t.Fatal(err)
 			}
-			if len(w.pl.calls) != 1 || w.pl.calls[0] != want {
+			if len(w.pl.calls) != 1 || !reflect.DeepEqual(w.pl.calls[0], want) {
 				t.Fatalf("planner calls %+v", w.pl.calls)
 			}
 		})

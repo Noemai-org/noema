@@ -120,7 +120,7 @@ func (s *recFacts) Facts(ctx context.Context, r intake.RecordRequest) (RecordFac
 }
 
 func newRecFacts() *recFacts {
-	return &recFacts{f: RecordFacts{PolicyID: "fin.pol", EvidenceSetHash: recHash(3)}}
+	return &recFacts{f: RecordFacts{PolicyID: "fin.pol", EvidenceSetHash: recHash(3), ConfirmationBindingEvidenceHash: recHash(5)}}
 }
 
 // recTx records what is done to a transaction; it embeds a nil pgx.Tx, so any other call panics, which the tests treat as a failure.
@@ -553,7 +553,10 @@ func (b recPool) Begin(ctx context.Context, tenant string) (pgx.Tx, error) {
 	return b.p.Begin(ctx)
 }
 
-func newRecWorld(t *testing.T) *recWorld {
+func newRecWorld(t *testing.T) *recWorld { return newRecWorldWith(t, recorder.EscalationSet{}) }
+
+// newRecWorldWith is newRecWorld with the escalation plan the composition root would inject (A335): a decision that names a disposition carries only its capabilities.
+func newRecWorldWith(t *testing.T, escalation recorder.EscalationSet) *recWorld {
 	t.Helper()
 	admin, dsn := testpg.NewDatabase(t)
 	if _, err := db.Migrate(recCtx(t), admin, migrations.FS); err != nil {
@@ -573,7 +576,7 @@ func newRecWorld(t *testing.T) *recWorld {
 	clk := clock.NewManual(recEpoch)
 	idg := ids.New(clk, rand.New(rand.NewSource(1)))
 	trust := testpg.TenantLogin(t, admin, dsn, "trust_rw", recTenant)
-	a, err := NewRecorderAdapter(RecorderConfig{Begin: recPool{trust}, Facts: newRecFacts(), Keys: keys,
+	a, err := NewRecorderAdapter(RecorderConfig{Begin: recPool{trust}, Facts: newRecFacts(), Keys: keys, Escalation: escalation,
 		Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "recorder", nil, "core-trust")},
 		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute, TxTimeout: recTxTimeout})
 	if err != nil {

@@ -30,6 +30,8 @@ MAPPING = "fintech/evidence_mapping/mapping.v1.json"
 RULES = "fintech/recon_rules/rules.v1.json"
 PACK = "fintech_v1.json"
 LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES}
+# A510: the action graphs the pack names (`action_graph_files`) are pinned too, one `action_graph` entry each.
+GRAPHS = ["fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"]
 EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1"}
 
 
@@ -44,13 +46,14 @@ def good_manifest(root: Path) -> dict:
         "label": "SYNTHETIC",
         "note": "SYNTHETIC test manifest.",
         "expected": dict(EXPECTED),
-        "files": [{"kind": kind, "path": rel, "sha256": sha256(root / rel)} for kind, rel in LISTED.items()],
+        "files": [{"kind": kind, "path": rel, "sha256": sha256(root / rel)} for kind, rel in LISTED.items()]
+        + [{"kind": "action_graph", "path": rel, "sha256": sha256(root / rel)} for rel in GRAPHS],
     }
 
 
 def build_root(root: Path) -> Path:
-    """A pack folder with the three real files and a good manifest. Returns the manifest path."""
-    for rel in LISTED.values():
+    """A pack folder with the three real files, the three real action graphs and a good manifest. Returns the manifest path."""
+    for rel in [*LISTED.values(), *GRAPHS]:
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PACKS / rel, root / rel)
     path = root / "fintech/manifest.v1.json"
@@ -64,6 +67,10 @@ def write(path: Path, doc) -> None:
 
 def entry(doc: dict, kind: str) -> dict:
     return next(f for f in doc["files"] if f["kind"] == kind)
+
+
+def entry_of(doc: dict, path: str) -> dict:
+    return next(f for f in doc["files"] if f["path"] == path)
 
 
 class Base(unittest.TestCase):
@@ -109,11 +116,12 @@ class RealManifest(Base):
         self.assertTrue(REAL_MANIFEST.is_file(), "packs/fintech/manifest.v1.json does not exist (A333)")
         self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
 
-    def test_it_is_labelled_synthetic_and_lists_exactly_the_three_kinds(self):
+    def test_it_is_labelled_synthetic_and_lists_exactly_the_four_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"]}, LISTED)
-        self.assertEqual(len(doc["files"]), 3)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] != "action_graph"}, LISTED)
+        self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
+        self.assertEqual(len(doc["files"]), 6)
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -131,7 +139,7 @@ class RealManifest(Base):
 
     def test_every_json_file_of_a_listed_kind_is_listed(self):
         listed = {f["path"] for f in self.load()["files"]}
-        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules") for p in (PACKS / d).rglob("*.json")}
+        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
         self.assertEqual(found, listed)
 
@@ -294,6 +302,111 @@ class UnlistedFile(Base):
             doc["files"].append({"kind": "recon_rules", "path": "fintech/recon_rules/rules.v2.json", "sha256": sha256(root / RULES)})
         self.edit(root, manifest, add)
         self.fails(root, manifest, "exactly one recon_rules file, it lists 2")
+
+
+class ActionGraphs(Base):
+    """A510: every action graph the pack names is pinned as an `action_graph` entry and verified, and no other graph is: nothing unverified is ever served."""
+
+    def reseal(self, root: Path, manifest: Path) -> None:
+        """Write the digest of every listed file as it is on disk now, so that only the structure is left to differ."""
+        def fix(doc):
+            for f in doc["files"]:
+                if (root / f["path"]).is_file() and not (root / f["path"]).is_symlink():
+                    f["sha256"] = sha256(root / f["path"])
+        self.edit(root, manifest, fix)
+
+    def set_named(self, root: Path, manifest: Path, graphs: list[str] | None) -> None:
+        """Rewrite the pack file's `action_graph_files` (None removes the member) and reseal."""
+        pack = root / PACK
+        doc = json.loads(pack.read_text(encoding="utf-8"))
+        if graphs is None:
+            doc.pop("action_graph_files", None)
+        else:
+            doc["action_graph_files"] = graphs
+        write(pack, doc)
+        self.reseal(root, manifest)
+
+    def test_the_real_manifest_pins_exactly_the_graphs_the_pack_names(self):
+        pack = json.loads((PACKS / PACK).read_text(encoding="utf-8"))
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(pack["action_graph_files"]), GRAPHS)
+        pinned = {f["path"]: f["sha256"] for f in doc["files"] if f["kind"] == "action_graph"}
+        self.assertEqual(sorted(pinned), GRAPHS)
+        for rel, digest in pinned.items():
+            with self.subTest(rel):
+                self.assertEqual(digest, sha256(PACKS / rel))  # an independent computation over the raw bytes
+
+    def test_a_good_tree_with_the_graphs_passes(self):
+        root, manifest = self.tree()
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_changed_byte_in_a_pinned_graph_fails_for_each_graph(self):
+        for rel in GRAPHS:
+            with self.subTest(rel):
+                root, manifest = self.tree()
+                path = root / rel
+                path.write_bytes(path.read_bytes() + b" ")
+                self.fails(root, manifest, "sha256")
+
+    def test_a_graph_the_pack_names_but_the_manifest_does_not_pin_fails(self):
+        for rel in GRAPHS:
+            with self.subTest(rel):
+                root, manifest = self.tree()
+                self.edit(root, manifest, lambda d: d.__setitem__("files", [f for f in d["files"] if f["path"] != rel]))
+                self.fails(root, manifest, rel)
+
+    def test_a_pinned_graph_the_pack_does_not_name_fails(self):
+        root, manifest = self.tree()
+        self.set_named(root, manifest, GRAPHS[:2])
+        self.fails(root, manifest, GRAPHS[2])
+
+    def test_a_pinned_graph_entry_whose_file_is_missing_fails(self):
+        root, manifest = self.tree()
+        (root / GRAPHS[1]).unlink()
+        self.fails(root, manifest, GRAPHS[1], "does not exist")
+
+    def test_a_graph_listed_twice_fails(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: d["files"].append(dict(entry_of(d, GRAPHS[0]))))
+        self.fails(root, manifest, GRAPHS[0], "twice")
+
+    def test_an_unlisted_graph_file_in_the_graph_folder_fails(self):
+        root, manifest = self.tree()
+        shutil.copyfile(root / GRAPHS[0], root / "fintech/graph/g9_extra.json")
+        self.fails(root, manifest, "fintech/graph/g9_extra.json", "not listed")
+
+    def test_a_graph_listed_under_another_kind_fails(self):
+        for kind in ("pack", "evidence_mapping", "recon_rules", "graph", "action_graphs"):
+            with self.subTest(kind):
+                root, manifest = self.tree()
+                self.edit(root, manifest, lambda d: entry_of(d, GRAPHS[0]).__setitem__("kind", kind))
+                self.assertTrue(self.check(manifest, root), "a graph listed as another kind must fail")
+
+    def test_a_graph_path_that_escapes_or_is_a_symlink_fails(self):
+        root, manifest = self.tree()
+        outside = root.parent / "outside.json"
+        outside.write_text("{}", encoding="utf-8")
+        (root / GRAPHS[0]).unlink()
+        (root / GRAPHS[0]).symlink_to(outside)
+        self.fails(root, manifest, GRAPHS[0], "symlink")
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: entry_of(d, GRAPHS[0]).__setitem__("path", "../outside.json"))
+        self.fails(root, manifest, "..")
+
+    def test_a_pack_that_names_no_graph_needs_no_graph_entry_and_may_pin_none(self):
+        for named in (None, []):
+            with self.subTest(named=named):
+                root, manifest = self.tree()
+                self.edit(root, manifest, lambda d: d.__setitem__("files", [f for f in d["files"] if f["kind"] != "action_graph"]))
+                self.set_named(root, manifest, named)
+                for rel in GRAPHS:
+                    (root / rel).unlink()
+                self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_graph_pinned_for_a_pack_that_names_none_fails(self):
+        root, manifest = self.tree()
+        self.set_named(root, manifest, None)
+        self.fails(root, manifest, GRAPHS[0])
 
 
 class IdMatch(Base):

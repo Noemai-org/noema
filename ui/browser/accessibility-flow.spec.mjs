@@ -18,7 +18,8 @@ const test = base.extend({ page: async ({ page }, use) => {
 test("REQ-UI-001: flow accessibility check rejects a missing image description", async ({ page }) => {
   const markup = await readFile("dist/index.html", "utf8");
   const stylesheet = await readFile("dist/tokens.css", "utf8");
-  await page.setContent(markup);
+  // Isolated fixture uses injected test CSS/scanner; real CSP is tested on the served page.
+  await page.setContent(markup.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/u, ""));
   await page.addStyleTag({ content: stylesheet });
   await assertAccessible(page);
   await page.evaluate(() => { const img = document.createElement("img"); img.src = "data:image/gif;base64,R0lGODlhAQABAAAAACw="; document.body.append(img); });

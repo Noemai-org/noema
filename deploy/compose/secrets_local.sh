@@ -46,6 +46,20 @@ if [ ! -s "$dir/core_trust_ed25519_seed_1" ]; then
 fi
 chmod 600 "$dir/core_trust_ed25519_seed_1"
 
+# The core's other key files (A506, interim): the orchestrator's (`core-workflows`) and the gateway's (`core-edge`) Ed25519 seeds and the input hash key, each 32 random bytes as 64 lower-case hexadecimal
+# characters (the form the loaders read: the seeds as core-workflows.ed25519.1.key and core-edge.ed25519.1.key, the hash key as one file of at least 32 bytes), kept if present, never printed. A
+# one-shot step (deploy/compose/core-keys) gives them the mode 0400 and the owner the loaders require.
+if [ ! -s "$dir/core_workflows_ed25519_seed_1" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_workflows_ed25519_seed_1" )
+fi
+if [ ! -s "$dir/core_edge_ed25519_seed_1" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_edge_ed25519_seed_1" )
+fi
+if [ ! -s "$dir/input_hash_key" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/input_hash_key" )
+fi
+chmod 600 "$dir/core_workflows_ed25519_seed_1" "$dir/core_edge_ed25519_seed_1" "$dir/input_hash_key"
+
 # One secret file per emitter login (ruling A4): NOEMA_TENANTS x NOEMA_EMITTERS (default core-edge). Missing files are made with a random value;
 # existing files are kept. The folder is mounted read-only into postgres only; init.sh refuses a missing, empty or duplicated secret.
 mkdir -p "$dir/emitter_logins"
