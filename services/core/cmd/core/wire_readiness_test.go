@@ -57,7 +57,7 @@ func TestEveryComponentFieldHasAReadinessName(t *testing.T) {
 			for j := 0; j < pt.NumField(); j++ {
 				fields = append(fields, "Ports."+pt.Field(j).Name)
 			}
-		case "AccessLog", "ServedTenants", "TrustUnbuilt":
+		case "AccessLog", "ServedTenants", "TrustUnbuilt", "Understanding", "UnderstandingUnbuilt":
 		default:
 			fields = append(fields, f.Name)
 		}
