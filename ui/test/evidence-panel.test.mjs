@@ -123,3 +123,18 @@ test("REQ-UI-003: malformed conditional reconstruction fixtures are never presen
     assert.deepEqual(scanVisibleText(html), [], name);
   }
 });
+
+
+test("A570 REQ-UI-003: multiple verification items still render only the backend chain verdict line", async () => {
+  const value = await load("full_write_case");
+  const verification = value.sections.find((section) => section.kind === "VERIFICATION");
+  verification.items.push({
+    ...verification.items[0],
+    facts: { ...verification.items[0].facts, verdict: "PENDING_EXTERNAL" },
+  });
+  const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
+  assert.equal((html.match(/Verdict:/g) ?? []).length, 1);
+  assert.match(html, /Verdict: ACHIEVED/);
+  assert.doesNotMatch(html, /Verified/);
+  assert.deepEqual(scanVisibleText(html), []);
+});
