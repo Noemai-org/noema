@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
@@ -467,8 +468,10 @@ def _label_template_problems(where: str, text: str, allowed: frozenset[str]) -> 
     out += [f"{where}: {{attr:{n}}} is not a field this template may show" for n in names if n not in allowed]
     if "{" in literal or "}" in literal:
         out.append(f"{where}: a brace that is not a whole {{attr:<field>}} placeholder")
-    if re.search(r"\d", literal):
+    if any(unicodedata.category(ch) in ("Nd", "Nl", "No") for ch in literal):  # a number of any kind: digits of any script, superscripts, circled digits, fractions, numerals
         out.append(f"{where}: the literal text holds a digit")
+    if any(unicodedata.category(ch) in ("Cc", "Cf") for ch in text):  # a control, zero-width or bidi character could keep two placeholders apart for a program and together for a customer
+        out.append(f"{where}: the template holds a control or invisible character")
     if re.search(r"\}\{", text):
         out.append(f"{where}: two placeholders side by side")
     return out
