@@ -124,16 +124,15 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
     try {
       const result = await onResponse(card.confirmation_request_id, selected.current);
       if (result === "unavailable") {
-        lock.current = false;
-        setLocked(false);
+        // The server may have committed the first answer even if its response was lost.
+        // Keep the choice locked; Try again can only replay this same response.
         setRetry(true);
       } else if (result === "expired") {
         setRetry(false);
         setServerExpired(true);
       }
     } catch {
-      lock.current = false;
-      setLocked(false);
+      // A thrown network error is ambiguous too: never let the user switch answers.
       setRetry(true);
     } finally {
       inFlight.current = false;
@@ -153,7 +152,7 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
     h("button", { type: "button", disabled: isExpired, onClick: () => setShowPolicy(!showPolicy), "aria-expanded": showPolicy }, "Policy details"),
     showPolicy ? h("p", null, card.policy_version) : null,
     retry && !isExpired ? h("button", { type: "button", onClick: () => { if (retry) { lock.current = true; setLocked(true); void submit(); } } }, "Try again") : null,
-    retry ? h("p", { role: "status" }, "Your response was not sent. You can try again.") : null,
+    retry ? h("p", { role: "status" }, "I could not confirm whether your response was recorded. Retry the same response.") : null,
     isExpired ? h("p", { role: "status" }, expiredText) : null,
   );
 }
