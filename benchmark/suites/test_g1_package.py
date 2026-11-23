@@ -111,7 +111,7 @@ def wrap(kind: str, value: Any) -> Any:
 
 def art(**over: Any) -> Json:
     base: Json = {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), "reconstructions": recons(), "mock_case_writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0},
-                  "correlations": {**{c: corr_of(c) for c in SIX}, **CORRELATIONS}, "run_stamp": dict(STAMP), "artifact_files": FILES_OK}
+                  "correlations": {**{c: corr_of(c) for c in SIX}, **CORRELATIONS}, "run_stamp": dict(STAMP), "artifact_files": FILES_OK, "scan_inventory": FILES_OK}
     base.update(over)
     base["reconstructions"] = wrap("cases", base["reconstructions"])
     base["mock_case_writes"] = wrap("writes", base["mock_case_writes"])
@@ -669,12 +669,18 @@ class RereadNotReplay(unittest.TestCase):
 
 
 class RowTwelve(unittest.TestCase):
-    """Row 12 (No secret or key in any artifact or summary) is computed from the run's artifact file list and the leak scan, not attested: the list is stamped, no listed file is named like a secret or
-    a key, and the leak scan is clean AND scanned at least every listed file."""
+    """Row 12 (No secret or key in any artifact or summary) is computed from the run's artifact file list, the scanner's own stamped inventory of the files it scanned, and the leak scan, not attested:
+    the list is stamped, no listed file is named like a secret or a key, the leak scan is clean, and the uploaded set and the scanned set are the SAME set of names (Codex P2 on #875: a count
+    cannot tell a scanned file from an unscanned one)."""
 
     def row12(self, **over: Any) -> str:
-        """The default scan read 100 files, so a test of one rule is never failed by the coverage rule instead of its own."""
-        return row(make(artifacts=art(**{"leak_scan": LEAK_BIG, **over})), 12)
+        """A test of one rule is never failed by another: the inventory follows the list unless the test gives its own, and the scan's file count follows the inventory."""
+        files = over.get("artifact_files", FILES_OK)
+        inventory = over.setdefault("scan_inventory", files)
+        if "leak_scan" not in over and isinstance(inventory, str):
+            n = max(inventory.count("\n") - 1, 1)
+            over["leak_scan"] = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned {n} files, 340 lines\n"
+        return row(make(artifacts=art(**over)), 12)
 
     def test_a_stamped_list_of_plain_files_and_a_clean_scan_that_covered_them_is_met(self) -> None:
         self.assertIn("**MET**", self.row12())
@@ -698,12 +704,37 @@ class RowTwelve(unittest.TestCase):
         for name in ("/etc/hosts", "../outside.txt", "a/../../b.txt", "C:/x.txt"):
             self.assertIn("**NOT MET**", self.row12(artifact_files=FILES_OK + name + "\n"), name)
 
-    def test_a_scan_that_read_fewer_files_than_were_listed_is_not_met(self) -> None:
+    def test_the_uploaded_set_and_the_scanned_set_must_be_the_same_set(self) -> None:
+        # Codex P2 on #875: a scan of 13 files said OK for 12 listed names, though one listed name was never scanned. The inventory is the scanner's own list of what it read.
+        names = FILES_OK.split("\n")[1:-1]
+        unscanned = self.row12(artifact_files=FILES_OK + "extra-upload.json\n", scan_inventory=FILES_OK, leak_scan=LEAK_BIG)
+        self.assertIn("**NOT MET**", unscanned)
+        self.assertIn("extra-upload.json", unscanned, "the file uploaded but not scanned is named")
+        uploaded_less = self.row12(artifact_files=STAMP_LINE + "\n".join(names[:-1]) + "\n", scan_inventory=FILES_OK, leak_scan=LEAK_BIG)
+        self.assertIn("**NOT MET**", uploaded_less)
+        self.assertIn(names[-1], uploaded_less, "the file scanned but not uploaded is named too")
+        same_count_other_name = STAMP_LINE + "\n".join(names[:-1] + ["other.json"]) + "\n"
+        self.assertIn("**NOT MET**", self.row12(artifact_files=FILES_OK, scan_inventory=same_count_other_name))
+
+    def test_the_order_of_the_names_does_not_matter_but_the_set_does(self) -> None:
+        names = FILES_OK.split("\n")[1:-1]
+        shuffled = STAMP_LINE + "\n".join(reversed(names)) + "\n"
+        self.assertIn("**MET**", self.row12(artifact_files=FILES_OK, scan_inventory=shuffled))
+
+    def test_no_inventory_or_an_unstamped_or_foreign_one_is_not_met(self) -> None:
+        base = art()
+        del base["scan_inventory"]
+        self.assertIn("**NOT MET**", row(make(artifacts=base), 12))
+        for bad in ("", "\n", STAMP_LINE, 7, None, "\n".join(FILES_OK.split("\n")[1:]), f"stamp: {'b' * 40} {RUN}\n" + "\n".join(FILES_OK.split("\n")[1:]), STAMP_LINE + FILES_OK.split("\n", 1)[1] + "\n"):
+            self.assertIn("**NOT MET**", self.row12(scan_inventory=bad, leak_scan=LEAK_BIG), repr(bad))
+
+    def test_the_scans_own_file_count_must_equal_the_inventory(self) -> None:
         listed = FILES_OK.count("\n") - 1
-        few = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned {listed - 1} files, 340 lines\n"
-        self.assertIn("**NOT MET**", self.row12(leak_scan=few))
-        enough = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned {listed} files, 340 lines\n"
-        self.assertIn("**MET**", self.row12(leak_scan=enough))
+        for n in (listed - 1, listed + 1):
+            scan = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned {n} files, 340 lines\n"
+            self.assertIn("**NOT MET**", self.row12(leak_scan=scan), n)
+        scan = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned {listed} files, 340 lines\n"
+        self.assertIn("**MET**", self.row12(leak_scan=scan))
 
     def test_a_failing_leak_scan_is_not_met_for_row_12_too(self) -> None:
         self.assertIn("**NOT MET**", self.row12(leak_scan=STAMP_LINE + "leakscan FAIL: 1 finding\n"))
@@ -730,7 +761,7 @@ class StampAcrossArtifacts(unittest.TestCase):
     def line(self, text: str) -> str:
         return next(x for x in text.splitlines() if x.startswith("Run stamp across artifacts"))
 
-    def test_one_stamp_on_all_six_artifacts_agrees(self) -> None:
+    def test_one_stamp_on_all_seven_artifacts_agrees(self) -> None:
         text = make()
         self.assertIn("AGREE", self.line(text))
         self.assertNotIn("DISAGREE", self.line(text))
@@ -743,7 +774,8 @@ class StampAcrossArtifacts(unittest.TestCase):
                  "probes": {"probes": {**probes(), "stamp": self.OTHER}},
                  "run_stamp": {"run_stamp": self.OTHER},
                  "leak_scan": {"leak_scan": other_line + LEAK_OK.split("\n", 1)[1]},
-                 "artifact_files": {"artifact_files": other_line + FILES_OK.split("\n", 1)[1]}}
+                 "artifact_files": {"artifact_files": other_line + FILES_OK.split("\n", 1)[1]},
+                 "scan_inventory": {"scan_inventory": other_line + FILES_OK.split("\n", 1)[1]}}
         for name, over in cases.items():
             text = make(artifacts=art(**over))
             self.assertIn("DISAGREE", self.line(text), name)
