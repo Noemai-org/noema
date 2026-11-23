@@ -48,6 +48,9 @@ var (
 	// ErrConfirmationNotValid is returned when the confirmation an ALLOW names does not exist for the tenant, has expired by the database's clock, or was given for another action than
 	// the one the ALLOW's step carries (the eight values of SoT 43.2a). The caller cannot tell which: the three are one answer, so no outward answer tells an attacker which.
 	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
+	// ErrDeclinedRequestNotValid is returned when the declined request a REJECT DECLINED_BY_APPROVER names is not a confirmation request of this tenant and of this decision's intent (A507).
+	// The caller cannot tell which: an absent request, another tenant's and another intent's are one answer.
+	ErrDeclinedRequestNotValid = errors.New(errPrefix + "the declined request is not valid for this decision")
 	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
 	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
 	// ErrWritesDisabled is returned when the tenant's kill switch is on and the decision would issue grants (REQ-EXE-008, REQ-OPS-002; the contract's WRITES_DISABLED, errors.v3).
@@ -196,6 +199,9 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		}
 		return Result{}, ErrConfirmationNotValid
 	}
+	if errors.Is(err, errDeclinedUnowned) {
+		return Result{}, ErrDeclinedRequestNotValid
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -261,6 +267,9 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	actor := emitter // no authenticated person causes a decision event; a person's identity comes only from the session, never from a request field (INV-12)
 	decisionMade := map[string]any{"decision_id": decisionID, "decision_outcome": string(d.Outcome()), "reason_codes": reasonStrings(d), "policy_id": r.PolicyID,
 		"policy_version": policy, "sig_key_id": rec.Sig.KeyId}
+	if r.DispositionDecisionID != "" {
+		decisionMade["disposition_decision_id"] = r.DispositionDecisionID // the ESCALATE disposition this decision links (A503): the Record shows the link without the decision table
+	}
 	if binding != "" {
 		// PERD 32.2 has no spend event type, so the spend is shown by the two events of the same transaction: the decision names the confirmation it spent and the binding it was spent against,
 		// and each grant names the event it follows. A decision with no confirmation carries neither member.

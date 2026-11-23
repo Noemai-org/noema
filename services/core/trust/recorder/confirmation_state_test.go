@@ -171,6 +171,8 @@ func TestADeclinedRejectOnTheTupleOfAStoredConfirmIsASecondDecisionAndARepeatIsO
 	if _, err := w.write(t, confirmOnTheTupleOfAllowWith(t, w, "evs_01ABC"), true); err != nil {
 		t.Fatal(err)
 	}
+	w.seedRequest(t, w.trust, tenant, "cfr_01DECLINED", "int_01J9X3") // the request the decline rests on is a request of the tenant and the intent (A507)
+	w.seedRequest(t, w.trust, tenant, "cfr_01ANOTHER", "int_01J9X3")
 	first, err := w.write(t, declinedReject(t, "evs_01ABC", "cfr_01DECLINED"), true)
 	if err != nil || first.Record.Outcome != "REJECT" {
 		t.Fatalf("the declined REJECT: %v, %s", err, first.Record.Outcome)

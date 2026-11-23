@@ -3,6 +3,7 @@ package intake
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 
@@ -18,6 +19,9 @@ var (
 	errNoSnapshot = errors.New("intake: there is no sealed evidence snapshot to reconcile")
 	errNoMapping  = errors.New("intake: the target is frozen for this capability and the pack maps nothing to escalate with")
 	errAnswer     = errors.New("intake: a port gave an answer the step cannot use")
+	// the two refusals of a continuation (TRU-14): not decisions, so they end the evaluation in UNKNOWN INTERNAL_ERROR like any other step failure (INV-16)
+	errStepNotWrite   = errors.New("intake: a continuation was asked for an intent that leads to no write")
+	errStepNotAllowed = errors.New("intake: the continuation's capability is not authorized and runnable now")
 )
 
 // packReason makes the reason code `<vertical>.reason.<name>` a pack gave (T10 and T12 take nothing else from a pack, and core codes are never a pack's to give).
@@ -140,6 +144,7 @@ func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 		return decide.FailStep(err)
 	}
 	answers := make([]PolicyEvaluation, 0, len(ids))
+	params := map[string]map[string]string{}
 	for _, id := range ids {
 		res, err := e.svc.Ports.Policies.Evaluate(ctx, PolicyQuery{TenantID: e.req.Session.TenantID, IntentID: e.intentID, IntentVersion: e.version, IntentNode: e.intent.IntentNode,
 			CapabilityID: id, SnapshotID: e.snapshotID, Now: e.now})
@@ -152,6 +157,9 @@ func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 			}
 		}
 		answers = append(answers, res)
+		if res.PermitMatched && len(res.PermitParams) > 0 {
+			params[id] = cloneStrings(res.PermitParams) // the winning PERMIT rule's params, for the plan request (TRU-14)
+		}
 	}
 	res, err := combinePolicies(answers)
 	if err != nil {
@@ -165,6 +173,9 @@ func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 		return decide.FailStep(err)
 	}
 	e.policyVersions = append([]decide.PolicyVersionRef(nil), res.Versions...)
+	if len(params) > 0 {
+		e.policyParams = params
+	}
 	if goOn {
 		return decide.Continue()
 	}
@@ -337,6 +348,29 @@ func (e *evaluation) authorizedCapabilities(ctx context.Context) ([]string, erro
 		}
 	}
 	sort.Strings(set)
+	if e.step != nil {
+		if set, err = e.stepSet(ctx, set); err != nil {
+			return nil, err
+		}
+	}
 	e.authorized = set
 	return set, nil
+}
+
+// stepSet limits the authorized set of a continuation to its one capability (TRU-14): the capability must be in the set the intent and the tenant's policy authorize and in the
+// set the Runnable port says may run now. The port is asked once, with the facts the caller gave; an error, or a capability outside either set, is never a pass.
+func (e *evaluation) stepSet(ctx context.Context, authorized []string) ([]string, error) {
+	st := e.step
+	if st.runnable == nil || st.capabilityID == "" || !slices.Contains(authorized, st.capabilityID) {
+		return nil, errStepNotAllowed
+	}
+	a := e.intent
+	ids, err := st.runnable.Runnable(ctx, RunnableQuery{TenantID: a.TenantID, IntentID: a.IntentID, IntentVersion: a.Version, IntentNode: a.IntentNode, SnapshotID: e.snapshotID, Facts: cloneStrings(st.facts)})
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(ids, st.capabilityID) {
+		return nil, errStepNotAllowed
+	}
+	return []string{st.capabilityID}, nil
 }

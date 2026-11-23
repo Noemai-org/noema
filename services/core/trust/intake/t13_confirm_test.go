@@ -65,7 +65,7 @@ func TestT13PendingWithANewRequestPlansThenRecordsOneConfirmAndOneRequest(t *tes
 		t.Errorf("calls %v, want Status, then the Planner, then one Record", f.calls)
 	}
 	wantPlan := PlanRequest{TenantID: t13Tenant, CorrelationID: "corr_synth0001", IntentID: tIntent, IntentVersion: t13Version, IntentHash: tHash, IntentNode: "fin.payments.exception.investigate", WriteRequired: true}
-	if len(f.planReq) != 1 || f.planReq[0] != wantPlan {
+	if len(f.planReq) != 1 || !reflect.DeepEqual(f.planReq[0], wantPlan) {
 		t.Errorf("plan request %+v, want %+v", f.planReq, wantPlan)
 	}
 	r := rec0(t, f)
