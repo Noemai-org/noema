@@ -182,13 +182,17 @@ def test_two_lexicons_that_agree_on_a_phrase_merge(tmp_path: Path) -> None:
     assert "this morning" in load_pack_lexicons(PACK, tmp_path).times
 
 
-@pytest.mark.parametrize("ref", ["../fin.lex.en_ng", "fin/lex", "FIN.LEX", "fin.lex.en_ng.json", ""])
-def test_a_ref_that_is_not_a_plain_id_is_refused_and_no_path_is_built_from_it(tmp_path: Path, ref: str) -> None:
-    copy_lexicon(tmp_path, "fin.lex.en_ng")
+@pytest.mark.parametrize("ref", ["../fin.lex.en_ng", "fin/lex", "FIN.LEX", ""])
+def test_a_ref_that_is_not_a_plain_id_is_refused_even_when_a_file_is_there_to_be_found(tmp_path: Path, ref: str) -> None:
+    directory = tmp_path / "d"
+    (directory / "fin").mkdir(parents=True)
+    raw: dict[str, Any] = json.loads(EN_FILE.read_text(encoding="utf-8"))
+    for where in (tmp_path / "fin.lex.en_ng.json", directory / "fin" / "lex.json", directory / "FIN.LEX.json", directory / ".json"):
+        where.write_text(json.dumps({**raw, "lexicon_id": ref}), encoding="utf-8")  # whatever the path built from the ref reaches carries the ref as its id, so only the ref's shape can refuse it
     pack = copy.deepcopy(PACK)
     pack["intent_nodes"][0]["lexicon_refs"] = [ref]
     with pytest.raises(ConfigError):
-        load_pack_lexicons(pack, tmp_path)
+        load_pack_lexicons(pack, directory)
 
 
 def candidate_row(at: datetime) -> Candidate:
