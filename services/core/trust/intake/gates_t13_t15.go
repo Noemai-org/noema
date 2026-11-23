@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/trust/decide"
@@ -264,16 +265,58 @@ func (e *evaluation) planRequest() PlanRequest {
 			r.PolicyParams[id] = cloneStrings(p)
 		}
 	}
-	if e.step != nil {
+	switch {
+	case e.step != nil:
 		r.Capabilities, r.Facts, r.EvidencePacket = []string{e.step.capabilityID}, cloneStrings(e.step.facts), e.step.packet
+	case e.firstRead:
+		// A511: a first evaluation of a write names the capabilities Trust itself says may be planned now. firstCapabilities has already refused an empty set, so a list that is
+		// empty here never means "plan everything"; Facts and EvidencePacket stay empty, a first evaluation has no verified result to carry.
+		r.Capabilities = append([]string(nil), e.first...)
 	}
 	return r
+}
+
+// firstCapabilities reads, once per evaluation, the capabilities a first evaluation of a write may plan (A511): the authorized set (the intent's and the tenant's policy, T4 and T11)
+// intersected with what the Runnable port says may run now on the intent node's graph, sorted, without repeats. ok is false for an empty intersection: nothing authorized is runnable,
+// which is a plan that is not one (PLAN_INVALID), and the Planner is never asked with an empty list, which would mean "the first steps as before". An error from either port is
+// an error, never an empty set and never all. No port, a continuation (which has its own set) and a read (no write step) ask nothing and leave the request as it was.
+func (e *evaluation) firstCapabilities(ctx context.Context) (ok bool, err error) {
+	if e.step != nil || !e.late.needsWrite || e.svc.Runnable == nil {
+		return true, nil
+	}
+	if e.firstRead {
+		return len(e.first) > 0, nil
+	}
+	authorized, err := e.authorizedCapabilities(ctx)
+	if err != nil {
+		return false, err
+	}
+	a := e.intent
+	ids, err := e.svc.Runnable.Runnable(ctx, RunnableQuery{TenantID: a.TenantID, IntentID: a.IntentID, IntentVersion: a.Version, IntentNode: a.IntentNode, SnapshotID: e.snapshotID})
+	if err != nil {
+		return false, err
+	}
+	var both []string
+	for _, id := range ids {
+		if slices.Contains(authorized, id) && !slices.Contains(both, id) {
+			both = append(both, id)
+		}
+	}
+	sort.Strings(both)
+	e.first, e.firstRead = both, true
+	return len(both) > 0, nil
 }
 
 // validPlan asks the Planner for the plan of the admitted intent and validates it: the Planner must not call it invalid, it must be well formed, and every step must agree with what
 // the earlier steps found (planAgrees). T14 and T13 (which needs the plan to bind a new confirmation request) use this one function. ok is false for a plan that is not valid
 // (PLAN_INVALID); an error is a dependency that failed, never a pass.
 func (e *evaluation) validPlan(ctx context.Context) (p Plan, ok bool, err error) {
+	switch asked, err := e.firstCapabilities(ctx); {
+	case err != nil:
+		return Plan{}, false, err
+	case !asked:
+		return Plan{}, false, nil
+	}
 	p, err = e.svc.Ports.Planner.Plan(ctx, e.planRequest())
 	switch {
 	case errors.Is(err, ErrPlanInvalid):

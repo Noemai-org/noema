@@ -15,6 +15,10 @@ type Service struct {
 	Ports       Ports
 	Clock       clock.Clock
 	PackVersion string
+	// Runnable is optional (A511): which capabilities of the intent node's action graph may run now. When set, the first evaluation of a write asks it once, after T11, and the plan
+	// request names the authorized capabilities that are runnable; an empty intersection is PLAN_INVALID. Nil keeps the earlier request, which names none. It is a field of the
+	// service and not of Ports, as a continuation names its own (ContinuationRequest.Runnable): the composition sets it where it builds the plan contexts.
+	Runnable Runnable
 }
 
 // Result is the outcome of one evaluation: the decision and the trace of the steps it reached.

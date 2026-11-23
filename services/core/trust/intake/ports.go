@@ -118,7 +118,4 @@ type Ports struct {
 	Planner       Planner
 	Recorder      Recorder
 	Dispatches    Dispatches
-	// Runnable is optional (A511): which capabilities of the intent node's action graph may run now. When set, the first evaluation of a write asks it once, after T11, and the
-	// plan request carries authorized and runnable capabilities. Nil keeps the earlier behaviour: the request names none.
-	Runnable Runnable
 }

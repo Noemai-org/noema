@@ -20,7 +20,9 @@ func firstEval(t *testing.T, runnable *runFake) (*f13, *capPolicy, *evaluation) 
 	p := &capPolicy{by: map[string]PolicyEvaluation{capCase: permitWith("root", nil), capRoute: permitWith("graph", map[string]string{"owner_queue": tQueue})}}
 	ev := policyEval13(t, f, p)
 	ev.snapshotID = "evs_synth0001"
-	ev.svc.Ports.Runnable = runnable
+	if runnable != nil { // a nil *runFake in the interface would be a port, not no port
+		ev.svc.Runnable = runnable
+	}
 	return f, p, ev
 }
 
@@ -82,7 +84,7 @@ func TestA511AReadAndANilPortAreAsBefore(t *testing.T) {
 	r := &runFake{ids: []string{capCase}}
 	f, _, ev := firstEval(t, r)
 	ev.late.needsWrite = false
-	f.plan = Plan{Hash: tPlanHash}
+	f.plan, f.rec = Plan{Hash: tPlanHash}, RecordResult{DecisionID: "dec_synth0001"} // a read: no step and no grant
 	if res := ev.run(tctx(t), ev.policySteps()); res.Decision.Outcome() != decide.Allow {
 		t.Fatalf("a read: %s %v", res.Decision.Outcome(), codes13(res.Decision))
 	}
