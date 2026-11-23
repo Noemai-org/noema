@@ -172,18 +172,100 @@ func TestWithNoPackSettingThePackIsANamedGap(t *testing.T) {
 	}
 }
 
-// Some of the settings without the others is a mistake of the operator, not a gap: the process stops and the error names the setting that is missing, never a value.
-func TestAPartlyGivenPackSettingGroupIsAStartupErrorNamingTheMissingOne(t *testing.T) {
-	for _, drop := range []string{EnvPackDir, EnvPackManifest, EnvPackMaxBytes} {
-		e := psrcEnv(psrcPacks())
-		delete(e, drop)
-		_, err := psrcProduction(t, e)
-		psrcNotAList(t, err)
-		if !strings.Contains(err.Error(), drop) {
-			t.Errorf("without %s: error %q does not name it", drop, err)
+// Some of the settings without the others is a NAMED GAP, exactly as for the Understanding half (A571, A469, A486; interim, relayed, not yet committed): the process starts, the list
+// starts with "Pack", then names each missing setting as "Pack: NAME missing" in the order dir, manifest, bound, in fixed text that carries no value. Every partial combination.
+func TestAPartlyGivenPackSettingGroupIsANamedGapNamingEachMissingSetting(t *testing.T) {
+	all := []string{EnvPackDir, EnvPackManifest, EnvPackMaxBytes}
+	for mask := 1; mask < 7; mask++ { // every non-empty proper subset of the three settings is given
+		e := envMap{EnvTrustEscalationGraph: syntheticEscalationGraph}
+		var missing []string
+		for i, n := range all {
+			if mask&(1<<i) != 0 {
+				e[n] = map[string]string{EnvPackDir: psrcPacks(), EnvPackManifest: psrcManifest, EnvPackMaxBytes: "1048576"}[n]
+			} else {
+				missing = append(missing, n)
+			}
 		}
-		if strings.Contains(err.Error(), psrcPacks()) {
-			t.Errorf("without %s: error %q carries a setting's value", drop, err)
+		a, err := psrcProduction(t, e)
+		names := unbuilt(t, err)
+		if len(names) == 0 || names[0] != "Pack" {
+			t.Errorf("given %v: names %v; want Pack first", e, names)
+		}
+		if !errors.Is(err, errPackNotConfigured) {
+			t.Errorf("mask %d: error %v does not carry the gap as its cause", mask, err)
+		}
+		if a.Capabilities != nil || a.Scope != nil || a.Authority != nil || a.PackVersion != "" {
+			t.Errorf("mask %d: an adapter is built from a partial pack: %+v", mask, a)
+		}
+		var named []string
+		for _, n := range names {
+			if strings.HasPrefix(n, "Pack: ") {
+				named = append(named, n)
+			}
+		}
+		if len(named) != len(missing) {
+			t.Fatalf("mask %d: names %v; want one \"Pack: NAME missing\" for each of %v", mask, names, missing)
+		}
+		for i, m := range missing {
+			if want := "Pack: " + m + " missing"; named[i] != want {
+				t.Errorf("mask %d: name %d is %q, want %q", mask, i, named[i], want)
+			}
+		}
+		for _, v := range []string{psrcPacks(), psrcManifest, "1048576"} {
+			if strings.Contains(err.Error(), v) || strings.Contains(strings.Join(names, " "), v) {
+				t.Errorf("mask %d: the gap text carries the value %q: %v", mask, v, names)
+			}
+		}
+	}
+}
+
+// With nothing given the gap is plain: "Pack" and no "Pack: NAME missing" line (there is nothing to name).
+func TestWithNoPackSettingNoSettingIsNamedMissing(t *testing.T) {
+	_, err := psrcProduction(t, envMap{EnvTrustEscalationGraph: syntheticEscalationGraph})
+	for _, n := range unbuilt(t, err) {
+		if strings.HasPrefix(n, "Pack: ") {
+			t.Errorf("name %q: nothing is given, so nothing is named missing", n)
+		}
+	}
+}
+
+// An invalid present value stays fatal beside a missing one: the missing one does not turn it into a gap, and the error names the setting, never the value (A571, AGENT-16).
+func TestAnInvalidPackBoundBesideAMissingSettingIsStillFatalAndDoesNotEchoTheValue(t *testing.T) {
+	for _, missing := range []string{EnvPackDir, EnvPackManifest} {
+		for _, bad := range []string{"0", "-1", "lots", "007"} {
+			e := psrcEnv(psrcPacks())
+			delete(e, missing)
+			e[EnvPackMaxBytes] = bad
+			_, err := psrcProduction(t, e)
+			psrcNotAList(t, err)
+			if !strings.Contains(err.Error(), EnvPackMaxBytes) || strings.Contains(err.Error(), bad) {
+				t.Errorf("missing %s, bound %q: error %q; want one naming %s without the value", missing, bad, err, EnvPackMaxBytes)
+			}
+		}
+	}
+}
+
+// No error text of the pack source carries a value of any setting, a path or a word of the pack, in any of the cases (AGENT-13).
+func TestNoPackSourceErrorTextCarriesAValue(t *testing.T) {
+	cases := map[string]envMap{}
+	bad := psrcEnv(psrcPacks())
+	bad[EnvPackMaxBytes] = "lots"
+	cases["invalid bound"] = bad
+	beside := psrcEnv("/nonexistent-synthetic-dir")
+	delete(beside, EnvPackManifest)
+	beside[EnvPackMaxBytes] = "lots"
+	cases["invalid beside missing"] = beside
+	gap := envMap{EnvPackDir: "/nonexistent-synthetic-dir", EnvTrustEscalationGraph: syntheticEscalationGraph}
+	cases["partial gap"] = gap
+	for name, e := range cases {
+		_, err := psrcProduction(t, e)
+		if err == nil {
+			t.Fatalf("%s: no error", name)
+		}
+		for _, v := range []string{"lots", "nonexistent-synthetic-dir", psrcPacks(), psrcManifest} {
+			if strings.Contains(err.Error(), v) {
+				t.Errorf("%s: error %q carries the value %q", name, err, v)
+			}
 		}
 	}
 }
