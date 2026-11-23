@@ -13,9 +13,9 @@ const answerPattern = schema.properties.found.items.pattern;
 const test = base.extend({
   page: async ({ page }, use) => {
     const requests = [];
-  page.on("request", (request) => requests.push(request.url()));
-  try { await use(page); } finally {
-    expect(requests.filter((url) => /^https?:/u.test(url))).toEqual([]); // No HTTP API request or Record write; in-memory blob imports are test instrumentation.
+    page.on("request", (request) => requests.push(request.url()));
+    try { await use(page); } finally {
+      expect(requests.filter((url) => /^https?:/u.test(url))).toEqual([]); // No HTTP API request or Record write; in-memory blob imports are test instrumentation.
       const findings = await page.evaluate(async (source) => {
         const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
         try { return (await import(url)).scanDom(document.body); }
