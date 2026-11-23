@@ -109,6 +109,8 @@ type RecorderAdapter struct {
 	begin  TxBeginner
 	facts  RecordFactSource
 	writer RecordWriter
+	// escalation is the pack's escalation plan, which the Writer holds too: the adapter uses it only to refuse an unusable request before a transaction opens (A534).
+	escalation recorder.EscalationSet
 
 	txTimeout time.Duration
 }
@@ -125,7 +127,7 @@ func NewRecorderAdapter(c RecorderConfig) (*RecorderAdapter, error) {
 		return nil, fmt.Errorf("%w: %v", ErrConfig, err)
 	}
 	w := &recorder.Writer{Keys: c.Keys, Issuer: issuer, Appender: c.Appender, Clock: c.Clock, IDs: c.IDs, Escalation: c.Escalation, RecordLifetime: c.RecordLifetime}
-	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w, txTimeout: c.TxTimeout}, nil
+	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w, escalation: c.Escalation, txTimeout: c.TxTimeout}, nil
 }
 
 // Record writes the decision and its grants in one transaction. The checks that need no database run first, so a refused request opens no transaction. If the context ends

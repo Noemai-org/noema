@@ -126,3 +126,14 @@ A write outside the escalation plan can no longer be recorded with grants throug
 - Open questions (owner): none new.
 - Files to read first: `trust/recorder/recorder.go` (`ErrDispositionWithoutSteps`), `orchestrator/portadapters/trust/recorder.go` (`outcomeShape`).
 - Do not touch: `services/core/migrations/` (0012 has the column).
+
+# Session 2026-11-23 12:35 WAT · TRU-10 (C1, A542 and A534: the disposition belongs to the same intent; the rule applies only to the escalation plan's steps)
+
+## Session summary
+- What changed (PR links): noema#733, tests first (RED) in this commit; GREEN follows after the red CI run is read. (1) A542 (interim, relayed): a disposition must belong to the same intent (the intent ID and the intent hash) as the action decision that names it, else `ErrDispositionNotValid` and nothing is written. (2) A534 (interim, relayed): the rule applies only to a decision whose steps include a capability of the injected escalation set; a `log_complaint_reference` ALLOW with a grant and no disposition is accepted; the adapter's pre-transaction rule follows the same scope (it holds the set). Merge after #903 (merged) and EL's path.
+- Test changes stated: `TestADecisionWithStepsAndNoDispositionIsRefusedAndNothingIsWritten` now loops over the escalation plan's capabilities only (the complaint write and an unknown write moved to the new accept test); the rapid property requires the disposition only when a step is in the set, and its closing check is about grants of the plan; the helper `world.action` takes the disposition's intent ID and hash and its own sealed snapshot (another input, A186), `escalateDisposition`, `world.disposition` (trustpg) and `realGrantWorld` do the same, so every test that records an action decision after a disposition records the same intent.
+- Tests added (REQ-TRU-010; INV-25): `trust/recorder/{escalation_rescope_test.go,intent_binding_test.go}`; `orchestrator/portadapters/trust/recorder_disposition_test.go` (`TestTheRuleBeforeTheTransactionAppliesOnlyToStepsOfTheEscalationPlan`, `TestAWriteOutsideThePlanNeedsNoDispositionThroughTheAdapter`, `TestADispositionOfAnotherIntentIsRefusedThroughTheAdapter`).
+
+## Pre-work for the next agent
+- Exact next step: GREEN in `trust/recorder/recorder.go` (require the disposition only when a step is in the set; `requireEscalationDisposition` compares the intent ID and the intent hash) and `orchestrator/portadapters/trust/recorder.go` (`outcomeShape` with the escalation set, saved from `RecorderConfig`); EL's escalation path on this branch (A508).
+- Do not touch: `services/core/migrations/`.

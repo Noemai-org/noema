@@ -106,11 +106,23 @@ func newRealGrantWorld(t *testing.T) *realGrantWorld {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if escalate, err = bb.Attach(escalate); err != nil {
+	// its own sealed snapshot: the disposition and the action decision are two inputs of the same intent (A186, A542)
+	dsp, err := decide.NewBasisBuilder("fintech@1.0", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dsp.RecordEvidence("evs_01DSP", []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: now - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300,
+		LimitSetBy: decide.LimitByTrustProfile}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dsp.RecordPolicy([]decide.PolicyRuleVersion{{RuleID: "r_permit", PolicyID: policyScope, Version: "1.0"}}); err != nil {
+		t.Fatal(err)
+	}
+	if escalate, err = dsp.Attach(escalate); err != nil {
 		t.Fatal(err)
 	}
 	rw := &realGrantWorld{stack: s, w: w, steps: []grants.Step{step}}
-	rw.disp = recorder.Request{TenantID: tenant, CorrelationID: correlation, IntentID: "int_realgrant", IntentHash: contracts.CommonV1Hash(hash(9)), PolicyID: policyScope, Decision: escalate, Evaluated: bb}
+	rw.disp = recorder.Request{TenantID: tenant, CorrelationID: correlation, IntentID: "int_realgrant", IntentHash: contracts.CommonV1Hash(hash(1)), PolicyID: policyScope, Decision: escalate, Evaluated: dsp}
 	rw.req = recorder.Request{TenantID: tenant, CorrelationID: correlation, IntentID: "int_realgrant", IntentHash: contracts.CommonV1Hash(hash(1)), PolicyID: policyScope, Decision: d,
 		Evaluated: bb, Steps: rw.steps}
 	rw.plan = controller.PlanStep{PlanHash: hash(3), Step: 1, CapabilityID: bridge.CapCreateEscalationCase, Registered: true, AdapterExists: true, Params: params,

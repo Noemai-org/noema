@@ -48,13 +48,16 @@ func recHash(c byte) string {
 	return s
 }
 
-func recBuilder(t *testing.T) *decide.BasisBuilder {
+func recBuilder(t *testing.T) *decide.BasisBuilder { return recBuilderAt(t, "evs_01ABC") }
+
+// recBuilderAt is recBuilder over another sealed snapshot: the same intent evaluated again is another input (A186), which an escalation action decision is of its disposition (A542).
+func recBuilderAt(t *testing.T, snapshot string) *decide.BasisBuilder {
 	t.Helper()
 	b, err := decide.NewBasisBuilder("fin.pack@1.0.0", recEpoch.Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.RecordEvidence("evs_01ABC", []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: recEpoch.Unix() - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}}); err != nil {
+	if err := b.RecordEvidence(snapshot, []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: recEpoch.Unix() - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.RecordPolicy([]decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_case_writes", PolicyID: "fin.pol", Version: "3.1"}}); err != nil {
@@ -192,6 +195,14 @@ func (w *recWriter) Write(ctx context.Context, _ pgx.Tx, r recorder.Request) (re
 func recAdapter(t *testing.T, b *recBegin, f *recFacts, w RecordWriter) *RecorderAdapter {
 	t.Helper()
 	return &RecorderAdapter{begin: b, facts: f, writer: w, txTimeout: recTxTimeout}
+}
+
+// recAdapterWith is recAdapter over an escalation plan, as the composition injects it (A534).
+func recAdapterWith(t *testing.T, b *recBegin, f *recFacts, w RecordWriter, escalation recorder.EscalationSet) *RecorderAdapter {
+	t.Helper()
+	a := recAdapter(t, b, f, w)
+	a.escalation = escalation
+	return a
 }
 
 // recTxTimeout is the adapter's own bound in the fake-port tests (SYNTHETIC value); it is shorter than recCtx's 30 s so a test can tell the two apart.
@@ -560,7 +571,7 @@ func (w *recWorld) action(t *testing.T, n int) intake.RecordRequest {
 	if n == 0 {
 		return r
 	}
-	disp, err := w.a.Record(recCtx(t), escalateDisposition(t, 30))
+	disp, err := w.a.Record(recCtx(t), escalateDisposition(t, 1))
 	if err != nil || disp.DecisionID == "" || len(disp.GrantIDs) != 0 {
 		t.Fatalf("the disposition: %+v, %v; want a decision ID and no grant", disp, err)
 	}

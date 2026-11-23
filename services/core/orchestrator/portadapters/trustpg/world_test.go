@@ -67,14 +67,17 @@ func hash(c byte) contracts.CommonV1Hash {
 	return contracts.CommonV1Hash(s)
 }
 
-func basis(t *testing.T) *decide.BasisBuilder {
+func basis(t *testing.T) *decide.BasisBuilder { return basisAt(t, "evs_01ABC") }
+
+// basisAt is basis over another sealed snapshot: the same intent evaluated again is another input (A186), which an escalation action decision is of its disposition (A542).
+func basisAt(t *testing.T, snapshot string) *decide.BasisBuilder {
 	t.Helper()
 	b, err := decide.NewBasisBuilder("fin.pack@1.0.0", epoch.Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := decide.Freshness{EvidenceID: "ev_1", EffectiveAt: epoch.Unix() - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}
-	if err := b.RecordEvidence("evs_01ABC", []decide.Freshness{f}); err != nil {
+	if err := b.RecordEvidence(snapshot, []decide.Freshness{f}); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.RecordPolicy([]decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_case_writes", PolicyID: "fin.pol", Version: "3.1"}}); err != nil {
@@ -111,10 +114,10 @@ func step(t *testing.T) grants.Step {
 }
 
 // disposition records the ESCALATE disposition of an action decision through the real Writer, as its own Trust decision with no step and no grant (A503), and returns its decision
-// ID. The action decision of the same intent names it: steps if and only if a disposition.
-func (w *world) disposition(t *testing.T, id string) string {
+// ID. It is for the intent id with the intent hash h, the action decision's own (A542), against its own sealed snapshot, so it is another input than the action decision.
+func (w *world) disposition(t *testing.T, id string, h contracts.CommonV1Hash) string {
 	t.Helper()
-	b := basis(t)
+	b := basisAt(t, "evs_01DSP")
 	reason, err := decide.Core("NOT_AUTHORIZED")
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +137,7 @@ func (w *world) disposition(t *testing.T, id string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: hash(200), PolicyID: "fin.pol", Decision: d, Evaluated: b})
+	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: d, Evaluated: b})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		t.Fatalf("the disposition: %v", err)
@@ -147,7 +150,7 @@ func (w *world) disposition(t *testing.T, id string) string {
 
 func (w *world) write(t *testing.T, id string, h contracts.CommonV1Hash) recorder.Result {
 	t.Helper()
-	disp := w.disposition(t, id)
+	disp := w.disposition(t, id, h)
 	b := basis(t)
 	tx, err := w.trustA.Begin(ctx(t))
 	if err != nil {

@@ -131,15 +131,33 @@ func (w *world) disposition(t *testing.T, n int) string {
 	return string(res.Record.DecisionId)
 }
 
+// intentOf is the intent hash and the intent ID of a stored decision, for an action decision that follows it as its disposition (A542): the same intent, evaluated again, as a
+// continuation is. The administrator reads the row, whatever tenant it is in; a decision that does not exist gives the defaults of request().
+func (w *world) intentOf(t *testing.T, decisionID string) (contracts.CommonV1Hash, string, bool) {
+	t.Helper()
+	var hash, intent string
+	err := w.admin.QueryRow(ctx(t), `SELECT intent_hash, json ->> 'intent_id' FROM decision_record WHERE decision_id = $1`, decisionID).Scan(&hash, &intent)
+	if err != nil {
+		return "", "", false
+	}
+	return contracts.CommonV1Hash(hash), intent, true
+}
+
+// action is an action decision that follows disp: the intent and the intent hash of the disposition (A542), the same intent evaluated again, so against another sealed snapshot, which makes
+// it another input (A186). With no disposition, or one that does not exist, it is an input of its own.
 func (w *world) action(t *testing.T, o decide.Outcome, disp string, capabilities ...string) recorder.Request {
 	t.Helper()
-	b := evaluated(t)
+	n := int(seq.Add(1))
+	b := evaluatedWith(t, fmt.Sprintf("evs_%d", 1000+n), "3.1")
 	var steps []grants.Step
 	for i, c := range capabilities {
 		steps = append(steps, stepFor(t, c, i+1))
 	}
 	r := request(t, decision(t, o, b), b, steps...)
-	r.IntentHash, r.DispositionDecisionID = h2(int(seq.Add(1))+1000), disp
+	r.IntentHash, r.DispositionDecisionID = h2(n+1000), disp
+	if hash, intent, ok := w.intentOf(t, disp); ok && disp != "" {
+		r.IntentHash, r.IntentID = hash, intent
+	}
 	return r
 }
 
@@ -155,11 +173,11 @@ func (w *world) storedDisposition(t *testing.T, decisionID string) (string, bool
 	return *d, true
 }
 
-// REQ-TRU-010, INV-25 (ruling A317 to A328, interim): every grant-issuing action decision links a disposition. An ALLOW with steps and no disposition is refused with the typed
-// error whatever its steps (the complaint write of another graph included), and nothing is written. The consequence for the writes outside the escalation plan is in status/TRU-10.md.
+// REQ-TRU-010, INV-25 (ruling A317 to A328, rescoped by A534, interim): an ALLOW with a step of the escalation plan and no disposition is refused with the typed error, and nothing is
+// written. A write outside the escalation plan (the complaint write) needs none: escalation_rescope_test.go.
 func TestADecisionWithStepsAndNoDispositionIsRefusedAndNothingIsWritten(t *testing.T) {
 	w := escalationWorld(t)
-	for _, c := range []string{capability, capEvidence, capComplaint, capOther} {
+	for _, c := range []string{capability, capEvidence, capRoute} {
 		before := w.counts(t)
 		r := w.action(t, decide.Allow, "", c)
 		res, err := w.writeAndCommit(t, r)
@@ -342,7 +360,7 @@ func TestTheRecorderRefusesAnInvalidDispositionOnItsOwnWithTheForeignKeyOff(t *t
 // TestPropertyNoActionDecisionWithoutALinkedDisposition (TRU-10 done-when; REQ-TRU-010, INV-25): over generated requests (a disposition that is absent, valid, unknown,
 // another tenant's, or not an ESCALATE decision; an ALLOW with up to three steps drawn from the escalation plan and from outside it, or a REJECT), (1) a decision that names
 // a disposition is written only when it is an existing ESCALATE decision of the tenant; (2) under a named disposition no grant is ever issued for a capability outside the
-// escalation plan; (3) no grant is ever issued by a decision that names none (A317 to A328); (4) a refusal writes no row and no event; (5) a decision with no steps that names none is
+// escalation plan; (3) no grant of the escalation plan is ever issued by a decision that names no disposition (A317 to A328, rescoped by A534); (4) a refusal writes no row and no event; (5) a decision with no steps that names none is
 // written. The set is the pack's, read as data.
 func TestPropertyNoActionDecisionWithoutALinkedDisposition(t *testing.T) {
 	w := escalationWorld(t)
@@ -367,7 +385,7 @@ func TestPropertyNoActionDecisionWithoutALinkedDisposition(t *testing.T) {
 
 		outside := slices.ContainsFunc(caps, func(c string) bool { return !inSet.Contains(c) })
 		switch {
-		case disp == "" && len(caps) > 0:
+		case disp == "" && len(caps) > 0 && slices.ContainsFunc(caps, inSet.Contains):
 			if !errors.Is(err, recorder.ErrDispositionRequired) {
 				rt.Fatalf("none with %v: got %v, want ErrDispositionRequired", caps, err)
 			}
@@ -402,11 +420,11 @@ func TestPropertyNoActionDecisionWithoutALinkedDisposition(t *testing.T) {
 			rt.Fatalf("%s: stored disposition %q (%v), want %q", kind, got, linked, disp)
 		}
 	})
-	// over everything ever written: no grant exists whose decision names no disposition (A317 to A328)
+	// over everything ever written: no grant of a capability of the escalation plan exists whose decision names no disposition (A317 to A328, rescoped by A534)
 	var unlinked int
 	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM decision_grant g JOIN decision_record d ON d.decision_id = g.decision_id AND d.tenant_id = g.tenant_id
-		WHERE d.disposition_decision_id IS NULL`).Scan(&unlinked); err != nil || unlinked != 0 {
-		t.Errorf("%d grants belong to a decision that names no disposition (%v)", unlinked, err)
+		WHERE d.disposition_decision_id IS NULL AND (g.json ->> 'capability_id') = ANY($1)`, packEscalationCapabilities(t)).Scan(&unlinked); err != nil || unlinked != 0 {
+		t.Errorf("%d grants of the escalation plan belong to a decision that names no disposition (%v)", unlinked, err)
 	}
 	// and a decision that names a disposition names an ESCALATE decision of its tenant, and holds grants only for the escalation plan
 	rows, err := w.admin.Query(ctx(t), `SELECT g.json ->> 'capability_id', p.outcome, d.tenant_id = p.tenant_id
