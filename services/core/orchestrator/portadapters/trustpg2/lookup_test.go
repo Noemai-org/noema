@@ -14,7 +14,7 @@ import (
 // A stored request is read back by its ID with its eight bound values, requirement, requester and expiry, whether or not it was answered; no event is written by the read.
 func TestLookupReadsTheRequestTheIDNames(t *testing.T) {
 	w := newReqWorld(t)
-	n := w.newReq("sha256:l1", time.Hour, "")
+	n := w.newReq("sha256:l1", 2*time.Second, "") // short, so that it has expired when the next link of the chain is opened below
 	id, err := w.a.Open(reqCtx(t), n)
 	if err != nil {
 		t.Fatal(err)

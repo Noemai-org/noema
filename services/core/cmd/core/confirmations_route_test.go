@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -518,3 +519,6 @@ func TestAnAcceptedAnswerAndANilLoggerLogNothing(t *testing.T) {
 		t.Errorf("nil logger: %d", rec.Code)
 	}
 }
+
+// A550: the store of confirmation requests is the route's request finder (the request-by-id read), checked at compile time.
+var _ ConfirmationRequests = trustpg2.Requests{}

@@ -183,7 +183,26 @@ func (r Requests) Latest(ctx context.Context, tenantID, principalID, intentID st
 // security hides it, and the tenant is in the predicate too), an unknown ID and a request the store does not hold are the same answer, not found (REQ-TRU-003). A malformed tenant or ID
 // and a context with no deadline are ErrRequestForm. The request is returned as stored: whether it was answered, expired or superseded is the answer path's to decide (A368 (iv)).
 func (r Requests) Lookup(ctx context.Context, tenantID, requestID string) (confirm.Request, bool, error) {
-	return confirm.Request{}, false, ErrRequestNotBuilt // red-commit stub (A550)
+	if !hasDeadline(ctx) || r.Pool == nil || !safeRe.MatchString(tenantID) || !requestIDRe.MatchString(requestID) {
+		return confirm.Request{}, false, ErrRequestForm
+	}
+	var (
+		out     confirm.Request
+		expires time.Time
+	)
+	b := &out.Binding
+	err := r.Pool.QueryRow(ctx, `SELECT confirmation_request_id, principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash, policy_version,
+			requirement, requester_id, expires_at
+		FROM confirmation_request WHERE tenant_id = $1 AND confirmation_request_id = $2`, tenantID, requestID).
+		Scan(&out.ID, &b.PrincipalID, &b.IntentHash, &b.CapabilityID, &b.TargetRef, &b.ParamsHash, &b.EvidenceSetHash, &b.PlanHash, &b.PolicyVersion, &out.Requirement, &out.RequesterID, &expires)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return confirm.Request{}, false, nil
+	}
+	if err != nil {
+		return confirm.Request{}, false, fmt.Errorf("trustpg2: read the request: %w", err)
+	}
+	out.ExpiresAt = expires.Unix()
+	return out, true, nil
 }
 
 // Open stores a new request and returns its ID. The Record event is appended inside the transaction, before the commit: if the append fails, nothing is stored.
