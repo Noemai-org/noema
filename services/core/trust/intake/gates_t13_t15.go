@@ -279,7 +279,8 @@ func (e *evaluation) planRequest() PlanRequest {
 // firstCapabilities reads, once per evaluation, the capabilities a first evaluation of a write may plan (A511): the authorized set (the intent's and the tenant's policy, T4 and T11)
 // intersected with what the Runnable port says may run now on the intent node's graph, sorted, without repeats. ok is false for an empty intersection: nothing authorized is runnable,
 // which is a plan that is not one (PLAN_INVALID), and the Planner is never asked with an empty list, which would mean "the first steps as before". An error from either port is
-// an error, never an empty set and never all. No port, a continuation (which has its own set) and a read (no write step) ask nothing and leave the request as it was.
+// an error, never an empty set and never all. T12 asks it first (noRunnable, A531), so the empty set ends there as ESCALATE or UNKNOWN; the PLAN_INVALID below is the backstop for a
+// request that reaches T14 with an empty set. No port, a continuation (which has its own set) and a read (no write step) ask nothing and leave the request as it was.
 func (e *evaluation) firstCapabilities(ctx context.Context) (ok bool, err error) {
 	if e.step != nil || !e.late.needsWrite || e.svc.Runnable == nil {
 		return true, nil
