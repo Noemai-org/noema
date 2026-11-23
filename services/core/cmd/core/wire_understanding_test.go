@@ -44,7 +44,8 @@ import (
 
 const undManifestRel = "fintech/manifest.v1.json"
 
-var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json"}
+var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json",
+	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"} // A510: the three action graphs are pinned by the manifest too
 
 // copyPack copies the real pack and its manifest into a fresh directory, so that a test can break one file of it.
 func copyPack(t *testing.T) string {
@@ -327,6 +328,28 @@ func TestWithoutTheModelSettingsNothingIsBuilt(t *testing.T) {
 		t.Errorf("got %v; want an error that names the model service settings", err)
 	}
 	wantNone(t, "no model", p)
+}
+
+// A510: the real pack's action graphs are the ones its manifest pins, verified, by the paths the pack file names; nothing else is served.
+func TestTheRealPackLoadsItsActionGraphsVerifiedThroughItsManifest(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..", "packs")
+	p, err := packload.Load(root, undManifestRel, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named, _ := readJSON(t, filepath.Join(root, "fintech_v1.json"))["action_graph_files"].([]any)
+	if len(named) == 0 || len(p.ActionGraphs) != len(named) {
+		t.Fatalf("%d graphs served; the pack names %d", len(p.ActionGraphs), len(named))
+	}
+	for _, n := range named {
+		want, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(n.(string))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := p.ActionGraphs[n.(string)]; !ok || string(got) != string(want) {
+			t.Errorf("graph %v is not served with the bytes on disk", n)
+		}
+	}
 }
 
 // The real pack, through its real manifest: the gate, the required slots, the rule set and the mapping are built from the verified bytes, and the ids are the manifest's.

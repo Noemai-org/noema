@@ -29,6 +29,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
+	"github.com/Noemai-org/noema/services/core/trust/grants/keyfiles"
 	"github.com/Noemai-org/noema/services/core/trust/policystore"
 )
 
@@ -190,13 +191,11 @@ func suffix(state string) string {
 	return " (SQLSTATE " + state + ")"
 }
 
-// connect reads the DSN from its file (a regular file, not a link, not empty) and opens one connection. No error carries the DSN or any part of it.
+// connect reads the DSN from its file and opens one connection. The file is read the way a key file is (A509, INV-12): through ONE open descriptor, without following a link or blocking on a
+// special file, a regular file owned by the effective user with mode 0400, no larger than maxDSNBytes (keyfiles.ReadFile, the shared reader). The path is never checked first and read after.
+// No error carries the DSN or any part of it.
 func connect(ctx context.Context, path string) (*pgx.Conn, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDSNBytes {
-		return nil, errors.New("the DSN file cannot be used")
-	}
-	raw, err := os.ReadFile(path)
+	raw, err := keyfiles.ReadFile(path, maxDSNBytes)
 	dsn := strings.TrimSpace(string(raw))
 	if err != nil || dsn == "" {
 		return nil, errors.New("the DSN file cannot be used")

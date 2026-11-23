@@ -63,7 +63,7 @@ func sfxSnapshot(t *testing.T) SealedSnapshot {
 
 func sfxFacts(t *testing.T, rd *sfxReader, st *sfxSteps) *SealedFacts {
 	t.Helper()
-	f, err := NewSealedFacts(SealedFactsConfig{Snapshots: rd, PolicyID: "fin.pol", Steps: st})
+	f, err := NewSealedFacts(SealedFactsConfig{Snapshots: rd, PolicyID: "fin.pol", Steps: st, Facts: &rbhFacts{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestSealedFactsPassOnAReaderFailureAndReadNothingMore(t *testing.T) {
 
 // The policy is the verified pack's and must be one the evaluation used (A377 item 6); a policy the basis does not name is refused (INV-09).
 func TestSealedFactsRefuseAPolicyTheEvaluationDidNotUse(t *testing.T) {
-	f, err := NewSealedFacts(SealedFactsConfig{Snapshots: &sfxReader{snap: sfxSnapshot(t)}, PolicyID: "fin.other", Steps: &sfxSteps{}})
+	f, err := NewSealedFacts(SealedFactsConfig{Snapshots: &sfxReader{snap: sfxSnapshot(t)}, PolicyID: "fin.other", Steps: &sfxSteps{}, Facts: &rbhFacts{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestSealedFactsRefuseARequestWithNoEvaluationAndNoDeadline(t *testing.T) {
 
 func TestSealedFactsAreNotBuiltWithoutAPortOrAPolicy(t *testing.T) {
 	rd, st := &sfxReader{}, &sfxSteps{}
-	for name, c := range map[string]SealedFactsConfig{"no reader": {PolicyID: "fin.pol", Steps: st}, "no steps": {Snapshots: rd, PolicyID: "fin.pol"}, "no policy": {Snapshots: rd, Steps: st}} {
+	for name, c := range map[string]SealedFactsConfig{"no reader": {PolicyID: "fin.pol", Steps: st, Facts: &rbhFacts{}}, "no steps": {Snapshots: rd, PolicyID: "fin.pol", Facts: &rbhFacts{}}, "no policy": {Snapshots: rd, Steps: st, Facts: &rbhFacts{}}} {
 		if _, err := NewSealedFacts(c); !errors.Is(err, ErrConfig) {
 			t.Errorf("%s: %v, want ErrConfig", name, err)
 		}
