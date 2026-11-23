@@ -337,6 +337,50 @@ class TemplateCoverage(unittest.TestCase):
         self.assertTrue(enforced and all(c == "templates" for c, _ in enforced), enforced[:2])
 
 
+class SubjectSlot(unittest.TestCase):
+    """A520 (interim, DEBT-54). The subject of an intent is a pack-declared slot of its node: `subject_slot` names a slot of the SAME node that is a Resource slot. The core reads the name
+    from the pack and never writes it in code (INV-14). A node with no Resource slot declares none."""
+
+    def problems(self, node_index, value):
+        base, graphs = real()
+        base["intent_nodes"][node_index]["subject_slot"] = value
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "subject"]
+
+    def test_the_investigate_node_declares_its_subject_and_a_node_without_a_resource_slot_declares_none(self):
+        base, _ = real()
+        declared = {n["node_id"]: n.get("subject_slot") for n in base["intent_nodes"]}
+        self.assertEqual(declared["fin.payments.exception.investigate"], "subject_resource")
+        self.assertEqual([k for k, v in declared.items() if v], ["fin.payments.exception.investigate"])
+        for n in base["intent_nodes"]:
+            if n["node_id"] in declared and declared[n["node_id"]]:
+                slot = next(s for s in n["slots"] if s["name"] == declared[n["node_id"]])
+                self.assertEqual(slot["type"], "Resource")
+
+    def test_the_real_pack_passes(self):
+        base, graphs = real()
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
+
+    def test_a_subject_slot_that_is_not_a_slot_of_its_node_is_refused(self):
+        for bad in ("no_such_slot", "SUBJECT_RESOURCE", "", "fin.transaction"):
+            self.assertTrue(self.problems(0, bad), f"{bad!r} is accepted")
+
+    def test_a_subject_slot_that_is_not_a_resource_slot_is_refused(self):
+        for bad in ("amount", "counterparty", "when", "question_type", "requested_remedy"):
+            found = self.problems(0, bad)
+            self.assertTrue(found, f"{bad!r} is accepted")
+            self.assertTrue(any("Resource" in m for m in found), found)
+
+    def test_a_node_with_no_slot_cannot_declare_a_subject(self):
+        self.assertTrue(self.problems(1, "subject_resource"))
+
+    def test_a_subject_slot_that_is_not_a_string_is_refused_by_the_schema(self):
+        base, graphs = real()
+        for bad in (None, 7, ["subject_resource"], {"a": 1}, True):
+            base["intent_nodes"][0]["subject_slot"] = bad
+            found = checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs)
+            self.assertTrue(found, f"{bad!r} is accepted")
+
+
 if __name__ == "__main__":
     unittest.main()
 
