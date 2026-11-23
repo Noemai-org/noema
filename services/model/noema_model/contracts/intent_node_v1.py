@@ -87,6 +87,7 @@ class IntentNodeV1(ContractModel):
     trust_profile: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')] | None
     outcome_definitions: list[CommonV1PackId]
     write_when: CommonV1Predicate | None = Field(default=None)
+    subject_slot: CommonV1SlotName | None = Field(default=None)
     examples: list[Annotated[str, StringConstraints(min_length=1)]]
 
 

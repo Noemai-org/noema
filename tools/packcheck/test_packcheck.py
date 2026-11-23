@@ -337,6 +337,53 @@ class TemplateCoverage(unittest.TestCase):
         self.assertTrue(enforced and all(c == "templates" for c, _ in enforced), enforced[:2])
 
 
+class SubjectSlot(unittest.TestCase):
+    """A520 (interim, DEBT-54). The subject of an intent is a pack-declared slot of its node: `subject_slot` names a slot of the SAME node that is a Resource slot. The core reads the name
+    from the pack and never writes it in code (INV-14). A node with no Resource slot declares none."""
+
+    def problems(self, node_index, value):
+        base, graphs = real()
+        base["intent_nodes"][node_index]["subject_slot"] = value
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "subject"]
+
+    def test_the_investigate_node_declares_its_subject_and_a_node_without_a_resource_slot_declares_none(self):
+        base, _ = real()
+        declared = {n["node_id"]: n.get("subject_slot") for n in base["intent_nodes"]}
+        self.assertEqual(declared["fin.payments.exception.investigate"], "subject_resource")
+        self.assertEqual([k for k, v in declared.items() if v], ["fin.payments.exception.investigate"])
+        for n in base["intent_nodes"]:
+            if n["node_id"] in declared and declared[n["node_id"]]:
+                slot = next(s for s in n["slots"] if s["name"] == declared[n["node_id"]])
+                self.assertEqual(slot["type"], "Resource")
+
+    def test_the_real_pack_passes(self):
+        base, graphs = real()
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
+
+    def test_a_subject_slot_that_is_not_a_slot_of_its_node_is_refused(self):
+        self.assertTrue(self.problems(0, "no_such_slot"))
+        base, graphs = real()
+        for bad in ("SUBJECT_RESOURCE", "", "fin.transaction"):  # not a slot name at all: the contract's pattern refuses it before the pack check runs
+            base["intent_nodes"][0]["subject_slot"] = bad
+            self.assertTrue(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), f"{bad!r} is accepted")
+
+    def test_a_subject_slot_that_is_not_a_resource_slot_is_refused(self):
+        for bad in ("amount", "counterparty", "when", "question_type", "requested_remedy"):
+            found = self.problems(0, bad)
+            self.assertTrue(found, f"{bad!r} is accepted")
+            self.assertTrue(any("Resource" in m for m in found), found)
+
+    def test_a_node_with_no_slot_cannot_declare_a_subject(self):
+        self.assertTrue(self.problems(1, "subject_resource"))
+
+    def test_a_subject_slot_that_is_not_a_string_is_refused_by_the_schema(self):
+        base, graphs = real()
+        for bad in (None, 7, ["subject_resource"], {"a": 1}, True):
+            base["intent_nodes"][0]["subject_slot"] = bad
+            found = checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs)
+            self.assertTrue(found, f"{bad!r} is accepted")
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -497,3 +544,48 @@ class CandidateLabels(unittest.TestCase):
         fields = set(schema["$defs"]["Candidate"]["properties"])
         self.assertEqual(checks.LABEL_ATTRIBUTES, frozenset(fields - {"candidate_id", "resource_ref", "beneficiary_alias_match"}))  # what a template may show
         self.assertEqual(checks.ASKABLE_ATTRIBUTES, checks.LABEL_ATTRIBUTES - {"currency"})  # the currency is shown with the amount; it is not asked by itself
+
+
+class HandoffRoutes(unittest.TestCase):
+    """A531 (interim, relayed, not yet committed; REQ-TRU-004, REQ-AG-002). The pack's `handoff_routes`: which reason code goes to a handoff, to a queue of the pack's own
+    routing allowlist, for which intent nodes (absent: all). The route is data; a free-form destination is not representable. All data is SYNTHETIC."""
+
+    ROUTE = {"reason_code": "NO_RUNNABLE_CAPABILITY", "owner_queue": "PAYMENTS_OPERATIONS"}
+
+    def routing(self, base):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "routing" and "handoff" in m]
+
+    def with_routes(self, routes):
+        base, _ = real()
+        base["handoff_routes"] = routes
+        return base
+
+    def test_the_real_pack_routes_no_runnable_capability_to_a_queue_of_its_own_allowlist(self):
+        base, _ = real()
+        routes = {r["reason_code"]: r for r in base.get("handoff_routes", [])}
+        self.assertIn("NO_RUNNABLE_CAPABILITY", routes)
+        self.assertIn(routes["NO_RUNNABLE_CAPABILITY"]["owner_queue"], base["routing_allowlist"])
+        self.assertNotIn("intent_nodes", routes["NO_RUNNABLE_CAPABILITY"])
+
+    def test_a_route_to_a_queue_outside_the_allowlist_is_refused(self):
+        hits = self.routing(self.with_routes([{**self.ROUTE, "owner_queue": "NOT_A_QUEUE"}]))
+        self.assertTrue(any("allowlist" in m for m in hits), hits)
+
+    def test_a_reason_code_routed_twice_is_refused(self):
+        hits = self.routing(self.with_routes([self.ROUTE, dict(self.ROUTE)]))
+        self.assertTrue(any("twice" in m for m in hits), hits)
+
+    def test_an_intent_node_the_pack_does_not_declare_is_refused(self):
+        hits = self.routing(self.with_routes([{**self.ROUTE, "intent_nodes": ["fin.not.a.node"]}]))
+        self.assertTrue(any("intent node" in m for m in hits), hits)
+
+    def test_a_route_for_a_declared_node_and_a_distinct_reason_passes(self):
+        base, _ = real()
+        node = base["intent_nodes"][0]["node_id"]
+        base["handoff_routes"] = [self.ROUTE, {"reason_code": "INSUFFICIENT_EVIDENCE", "owner_queue": base["routing_allowlist"][0], "intent_nodes": [node]}]
+        self.assertEqual(self.routing(base), [])
+        self.assertEqual([p for p in checks.run(PACKS / "fintech_v1.json", pack=base) if p[0] in ("schema", "reasons")], [])
+
+    def test_a_reason_code_that_is_not_a_core_code_is_refused(self):
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=self.with_routes([{**self.ROUTE, "reason_code": "fin.reason.permitted"}]))]
+        self.assertTrue(any("fin.reason.permitted" in m for m in hits), hits)

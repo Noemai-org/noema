@@ -187,10 +187,11 @@ type IntentNodeV1 struct {
 	TrustProfile       *string                     `json:"trust_profile"`
 	OutcomeDefinitions []CommonV1PackId            `json:"outcome_definitions"`
 	WriteWhen          *CommonV1Predicate          `json:"write_when,omitempty"`
+	SubjectSlot        *CommonV1SlotName           `json:"subject_slot,omitempty"`
 	Examples           []string                    `json:"examples"`
 }
 
-var IntentNodeV1Shape = objectShape{name: "IntentNodeV1", props: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "parent": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "trust_profile": true, "outcome_definitions": true, "write_when": true, "examples": true}, required: []string{"node_id", "pack", "pack_version", "display_name", "slots", "trust_profile", "outcome_definitions", "examples"}, nonNull: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "outcome_definitions": true, "write_when": true, "examples": true}, closed: true}
+var IntentNodeV1Shape = objectShape{name: "IntentNodeV1", props: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "parent": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "trust_profile": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true}, required: []string{"node_id", "pack", "pack_version", "display_name", "slots", "trust_profile", "outcome_definitions", "examples"}, nonNull: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true}, closed: true}
 
 func (t *IntentNodeV1) UnmarshalJSON(b []byte) error {
 	raw, err := IntentNodeV1Shape.check(b)

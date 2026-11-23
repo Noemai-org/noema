@@ -54,6 +54,7 @@
           "references": "capability"
         }
       ],
+      "subject_slot": "subject_resource",
       "disambiguation": {
         "strategy": "ranked_candidates",
         "auto_resolve_margin": 0.35,
@@ -2219,6 +2220,12 @@
     "DISPUTES",
     "FRAUD_REVIEW",
     "SETTLEMENT_OPS"
+  ],
+  "handoff_routes": [
+    {
+      "reason_code": "NO_RUNNABLE_CAPABILITY",
+      "owner_queue": "PAYMENTS_OPERATIONS"
+    }
   ],
   "case_reasons": [
     {
