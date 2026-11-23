@@ -11,7 +11,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/trustlimits"
 )
 
-const routed = `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,` +
+const routed = `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000,` +
 	`"escalation_reasons":[{"classification":"CONTRADICTORY_STATE","reason_code":"fin.reason.contradictory_state"}],` +
 	`"allowed_under_freeze":["fin.cap.create_escalation_case"],` +
 	`"phase_routes":[{"phase":"BREACHED","reason_code":"fin.reason.sla_breached"}],` +

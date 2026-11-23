@@ -134,5 +134,31 @@ class ManifestSchema(unittest.TestCase):
                 self.assertTrue(errors(doc))
 
 
+
+class LimitsFromVersionThree(unittest.TestCase):
+    """A579 (interim): the manifest schema requires a `limits` entry from version 3 on; versions 1 and 2 may list none."""
+
+    def doc(self, version: int, limits: bool) -> dict:
+        d = good()
+        d["version"] = version
+        if limits:
+            d["files"].append({"kind": "limits", "path": "fintech/limits/trust_limits.json", "sha256": HEX})
+        return d
+
+    def test_version_three_or_later_without_limits_is_invalid(self):
+        for v in (3, 4, 99):
+            with self.subTest(v):
+                self.assertTrue(errors(self.doc(v, False)))
+
+    def test_version_three_or_later_with_limits_is_valid(self):
+        for v in (3, 4):
+            with self.subTest(v):
+                self.assertEqual(errors(self.doc(v, True)), [])
+
+    def test_versions_one_and_two_need_none(self):
+        for v in (1, 2):
+            with self.subTest(v):
+                self.assertEqual(errors(self.doc(v, False)), [])
+
 if __name__ == "__main__":
     unittest.main()

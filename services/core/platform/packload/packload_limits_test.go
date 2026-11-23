@@ -7,6 +7,7 @@ package packload_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -112,4 +113,38 @@ func TestAMissingLinkedOrEscapingLimitsFileRefusesThePack(t *testing.T) {
 	w.seal()
 	p, err = w.load()
 	refusedNoLimits(t, "an escaping limits path", err, packload.ErrPath, p)
+}
+
+// A579 (interim; SOT-C-33): a manifest of version 3 or later must list its limits files, and the loader refuses a pack whose manifest does not (there is no opt-in). A manifest of
+// version 1 or 2 may list none, as before. The refusal names the kind of the manifest and no path or content.
+func TestAManifestOfVersionThreeOrLaterWithoutLimitsRefusesThePack(t *testing.T) {
+	for _, ver := range []int{3, 4, 10} {
+		w := newWorld(t)
+		w.ver = ver
+		w.seal()
+		p, err := w.load()
+		wantErr(t, "version "+strconv.Itoa(ver)+" without limits", err, packload.ErrManifest, p)
+	}
+}
+
+func TestAManifestOfVersionOneOrTwoMayListNoLimits(t *testing.T) {
+	for _, ver := range []int{1, 2} {
+		w := newWorld(t)
+		w.ver = ver
+		w.seal()
+		p, err := w.load()
+		if err != nil || len(p.Limits) != 0 {
+			t.Errorf("version %d: %v %v; want a pack with no limits files", ver, p.Limits, err)
+		}
+	}
+}
+
+func TestAManifestOfVersionThreeWithLimitsLoadsThem(t *testing.T) {
+	w := newLimitsWorld(t)
+	w.ver = 3
+	w.seal()
+	p, err := w.load()
+	if err != nil || len(p.Limits) != 2 {
+		t.Errorf("%v %v; want the two pinned limits files", p.Limits, err)
+	}
 }

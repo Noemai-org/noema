@@ -21,7 +21,7 @@ const (
 )
 
 func doc(floor, atRisk string) string {
-	return `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":` + floor + `,"clock_at_risk_remaining_bp":` + atRisk + `}`
+	return `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":` + floor + `,"clock_at_risk_remaining_bp":` + atRisk + `,"confirmation_ttl_ceiling_ms":600000}`
 }
 
 func mustRefuse(t *testing.T, name, text string) {
@@ -43,6 +43,9 @@ func mustRefuse(t *testing.T, name, text string) {
 	}
 	if v, err := l.ClockAtRiskRemainingBP(); err == nil || v != 0 {
 		t.Errorf("%s: the AT_RISK limit of a refused document is %d, %v; want 0 and an error", name, v, err)
+	}
+	if v, err := l.ConfirmationTTLCeilingMS(); err == nil || v != 0 {
+		t.Errorf("%s: the confirmation TTL ceiling of a refused document is %d, %v; want 0 and an error", name, v, err)
 	}
 }
 
@@ -95,12 +98,12 @@ func TestAValueThatIsNotAWholeNumberIsRefused(t *testing.T) {
 // No default: a missing member is refused, not read as 0 (0 is not a legal value either).
 func TestAMissingMemberIsRefusedAndNeverDefaulted(t *testing.T) {
 	head := `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC"`
-	mustRefuse(t, "no floor", head+`,"clock_at_risk_remaining_bp":2500}`)
-	mustRefuse(t, "no at-risk", head+`,"ambiguity_absolute_floor_bp":7000}`)
+	mustRefuse(t, "no floor", head+`,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
+	mustRefuse(t, "no at-risk", head+`,"ambiguity_absolute_floor_bp":7000,"confirmation_ttl_ceiling_ms":600000}`)
 	mustRefuse(t, "neither", head+`}`)
-	mustRefuse(t, "no schema_version", `{"pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`)
-	mustRefuse(t, "no pack_id", `{"schema_version":"1.0","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`)
-	mustRefuse(t, "no label", `{"schema_version":"1.0","pack_id":"fin","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`)
+	mustRefuse(t, "no schema_version", `{"pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
+	mustRefuse(t, "no pack_id", `{"schema_version":"1.0","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
+	mustRefuse(t, "no label", `{"schema_version":"1.0","pack_id":"fin","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`)
 }
 
 // The contract is closed: another member (the auto-resolve margin and the candidate cap live in the pack's intent nodes, not here) is refused.
@@ -116,11 +119,11 @@ func TestAMemberWrittenTwiceIsRefused(t *testing.T) {
 
 func TestTheEnvelopeIsChecked(t *testing.T) {
 	for name, text := range map[string]string{
-		"schema_version 2.0": `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`,
-		"pack_id upper":      `{"schema_version":"1.0","pack_id":"Fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`,
-		"pack_id newline":    `{"schema_version":"1.0","pack_id":"fin\n","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`,
-		"pack_id empty":      `{"schema_version":"1.0","pack_id":"","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`,
-		"label":              `{"schema_version":"1.0","pack_id":"fin","label":"PROVISIONAL","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`,
+		"schema_version 2.0": `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"pack_id upper":      `{"schema_version":"1.0","pack_id":"Fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"pack_id newline":    `{"schema_version":"1.0","pack_id":"fin\n","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"pack_id empty":      `{"schema_version":"1.0","pack_id":"","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"label":              `{"schema_version":"1.0","pack_id":"fin","label":"PROVISIONAL","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
 	} {
 		mustRefuse(t, name, text)
 	}
@@ -242,4 +245,45 @@ func TestTheLoaderAgreesWithTheContractFixtures(t *testing.T) {
 		}
 		mustRefuse(t, filepath.Base(p), string(b))
 	}
+}
+
+// docWithCeiling is a document whose only variable member is the confirmation TTL ceiling.
+func docWithCeiling(v string) string {
+	return `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":` + v + `}`
+}
+
+// A561 (interim; PERD v1.23 section 67, the provisional defaults: "confirmation TTL 10 min", adopted by DEC-2026-10-17, OD-P-31): the confirmation TTL ceiling is a required member of
+// the pack's trust limits, in milliseconds, and the shipped file holds 600000, ten minutes. The value comes from the document, never from the loader.
+func TestTheShippedFileCarriesTheTenMinuteConfirmationCeiling(t *testing.T) {
+	f, err := os.Open(packFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	l, err := trustlimits.Load(f, "fin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := l.ConfirmationTTLCeilingMS(); err != nil || v != 600000 {
+		t.Fatalf("ceiling %d (%v); want 600000", v, err)
+	}
+}
+
+func TestTheCeilingComesFromTheDocumentAndMayOnlyTighten(t *testing.T) {
+	for _, c := range []int{1, 60000, 599999, 600000} {
+		l, err := trustlimits.Load(strings.NewReader(docWithCeiling(strconv.Itoa(c))), "fin")
+		got, gerr := l.ConfirmationTTLCeilingMS()
+		if err != nil || gerr != nil || got != c {
+			t.Errorf("%d: got %d, %v, %v", c, got, err, gerr)
+		}
+	}
+}
+
+// No default, no clamp: a document without the ceiling, with 0 or less, above ten minutes, or not a whole number is refused.
+func TestAMissingOrIllegalConfirmationCeilingIsRefused(t *testing.T) {
+	mustRefuse(t, "no ceiling", `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500}`)
+	for _, v := range []string{"0", "-1", "600001", "601000", "9223372036854775807", "600000.5", "6e5", `"600000"`, "true", "null", "[]", "{}"} {
+		mustRefuse(t, "ceiling "+v, docWithCeiling(v))
+	}
+	mustRefuse(t, "ceiling twice", strings.TrimSuffix(docWithCeiling("600000"), "}")+`,"confirmation_ttl_ceiling_ms":1}`)
 }

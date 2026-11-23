@@ -35,5 +35,13 @@
   "phase_reason_not_a_pack_code.json": "pattern",
   "anchor_field_missing.json": "required",
   "anchor_event_uppercase.json": "pattern",
-  "anchor_list_empty.json": "minItems"
+  "anchor_list_empty.json": "minItems",
+  "missing_confirmation_ttl_ceiling.json": "required",
+  "confirmation_ttl_ceiling_zero.json": "minimum",
+  "confirmation_ttl_ceiling_negative.json": "minimum",
+  "confirmation_ttl_ceiling_above_600000.json": "maximum",
+  "confirmation_ttl_ceiling_fractional.json": "type",
+  "confirmation_ttl_ceiling_string.json": "type",
+  "confirmation_ttl_ceiling_boolean.json": "type",
+  "confirmation_ttl_ceiling_null.json": "type"
 }

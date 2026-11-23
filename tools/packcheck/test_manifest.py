@@ -707,5 +707,36 @@ class CommandLine(Base):
         self.assertEqual(self.run_cli("manifest", str(manifest)).returncode, 1)
 
 
+
+class LimitsRequiredFromVersionThree(Base):
+    """A579 (interim; SOT-C-33): a pack of manifest version 3 or later must list its limits files; there is no opt-in. An older manifest (1, 2) may still list none."""
+
+    def without_limits(self, version: int):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: (d.__setitem__("version", version), d.__setitem__("files", [f for f in d["files"] if f["kind"] != "limits"])))
+        return root, manifest
+
+    def test_the_real_manifest_is_version_three_or_later_and_lists_limits(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(doc["version"], 3)
+        self.assertTrue([f for f in doc["files"] if f["kind"] == "limits"])
+
+    def test_version_three_or_later_without_a_limits_entry_fails(self):
+        for version in (3, 4, 10):
+            with self.subTest(version):
+                root, manifest = self.without_limits(version)
+                self.fails(root, manifest, "limits", str(version))
+
+    def test_an_older_manifest_without_limits_entries_still_passes(self):
+        for version in (1, 2):
+            with self.subTest(version):
+                root, manifest = self.without_limits(version)
+                self.assertEqual(self.check(manifest, root), [])
+
+    def test_version_three_with_the_limits_passes(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: d.__setitem__("version", 3))
+        self.assertEqual(self.check(manifest, root), [])
+
 if __name__ == "__main__":
     unittest.main()

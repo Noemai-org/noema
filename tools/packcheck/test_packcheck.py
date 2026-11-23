@@ -531,6 +531,25 @@ class TrustRouting(unittest.TestCase):
     def test_an_anchor_entity_the_pack_has_no_descriptor_for_fails(self):
         self.fails(lambda l: l["anchor_entities"][0].__setitem__("entity", "made_up"), "made_up")
 
+    def test_the_confirmation_ttl_ceiling_is_the_perd_ten_minutes(self):
+        """A561 (interim; PERD v1.23 section 67, the provisional defaults, row 'Grants and confirmations': 'confirmation TTL 10 min', adopted DEC-2026-10-17, OD-P-31): 600000 ms."""
+        self.assertEqual(self.limits["confirmation_ttl_ceiling_ms"], 600000)
+        self.assertEqual(self.run_check(), [])
+
+    def test_an_anchor_field_the_entity_does_not_declare_fails(self):
+        """A575 (interim): `anchor_entities[].field` must be a field the entity's evidence descriptor declares."""
+        self.fails(lambda l: l["anchor_entities"][0].__setitem__("field", "made_up_field"), "made_up_field")
+
+    def test_an_anchor_field_that_is_not_a_timestamp_fails(self):
+        """A575 (interim): the field a clock's anchor is read from is a Timestamp; `epoch` of complaint_ref is an Integer, `subject` a Reference."""
+        for field in ("epoch", "subject"):
+            with self.subTest(field):
+                self.fails(lambda l, f=field: l["anchor_entities"][0].__setitem__("field", f), "Timestamp")
+
+    def test_the_real_anchor_field_is_a_declared_timestamp(self):
+        entity = next(d for d in self.pack["evidence_descriptors"] if d["entity"] == self.limits["anchor_entities"][0]["entity"])
+        self.assertEqual(entity["fields"][self.limits["anchor_entities"][0]["field"]]["type"], "Timestamp")
+
     def test_a_document_of_another_pack_fails(self):
         self.fails(lambda l: l.__setitem__("pack_id", "xyz"), "pack_id")
 
