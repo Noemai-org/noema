@@ -115,3 +115,29 @@ def write_run_record(out: Path, run_id: str, result: RunResult, limits: Mapping[
     path = out / "run.json"
     path.write_text(dump(doc), encoding="utf-8")
     return path
+
+
+def _cell(text: str) -> str:
+    """One table cell from a fixed text: a pipe or a line break in it cannot break the table."""
+    return " ".join(text.replace("|", "/").split())
+
+
+def render_summary(result: RunResult) -> str:
+    """`summary.md` (UND-16, run #6): what a person needs first, without opening the log. Line one is `FAILING: <ids>` or `FAILING: none`: every golden that was not MET (a miss, an error and a case
+    the stop never reached all count), which the workflow's result step quotes. Then each golden and each record-only input with its status and the fixed text of its problem. It holds ids, statuses and
+    fixed texts only: no utterance, no proposal, no number of five digits or more (AGENT-13); the record-only pass is named apart and is not judged (A361, A372)."""
+    failing = [c.case_id for c in result.cases if c.status != "MET"]
+    lines = [f"FAILING: {' '.join(failing) if failing else 'none'}", "", "## Golden examples", "", "| case | status | problems |", "|---|---|---|"]
+    lines += [f"| {_cell(c.case_id)} | {_cell(c.status)} | {_cell('; '.join(c.problems))} |" for c in result.cases]
+    if result.record_only:
+        lines += ["", "## Record-only inputs (recorded, not judged: no expectation)", "", "| case | status | detail |", "|---|---|---|"]
+        lines += [f"| {_cell(r.case_id)} | {_cell(r.status)} | {_cell(r.detail)} |" for r in result.record_only]
+    lines += ["", f"Exit code {result.exit_code}; provider calls {result.calls}; stopped {str(result.stopped).lower()}."]
+    return "\n".join(lines) + "\n"
+
+
+def write_summary(out: Path, result: RunResult) -> Path:
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "summary.md"
+    path.write_text(render_summary(result), encoding="utf-8")
+    return path

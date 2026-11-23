@@ -13,6 +13,12 @@ for name in postgres_superuser_password noema_core_password temporal_password no
   chmod 644 "$dir/$name"
 done
 
+# The migration password's private copy (A536). migrate and tenants-provision hold the migration password, run as the host user that makes these files, and read it as a regular file of that user at
+# mode 0400 (cmd/migrate refuses any other mode or owner). The mode-644 original stays for postgres, which reads it as its own user. Same value, made again on every run so the two cannot differ, never printed.
+rm -f "$dir/migrator_password_file"
+( umask 077; cp "$dir/noema_migrator_password" "$dir/migrator_password_file" )
+chmod 400 "$dir/migrator_password_file"
+
 # The value of NAME in the .env next to this script, by Compose's rules: KEY=value, matching quotes removed, a " #" comment ends an unquoted value.
 # The last line wins. Nothing in the file is executed.
 dotenv() {
