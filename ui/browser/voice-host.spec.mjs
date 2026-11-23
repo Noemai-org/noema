@@ -25,7 +25,7 @@ const test = base.extend({ page: async ({ page }, use) => {
 } });
 const browser = ["/usr/bin/google-chrome", "/usr/bin/chromium"].find(existsSync);
 test.use({ launchOptions: { executablePath: browser, args: ["--use-fake-device-for-media-stream"] } });
-test("A515: host supplies the limit and synthetic sink receives frames while Recording is visible", async ({ page, context }) => {
+test("REQ-VOI-001 A515: host supplies the limit and synthetic sink receives frames while Recording is visible", async ({ page, context }) => {
   const address = Object.values(networkInterfaces()).flat().find(x => x?.internal && x.family === "IPv4")?.address;
   if (!address) throw new Error("Local test interface unavailable");
   const server = createServer((req, res) => {
@@ -48,7 +48,7 @@ test("A515: host supplies the limit and synthetic sink receives frames while Rec
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
 
-test("A516: capture stops and tracks close when the browser window loses focus", async ({ page, context }) => {
+test("REQ-VOI-001 A516: capture stops and tracks close when the browser window loses focus", async ({ page, context }) => {
   const address = Object.values(networkInterfaces()).flat().find(x => x?.internal && x.family === "IPv4")?.address;
   if (!address) throw new Error("Local test interface unavailable");
   const server = createServer((req, res) => {
