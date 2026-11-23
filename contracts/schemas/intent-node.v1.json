@@ -105,6 +105,46 @@
           "description": "The recipient matcher's data file, relative to the pack file's folder (for example fintech/lexicons/recipient_matcher.json). The model service reads it from a mounted pack directory; the image holds no pack (PERD REQ-AMB-003, DEC-2026-10-20 D5).",
           "type": "string",
           "pattern": "^[a-z0-9_]+(/[a-z0-9_]+)*\\.json$"
+        },
+        "options_key": {
+          "description": "A555: the pack's question key for OPTIONS mode (a pack template id, as clarification.v1 question_key). Declared with display_template and attribute_order, or not at all (packcheck).",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$"
+        },
+        "display_template": {
+          "description": "A555: the label of one candidate in OPTIONS mode. Literal text and {attr:<candidate field>} placeholders only (packcheck: the fields a label may show, no digit of its own, no two placeholders side by side). Produced by core from the masked candidate, never by a model (REQ-AMB-004).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "attribute_order": {
+          "description": "A555: the pack's fixed order of askable attributes (ask by attribute, DEC-2026-10-20 D4); ties between attributes are broken by this order. Each carries the attribute's question key and the template of the label of one option value.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+              },
+              "question_key": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$"
+              },
+              "label_template": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              }
+            },
+            "required": [
+              "name",
+              "question_key",
+              "label_template"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
