@@ -14,6 +14,7 @@ class ClarificationV1Mode(StrEnum):
 
     OPTIONS = 'OPTIONS'
     ATTRIBUTE = 'ATTRIBUTE'
+    SLOT = 'SLOT'
 
 
 class ClarificationV1OptionsItem(ContractModel):
@@ -29,11 +30,11 @@ class ClarificationV1(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     clarification_id: CommonV1ClarificationId
-    candidate_set_id: CommonV1CandidateSetId
-    candidate_set_version: CommonV1PositiveInt
+    candidate_set_id: CommonV1CandidateSetId | None = Field(default=None)
+    candidate_set_version: CommonV1PositiveInt | None = Field(default=None)
     slot: CommonV1SlotName
     question_key: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')]
-    options: Annotated[list[ClarificationV1OptionsItem], Field(max_length=4)]
+    options: Annotated[list[ClarificationV1OptionsItem], Field(max_length=4)] | None = Field(default=None)
     allow_none: Literal[True]
     none_option_id: Annotated[str, StringConstraints(pattern='\\A(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}\\Z')]
     expires_at: CommonV1Timestamp

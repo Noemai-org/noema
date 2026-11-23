@@ -6,13 +6,16 @@ const PATTERN_0 = new RegExp("^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$", 
 const PATTERN_1 = new RegExp("^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$", "u");
 const PATTERN_2 = new RegExp("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$", "u");
 
-const CHECK_0: Check = cIf(cAll([cProps({ mode: cConst("ATTRIBUTE") }), cRequired(["mode"])]), cAll([cRequired(["attribute"]), cProps({ options: cCount({ minItems: 2 }) })]), cNot(cRequired(["attribute"])));
+const CHECK_0: Check = cAll([
+  cIf(cAll([cProps({ mode: cConst("ATTRIBUTE") }), cRequired(["mode"])]), cAll([cRequired(["attribute"]), cProps({ options: cCount({ minItems: 2 }) })]), cNot(cRequired(["attribute"]))),
+  cIf(cAll([cProps({ mode: cConst("SLOT") }), cRequired(["mode"])]), cAll([cProps({ options: cCount({ maxItems: 0 }) }), cNot(cRequired(["attribute"]))]), cRequired(["candidate_set_id", "candidate_set_version", "options"])),
+]);
 
 /** ClarificationV1Mode, generated from clarification.v1.json#/properties/mode. DEC-2026-10-20 D4. OPTIONS (the default when absent) lists the candidates; ATTRIBUTE asks by the one attribute whose values uniquely partition the candidate set, and names it. Chosen by core deterministically (maximum... */
-export type ClarificationV1Mode = "OPTIONS" | "ATTRIBUTE";
+export type ClarificationV1Mode = "OPTIONS" | "ATTRIBUTE" | "SLOT";
 
 export function parseClarificationV1Mode(v: unknown, p: string = "$"): ClarificationV1Mode {
-  return oneOfLit(v, p, ["OPTIONS", "ATTRIBUTE"] as const);
+  return oneOfLit(v, p, ["OPTIONS", "ATTRIBUTE", "SLOT"] as const);
 }
 
 /** ClarificationV1OptionsItem, generated from clarification.v1.json#/properties/options/items. */
@@ -33,11 +36,11 @@ export function parseClarificationV1OptionsItem(v: unknown, p: string = "$"): Cl
 /** ClarificationV1, generated from clarification.v1.json. PERD REQ-AMB-004. A CLARIFY decision carries this object. Labels are produced from pack templates by core, never by a model, and hold only user-verifiable details (amount, local time, last four digits, a masked displa... */
 export interface ClarificationV1 {
   clarification_id: CommonV1ClarificationId;
-  candidate_set_id: CommonV1CandidateSetId;
-  candidate_set_version: CommonV1PositiveInt;
+  candidate_set_id?: CommonV1CandidateSetId;
+  candidate_set_version?: CommonV1PositiveInt;
   slot: CommonV1SlotName;
   question_key: string;
-  options: ClarificationV1OptionsItem[];
+  options?: ClarificationV1OptionsItem[];
   allow_none: true;
   none_option_id: string;
   expires_at: CommonV1Timestamp;
@@ -51,11 +54,11 @@ export function parseClarificationV1(v: unknown, p: string = "$"): Clarification
   closed(o, ["clarification_id", "candidate_set_id", "candidate_set_version", "slot", "question_key", "options", "allow_none", "none_option_id", "expires_at", "round", "mode", "attribute"], p);
   return enforce({
     clarification_id: parseCommonV1ClarificationId(req(o, "clarification_id", p), p + ".clarification_id"),
-    candidate_set_id: parseCommonV1CandidateSetId(req(o, "candidate_set_id", p), p + ".candidate_set_id"),
-    candidate_set_version: parseCommonV1PositiveInt(req(o, "candidate_set_version", p), p + ".candidate_set_version"),
+    ...(has(o, "candidate_set_id") ? { candidate_set_id: parseCommonV1CandidateSetId(o["candidate_set_id"], p + ".candidate_set_id") } : {}),
+    ...(has(o, "candidate_set_version") ? { candidate_set_version: parseCommonV1PositiveInt(o["candidate_set_version"], p + ".candidate_set_version") } : {}),
     slot: parseCommonV1SlotName(req(o, "slot", p), p + ".slot"),
     question_key: str(req(o, "question_key", p), p + ".question_key", {pattern: PATTERN_2}),
-    options: arr(req(o, "options", p), p + ".options", (x, q) => parseClarificationV1OptionsItem(x, q), {maxItems: 4}),
+    ...(has(o, "options") ? { options: arr(o["options"], p + ".options", (x, q) => parseClarificationV1OptionsItem(x, q), {maxItems: 4}) } : {}),
     allow_none: lit(req(o, "allow_none", p), p + ".allow_none", true),
     none_option_id: str(req(o, "none_option_id", p), p + ".none_option_id", {pattern: PATTERN_0}),
     expires_at: parseCommonV1Timestamp(req(o, "expires_at", p), p + ".expires_at"),

@@ -65,11 +65,12 @@
       "maximum": 2
     },
     "mode": {
-      "description": "DEC-2026-10-20 D4. OPTIONS (the default when absent) lists the candidates; ATTRIBUTE asks by the one attribute whose values uniquely partition the candidate set, and names it. Chosen by core deterministically (maximum expected information gain, ties broken by the pack's fixed attribute order); never by a model.",
+      "description": "DEC-2026-10-20 D4. OPTIONS (the default when absent) lists the candidates; ATTRIBUTE asks by the one attribute whose values uniquely partition the candidate set, and names it. Chosen by core deterministically (maximum expected information gain, ties broken by the pack's fixed attribute order); never by a model. A582 (interim): SLOT asks the customer for the value of one slot when there is nothing to choose from (no candidate set was read): candidate_set_id and candidate_set_version are not required, options is empty, and the question is a pack template named by question_key, in plain language; the answer is ordinary untrusted text through the normal intake and schema gate (A591). Every other mode requires candidate_set_id, candidate_set_version and options.",
       "type": "string",
       "enum": [
         "OPTIONS",
-        "ATTRIBUTE"
+        "ATTRIBUTE",
+        "SLOT"
       ],
       "default": "OPTIONS"
     },
@@ -80,11 +81,8 @@
   },
   "required": [
     "clarification_id",
-    "candidate_set_id",
-    "candidate_set_version",
     "slot",
     "question_key",
-    "options",
     "allow_none",
     "none_option_id",
     "expires_at",
@@ -119,6 +117,37 @@
             "attribute"
           ]
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "SLOT"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "options": {
+            "maxItems": 0
+          }
+        },
+        "not": {
+          "required": [
+            "attribute"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "candidate_set_id",
+          "candidate_set_version",
+          "options"
+        ]
       }
     }
   ]
