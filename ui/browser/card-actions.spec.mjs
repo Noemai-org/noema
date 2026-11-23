@@ -21,6 +21,11 @@ const js = (await build({ stdin: { contents: `
     return response.ok ? 'accepted' : 'unavailable';
   } }));
   window.showConfirmation = card => root.render(createElement(ConfirmationCard, { card, onResponse: (...args) => window.events.push(args) }));
+  window.showRetryConfirmation = card => root.render(createElement(ConfirmationCard, { card, onResponse: async (...args) => {
+    window.events.push(args);
+    const response = await fetch('/confirmation-retry', { method: 'POST' });
+    return response.ok ? 'accepted' : 'unavailable';
+  } }));
 `, resolveDir: process.cwd(), loader: "js" }, bundle: true, format: "iife", platform: "browser", write: false, define: { "process.env.NODE_ENV": '"production"' } })).outputFiles[0].text;
 
 const test = base.extend({ page: async ({ page }, use) => {
@@ -44,7 +49,7 @@ test.beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === "/") res.writeHead(200, { "content-type": "text/html" }).end('<!doctype html><div id="app"></div><script src="/cards.js"></script>');
     else if (req.url === "/cards.js") res.writeHead(200, { "content-type": "text/javascript" }).end(js);
-    else if (req.url === "/retry-submit") res.writeHead(++attempts === 1 ? 503 : 202).end();
+    else if (req.url === "/retry-submit" || req.url === "/confirmation-retry") res.writeHead(++attempts === 1 ? 503 : 202).end();
     else res.writeHead(404).end();
   });
   server.listen(0, address);
@@ -105,4 +110,24 @@ test("A491 and PERD 40.1: confirmation locks after response and reveals policy o
   await expect(page.getByRole("button", { name: "Accept" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
   expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
+});
+
+test("A542: a failed confirmation submission unlocks controls and retry resubmits the same answer", async ({ page }) => {
+  attempts = 0;
+  const value = await card("confirmation");
+  await page.goto(origin);
+  await page.evaluate((input) => window.showRetryConfirmation(input), value);
+  const accept = page.getByRole("button", { name: "Accept" });
+  await accept.click();
+  await expect(accept).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Decline" })).toBeEnabled();
+  await expect(page.getByRole("status")).toContainText("Your response was not sent");
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(accept).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  expect(await page.evaluate(() => window.events)).toEqual([
+    [value.confirmation_request_id, "ACCEPT"],
+    [value.confirmation_request_id, "ACCEPT"],
+  ]);
 });
