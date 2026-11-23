@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"regexp"
+	"strconv"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/execution/signing"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpack"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -23,12 +26,10 @@ import (
 // The fixed texts of a gap: what an adapter lacks, never a value (A469, A486). They are the only words a gap uses.
 const (
 	needTrustLogins    = "the Trust logins (NOEMA_TRUST_DSN_DIR)"
-	needPackBytes      = "the verified pack's bytes"
 	needPack           = "the verified pack"
 	needGrantKeys      = "the grant keys"
 	needRecordLogin    = "the Record write login of the core-trust identity"
 	needSealedFacts    = "the sealed-facts source (snapshot reader, step facts, policy id)"
-	needRecordSigners  = "the core-trust Record signing keys (no setting names them)"
 	needRequestRead    = "a read of a confirmation request by its id (the store has Latest only)"
 	needRequestEvents  = "the Record events of the confirmation store (no confirm-request or confirm-event contract)"
 	needConfirmPolicy  = "the pack's confirmation terms (no accessor)"
@@ -63,16 +64,14 @@ type decisionGap struct {
 
 // decisionInputs are what the lane consumes from the process and from the other lanes. Each one that is absent is named in a gap; none has a default.
 type decisionInputs struct {
-	Env      Env
-	Clock    clock.Clock
-	Pools    trustport.TenantPools
-	PackJSON []byte
-	Pack     *trustpack.Pack
-	Keys     *grants.Keys
-	Begin    trustport.TxBeginner
-	Facts    trustport.RecordFactSource
-	Appender *chain.Appender
-	Entropy  io.Reader
+	Env     Env
+	Clock   clock.Clock
+	Pools   trustport.TenantPools
+	Pack    *trustpack.Pack
+	Keys    *grants.Keys
+	Begin   trustport.TxBeginner
+	Facts   trustport.RecordFactSource
+	Entropy io.Reader
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.
@@ -140,8 +139,8 @@ func decisionIntents(in decisionInputs) (intake.Intents, []string, error) {
 	if absent(in.Pools) {
 		missing = append(missing, needTrustLogins)
 	}
-	if len(in.PackJSON) == 0 {
-		missing = append(missing, needPackBytes)
+	if in.Pack == nil {
+		missing = append(missing, needPack)
 	}
 	var timeout time.Duration
 	if in.Env.Getenv(EnvTrustDBTimeout) == "" {
@@ -155,7 +154,7 @@ func decisionIntents(in decisionInputs) (intake.Intents, []string, error) {
 	if len(missing) > 0 {
 		return nil, missing, nil
 	}
-	si, err := trustport.NewStoredIntents(in.Pools, in.PackJSON, timeout)
+	si, err := trustport.NewStoredIntents(in.Pools, in.Pack.PackBytes(), timeout) // the Pack is the one source of the pack's bytes (A548, INV-16)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cmd/core: the admitted-intent store adapter: %w", err)
 	}
@@ -190,6 +189,10 @@ func decisionRecorderConfig(in decisionInputs) (trustport.RecorderConfig, []stri
 			return trustport.RecorderConfig{}, nil, err
 		}
 	}
+	ring, keyMissing, err := decisionSigningRing(in.Env)
+	if err != nil {
+		return trustport.RecorderConfig{}, nil, err
+	}
 	var cfg trustport.RecorderConfig
 	graph := in.Env.Getenv(EnvTrustEscalationGraph)
 	switch {
@@ -205,11 +208,12 @@ func decisionRecorderConfig(in decisionInputs) (trustport.RecorderConfig, []stri
 	for _, need := range []struct {
 		absent bool
 		text   string
-	}{{in.Pack == nil, needPack}, {absent(in.Keys), needGrantKeys}, {absent(in.Begin), needRecordLogin}, {absent(in.Facts), needSealedFacts}, {absent(in.Appender), needRecordSigners}} {
+	}{{in.Pack == nil, needPack}, {absent(in.Keys), needGrantKeys}, {absent(in.Begin), needRecordLogin}, {absent(in.Facts), needSealedFacts}} {
 		if need.absent {
 			missing = append(missing, need.text)
 		}
 	}
+	missing = append(missing, keyMissing...)
 	if present == 3 {
 		s, err := loadRecorderSettings(in.Env) // grant at most record (A503)
 		if err != nil {
@@ -227,6 +231,42 @@ func decisionRecorderConfig(in decisionInputs) (trustport.RecorderConfig, []stri
 	if entropy == nil {
 		entropy = rand.Reader
 	}
-	cfg.Begin, cfg.Facts, cfg.Keys, cfg.Appender, cfg.Clock, cfg.IDs, cfg.Entropy = in.Begin, in.Facts, in.Keys, in.Appender, in.Clock, ids.New(in.Clock, entropy), entropy
+	cfg.Begin, cfg.Facts, cfg.Keys, cfg.Clock, cfg.IDs, cfg.Entropy = in.Begin, in.Facts, in.Keys, in.Clock, ids.New(in.Clock, entropy), entropy
+	cfg.Appender = &chain.Appender{Clock: in.Clock, IDs: cfg.IDs, Signers: map[string]chain.Signer{trustRecordIdentity: ring}}
 	return cfg, nil, nil
+}
+
+// trustRecordIdentity is the Record identity of Trust (the emitter of the decision records): the database checks each record's signature under an ACTIVE key of the written_by
+// identity (migrations 0012 and 0019).
+const trustRecordIdentity = "core-trust"
+
+var keyOverlapRe = regexp.MustCompile(`^[1-9][0-9]{0,8}$`)
+
+// decisionSigningRing reads the core-trust Record signing keys (A548, interim, relayed, not yet committed) through the shared key loader, execution/signing.LoadRing, as the
+// orchestrator's and the edge's keys are read. Both settings are required together: an absent one is named and gives no ring; a present one that is invalid is fatal. An error names
+// the setting and never the value or the path.
+func decisionSigningRing(env Env) (*signing.Ring, []string, error) {
+	var missing []string
+	dir, overlap := env.Getenv(EnvTrustKeyDir), env.Getenv(EnvTrustKeyMaxActive)
+	if dir == "" {
+		missing = append(missing, EnvTrustKeyDir)
+	}
+	if overlap == "" {
+		missing = append(missing, EnvTrustKeyMaxActive)
+	}
+	maxActive := 0
+	if overlap != "" {
+		if !keyOverlapRe.MatchString(overlap) {
+			return nil, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvTrustKeyMaxActive)
+		}
+		maxActive, _ = strconv.Atoi(overlap) // the pattern above holds it to a positive number that fits
+	}
+	if len(missing) > 0 {
+		return nil, missing, nil
+	}
+	ring, err := signing.LoadRing(trustRecordIdentity, dir, signing.Options{MaxActive: maxActive})
+	if err != nil {
+		return nil, nil, fmt.Errorf("cmd/core: %s: the signing keys cannot be loaded (core-trust.ed25519.<n>.key files: regular, mode 0400, owned by this user, no more than %s)", EnvTrustKeyDir, EnvTrustKeyMaxActive)
+	}
+	return ring, nil, nil
 }

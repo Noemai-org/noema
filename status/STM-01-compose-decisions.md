@@ -1,6 +1,6 @@
 # STM-01-compose-decisions
 
-State: red pushed (branch `feat/STM-01-compose-decisions`, no PR opened yet); green committed locally, not pushed. Lane 3 of the A537 composition (decisions). Dated 2026-11-23 WAT.
+State: PR noema#906 (draft); red 7ef12061 failed in CI; first green c9606845 pushed; second round (merge of main, one source of the pack, core-trust signing keys: A548, A553) red pushed, its green held locally. Lane 3 of the A537 composition (decisions). Dated 2026-11-23 WAT.
 
 # Session 2026-11-23 WAT · STM-01 (compose, lane 3: decisions)
 
@@ -23,3 +23,18 @@ State: red pushed (branch `feat/STM-01-compose-decisions`, no PR opened yet); gr
 - Open questions (EL): the core-trust Record signing keys and write login settings (names, `deploy/`); who writes the confirmation Record events and its contracts; who writes `plangraphs.Pack`, `Intents` and `PlanContexts`.
 - Files to read first: `services/core/cmd/core/wire_decisions.go`, `wire_trust_adapters.go`.
 - Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`, `wire_understanding_compose.go`.
+
+# Session 2026-11-23 WAT · STM-01 (compose, lane 3: second round)
+
+## Session summary
+- What changed (PR links): noema#906. Merged `origin/main` (noema#900, #911 on it). One source of the pack: `decisionInputs.PackJSON` is gone, Intents reads `Pack.PackBytes()`, a new accessor of `trustpack.Pack` that returns a copy of the pack file LoadPack read and decoded; an absent Pack is a named gap, a zero Pack is fatal (ErrPackData). The core-trust Record signing keys are read from `NOEMA_TRUST_KEY_DIR` and `NOEMA_TRUST_KEY_MAX_ACTIVE` through `signing.LoadRing` (identity core-trust), required with the other Recorder inputs; `decisionInputs.Appender` is gone (A548, A553, interim, relayed, not yet committed).
+- Why: the Record signing keys are needed because decision records are signed on the Go side and the database verifies them (migrations 0012, 0019).
+- Files outside the lane's allowlist: `trustpack/pack.go` (one field, one assignment) and new `trustpack/packbytes.go` and its test: there is no way to derive the bytes from a Pack without it.
+- Not built: the A567 consumer of `trust_limits.json` (blocked on noema#910: no Limits accessor on main).
+- Hand mutation check: 8 mutants of the new code, 8 killed.
+- Tests added (INV-16, INV-29, REQ-TRU-008, REQ-SEC-005): `packbytes_test.go`, the key tests of `wire_decisions_recorder_test.go`, the one-source tests of `wire_decisions_intents_test.go`.
+
+## Pre-work for the next agent
+- Exact next step: lane 1's `LoadVerified` goes through `LoadPack`, so its Pack carries the verified bytes; check that after both merge. Deploy must mount `core-trust.ed25519.<n>.key` (mode 0400, owner 65532).
+- Open questions (EL): the Record write login and the sealed-facts source stay gaps.
+- Do not touch: `trust/**`, `contracts/`, `migrations/`, `.github/`, `deploy/`.
