@@ -5,10 +5,9 @@ package trustport
 // the T13 decline (REJECT DECLINED_BY_APPROVER) must be able to name the request the CONFIRM minted. Everything is real: the adapter, the trust/recorder Writer and a PostgreSQL with every
 // migration (no fake of either; the only seam is the transaction opener, as in recorder_test.go). All data is SYNTHETIC.
 //
-// Expected today (origin/main): the Writer's CONFIRM path writes the decision and the CONFIRMATION_REQUESTED event and never a confirmation_request row (only the confirmation store does,
-// in a transaction of its own), so tests 1, 2, 4 and the rollback test FAIL (the intended red) until C1's Writer change merges. Test 3 (a decline naming another tenant's or another
-// intent's request) may already pass, because a request that is not there is refused too; it is kept so that the green cannot loosen the ownership check. These tests need PostgreSQL with
-// pgsodium and run in CI only.
+// History: written RED on 0c202c65, when the Writer's CONFIRM path wrote the decision and the CONFIRMATION_REQUESTED event and never a confirmation_request row. noema#911 (the Writer inserts
+// the row in the CONFIRM transaction) has merged, so every test here is expected to PASS at the merged head. Test 3 (a decline naming another tenant's or another intent's request) guards the
+// ownership check against a loosening green. These tests need PostgreSQL with pgsodium and run in CI only.
 
 import (
 	"context"
@@ -28,6 +27,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
+	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/grants"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 	"github.com/Noemai-org/noema/services/core/trust/recorder"
@@ -35,8 +35,10 @@ import (
 
 const a519OtherTenant = "ten_bb"
 
-// a519Expiry is the request's expiry: after the database's own clock, which stamps requested_at (migration 0032), whatever the manual clock of the Writer says. SYNTHETIC.
-var a519Expiry = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+// a519Expiry is the request's expiry: 5 minutes after the test's clock, within the 10-minute confirmation TTL ceiling (PERD REQ-TRU-009; A561, interim, relayed, not yet committed).
+// The Writer turns it into a TTL against its own clock (the same manual clock, recEpoch) and stamps expires_at as the database's now() plus that TTL (migration 0032), so the request is
+// open for 5 minutes of database time whatever date the manual clock shows. SYNTHETIC.
+var a519Expiry = recEpoch.Add(5 * time.Minute).Unix()
 
 // a519Pools opens each tenant's own transaction as its trust_rw login.
 type a519Pools map[string]*pgxpool.Pool
@@ -96,13 +98,32 @@ func a519Confirm(t *testing.T, tenant string) intake.RecordRequest {
 	return r
 }
 
-// a519Decline is the T13 decline: REJECT DECLINED_BY_APPROVER naming the request the CONFIRM minted.
+// a519Decline is the T13 decline, built the way the intake builds it (trust/intake t13Declined): a REJECT with the reason DECLINED_BY_APPROVER through the decide constructors, the basis
+// attached, and DeclinedRequestID naming the request the CONFIRM minted. It does not rest on rnaRequest, whose reason is not this test's to depend on (A552).
 func a519Decline(t *testing.T, tenant, requestID string) intake.RecordRequest {
 	t.Helper()
-	r := rnaRequest(t, "REJECT", false)
-	r.TenantID = tenant
-	r.DeclinedRequestID = requestID
-	return r
+	b := recBuilder(t)
+	res, ok := decide.Admit(decide.IntentView{Version: 2}).Resolved()
+	if !ok {
+		t.Fatal("not resolved")
+	}
+	reason, err := decide.Core("DECLINED_BY_APPROVER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := res.Reject(decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass}, reason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err = b.Attach(d); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := b.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return intake.RecordRequest{TenantID: tenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_01J9X3ABCDEFGHJKMNPQRSTVWX", IntentID: "int_01J9X3", IntentHash: recHash(10), IntentVersion: 2,
+		Decision: d, Evaluated: b.Sealed(), BasisDigest: digest, DeclinedRequestID: requestID}
 }
 
 // openRequests counts the open confirmation requests of a tenant's intent: not answered, not superseded, not expired at the database's clock (migration 0032).
@@ -168,8 +189,8 @@ func TestREQTRU009AFailedRequestRowInsertRollsBackTheConfirmDecision(t *testing.
 		t.Fatalf("seed the open request: %v", err)
 	}
 	records, events, requests := w.written(t)
-	if res, err := w.a.Record(recCtx(t), r); err == nil {
-		t.Fatalf("a CONFIRM whose request row cannot be inserted was recorded: %+v", res)
+	if res, err := w.a.Record(recCtx(t), r); !errors.Is(err, recorder.ErrConfirmationRequestOpen) {
+		t.Fatalf("a CONFIRM whose request row cannot be inserted: %+v, %v; want ErrConfirmationRequestOpen", res, err)
 	}
 	if r2, e2, q2 := w.written(t); r2 != records || e2 != events || q2 != requests {
 		t.Fatalf("after the refused CONFIRM: %d decisions, %d events, %d requests; before: %d, %d, %d (the decision must roll back with the row)", r2, e2, q2, records, events, requests)
