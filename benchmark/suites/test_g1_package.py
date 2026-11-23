@@ -81,12 +81,19 @@ def section(kind: str, *facts: Json) -> Json:
     return {"kind": kind, "items": [{"record_event_id": "recev_1", "object_ref": "o", "basis": "RULE", "facts": f} for f in facts]}
 
 
-US06_EVENTS = ["DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
+US06_EVENTS = ["DECISION_MADE", "DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
 
 
-def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED", corr: str = "corr_tmo", tenant: str = "ten_alpha") -> Json:
+DISPOSITION = {"decision_outcome": "ESCALATE", "decision_id": "dec_1"}
+ACTION_DECISION = {"decision_outcome": "ALLOW", "decision_id": "dec_2", "disposition_decision_id": "dec_1"}
+
+
+def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED", corr: str = "corr_tmo", tenant: str = "ten_alpha",
+            decisions: list[Json] | None = None) -> Json:
+    """A503 (PERD 23.1): the ESCALATE disposition decision comes first, then the action decision that references it."""
     return {"tenant_id": tenant, "correlation_id": corr, "events": [event(n, k) for n, k in enumerate(kinds or US06_EVENTS, start=1)],
-            "sections": [section("DECISION", {"decision_outcome": "ALLOW"}), section("ACTION", {"execution_state": state}), section("VERIFICATION", {"verdict": verdict})]}
+            "sections": [section("DECISION", *(decisions if decisions is not None else [DISPOSITION, ACTION_DECISION])), section("ACTION", {"execution_state": state}),
+                         section("VERIFICATION", {"verdict": verdict})]}
 
 
 def recon01(kinds: list[str] | None = None, outcome: str = "ALLOW", corr: str = "corr_clean", tenant: str = "ten_alpha") -> Json:
@@ -635,6 +642,44 @@ class Stamps(unittest.TestCase):
         text = make(i)
         for n in (2, 8, 9):
             self.assertIn("**NOT MET**", row(text, n), n)
+
+
+class DispositionOrder(unittest.TestCase):
+    """A503 (docs#222; PERD 23.1, REQ-TRU-010): an ESCALATE disposition is its own Trust decision, recorded first (no steps, no grant); each escalation write step is its own action decision that
+    references it. The expected Record events of US-06 therefore start with the disposition decision. The reference must be SHOWN in the reconstruction: a reconstruction that does not carry
+    `disposition_decision_id` cannot meet row 2 (C1 confirms the contract carries it)."""
+
+    def problem(self, **kw: Any) -> str:
+        return row(make(artifacts=art(reconstructions={"BEN-TMO-0001": {ph: recon06(**kw) for ph in ("initial", "after_recovery", "after_replay")}, "BEN-CLEAN-0001": {"initial": recon01()}})), 2)
+
+    def test_the_disposition_first_then_the_action_decision_that_references_it_is_met(self) -> None:
+        self.assertIn("**MET**", self.problem())
+
+    def test_a_first_decision_that_is_not_the_escalate_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[{"decision_outcome": "ALLOW", "decision_id": "dec_1"}, ACTION_DECISION]))
+
+    def test_the_action_decisions_before_the_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[ACTION_DECISION, DISPOSITION]))
+
+    def test_no_action_decision_after_the_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION], kinds=[k for k in US06_EVENTS if k != "DECISION_MADE"] + ["DECISION_MADE"]))
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION]))
+
+    def test_an_action_decision_that_does_not_reference_the_disposition_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, {"decision_outcome": "ALLOW", "decision_id": "dec_2"}]))
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, {**ACTION_DECISION, "disposition_decision_id": "dec_9"}]))
+        self.assertIn("**NOT MET**", self.problem(decisions=[DISPOSITION, ACTION_DECISION, {"decision_outcome": "ALLOW", "decision_id": "dec_3"}]))
+
+    def test_a_disposition_without_an_id_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", self.problem(decisions=[{"decision_outcome": "ESCALATE"}, {**ACTION_DECISION, "disposition_decision_id": ""}]))
+
+    def test_the_decision_events_must_precede_the_grant(self) -> None:
+        late = ["DECISION_MADE", "GRANT_ISSUED", "DECISION_MADE", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
+        self.assertIn("**NOT MET**", self.problem(kinds=late))
+
+    def test_a_missing_disposition_in_a_later_phase_is_caught_in_that_phase(self) -> None:
+        phases = {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06(decisions=[ACTION_DECISION])}
+        self.assertIn("**NOT MET**", row(make(artifacts=art(reconstructions={"BEN-TMO-0001": phases, "BEN-CLEAN-0001": {"initial": recon01()}})), 2))
 
 
 class Whole(unittest.TestCase):
