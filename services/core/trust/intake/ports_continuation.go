@@ -36,6 +36,9 @@ type ContinuationRequest struct {
 	Facts          map[string]string
 	EvidencePacket string
 	Runnable       Runnable
+	// DispositionDecisionID is the ESCALATE decision this step follows, as the Recorder returned it when the escalation was recorded (A534). Optional: it is passed into the Decision
+	// Record's request unchanged; the Recorder checks that it names an ESCALATE decision of the tenant.
+	DispositionDecisionID string
 }
 
 // stepScope is what a continuation evaluation holds: the one capability it decides and the inputs of its plan request.
@@ -44,6 +47,7 @@ type stepScope struct {
 	facts        map[string]string
 	packet       string
 	runnable     Runnable
+	disposition  string
 }
 
 // EvaluateStep runs T1 to T15 for the one next step of an action graph (A335: the step is its own action decision with its own grant). Everything of Evaluate holds: the same
