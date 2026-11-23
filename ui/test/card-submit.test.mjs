@@ -131,3 +131,38 @@ test("REQ-UI-002: actual 503 and a closed socket produce safe failure, not serve
     assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "unavailable");
   });
 });
+
+
+test("REQ-UI-002 US-18: a 409 CONFIRMATION_EXPIRED envelope is terminal, not retryable", async () => {
+  const card = await currentCard("confirmation");
+  const envelope = {
+    error: {
+      code: "CONFIRMATION_EXPIRED",
+      message: "This confirmation has expired.",
+      retryable: false,
+      correlation_id: "corr_4c21f9",
+    },
+  };
+  await withServer((_request, response) => {
+    response.writeHead(409, { "content-type": "application/json" });
+    response.end(JSON.stringify(envelope));
+  }, async (baseUrl) => {
+    assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "expired");
+  });
+});
+
+test("REQ-UI-002 US-18: malformed or oversized 409 bodies fail closed as unavailable", async () => {
+  const card = await currentCard("confirmation");
+  await withServer((_request, response) => {
+    response.writeHead(409, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: { code: "CONFIRMATION_EXPIRED", message: "x", retryable: false } }));
+  }, async (baseUrl) => {
+    assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "unavailable");
+  });
+  await withServer((_request, response) => {
+    response.writeHead(409, { "content-type": "application/json" });
+    response.end(" ".repeat(16 * 1024 + 1));
+  }, async (baseUrl) => {
+    assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "unavailable");
+  });
+});
