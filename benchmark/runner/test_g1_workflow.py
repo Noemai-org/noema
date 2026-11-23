@@ -449,7 +449,9 @@ class G1StackWorkflow(unittest.TestCase):
         line = re.search(r"python3 -I tools/ci/g1_leakscan\.py ([^\n]*)", job.group(1))
         assert line
         self.assertIn("--no-digit-rule", line.group(1))
-        self.assertNotIn("--allow", line.group(1), "no allow rule is used for the job log: the digit rule is off, not worked around")
+        # The one allow file the job log may use is its own, with the single Go-download line shape (run 45128374794; test_the_job_log_scan_uses_its_own_allow_file_and_not_the_artifact_one);
+        # the standing allow file of the artifact scans is never used for it.
+        self.assertEqual(re.findall(r"--allow (\S+)", line.group(1)), ["tools/ci/g1_joblog.allow"])
         self.assertEqual(len(re.findall(r"python3 -I tools/ci/g1_leakscan\.py --no-digit-rule", self.text)), 1, "only the job log is scanned without the digit rule")
 
     # A388: Playwright against the running stack, after the stack is up, opt-in until the wiring merges. FE owns the specs.
@@ -564,6 +566,16 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn("--allow-escape-sequences", read.group(0))
         self.assertIn("joblog-read.err", job.group(1))
         self.assertRegex(job.group(1), r"head -c \d+ \"?\$RUNNER_TEMP/joblog-read\.err")
+
+    def test_the_job_log_scan_uses_its_own_allow_file_and_not_the_artifact_one(self) -> None:
+        # Run 45128374794: the first scan that could read the log failed on a Go pseudo-version in a `go: downloading` line (a false card number). Only that line shape is allowed, in a file of its own,
+        # so the artifact scans keep the standing allow file and the job-log scan keeps every other rule.
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py[^\n]*g1-stack\.log\"", job.group(1))
+        assert scan
+        self.assertIn("--allow tools/ci/g1_joblog.allow", scan.group(0))
+        self.assertNotIn("g1_leakscan.allow", scan.group(0))
 
 
 if __name__ == "__main__":
