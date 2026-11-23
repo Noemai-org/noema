@@ -93,7 +93,7 @@ var projections = map[string]projection{
 	evGrantVoided:                  {secAuthority, basisRule, authorityKeys, nil},
 	"REVALIDATION_PASSED":          {secAuthority, basisRule, authorityKeys, nil},
 	"REVALIDATION_FAILED":          {secAuthority, basisRule, authorityKeys, nil},
-	"DECISION_MADE":                {secDecision, basisRule, []string{"decision_outcome", "reason_codes", "decision_id"}, []string{"decision_outcome"}},
+	"DECISION_MADE":                {secDecision, basisRule, []string{"decision_outcome", "reason_codes", "decision_id", "disposition_decision_id"}, []string{"decision_outcome"}},
 	evDispatch:                     {secAction, basisRule, []string{"attempt"}, []string{"capability_id", "execution_state", "grant_state"}},
 	evReceipt:                      {secAction, basisRule, []string{"execution_state", "attempt", "receipt_id"}, []string{"capability_id", "execution_state", "grant_state"}},
 	"VERIFICATION_READ":            {secDownstream, basisEvidence, downstreamKeys, nil},
@@ -141,24 +141,28 @@ var (
 	// idShapes is the contract shape of each ID fact the projection serves as written (common.v1; policy_id is a pack ID). An `_id` fact is exempt from masking
 	// only when its value has the shape of its own key; any other value, and any `_id` key not listed, is masked like every scalar (Codex P1 on noema#492, A154).
 	idShapes = map[string]*regexp.Regexp{
-		"request_id":          regexp.MustCompile(`^req_[0-9A-Za-z]{2,32}$`),
-		"intent_id":           regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`),
-		"clarification_id":    regexp.MustCompile(`^clr_[0-9A-Za-z]{2,32}$`),
-		"confirmation_id":     regexp.MustCompile(`^cf[re]_[0-9A-Za-z]{2,32}$`),
-		"decision_id":         regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`),
-		"plan_id":             regexp.MustCompile(`^pln_[0-9A-Za-z]{2,32}$`),
-		"grant_id":            regexp.MustCompile(`^grt_[0-9A-Za-z]{2,32}$`),
-		"receipt_id":          regexp.MustCompile(`^rcp_[0-9A-Za-z]{2,32}$`),
-		"verdict_id":          regexp.MustCompile(`^ver_[0-9A-Za-z]{2,32}$`),
-		"watch_id":            regexp.MustCompile(`^wat_[0-9A-Za-z]{2,32}$`),
-		"recovery_request_id": regexp.MustCompile(`^rrq_[0-9A-Za-z]{2,32}$`),
+		"request_id":              regexp.MustCompile(`^req_[0-9A-Za-z]{2,32}$`),
+		"intent_id":               regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`),
+		"clarification_id":        regexp.MustCompile(`^clr_[0-9A-Za-z]{2,32}$`),
+		"confirmation_id":         regexp.MustCompile(`^cf[re]_[0-9A-Za-z]{2,32}$`),
+		"decision_id":             regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`),
+		"disposition_decision_id": regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`),
+		"plan_id":                 regexp.MustCompile(`^pln_[0-9A-Za-z]{2,32}$`),
+		"grant_id":                regexp.MustCompile(`^grt_[0-9A-Za-z]{2,32}$`),
+		"receipt_id":              regexp.MustCompile(`^rcp_[0-9A-Za-z]{2,32}$`),
+		"verdict_id":              regexp.MustCompile(`^ver_[0-9A-Za-z]{2,32}$`),
+		"watch_id":                regexp.MustCompile(`^wat_[0-9A-Za-z]{2,32}$`),
+		"recovery_request_id":     regexp.MustCompile(`^rrq_[0-9A-Za-z]{2,32}$`),
 	}
 )
 
 // mask keeps only the last four digits of every run of five or more (REQ-AUD-003 "Masked"), whatever the script of the digits. The definition of a run and of the limit is the one in
 // record/payloadguard (A194): this function only delegates, so a separator added there is masked here. It applies to free text and plain scalar facts; references, IDs and enum values
-// are checked by their contract pattern instead and served as written, because the reader matches on them. Masking is idempotent, so text that Explanation already masked is unchanged.
+// are checked by their contract pattern first; an ID or an enum value is served as written, because the reader matches on it, and a resource reference is masked like any scalar after the check (A331). Masking is idempotent, so text that Explanation already masked is unchanged.
 func mask(s string) string { return payloadguard.Mask(s) }
+
+// maskText is mask for customer-visible text, the `text` of a claim: a whole money string is shown as it is (A331). No other fact has that exemption.
+func maskText(s string) string { return payloadguard.MaskText(s) }
 
 // errProjection marks a Record object that cannot be served under the contract. The endpoint refuses rather than serve
 // a partial or invalid narrative.
@@ -191,7 +195,11 @@ func fact(key string, v any, known map[string]bool) (any, error) {
 		if v == nil {
 			return nil, nil
 		}
-		return patternFact(key, v, resourceRe)
+		ref, err := patternFact(key, v, resourceRe)
+		if err != nil {
+			return nil, err
+		}
+		return mask(ref.(string)), nil // a reference is masked like any other string (A331): its body may hold a long run of digits and a letter
 	case "classification":
 		return patternFact(key, v, upperCodeRe)
 	case "candidate_count":
@@ -203,7 +211,7 @@ func fact(key string, v any, known map[string]bool) (any, error) {
 		if !ok || s == "" || len([]rune(s)) > maxClaimText {
 			return nil, projErr("%s is not a string of 1 to %d characters", key, maxClaimText)
 		}
-		return mask(s), nil
+		return maskText(s), nil
 	case "disclosed_refs":
 		list, err := listFact(key, v)
 		if err != nil {
@@ -213,6 +221,9 @@ func fact(key string, v any, known map[string]bool) (any, error) {
 			if !resourceRe.MatchString(r) {
 				return nil, projErr("%s holds %q, which is not a resource reference", key, r)
 			}
+		}
+		for i, r := range list {
+			list[i] = mask(r) // masked like any other string (A331); the reader matches a reference by the same function on both sides
 		}
 		return list, nil
 	}

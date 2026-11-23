@@ -29,6 +29,36 @@ def kinds(text: str, **kw) -> list[str]:
     return [f.kind for f in s.scan_text(text, "x.log", **kw)]
 
 
+class NoDigitRule(unittest.TestCase):
+    """The G1 job log is the runner's own output (image versions, byte counts, run ids), so the digit-run rule cannot be applied to it; every other rule still can (SR's condition 2 on noema#730)."""
+
+    def test_digit_runs_are_ignored_and_every_other_rule_still_fires(self):
+        # C1 on noema#730 (P3): the Luhn-valid card rule stays ON in this mode (a run id has 11 digits and cannot be a card of 13 to 19); the generic digit-run rule and the ten-digit account rule are off.
+        runner_noise = "Image: ubuntu-24.04 Version: 20251105.1.0 run 44318438906 pulled 123456789 bytes " + ACCOUNT
+        self.assertEqual(kinds(runner_noise, digits=False), [])
+        self.assertTrue(kinds(runner_noise))  # the default still reports them
+        self.assertEqual(kinds("paid with " + CARD, digits=False), ["card_number"], "a Luhn-valid card number is still found")
+        self.assertEqual(kinds("run 44318438906 then " + CARD, digits=False), ["card_number"])
+        self.assertIn("named_secret_value", kinds(NAMED, digits=False))
+        self.assertIn("bearer_token", kinds(BEARER, digits=False))
+        self.assertIn("jwt", kinds("token " + JWT, digits=False))
+        self.assertIn("canary", kinds("x CANARY-abc y", canaries=("CANARY-abc",), digits=False))
+
+    def test_the_command_line_flag_turns_off_only_the_digit_rule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            noise, leak = Path(tmp) / "noise.log", Path(tmp) / "leak.log"
+            noise.write_text("Version: 20251105.1.0 run 44318438906\n", encoding="utf-8")
+            leak.write_text(NAMED + "\n", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(s.main([str(noise)]), 1)
+                self.assertEqual(s.main(["--no-digit-rule", str(noise)]), 0)
+                self.assertEqual(s.main(["--no-digit-rule", str(leak)]), 1)
+            card = Path(tmp) / "card.log"
+            card.write_text("paid with " + CARD + "\n", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(s.main(["--no-digit-rule", str(card)]), 1)
+
+
 class DigitRuns(unittest.TestCase):
     def test_a_planted_account_number_in_a_log_line_is_caught(self):
         self.assertEqual(kinds(f'{{"msg":"transfer","account":"{ACCOUNT}"}}'), ["account_number"])
@@ -352,6 +382,59 @@ class CodexP2Round2(unittest.TestCase):
         """C1 finding 8: forcing the Luhn check to True must break a test."""
         self.assertEqual(kinds("n 4111111111111112"), ["digit_run"])
         self.assertEqual(kinds("n 4111111111111111"), ["card_number"])
+
+
+class ScannedInventory(unittest.TestCase):
+    """Codex P2 on #875: the scan says how many files it read, never which. `--list-scanned` writes the names of the files it actually read (relative to `--list-root`), only for a clean scan."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "art" / "sub").mkdir(parents=True)
+        (self.root / "art" / "a.log").write_text("ok 12\n", encoding="utf-8")
+        (self.root / "art" / "sub" / "b.log").write_text("fine\n", encoding="utf-8")
+        self.out = self.root / "scanned.txt"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_main(self, *args):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = s.main(list(args))
+        return code, buf.getvalue()
+
+    def test_a_clean_scan_lists_exactly_the_files_it_read_relative_to_the_root(self):
+        code, text = self.run_main("--list-scanned", str(self.out), "--list-root", str(self.root), str(self.root / "art"))
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.out.read_text(encoding="utf-8").split("\n"), ["art/a.log", "art/sub/b.log", ""])
+
+    def test_scan_paths_reports_the_names_it_counted(self):
+        names = []
+        _, n_files, _ = s.scan_paths([str(self.root / "art")], scanned=names)
+        self.assertEqual(n_files, len(names))
+
+    def test_a_scan_with_a_finding_writes_no_list_and_removes_a_stale_one(self):
+        (self.root / "art" / "leak.log").write_text("paid " + CARD + "\n", encoding="utf-8")
+        self.out.write_text("stale\n", encoding="utf-8")
+        code, _ = self.run_main("--list-scanned", str(self.out), "--list-root", str(self.root), str(self.root / "art"))
+        self.assertEqual(code, 1)
+        self.assertFalse(self.out.exists())
+
+    def test_a_file_outside_the_root_is_refused(self):
+        other = tempfile.TemporaryDirectory()
+        try:
+            (Path(other.name) / "c.log").write_text("fine\n", encoding="utf-8")
+            code, text = self.run_main("--list-scanned", str(self.out), "--list-root", str(self.root), str(Path(other.name)))
+            self.assertEqual(code, 2, text)
+            self.assertFalse(self.out.exists())
+        finally:
+            other.cleanup()
+
+    def test_no_list_is_written_unless_asked(self):
+        code, _ = self.run_main(str(self.root / "art"))
+        self.assertEqual(code, 0)
+        self.assertFalse(self.out.exists())
 
 
 if __name__ == "__main__":

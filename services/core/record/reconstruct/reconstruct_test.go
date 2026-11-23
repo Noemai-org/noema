@@ -186,7 +186,7 @@ func us01() []ev {
 		{writtenBy: "core-edge", actor: customer, eventType: "INTENT_ADMITTED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "intent_id": "int_synth0001"}},
 		{writtenBy: "core-evidence", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"resolved_target": target, "candidate_count": 1, "margin": "0.41"}},
 		{writtenBy: "core-evidence", eventType: "EVIDENCE_READ", objectRef: "evr_synth0001", payload: map[string]any{"fact_status": "KNOWN", "source": "mock-ledger"}},
-		{writtenBy: "core-trust", eventType: "STATE_RECONCILED", objectRef: "rec_synth0001", payload: map[string]any{"classification": "SETTLED", "fact_status": "KNOWN"}},
+		{writtenBy: "core-trust", eventType: "STATE_RECONCILED", objectRef: "rec_synth0001", payload: map[string]any{"classification": "SUCCESS_CONFIRMED", "fact_status": "KNOWN"}},
 		{writtenBy: "core-trust", eventType: "POLICY_EVALUATED", objectRef: "dec_synth0001", payload: map[string]any{"policy_id": "test.policy.read_only", "policy_version": "3"}},
 		{writtenBy: "core-trust", eventType: "DECISION_MADE", objectRef: "dec_synth0001", payload: map[string]any{"decision_outcome": "ALLOW", "reason_codes": []any{"STATE_KNOWN"}, "decision_id": "dec_synth0001"}},
 		{writtenBy: "core-edge", eventType: "EXPLANATION_RENDERED", objectRef: "exp_synth0001", payload: map[string]any{"claims": []any{
@@ -631,7 +631,7 @@ func TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome
 			if n := strings.Count(line, `"msg":"RECORD_ACCESSED"`); n != 1 {
 				t.Fatalf("%d RECORD_ACCESSED lines, want 1: %s", n, line)
 			}
-			for _, want := range []string{`"outcome":"` + c.outcome + `"`, `"tenant_id":"` + c.caller.TenantID + `"`, `"principal":"` + c.caller.Principal + `"`} {
+			for _, want := range []string{`"outcome":"` + c.outcome + `"`, `"tenant_id":"` + c.caller.TenantID + `"`, `"principal":"` + c.caller.Principal + `"`, `"role":"audit"`} {
 				if !strings.Contains(line, want) {
 					t.Errorf("access log %s lacks %s", line, want)
 				}
@@ -672,9 +672,9 @@ func TestP95ForATwoHundredEventCaseIsUnderOneSecond(t *testing.T) {
 	}
 }
 
-// Architect decision 1 of 1 Nov 2026 (REQ-AUD-003 Security): the ops and audit roles are served; customers and
-// approvers never are, even if a session wrongly carried an allowed role (INV-12: the principal kind is the session's).
-func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
+// REQ-AUD-003, A110 (DEC-2026-11-08, PERD 39.4), A370 as relayed: the audit role is served; ops, customers and approvers never are, even if a session wrongly carried an
+// allowed role (INV-12: the principal kind is the session's). The default is to refuse ops: the handler's own authoriser does not rely on the edge's role gate for it.
+func TestAuditIsServedAndOpsCustomersAndApproversNeverAre(t *testing.T) {
 	w := newWorld(t)
 	w.append(t, tenant, "corr_us06", us06()...)
 	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
@@ -683,7 +683,8 @@ func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
 		caller Caller
 		status int
 	}{
-		{"ops", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops"}}, 200},
+		{"ops", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops"}}, 404},
+		{"ops with the operator kind and a second role it does not need", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops", "viewer"}}, 404},
 		{"audit", Caller{TenantID: tenant, Principal: "auditor:usr_synth_2", Roles: []string{"audit"}}, 200},
 		{"a customer, even with the audit role", Caller{TenantID: tenant, Principal: "customer:usr_synth_3", Roles: []string{"audit"}}, 404},
 		{"an approver, even with the ops role", Caller{TenantID: tenant, Principal: "approver:usr_synth_4", Roles: []string{"ops"}}, 404},
@@ -990,5 +991,31 @@ func TestAReceiptReplacesItsDispatchAndTakesItsCapabilityFromTheDispatch(t *test
 	act := parse(t, raw).section("ACTION")
 	if len(act) != 1 || act[0].Facts["execution_state"] != "ACKNOWLEDGED" || act[0].Facts["capability_id"] != capability {
 		t.Fatalf("ACTION %v, want one ACKNOWLEDGED item for %s", act, capability)
+	}
+}
+
+// US-06 (A503; BO needs it): a decision that names its ESCALATE disposition shows the link in its DECISION facts, and the disposition decision comes first in the Record, so the
+// reconstruction shows both, in order, from the Record alone. A decision with no disposition shows no such fact. REQ-AUD-003, REQ-TRU-010; INV-25.
+func TestTheDecisionFactsNameTheDispositionTheDecisionLinks(t *testing.T) {
+	w := newWorld(t)
+	st := w.append(t, tenant, "corr_disp", []ev{
+		{writtenBy: "core-trust", eventType: "DECISION_MADE", objectRef: "dec_synth0601", payload: map[string]any{"decision_outcome": "ESCALATE", "decision_id": "dec_synth0601"}},
+		{writtenBy: "core-trust", eventType: "DECISION_MADE", objectRef: "dec_synth0602", payload: map[string]any{"decision_outcome": "ALLOW", "decision_id": "dec_synth0602", "disposition_decision_id": "dec_synth0601"}},
+	}...)
+	raw, err := build(t, w, tenant, "corr_disp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := parse(t, raw)
+	checkCitations(t, b, st)
+	items := b.section("DECISION")
+	if len(items) != 2 || items[0].RecordEventID != st[0].EventID || items[1].RecordEventID != st[1].EventID {
+		t.Fatalf("DECISION items %+v, want the disposition first and the action decision second", items)
+	}
+	if _, ok := items[0].Facts["disposition_decision_id"]; ok {
+		t.Errorf("the disposition's own item shows a disposition: %v", items[0].Facts)
+	}
+	if items[1].Facts["disposition_decision_id"] != "dec_synth0601" || items[1].Facts["decision_outcome"] != "ALLOW" {
+		t.Errorf("the action decision's facts %v, want ALLOW linking dec_synth0601", items[1].Facts)
 	}
 }

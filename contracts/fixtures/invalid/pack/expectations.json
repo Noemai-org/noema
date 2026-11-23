@@ -3,5 +3,15 @@
   "missing_clocks.json": "required",
   "no_intent_nodes.json": "minItems",
   "pack_version_not_semver.json": "pattern",
-  "unknown_top_level_field.json": "additionalProperties"
+  "unknown_top_level_field.json": "additionalProperties",
+  "case_reasons_empty.json": "minItems",
+  "case_reason_code_lower_case.json": "pattern",
+  "case_reason_extra_member.json": "additionalProperties",
+  "case_reason_without_code.json": "required",
+  "handoff_routes_empty.json": "minItems",
+  "handoff_route_reason_not_a_core_code.json": "enum",
+  "handoff_route_queue_lower_case.json": "pattern",
+  "handoff_route_extra_member.json": "additionalProperties",
+  "handoff_route_without_queue.json": "required",
+  "handoff_route_nodes_empty.json": "minItems"
 }

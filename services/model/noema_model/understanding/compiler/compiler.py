@@ -17,7 +17,7 @@ from typing import Any, Protocol
 from noema_model.harness import Harness
 from noema_model.understanding.compiler.assemble import Identifiers, assemble
 from noema_model.understanding.compiler.lexicon import Lexicon, Normaliser
-from noema_model.understanding.compiler.service import InputInvalid, ProviderUnavailable
+from noema_model.understanding.compiler.service import InputInvalid, ProviderUnavailable, ScreenNotRun
 from noema_model.understanding.pipeline import (
     CandidateSource,
     Outcome,
@@ -92,6 +92,8 @@ class PipelineCompiler:
                 raise TenantScopeMismatch
             if GATE_INPUT_INVALID in result.gate_errors:
                 raise InputInvalid
+            if result.screen_not_run:
+                raise ScreenNotRun(tuple(stage.value for stage in result.screen_not_run))  # A437: internal class; to every caller still a ProviderUnavailable
             raise ProviderUnavailable  # a provider, the schema of its reply or the Evidence API failed: a rejection, never a guess (REQ-INT-002)
         return assemble(canonical_input, result, config.catalogue, pack_ref, self._minter.identifiers(canonical_input))
 

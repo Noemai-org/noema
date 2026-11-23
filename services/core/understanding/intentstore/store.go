@@ -32,7 +32,14 @@ type Admitted struct {
 	IntentHash    string // "sha256:" and 64 hex digits, as the gate computed it
 	CorrelationID string
 	JSON          []byte // the admitted document (JCS form)
+
+	// LogicalResolutionEpoch is the epoch of the intent's resolution (A345 S1). The store sets it: it is CreationEpoch on every row, and Save refuses any other value a caller
+	// states (zero means not stated). The readers fill it from the column. The increment path is later debt.
+	LogicalResolutionEpoch int
 }
+
+// CreationEpoch is the logical resolution epoch of every admitted intent at creation (A345 S1). Migration 0033 pins the column to it until the increment path is built.
+const CreationEpoch = 1
 
 // Ref names a stored intent's Record event.
 type Ref struct {
@@ -67,6 +74,8 @@ func (s *Store) Save(ctx context.Context, actor string, a Admitted) (Ref, error)
 		return Ref{}, errors.New(prefix + "the actor is not <kind>:<id>")
 	case !chain.ValidTenantID(a.TenantID):
 		return Ref{}, errors.New(prefix + "the tenant id is not valid")
+	case a.LogicalResolutionEpoch != 0 && a.LogicalResolutionEpoch != CreationEpoch:
+		return Ref{}, errors.New(prefix + "the logical resolution epoch is set by the store: it is 1 at creation")
 	case !intentRe.MatchString(a.IntentID) || a.Version < 1 || !hashRe.MatchString(a.IntentHash) || !corrRe.MatchString(a.CorrelationID) || a.IntentNode == "":
 		return Ref{}, errors.New(prefix + "the admitted intent is incomplete")
 	}
@@ -80,7 +89,7 @@ func (s *Store) Save(ctx context.Context, actor string, a Admitted) (Ref, error)
 		return Ref{}, fmt.Errorf("%sbegin: %w", prefix, err)
 	}
 	fail := func(err error) (Ref, error) {
-		rb, stop := context.WithTimeout(context.Background(), s.Timeout)
+		rb, stop := context.WithTimeout(context.WithoutCancel(ctx), s.Timeout)
 		defer stop()
 		_ = tx.Rollback(rb)
 		return Ref{}, err
@@ -94,8 +103,8 @@ func (s *Store) Save(ctx context.Context, actor string, a Admitted) (Ref, error)
 	if a.Supersedes != "" {
 		sup = a.Supersedes
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO admitted_intent (tenant_id, intent_id, version, supersedes, intent_node, intent_hash, correlation_id, json)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`, a.TenantID, a.IntentID, a.Version, sup, a.IntentNode, a.IntentHash, a.CorrelationID, string(a.JSON)); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO admitted_intent (tenant_id, intent_id, version, supersedes, intent_node, intent_hash, correlation_id, json, logical_resolution_epoch)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`, a.TenantID, a.IntentID, a.Version, sup, a.IntentNode, a.IntentHash, a.CorrelationID, string(a.JSON), CreationEpoch); err != nil {
 		return fail(fmt.Errorf("%sinsert: %w", prefix, err))
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -111,7 +120,7 @@ type Reader struct {
 	Timeout time.Duration
 }
 
-const selectColumns = `SELECT tenant_id, intent_id, version, COALESCE(supersedes, ''), intent_node, intent_hash, correlation_id, json::text FROM admitted_intent`
+const selectColumns = `SELECT tenant_id, intent_id, version, COALESCE(supersedes, ''), intent_node, intent_hash, correlation_id, json::text, logical_resolution_epoch FROM admitted_intent`
 
 func (r *Reader) one(ctx context.Context, where string, args ...any) (Admitted, error) {
 	if r == nil || r.Pool == nil || r.Timeout <= 0 {
@@ -121,7 +130,7 @@ func (r *Reader) one(ctx context.Context, where string, args ...any) (Admitted, 
 	defer cancel()
 	var a Admitted
 	var doc string
-	err := r.Pool.QueryRow(ctx, selectColumns+where, args...).Scan(&a.TenantID, &a.IntentID, &a.Version, &a.Supersedes, &a.IntentNode, &a.IntentHash, &a.CorrelationID, &doc)
+	err := r.Pool.QueryRow(ctx, selectColumns+where, args...).Scan(&a.TenantID, &a.IntentID, &a.Version, &a.Supersedes, &a.IntentNode, &a.IntentHash, &a.CorrelationID, &doc, &a.LogicalResolutionEpoch)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admitted{}, ErrNotFound
 	}

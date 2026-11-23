@@ -54,6 +54,7 @@
           "references": "capability"
         }
       ],
+      "subject_slot": "subject_resource",
       "disambiguation": {
         "strategy": "ranked_candidates",
         "auto_resolve_margin": 0.35,
@@ -75,6 +76,7 @@
         "fin.outcome.exception.evidence_recorded",
         "fin.outcome.exception.complaint_logged"
       ],
+      "write_when": "question_type == 'ESCALATION_REQUEST' or requested_remedy != null",
       "examples": [
         "SYNTHETIC: Wetin happen to the 20k wey I send this morning?",
         "SYNTHETIC: I sent 50k to Tunde and he hasn't received it"
@@ -134,7 +136,8 @@
       "evidence_required": [
         "fin.src.core_ledger",
         "fin.src.switch",
-        "fin.src.settlement"
+        "fin.src.settlement",
+        "fin.src.case_system"
       ],
       "max_evidence_age_seconds": 300,
       "data_sensitivity": "S3_financial_pii"
@@ -2086,6 +2089,9 @@
         },
         "epoch": {
           "type": "Integer"
+        },
+        "effective_at": {
+          "type": "Timestamp"
         }
       }
     }
@@ -2190,6 +2196,42 @@
     "DISPUTES",
     "FRAUD_REVIEW",
     "SETTLEMENT_OPS"
+  ],
+  "handoff_routes": [
+    {
+      "reason_code": "NO_RUNNABLE_CAPABILITY",
+      "owner_queue": "PAYMENTS_OPERATIONS"
+    }
+  ],
+  "case_reasons": [
+    {
+      "code": "PAYMENT_STATUS_QUERY",
+      "label": "A customer asked where a payment is"
+    },
+    {
+      "code": "PAYMENT_DELAY_EXPLANATION",
+      "label": "A customer asked why a payment is delayed"
+    },
+    {
+      "code": "RESEND_ADVICE_REQUEST",
+      "label": "A customer asked for a resend advice"
+    },
+    {
+      "code": "REVERSAL_STATUS_QUERY",
+      "label": "A customer asked about a reversal"
+    },
+    {
+      "code": "CUSTOMER_ESCALATION_REQUEST",
+      "label": "A customer asked for the matter to be escalated"
+    },
+    {
+      "code": "CASE_STATUS_QUERY",
+      "label": "A customer asked about an existing case"
+    },
+    {
+      "code": "PAYMENT_RECONSTRUCTION",
+      "label": "A reconstruction of a payment was requested"
+    }
   ],
   "action_graph_files": [
     "fintech/graph/g1_investigate.json",

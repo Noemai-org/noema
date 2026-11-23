@@ -14,7 +14,11 @@ import (
 // Session is the authenticated caller: the tenant, principal and role of the verified token, never of a request body (INV-12, AGENT-10). The HTTP edge builds it from the
 // session middleware's result (its Principal.Role); the orchestrator only passes it on, interprets no field of it and never fills one in. Role is what Trust's
 // technical-authority step reads (T6); an empty role is refused there, not here (ruling A205, Q5).
-type Session struct{ TenantID, PrincipalID, Role string }
+//
+// AuthnRef, PrincipalType and AssertedBy are the rest of the verified session as the edge reads it (edge/session.Principal; intent-object principal, A149): the session reference
+// ("ses_" and 32 hex characters, never the token), the principal type and the verified issuer. Only the edge sets them. A session built anywhere else (the one recovery
+// session, orchestrator/recovery) leaves them empty and never copies them from a request or a stored guess (INV-12, AGENT-10).
+type Session struct{ TenantID, PrincipalID, Role, AuthnRef, PrincipalType, AssertedBy string }
 
 // Turn is one admitted customer turn. The input gateway has bounded and validated the text; the orchestrator takes it as given and only requires that it is present.
 // InputReceivedRef is the Record event ID of the INPUT_RECEIVED event the input gateway wrote for this turn (A161): the orchestrator never writes that event, and it
@@ -89,9 +93,9 @@ type Recorder interface {
 	AppendChange(ctx context.Context, s Session, c Change) error
 }
 
-// Admission is what the Record holds for one event the input gateway wrote: its type and the identity it names. The port fills it from the stored event, reading as the
+// Admission is what the Record holds for one event the input gateway wrote: its type, the identity it names and its object_ref (for INPUT_RECEIVED the req_ ID of the input, A184). The port fills it from the stored event, reading as the
 // session's tenant; the runner compares every field itself.
-type Admission struct{ EventType, TenantID, PrincipalID, CorrelationID, RequestID string }
+type Admission struct{ EventType, TenantID, PrincipalID, CorrelationID, RequestID, ObjectRef string }
 
 // Admissions finds the recorded event a turn's InputReceivedRef names (A161). It reads the Record as the session's tenant (row-level security), so an event of another
 // tenant is not found. An event that does not exist is an error, not an empty Admission.
@@ -107,6 +111,8 @@ const (
 	ReceiptApplied ReceiptClass = "APPLIED"
 	ReceiptVoided  ReceiptClass = "VOIDED"
 	ReceiptUnknown ReceiptClass = "UNKNOWN"
+	// ReceiptBudgetSpent: the database refused the dispatch because the key's budget is used up (A153). Nothing was spent, written or dispatched (A216, A217).
+	ReceiptBudgetSpent ReceiptClass = "BUDGET_SPENT"
 )
 
 // Receipt is the Controller's answer for one grant.

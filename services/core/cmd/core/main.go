@@ -10,7 +10,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -85,7 +84,6 @@ func probeHealth(addr string) error {
 func main() {
 	healthcheck := flag.Bool("healthcheck", false, "probe /healthz of a running core and exit")
 	flag.Parse()
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	addr := os.Getenv("NOEMA_CORE_ADDR")
 	if addr == "" {
 		addr = defaultAddr
@@ -98,21 +96,18 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// The components other tasks build are plugged in here as their constructors land (nothing else is configured yet, so /readyz names the first one missing).
+	// The components other tasks build are plugged in by newProcess (compose.go) as their constructors land (/readyz names every one that is still missing).
 	env := Env{Getenv: os.Getenv, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
 	clk := clock.System{}
-	components, closeComponents, err := buildComponents(ctx, env, clk, ids.New(clk, nil), logger)
+	p, err := newProcess(ctx, env, clk, ids.New(clk, nil), os.Stdout, productionDeps())
+	logger := p.Logger // the redacting logger every component received
 	if err != nil {
-		logger.Error("configuration", "error", err.Error()) // names the setting or the tenant, never a DSN
+		logger.Error("configuration", "error", err.Error()) // names the setting, the adapter or the tenant, never a value
+		p.Close()
 		os.Exit(1)
 	}
-	defer closeComponents()
-	api, err := buildAPI(components, env, clk, ids.New(clk, nil))
-	if err != nil {
-		logger.Error("configuration", "error", err.Error()) // names the setting, never a value
-		os.Exit(1)
-	}
-	srv := &http.Server{Addr: addr, Handler: newMux(composeReadiness(components, api), api), ReadHeaderTimeout: headerTimeout}
+	defer p.Close()
+	srv := &http.Server{Addr: addr, Handler: p.Handler, ReadHeaderTimeout: headerTimeout}
 
 	go func() {
 		<-ctx.Done()

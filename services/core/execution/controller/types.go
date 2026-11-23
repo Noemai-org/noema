@@ -85,6 +85,16 @@ const (
 // parameters or another action (EC-E06). Nothing was spent; the controller voids the grant.
 var ErrKeyCollision = errors.New(errPrefix + "idempotency key collision")
 
+// ErrSpendRetryable is what a Ledger returns from Spend, wrapped around the database's own error and matched with errors.Is, when the database kept refusing the spend
+// with a serialization failure through every attempt the Ledger is allowed (noema#714, Architect ruling A339, relayed). It tells "try again" from a refusal: nothing was
+// spent, written or dispatched, the grant is still ISSUED, and presenting it again can succeed with no change by the caller. Execute returns it, wrapped, unchanged in
+// meaning: it is never a void, a receipt or an outcome.
+var ErrSpendRetryable = errors.New(errPrefix + "the spend did not commit and the grant is unspent: present it again")
+
+// CodeSpendRetryable is the code of contracts/schemas/errors.v2.json (RetryableErrorCode) under which an edge reports ErrSpendRetryable: the database, a dependency, could
+// not serialise the spend now. No new code was added for it.
+const CodeSpendRetryable = "DEPENDENCY_UNAVAILABLE"
+
 // ExecutionState is the Execution Receipt state (contracts enums ExecutionState). Execution never writes
 // SUCCEEDED: that word belongs to Outcome.
 type ExecutionState string

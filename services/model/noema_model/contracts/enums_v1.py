@@ -51,7 +51,7 @@ class EnumsV1ConsequenceLevel(StrEnum):
 
 
 class EnumsV1CoreReasonCode(StrEnum):
-    """The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED) and the last three of the original list are [REC] until the founders co... Source: enums.v1.json#$defs/CoreReasonCode"""
+    """The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED), NO_RUNNABLE_CAPABILITY added by ruling A531 and the last three of the ... Source: enums.v1.json#$defs/CoreReasonCode"""
 
     PROHIBITED_CAPABILITY = 'PROHIBITED_CAPABILITY'
     AMBIGUOUS_COUNTERPARTY = 'AMBIGUOUS_COUNTERPARTY'
@@ -73,6 +73,7 @@ class EnumsV1CoreReasonCode(StrEnum):
     TARGET_FROZEN = 'TARGET_FROZEN'
     CLOCK_BREACHED_UNROUTED = 'CLOCK_BREACHED_UNROUTED'
     DISPATCH_BUDGET_EXHAUSTED = 'DISPATCH_BUDGET_EXHAUSTED'
+    NO_RUNNABLE_CAPABILITY = 'NO_RUNNABLE_CAPABILITY'
 
 
 # EnumsV1DataSensitivity. Source: enums.v1.json#$defs/DataSensitivity
@@ -168,6 +169,23 @@ class EnumsV1RetrySafety(StrEnum):
     NATIVE_IDEMPOTENT = 'NATIVE_IDEMPOTENT'
     QUERYABLE_BY_KEY = 'QUERYABLE_BY_KEY'
     NONE = 'NONE'
+
+
+class EnumsV1TransactionClassification(StrEnum):
+    """The derived state classification of a transaction (PERD v1.18 state table): a closed list of twelve. It is not an Execution Receipt state (ExecutionState): EXECUTION_OUTCOME_UNKNOWN is a classification, OUTCOME_UNKNOW... Source: enums.v1.json#$defs/TransactionClassification"""
+
+    SUCCESS_CONFIRMED = 'SUCCESS_CONFIRMED'
+    REJECTED_CONFIRMED = 'REJECTED_CONFIRMED'
+    DEBIT_POSTED_CREDIT_UNCONFIRMED = 'DEBIT_POSTED_CREDIT_UNCONFIRMED'
+    SETTLEMENT_PENDING = 'SETTLEMENT_PENDING'
+    REVERSAL_PENDING = 'REVERSAL_PENDING'
+    REVERSED_CONFIRMED = 'REVERSED_CONFIRMED'
+    POSSIBLE_DUPLICATE = 'POSSIBLE_DUPLICATE'
+    PARTIAL = 'PARTIAL'
+    EXECUTION_OUTCOME_UNKNOWN = 'EXECUTION_OUTCOME_UNKNOWN'
+    CONTRADICTORY_STATE = 'CONTRADICTORY_STATE'
+    EVENT_ORDER_UNCERTAIN = 'EVENT_ORDER_UNCERTAIN'
+    INSUFFICIENT_EVIDENCE = 'INSUFFICIENT_EVIDENCE'
 
 
 class EnumsV1Verdict(StrEnum):

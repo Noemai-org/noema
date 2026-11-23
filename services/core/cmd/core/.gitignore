@@ -1,0 +1,2 @@
+# STM-04: a build output of a stray `go build` in this folder; never commit it (Security Reviewer, noema#721).
+/core

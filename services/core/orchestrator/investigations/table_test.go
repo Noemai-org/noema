@@ -56,7 +56,7 @@ func newSQLWorld(t *testing.T) *sqlWorld {
 		trustA: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantA)}
 }
 
-const insertRow = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version) VALUES ($1, $2, $3, $4, $5, $6)`
+const insertRow = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref) VALUES ($1, $2, $3, $4, $5, $6, 'usr_01', 'customer', 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`
 
 func (w *sqlWorld) insert(t *testing.T, p *pgxpool.Pool, tenant, inv, ref, state string, version int64) error {
 	t.Helper()
@@ -196,5 +196,24 @@ func TestATenantSeesOnlyItsOwnRowsAndOnlyTheOrchestratorTouchesThem(t *testing.T
 	var forced bool
 	if err := w.admin.QueryRow(ctx(t), `SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'public.investigation'::regclass`).Scan(&forced); err != nil || !forced {
 		t.Errorf("row-level security is not enabled and forced (%v)", err)
+	}
+}
+
+// A243 (migration 0029): every new investigation names its principal, an empty one is refused, and the column never changes after the insert.
+func TestAnInvestigationNamesItsPrincipalAndNeverChangesIt(t *testing.T) {
+	w := newSQLWorld(t)
+	const insertWith = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref) VALUES ($1, $2, $3, $4, 'RECEIVED', 0, $5, 'customer', 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`
+	if _, err := w.orchA.Exec(ctx(t), insertWith, tenantA, "inv_AA11", "recev_AA11", "corr_AA11", "usr_01"); err != nil {
+		t.Fatalf("an investigation with a principal: %v", err)
+	}
+	if _, err := w.orchA.Exec(ctx(t), insertWith, tenantA, "inv_BB22", "recev_BB22", "corr_AA11", ""); err == nil {
+		t.Error("an investigation with an empty principal was accepted")
+	}
+	if _, err := w.orchA.Exec(ctx(t), `UPDATE investigation SET principal_ref = 'usr_02' WHERE investigation_id = 'inv_AA11'`); err == nil {
+		t.Error("the orchestrator's login changed the principal of an investigation")
+	}
+	var got string
+	if err := w.orchA.QueryRow(ctx(t), `SELECT principal_ref FROM investigation WHERE investigation_id = 'inv_AA11'`).Scan(&got); err != nil || got != "usr_01" {
+		t.Errorf("principal %q (%v), want usr_01", got, err)
 	}
 }
