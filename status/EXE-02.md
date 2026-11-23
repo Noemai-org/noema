@@ -29,3 +29,19 @@ Updated 2026-10-25. Renamed from `EXE-01.md`: the plan's EXE-01 is the registry 
 ### Pre-work for the next agent
 - Exact next step: none for this change.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-23 14:45 WAT · EXE-02 (Repo Steward) · the deadline test counted a statement in flight
+
+### Session summary
+- What changed (PR links): `services/core/execution/ledger/retry_test.go` only (the fix PR for `TestTheContextDeadlineStopsTheAttempts`).
+- Why: `core` was red on `main` at `0fee9db` (noema#895, which does not touch the ledger): `retry_test.go:354: attempts went on after Spend returned: 8, then 9`. The previous eight `core` runs on `main` passed, and the ledger had not changed, so the test is intermittent. `spendWithRetry` starts no attempt once the context is done (`ctx.Err()` is checked after each failure), and the probe counts server-side, in the trigger, at the start of each insert. The most likely cause, consistent with the evidence and not reproduced (no pgsodium database here; CI is the proof): a statement the client sent just before the deadline began on a loaded server after `Spend` returned, so the counter moved by one.
+- The fix: the test waits until no statement of the tenant's execution login is running before it reads the count, then keeps the same 300 ms check that nothing more is attempted. A client that really kept retrying would still start new statements after that point and fail the same assertion. No test is skipped, deleted or weakened in what it catches.
+- Risks, and how they are contained: test-only change; the production retry code is untouched.
+- Tests added (INV-07, AGENT-12): `waitForNoRunningStatement` helper used by the existing test.
+- Regression cases added: the existing test, made deterministic.
+- Debt entries: none.
+- Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: if the test fails again on `main` after this merges, the cause is not the in-flight statement; read the log for the attempt counts and reopen.
+- Do not touch: `services/core/execution/ledger/retry.go` (no attempt starts once the context is done).

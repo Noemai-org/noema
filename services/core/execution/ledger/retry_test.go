@@ -61,6 +61,27 @@ func faultOnSpend(t *testing.T, w *world, sqlstate string, failFirst, sleepMS in
 	}
 }
 
+// waitForNoRunningStatement returns once the database runs no statement for the tenant's execution login other than this one, so that a statement the client sent before its
+// context ended has finished. It fails the test if one is still running after ten seconds.
+func waitForNoRunningStatement(t *testing.T, w *world) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var running int
+		if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'active' AND usename LIKE 'execution_rw%'`).Scan(&running); err != nil {
+			t.Fatal(err)
+		}
+		if running == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d statements of the execution login were still running ten seconds after Spend returned", running)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 type spendOutcome struct {
 	res controller.SpendResult
 	err error
@@ -345,6 +366,10 @@ func TestTheContextDeadlineStopsTheAttempts(t *testing.T) {
 	if !isDidNotCommit40001(o.err) && !errors.Is(o.err, context.DeadlineExceeded) && !errors.Is(o.err, context.Canceled) {
 		t.Errorf("the error is neither the did-not-commit error nor the context's: %v", o.err)
 	}
+	// Spend returned on the deadline, but the database may still be running a statement that the client sent just before it, and a loaded server can count that statement's
+	// first call to the probe after Spend returned. That is one attempt in flight, not a new one. So the count is taken once no statement of the tenant's login is running: from
+	// that moment nothing the client sent earlier is left to count, and an attempt the client starts later still shows up below.
+	waitForNoRunningStatement(t, w)
 	made := probe()
 	if made < 1 || made >= 1000 {
 		t.Fatalf("%d attempts were made inside a 500 ms deadline, want at least one and far fewer than 1000", made)
