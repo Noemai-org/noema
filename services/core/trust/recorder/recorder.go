@@ -63,7 +63,7 @@ var (
 	// grant-issuing action decision links its ESCALATE disposition. Nothing is written.
 	ErrDispositionRequired = errors.New(errPrefix + "a decision that issues grants must name its escalation disposition")
 	// ErrDispositionWithoutSteps is returned when a decision that carries no step names a disposition (A503, REQ-TRU-010): the link belongs to an escalation action decision, which has
-	// steps, so a disposition on a decision with none is a mistake of the caller and is refused before anything is written. SCAFFOLD: the variable only, nothing returns it yet.
+	// steps, so a disposition on a decision with none is a mistake of the caller and is refused before anything is written.
 	ErrDispositionWithoutSteps = errors.New(errPrefix + "a decision with no step must not name a disposition")
 	// ErrDispositionNotValid is returned when a decision names a disposition that is not an existing ESCALATE decision of the same tenant (REQ-TRU-010). The caller cannot tell
 	// which of the three it is: a missing decision, another tenant's and one with another outcome are one answer. Nothing is written.
@@ -394,6 +394,10 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if len(r.Steps) > 0 && r.DispositionDecisionID == "" {
 		// Every grant-issuing action decision links its disposition (REQ-TRU-010, INV-25; ruling A317 to A328, interim). Only an ALLOW reaches here with steps.
 		return decide.Basis{}, "", ErrDispositionRequired
+	}
+	if len(r.Steps) == 0 && r.DispositionDecisionID != "" {
+		// Steps if and only if a disposition (A503): the link belongs to an escalation action decision, which has steps; the disposition decision itself names none.
+		return decide.Basis{}, "", ErrDispositionWithoutSteps
 	}
 	if r.DispositionDecisionID != "" {
 		// An ESCALATE disposition authorises the escalation plan's write steps and nothing else (REQ-TRU-010, INV-25). The set is the pack's, injected; an empty set allows no step.

@@ -241,6 +241,11 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 // outcomeShape is A456 (interim, relayed, not yet committed): the port serves every outcome. An ALLOW names its plan hash (a read has no steps but has its plan and its hash, A205
 // Q3; a write's steps are the intake's to count). Every other outcome has no plan hash and no step, so no grant (INV-03), and only a CONFIRM carries a confirmation request.
 func outcomeShape(r intake.RecordRequest) error {
+	// Steps if and only if a disposition (A503): an escalation action decision carries steps and names the ESCALATE disposition recorded before it; every other decision names none. A
+	// mismatch is an unusable request, refused before any transaction opens.
+	if (len(r.Steps) > 0) != (r.DispositionDecisionID != "") {
+		return fmt.Errorf("%w: a decision names its escalation disposition if and only if it carries steps", ErrRecordRequest)
+	}
 	if r.Decision.Outcome() == decide.Allow {
 		if !recHashRe.MatchString(r.PlanHash) {
 			return ErrRecordRequest

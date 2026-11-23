@@ -110,14 +110,50 @@ func step(t *testing.T) grants.Step {
 		TargetVersions: []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: target, Source: "fin.src.ledger", VersionToken: "v7"}}, Permission: p}
 }
 
+// disposition records the ESCALATE disposition of an action decision through the real Writer, as its own Trust decision with no step and no grant (A503), and returns its decision
+// ID. The action decision of the same intent names it: steps if and only if a disposition.
+func (w *world) disposition(t *testing.T, id string) string {
+	t.Helper()
+	b := basis(t)
+	reason, err := decide.Core("NOT_AUTHORIZED")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, ok := decide.Admit(decide.IntentView{Version: 2, MaterialFlags: []string{"X"}}).Unresolved()
+	if !ok {
+		t.Fatal("not unresolved")
+	}
+	d, err := u.Escalate(reason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err = b.Attach(d); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := w.trustA.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: hash(200), PolicyID: "fin.pol", Decision: d, Evaluated: b})
+	if err != nil {
+		_ = tx.Rollback(ctx(t))
+		t.Fatalf("the disposition: %v", err)
+	}
+	if err := tx.Commit(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	return string(res.Record.DecisionId)
+}
+
 func (w *world) write(t *testing.T, id string, h contracts.CommonV1Hash) recorder.Result {
 	t.Helper()
+	disp := w.disposition(t, id)
 	b := basis(t)
 	tx, err := w.trustA.Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: allow(t, b), Evaluated: b, Steps: []grants.Step{step(t)}})
+	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: allow(t, b), Evaluated: b, Steps: []grants.Step{step(t)}, DispositionDecisionID: disp})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		t.Fatal(err)
@@ -162,7 +198,7 @@ func newWorld(t *testing.T) *world {
 		readerA:  testpg.TenantLogin(t, admin, dsn, "record_read", tenantA),
 		readerB:  testpg.TenantLogin(t, admin, dsn, "record_read", tenantB),
 		appender: app,
-		writer:   &recorder.Writer{Keys: keys, Issuer: issuer, Appender: app, Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute},
+		writer:   &recorder.Writer{Keys: keys, Issuer: issuer, Appender: app, Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute, Escalation: recorder.NewEscalationSet(capability)},
 	}
 	w.pools, err = trustpg.NewPools(map[string]*pgxpool.Pool{tenantA: w.trustA, tenantB: w.trustB})
 	if err != nil {

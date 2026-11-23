@@ -86,8 +86,14 @@ func recRequest(t *testing.T, n int) intake.RecordRequest {
 	for i := 0; i < n; i++ {
 		steps = append(steps, intake.RecordStep{PlanStep: int64(i), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(byte(2 + i))})
 	}
+	// a decision with steps names its ESCALATE disposition, and one with none names none (A503). The fake-port tests name a decision ID the fake Writer does not look at; the
+	// tests against the real Writer record the disposition first (escalateDisposition) and name what it returns.
+	disposition := ""
+	if n > 0 {
+		disposition = "dec_01DISP"
+	}
 	return intake.RecordRequest{TenantID: recTenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_88213", IntentID: "int_01J9X3", IntentHash: recHash(1), IntentVersion: 2,
-		Decision: d, Evaluated: b.Sealed(), BasisDigest: digest, PlanHash: recHash(4), Steps: steps}
+		Decision: d, Evaluated: b.Sealed(), BasisDigest: digest, PlanHash: recHash(4), Steps: steps, DispositionDecisionID: disposition}
 }
 
 type recFacts struct {
@@ -542,6 +548,25 @@ type recWorld struct {
 	trust  *pgxpool.Pool
 	reader *pgxpool.Pool
 	a      *RecorderAdapter
+	// dispositions is the number of ESCALATE disposition decisions the world recorded through the real Writer for its action requests (action); rows leaves them out.
+	dispositions int
+}
+
+// action is recRequest with a disposition the real Writer has recorded: a decision with steps names its ESCALATE disposition, recorded first as its own Trust decision with no
+// step and no grant (A503). A decision with no step names none. The same disposition is recorded once however often action is called, so the world holds one.
+func (w *recWorld) action(t *testing.T, n int) intake.RecordRequest {
+	t.Helper()
+	r := recRequest(t, n)
+	if n == 0 {
+		return r
+	}
+	disp, err := w.a.Record(recCtx(t), escalateDisposition(t, 30))
+	if err != nil || disp.DecisionID == "" || len(disp.GrantIDs) != 0 {
+		t.Fatalf("the disposition: %+v, %v; want a decision ID and no grant", disp, err)
+	}
+	w.dispositions = 1
+	r.DispositionDecisionID = disp.DecisionID
+	return r
 }
 
 type recPool struct{ p *pgxpool.Pool }
@@ -553,7 +578,10 @@ func (b recPool) Begin(ctx context.Context, tenant string) (pgx.Tx, error) {
 	return b.p.Begin(ctx)
 }
 
-func newRecWorld(t *testing.T) *recWorld { return newRecWorldWith(t, recorder.EscalationSet{}) }
+// newRecWorld holds the escalation plan of the test capability, so the disposition of an action decision can be recorded through the real Writer (A503).
+func newRecWorld(t *testing.T) *recWorld {
+	return newRecWorldWith(t, recorder.NewEscalationSet(recCap))
+}
 
 // newRecWorldWith is newRecWorld with the escalation plan the composition root would inject (A335): a decision that names a disposition carries only its capabilities.
 func newRecWorldWith(t *testing.T, escalation recorder.EscalationSet) *recWorld {
@@ -596,13 +624,13 @@ func (w *recWorld) count(t *testing.T, q string) int {
 
 func (w *recWorld) rows(t *testing.T) (records, grantRows, events int) {
 	t.Helper()
-	return w.count(t, `SELECT count(*) FROM decision_record`), w.count(t, `SELECT count(*) FROM decision_grant`), w.count(t, `SELECT count(*) FROM record_event`)
+	return w.count(t, `SELECT count(*) FROM decision_record`) - w.dispositions, w.count(t, `SELECT count(*) FROM decision_grant`), w.count(t, `SELECT count(*) FROM record_event`) - w.dispositions
 }
 
 // An ALLOW with two write steps writes the record, two grants and three events together, and the result names them, one grant per step in step order.
 func TestRecordWritesTheDecisionTheGrantsAndTheirEventsTogether(t *testing.T) {
 	w := newRecWorld(t)
-	got, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	got, err := w.a.Record(recCtx(t), w.action(t, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,7 +660,7 @@ func TestRecordWritesTheDecisionTheGrantsAndTheirEventsTogether(t *testing.T) {
 	if len(steps) != 2 || steps[0] != 0 || steps[1] != 1 {
 		t.Errorf("plan steps %v, want the zero-based 0 and 1", steps)
 	}
-	if n, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || n != 3 {
+	if n, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || n != int64(3+w.dispositions) {
 		t.Fatalf("chain verify: %d %v", n, err)
 	}
 }
@@ -640,12 +668,12 @@ func TestRecordWritesTheDecisionTheGrantsAndTheirEventsTogether(t *testing.T) {
 // The same decision recorded twice is stored once: the second Record returns the stored decision and grants and writes nothing (A186).
 func TestASecondRecordOfTheSameDecisionReturnsTheStoredOne(t *testing.T) {
 	w := newRecWorld(t)
-	first, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	first, err := w.a.Record(recCtx(t), w.action(t, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r0, g0, e0 := w.rows(t)
-	second, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	second, err := w.a.Record(recCtx(t), w.action(t, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +691,7 @@ func TestASecondRecordOfTheSameDecisionReturnsTheStoredOne(t *testing.T) {
 // A read has no step: the record and its event are written, no grant.
 func TestRecordOfAReadWritesNoGrant(t *testing.T) {
 	w := newRecWorld(t)
-	got, err := w.a.Record(recCtx(t), recRequest(t, 0))
+	got, err := w.a.Record(recCtx(t), w.action(t, 0))
 	if err != nil || got.DecisionID == "" || len(got.GrantIDs) != 0 {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -675,10 +703,11 @@ func TestRecordOfAReadWritesNoGrant(t *testing.T) {
 // A writer error leaves nothing: the kill switch refuses the write after the lock, and a step the issuer cannot grant fails after the record is inserted. Both roll back.
 func TestAWriterErrorLeavesNothingInTheDatabase(t *testing.T) {
 	w := newRecWorld(t)
+	one, two := w.action(t, 1), w.action(t, 2) // the disposition is recorded before the kill switch goes on
 	if _, err := w.admin.Exec(recCtx(t), `UPDATE tenant SET kill_switch = true WHERE tenant_id = $1`, recTenant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.a.Record(recCtx(t), recRequest(t, 1)); !errors.Is(err, recorder.ErrWritesDisabled) {
+	if _, err := w.a.Record(recCtx(t), one); !errors.Is(err, recorder.ErrWritesDisabled) {
 		t.Fatalf("err %v", err)
 	}
 	if rec, gr, ev := w.rows(t); rec+gr+ev != 0 {
@@ -687,7 +716,7 @@ func TestAWriterErrorLeavesNothingInTheDatabase(t *testing.T) {
 	if _, err := w.admin.Exec(recCtx(t), `UPDATE tenant SET kill_switch = false WHERE tenant_id = $1`, recTenant); err != nil {
 		t.Fatal(err)
 	}
-	bad := recRequest(t, 2)
+	bad := two
 	bad.Steps[1].TargetRef = "not a target" // the second grant fails after the record, the first grant and their events are inserted
 	if _, err := w.a.Record(recCtx(t), bad); err == nil {
 		t.Fatal("a write with an invalid second step succeeded")
@@ -772,12 +801,12 @@ func TestAStoredDecisionThatDisagreesIsATypedConflict(t *testing.T) {
 // decision and its grants stay as they were (A186, INV-21).
 func TestTheSameKeyWithDifferentContentIsATypedConflictInTheDatabase(t *testing.T) {
 	w := newRecWorld(t)
-	first, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	first, err := w.a.Record(recCtx(t), w.action(t, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r0, g0, e0 := w.rows(t)
-	other := recRequest(t, 2)
+	other := w.action(t, 2)
 	other.Steps[1].ParamsHash = recHash(9) // the same key, other content
 	got, err := w.a.Record(recCtx(t), other)
 	if !errors.Is(err, ErrRecordConflict) {
@@ -789,7 +818,7 @@ func TestTheSameKeyWithDifferentContentIsATypedConflictInTheDatabase(t *testing.
 	if r1, g1, e1 := w.rows(t); r1 != r0 || g1 != g0 || e1 != e0 {
 		t.Fatalf("a conflict changed the rows: records %d to %d, grants %d to %d, events %d to %d", r0, r1, g0, g1, e0, e1)
 	}
-	again, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	again, err := w.a.Record(recCtx(t), w.action(t, 2))
 	if err != nil || again.DecisionID != first.DecisionID {
 		t.Fatalf("the original no longer reads back: %+v %v", again, err)
 	}
@@ -805,7 +834,7 @@ func TestConcurrentRecordsOfTheSameDecisionWriteOneSet(t *testing.T) {
 	errs := make([]error, n)
 	reqs := make([]intake.RecordRequest, n)
 	for i := range reqs {
-		reqs[i] = recRequest(t, 2)
+		reqs[i] = w.action(t, 2)
 	}
 	for i := 0; i < n; i++ {
 		wg.Add(1)
@@ -828,7 +857,7 @@ func TestConcurrentRecordsOfTheSameDecisionWriteOneSet(t *testing.T) {
 	if rec, gr, ev := w.rows(t); rec != 1 || gr != 2 || ev != 3 {
 		t.Fatalf("rows after %d concurrent records: %d records, %d grants, %d events", n, rec, gr, ev)
 	}
-	if v, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || v != 3 {
+	if v, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || v != int64(3+w.dispositions) {
 		t.Fatalf("chain verify: %d %v", v, err)
 	}
 }
@@ -837,7 +866,7 @@ func TestConcurrentRecordsOfTheSameDecisionWriteOneSet(t *testing.T) {
 // them remains, so the same decision recorded correctly afterwards is written whole, once.
 func TestAFailureAfterTheDecisionInsertRollsBackTheGrants(t *testing.T) {
 	w := newRecWorld(t)
-	bad := recRequest(t, 2)
+	bad := w.action(t, 2)
 	bad.Steps[1].TargetRef = "not a target"
 	if _, err := w.a.Record(recCtx(t), bad); err == nil || errors.Is(err, ErrRecordRequest) || errors.Is(err, ErrRecordConflict) {
 		t.Fatalf("err %v, want a failure of the second grant after the inserts", err)
@@ -848,7 +877,7 @@ func TestAFailureAfterTheDecisionInsertRollsBackTheGrants(t *testing.T) {
 	if n := w.count(t, `SELECT count(*) FROM confirmation_spend`); n != 0 {
 		t.Fatalf("%d spends left", n)
 	}
-	got, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	got, err := w.a.Record(recCtx(t), w.action(t, 2))
 	if err != nil || len(got.GrantIDs) != 2 {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -861,7 +890,7 @@ func TestAFailureAfterTheDecisionInsertRollsBackTheGrants(t *testing.T) {
 // Confirmations adapter's) cannot see these rows. Two worlds in one test prove the isolation; every helper here carries the rec prefix, so siblings do not collide.
 func TestTwoRecorderWorldsShareNoRows(t *testing.T) {
 	a, b := newRecWorld(t), newRecWorld(t)
-	if _, err := a.a.Record(recCtx(t), recRequest(t, 1)); err != nil {
+	if _, err := a.a.Record(recCtx(t), a.action(t, 1)); err != nil {
 		t.Fatal(err)
 	}
 	if rec, gr, ev := b.rows(t); rec+gr+ev != 0 {

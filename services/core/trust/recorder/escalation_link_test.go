@@ -203,13 +203,13 @@ func TestEachStepOfTheEscalationPlanFollowsItsEscalateDisposition(t *testing.T) 
 			t.Errorf("%s: stored disposition %q, want %q", c, got, disp)
 		}
 	}
-	// the action decisions of a refused or non-ALLOW result carry the link too: REJECT of a step, no grant, the disposition stays ESCALATE
-	res, err := w.writeAndCommit(t, w.action(t, decide.Reject, disp))
-	if err != nil || len(res.Grants) != 0 {
-		t.Fatalf("a REJECT of an escalation step: %+v %v", res, err)
+	// a REJECT carries no step, so it names no disposition (A503: steps if and only if a disposition): the writer refuses it and nothing is written
+	before := w.counts(t)
+	if _, err := w.writeAndCommit(t, w.action(t, decide.Reject, disp)); !errors.Is(err, recorder.ErrDispositionWithoutSteps) {
+		t.Fatalf("a REJECT that names a disposition: got %v, want ErrDispositionWithoutSteps", err)
 	}
-	if got, linked := w.storedDisposition(t, string(res.Record.DecisionId)); !linked || got != disp {
-		t.Errorf("the REJECT does not name the disposition: %q", got)
+	if after := w.counts(t); after != before {
+		t.Errorf("the refusal changed the rows from %+v to %+v", before, after)
 	}
 }
 
@@ -256,9 +256,12 @@ func TestTheWriterUsesTheEscalationSetItIsGivenAndFailsClosedWithNone(t *testing
 	if after := w.counts(t); after != before {
 		t.Errorf("refusals changed the rows from %+v to %+v", before, after)
 	}
-	// with no steps, a disposition link needs no set at all
-	if _, err := w.writeAndCommit(t, w.action(t, decide.Reject, disp)); err != nil {
-		t.Fatalf("a decision without steps after a disposition: %v", err)
+	// steps if and only if a disposition (A503): a decision with no step names none, whatever the set
+	if _, err := w.writeAndCommit(t, w.action(t, decide.Reject, disp)); !errors.Is(err, recorder.ErrDispositionWithoutSteps) {
+		t.Fatalf("a decision without steps that names a disposition: got %v, want ErrDispositionWithoutSteps", err)
+	}
+	if after := w.counts(t); after != before {
+		t.Errorf("the refusal of a disposition without steps changed the rows from %+v to %+v", before, after)
 	}
 }
 
@@ -307,25 +310,19 @@ func (w *world) notDispositions(t *testing.T) map[string]string {
 func (w *world) requireDispositionRefused(t *testing.T) {
 	t.Helper()
 	for name, disp := range w.notDispositions(t) {
-		for _, o := range []decide.Outcome{decide.Allow, decide.Reject} {
-			caps := []string(nil)
-			if o == decide.Allow {
-				caps = []string{capability}
-			}
-			before := w.counts(t)
-			res, err := w.writeAndCommit(t, w.action(t, o, disp, caps...))
-			if !errors.Is(err, recorder.ErrDispositionNotValid) {
-				t.Errorf("%s (%s): got %v (%+v), want ErrDispositionNotValid", name, o, err, res)
-			}
-			if after := w.counts(t); after != before {
-				t.Errorf("%s (%s): a refusal changed the rows from %+v to %+v", name, o, before, after)
-			}
+		before := w.counts(t)
+		res, err := w.writeAndCommit(t, w.action(t, decide.Allow, disp, capability))
+		if !errors.Is(err, recorder.ErrDispositionNotValid) {
+			t.Errorf("%s: got %v (%+v), want ErrDispositionNotValid", name, err, res)
+		}
+		if after := w.counts(t); after != before {
+			t.Errorf("%s: a refusal changed the rows from %+v to %+v", name, before, after)
 		}
 	}
 }
 
 // REQ-TRU-010: a decision that names a disposition names an existing ESCALATE decision of its own tenant. Unknown, another tenant's, and one with another outcome are each
-// refused with the typed error, for an ALLOW with a step and for a decision with none, and nothing is written.
+// refused with the typed error, for an ALLOW with a step (a decision with none names no disposition at all, A503), and nothing is written.
 func TestADecisionNamingADispositionThatIsNotAnExistingEscalateDecisionOfItsTenantIsRefused(t *testing.T) {
 	escalationWorld(t).requireDispositionRefused(t)
 }
@@ -373,6 +370,10 @@ func TestPropertyNoActionDecisionWithoutALinkedDisposition(t *testing.T) {
 		case disp == "" && len(caps) > 0:
 			if !errors.Is(err, recorder.ErrDispositionRequired) {
 				rt.Fatalf("none with %v: got %v, want ErrDispositionRequired", caps, err)
+			}
+		case disp != "" && len(caps) == 0:
+			if !errors.Is(err, recorder.ErrDispositionWithoutSteps) {
+				rt.Fatalf("%s with no step: got %v, want ErrDispositionWithoutSteps", kind, err)
 			}
 		case disp != "" && outside:
 			if !errors.Is(err, recorder.ErrStepOutsideEscalation) {

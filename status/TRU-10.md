@@ -111,3 +111,18 @@ A write outside the escalation plan can no longer be recorded with grants throug
 - Exact next step: BO's US-06 expected events can list `disposition_decision_id` on the action decision's DECISION item; EL's escalation path (noema#733's branch) records the disposition first.
 - Files to read first: `trust/recorder/recorder.go` (DECISION_MADE payload), `record/reconstruct/project.go`, `contracts/README.md` (the A503 note).
 - Do not touch: `reconstruction.v1.json` and `reconstruction.v2.json` (pinned by a test).
+
+# Session 2026-11-23 05:15 WAT · TRU-10 (C1, the Writer rule flips: steps if and only if a disposition; A503, the Founder's order of 22 Nov 2026)
+
+## Session summary
+- What changed (PR links): noema#733. `trust/recorder.Writer.Write` refuses a decision with no step that names a disposition (`ErrDispositionWithoutSteps`, new), next to the existing refusal of a decision with steps and no disposition (`ErrDispositionRequired`); `orchestrator/portadapters/trust.RecorderAdapter` refuses either mismatch before it opens a transaction (`ErrRecordRequest`). The tests that put a disposition on a decision with no step (a read ALLOW, a REJECT, a WAIT) now expect the refusal; every test that records a decision with steps records its ESCALATE disposition first through a real `Writer.Write` (no INSERT): `trust/recorder`, `orchestrator/portadapters/trust`, `orchestrator/portadapters/trustpg`, `adapters/outcome_e2e`.
+- Why: the Founder's order after noema#883 merged: a decision names its escalation disposition if and only if it carries steps, so the Record never holds an action without its disposition or a disposition on a decision that does nothing.
+- Risks, and how they are contained: a caller that passes a disposition on a read or a refusal is refused (no caller does: the escalation path of EL records the disposition as its own decision and names it on the steps decision only). A REJECT cannot carry steps ("grants are issued only for an ALLOW"), so a decision that names a disposition is always an ALLOW with steps. The adapter refuses before opening a transaction, the Writer refuses before the first write: nothing is written by either refusal (counted in the tests).
+- Tests added (REQ-TRU-010; INV-25, EC-E16): `trust/recorder/disposition_without_steps_test.go` (read ALLOW, REJECT, WAIT with a disposition: refused, rows unchanged; the disposition decision itself is written); `escalation_link_test.go` (the property now draws the no-step cases; a REJECT naming a disposition is refused); `orchestrator/portadapters/trust/recorder_disposition_test.go` `TestAStepsAndDispositionThatDoNotGoTogetherAreRefusedBeforeAnyTransaction`.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL adds the escalation path as commits on `feat/TRU-10-disposition-required` (A508): record the ESCALATE disposition as its own decision first, then name it on the steps decision. A511 (`intake.PlanRequest` filled from Trust's own steps) is a separate PR from main.
+- Open questions (owner): none new.
+- Files to read first: `trust/recorder/recorder.go` (`ErrDispositionWithoutSteps`), `orchestrator/portadapters/trust/recorder.go` (`outcomeShape`).
+- Do not touch: `services/core/migrations/` (0012 has the column).

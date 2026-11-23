@@ -573,7 +573,7 @@ func TestAnAllowWhoseConfirmationWasGivenForAnotherPlanIsRefused(t *testing.T) {
 			second.PlanHash, second.PlanStep = h(5), 2
 			r.Steps = append(r.Steps, second)
 		},
-		"no steps (a confirmation is for a write)": func(r *recorder.Request) { r.Steps = nil },
+		"no steps (a confirmation is for a write)": func(r *recorder.Request) { r.Steps, r.DispositionDecisionID = nil, "" },
 	} {
 		r := allowWith(t, "evs_01ABC", given)
 		mutate(&r)

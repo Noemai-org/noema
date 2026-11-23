@@ -17,11 +17,15 @@ import (
 
 // The request the Writer gets names the disposition the intake's request names, and names none when the request names none.
 func TestRecordHandsTheWriterTheDispositionDecisionIDOfTheRequest(t *testing.T) {
-	for name, disposition := range map[string]string{"a disposition": "dec_01DISP", "none": ""} {
+	for name, c := range map[string]struct {
+		steps       int
+		disposition string
+	}{"a disposition with a step": {1, "dec_01OTHER"}, "no step and none": {0, ""}} {
 		t.Run(name, func(t *testing.T) {
-			r := recRequest(t, 1)
+			disposition := c.disposition
+			r := recRequest(t, c.steps)
 			r.DispositionDecisionID = disposition
-			w := &recWriter{res: recGrants(1)}
+			w := &recWriter{res: recGrants(c.steps)}
 			if _, err := recAdapter(t, &recBegin{tx: &recTx{}}, newRecFacts(), w).Record(recCtx(t), r); err != nil {
 				t.Fatal(err)
 			}
@@ -29,19 +33,6 @@ func TestRecordHandsTheWriterTheDispositionDecisionIDOfTheRequest(t *testing.T) 
 				t.Fatalf("the Writer got %d requests, the first naming %q, want one naming %q", len(w.got), disp(w.got), disposition)
 			}
 		})
-	}
-}
-
-// A decision with no step (a read ALLOW) passes it too: the adapter does not decide who needs one, the Writer does (A503: the Writer's rule stays).
-func TestRecordPassesTheDispositionOfADecisionWithNoStepsToo(t *testing.T) {
-	r := recRequest(t, 0)
-	r.DispositionDecisionID = "dec_01DISP"
-	w := &recWriter{res: recGrants(0)}
-	if _, err := recAdapter(t, &recBegin{tx: &recTx{}}, newRecFacts(), w).Record(recCtx(t), r); err != nil {
-		t.Fatal(err)
-	}
-	if len(w.got) != 1 || w.got[0].DispositionDecisionID != "dec_01DISP" {
-		t.Fatalf("the Writer got %d requests, the first naming %q, want one naming dec_01DISP", len(w.got), disp(w.got))
 	}
 }
 
