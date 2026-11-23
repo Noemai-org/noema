@@ -21,6 +21,14 @@ type Service struct {
 	Runnable Runnable
 	// Handoffs is optional (A531): whether the pack routes a reason code to a handoff for the intent node. It is asked only when no authorized capability is runnable. Nil means no handoff.
 	Handoffs Handoffs
+	// Escalation is optional (A562): which capabilities belong to the pack's escalation plan. A decision records the ESCALATE disposition it follows only when one of its steps is in the set
+	// (REQ-TRU-010); a read or a step outside the set never carries one. Nil means no step is an escalation step, so none carries a disposition (fail closed). The composition builds it from pack data.
+	Escalation EscalationSteps
+}
+
+// EscalationSteps says whether a capability is a step of the pack's escalation plan. The composition injects it; Trust holds no capability name (INV-14).
+type EscalationSteps interface {
+	Contains(capabilityID string) bool
 }
 
 // Result is the outcome of one evaluation: the decision and the trace of the steps it reached.

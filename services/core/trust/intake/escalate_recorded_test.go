@@ -97,6 +97,7 @@ func TestA534AContinuationPassesItsDispositionIntoTheRecordRequest(t *testing.T)
 	for name, disposition := range map[string]string{"a disposition": "dec_synth0009", "none": ""} {
 		f, p, r := stepFake()
 		ev := stepEval13(t, f, p, r, capRoute)
+		ev.svc.Escalation = escalationSet{capRoute: true} // A562: a disposition goes only onto a step of the escalation plan
 		ev.step.disposition = disposition
 		res := ev.run(tctx(t), ev.policySteps())
 		if res.Decision.Outcome() != decide.Allow || len(f.recReqs) != 1 {
@@ -145,5 +146,37 @@ func TestA534NothingIsRecordedForAnEscalateTheEvaluationDoesNotAccept(t *testing
 	res = ev.run(cctx, steps)
 	if res.Decision.Outcome() != decide.Unknown || res.DecisionID != "" || len(f.recReqs) != 0 {
 		t.Errorf("an ESCALATE as the context ends: %s, ID %q, Record called %d times; want UNKNOWN, no ID and no Record", res.Decision.Outcome(), res.DecisionID, len(f.recReqs))
+	}
+}
+
+// escalationSet is a test EscalationSteps: the capability IDs of a synthetic escalation plan.
+type escalationSet map[string]bool
+
+func (s escalationSet) Contains(id string) bool { return s[id] }
+
+// A562 (interim; REQ-TRU-010, INV-25): a disposition ID goes into a RecordRequest only when the decision has a step of the escalation plan. It never goes onto a read, a step outside the set, or
+// a decision when the service holds no escalation set (fail closed).
+func TestA562ADispositionGoesOnlyOntoAStepOfTheEscalationPlan(t *testing.T) {
+	const disposition = "dec_synth0009"
+	for name, tc := range map[string]struct {
+		set  EscalationSteps
+		want string
+	}{
+		"a step in the escalation set":      {escalationSet{capRoute: true}, disposition},
+		"a step outside the escalation set": {escalationSet{"some.other.capability": true}, ""},
+		"an empty escalation set":           {escalationSet{}, ""},
+		"no escalation set":                 {nil, ""},
+	} {
+		f, p, r := stepFake()
+		ev := stepEval13(t, f, p, r, capRoute)
+		ev.svc.Escalation = tc.set
+		ev.step.disposition = disposition
+		res := ev.run(tctx(t), ev.policySteps())
+		if res.Decision.Outcome() != decide.Allow || len(f.recReqs) != 1 {
+			t.Fatalf("%s: %s %v, Record called %d times; want ALLOW and one Record", name, res.Decision.Outcome(), codes13(res.Decision), len(f.recReqs))
+		}
+		if got := f.recReqs[0].DispositionDecisionID; got != tc.want {
+			t.Errorf("%s: the record request names %q, want %q", name, got, tc.want)
+		}
 	}
 }
