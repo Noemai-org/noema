@@ -58,7 +58,14 @@ fi
 if [ ! -s "$dir/input_hash_key" ]; then
   ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/input_hash_key" )
 fi
-chmod 600 "$dir/core_workflows_ed25519_seed_1" "$dir/core_edge_ed25519_seed_1" "$dir/input_hash_key"
+# The Execution side's receipt signer and the Outcome verdict signer (A554, A564), each its own seed so the two never share a key: identities core-execution and core-outcome, the same form.
+if [ ! -s "$dir/core_execution_ed25519_seed_1" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_execution_ed25519_seed_1" )
+fi
+if [ ! -s "$dir/core_outcome_ed25519_seed_1" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_outcome_ed25519_seed_1" )
+fi
+chmod 600 "$dir/core_workflows_ed25519_seed_1" "$dir/core_edge_ed25519_seed_1" "$dir/input_hash_key" "$dir/core_execution_ed25519_seed_1" "$dir/core_outcome_ed25519_seed_1"
 
 # One secret file per emitter login (ruling A4): NOEMA_TENANTS x NOEMA_EMITTERS (default core-edge). Missing files are made with a random value;
 # existing files are kept. The folder is mounted read-only into postgres only; init.sh refuses a missing, empty or duplicated secret.

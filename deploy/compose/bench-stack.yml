@@ -23,6 +23,12 @@ volumes:
   orchestrator_keys: {}
   edge_keys: {}
   input_hash: {}
+  # The Execution side's two logins and two signing-key directories (A554, A564; lane 5): each written once by its one-shot at mode 0400 owned by the core's user, read-only in the core and nowhere else.
+  # Execution and Outcome keys stay apart (A564): one directory per identity, as the loader reads every key file of its directory.
+  execution_dsns: {}
+  outcome_dsns: {}
+  execution_keys: {}
+  outcome_keys: {}
 # The three key values (secrets_local.sh makes them; 64 lower-case hexadecimal characters each). Held by the core-keys-init one-shot ONLY.
 secrets:
   core_workflows_ed25519_seed_1:
@@ -31,6 +37,11 @@ secrets:
     file: ./secrets/core_edge_ed25519_seed_1
   input_hash_key:
     file: ./secrets/input_hash_key
+  # The receipt signer's seed (identity core-execution) and the Outcome verdict signer's seed (identity core-outcome), A554 and A564. Held by core-keys-init only.
+  core_execution_ed25519_seed_1:
+    file: ./secrets/core_execution_ed25519_seed_1
+  core_outcome_ed25519_seed_1:
+    file: ./secrets/core_outcome_ed25519_seed_1
 services:
   core:
     environment:
@@ -96,6 +107,15 @@ services:
       NOEMA_EDGE_KEY_DIR: /run/edge-keys
       NOEMA_INPUT_HASH_KEY_FILE: /run/input-hash/key
       NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE: "2"
+      # A554 and A564 (lane 5, C1's noema#917): the Execution side's two logins (one file per tenant: `execution_rw__<t>` and `outcome_rw__<t>`) and the receipt signer's and the Outcome verdict
+      # signer's key directories (`core-execution.ed25519.1.key`, `core-outcome.ed25519.1.key`; 64 hex, 0400, owner 65532). The overlaps mirror the orchestrator's and the edge's (A506): no ruling
+      # gives a number for these two, so 2 is the same rotation overlap, pinned by netcheck so a change is visible; the Architect confirms it. The core reads these when lane 5 lands (the setting is inert until then).
+      NOEMA_EXECUTION_DSN_DIR: /run/execution-dsn
+      NOEMA_OUTCOME_DSN_DIR: /run/outcome-dsn
+      NOEMA_EXECUTION_KEY_DIR: /run/execution-keys
+      NOEMA_EXECUTION_KEY_MAX_ACTIVE: "2"
+      NOEMA_OUTCOME_KEY_DIR: /run/outcome-keys
+      NOEMA_OUTCOME_KEY_MAX_ACTIVE: "2"
       NOEMA_TEMPORAL_NAMESPACE: default
       NOEMA_TEMPORAL_TASK_QUEUE: noema-investigations
       NOEMA_TEMPORAL_TLS_CA_FILE: /run/tls/ca.crt
@@ -111,6 +131,10 @@ services:
       - edge_dsns:/run/edge-dsn:ro
       - orchestrator_keys:/run/orchestrator-keys:ro
       - edge_keys:/run/edge-keys:ro
+      - execution_dsns:/run/execution-dsn:ro
+      - outcome_dsns:/run/outcome-dsn:ro
+      - execution_keys:/run/execution-keys:ro
+      - outcome_keys:/run/outcome-keys:ro
       - input_hash:/run/input-hash:ro
       - standin_runtime_credential:/run/standin/runtime:ro
       - standin_principal_key:/run/standin/principal:ro
@@ -142,7 +166,7 @@ services:
       TRUST_DSN_SRC: /run/secrets
       TRUST_DSN_EMITTERS: /run/emitter_logins
       # one job per directory of the core (A506): the group and the volume's path inside this step
-      TRUST_DSN_JOBS: "trust_rw:/out/trust orchestrator_rw:/out/orchestrator record_read:/out/record-read edge:/out/edge"
+      TRUST_DSN_JOBS: "trust_rw:/out/trust orchestrator_rw:/out/orchestrator record_read:/out/record-read edge:/out/edge execution_rw:/out/execution outcome_rw:/out/outcome"
       TRUST_DSN_UID: "65532"
       TRUST_DSN_GID: "65532"
       TRUST_DSN_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
@@ -154,6 +178,8 @@ services:
       - orchestrator_dsns:/out/orchestrator
       - record_read_dsns:/out/record-read
       - edge_dsns:/out/edge
+      - execution_dsns:/out/execution
+      - outcome_dsns:/out/outcome
       # the core-edge login's own secret, one file per tenant (ruling A4); read-only, held by postgres and by this step only
       - ./secrets/emitter_logins:/run/emitter_logins:ro
   # One-shot, as root, no network (A506): turns the three key secrets into the files the core loads (64 hexadecimal characters, mode 0400, owner 65532) and checks each by reading it as that user. It prints
@@ -172,16 +198,18 @@ services:
     cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
     environment:
       CORE_KEYS_SRC: /run/secrets
-      CORE_KEYS_FILES: "core_workflows_ed25519_seed_1=/out/orchestrator/core-workflows.ed25519.1.key core_edge_ed25519_seed_1=/out/edge/core-edge.ed25519.1.key input_hash_key=/out/input-hash/key"
+      CORE_KEYS_FILES: "core_workflows_ed25519_seed_1=/out/orchestrator/core-workflows.ed25519.1.key core_edge_ed25519_seed_1=/out/edge/core-edge.ed25519.1.key input_hash_key=/out/input-hash/key core_execution_ed25519_seed_1=/out/execution/core-execution.ed25519.1.key core_outcome_ed25519_seed_1=/out/outcome/core-outcome.ed25519.1.key"
       CORE_KEYS_UID: "65532"
       CORE_KEYS_GID: "65532"
     command: ["python3", "-I", "/init/init.py"]
-    secrets: [core_workflows_ed25519_seed_1, core_edge_ed25519_seed_1, input_hash_key]
+    secrets: [core_workflows_ed25519_seed_1, core_edge_ed25519_seed_1, input_hash_key, core_execution_ed25519_seed_1, core_outcome_ed25519_seed_1]
     volumes:
       - ./core-keys/init.py:/init/init.py:ro
       - orchestrator_keys:/out/orchestrator
       - edge_keys:/out/edge
       - input_hash:/out/input-hash
+      - execution_keys:/out/execution
+      - outcome_keys:/out/outcome
   postgres:
     environment:
       NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
