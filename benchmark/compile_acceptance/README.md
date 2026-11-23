@@ -63,3 +63,8 @@ A live reply has not been parsed by this code: the first live run is that eviden
 ## Tests
 
 `python -m unittest discover -s benchmark -t . -p 'test_*.py'` (the benchmark job) and `cd services/model && pytest tests/test_compile_acceptance_build.py tests/test_compile_acceptance_pool.py` (the model job). `test_pool.py` holds the pool to the pipeline's five concurrent calls plus one spare (`POOL_SIZE` in `build.py`; UND-16).
+
+
+## `summary.md` (UND-16, run #6)
+
+The runner writes `out/compile-acceptance/summary.md` beside `run.json`. Line one is `FAILING: <ids>` (every golden that was not MET; `FAILING: none` when all were), then a table of each golden and each record-only input with its status and the fixed text of its problem. It holds no utterance, proposal or number of five digits or more. The workflow's Summary step shows it in the job summary and its Result step quotes the `FAILING:` line in its error, only after a clean leak scan. A compile refused as invalid input names its closed class in the text, for example `InputInvalid:NO_TIME_WINDOW`.

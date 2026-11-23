@@ -23,14 +23,14 @@ from noema_model.platform.config import ConfigError, reject_unknown, require_int
 from noema_model.platform.mtls import client_ssl_context
 from noema_model.understanding.compiler.assemble import Identifiers
 from noema_model.understanding.compiler.compiler import PipelineCompiler
-from noema_model.understanding.compiler.lexicon import Lexicon
+from noema_model.understanding.compiler.lexicon import load_pack_lexicons
 from noema_model.understanding.compiler.packconfig import load_pipeline_config
 from noema_model.understanding.compiler.service import CompileService
 from noema_model.understanding.gate import UNSET, Node, PackView
 from noema_model.understanding.pipeline import NodeCatalogue
 
 COMPILE_CONFIG_ENV = "NOEMA_MODEL_COMPILE_CONFIG"
-_MEMBERS = frozenset({"pack_file", "lexicon_file", "out_of_scope_node", "timeout_s", "max_proposal_bytes", "max_request_bytes", "evidence", "evidence_tls"})
+_MEMBERS = frozenset({"pack_file", "lexicon_dir", "out_of_scope_node", "timeout_s", "max_proposal_bytes", "max_request_bytes", "evidence", "evidence_tls"})
 _TLS_MEMBERS = frozenset({"cert_file", "key_file", "ca_file"})
 _PACK_ID = re.compile(r"[a-z][a-z0-9]*")
 _PACK_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
@@ -165,7 +165,7 @@ def build_compile_service(environ: Mapping[str, str], harness: Harness | None, *
     pack = require_mapping(_read_json(str(pack_file), "compile.pack_file"), "compile.pack_file")
     packs = PackFileResolver.from_mapping(pack, out_of_scope_node=out_of_scope)
     pipeline = load_pipeline_config(pack, pack_file.parent, out_of_scope_node=out_of_scope)
-    lexicon = Lexicon.from_file(Path(require_str(config, "lexicon_file", "compile")))
+    lexicon = load_pack_lexicons(pack, Path(require_str(config, "lexicon_dir", "compile")))
     evidence = EvidenceClientConfig.from_mapping(config["evidence"])
     tls = require_mapping(config["evidence_tls"], "compile.evidence_tls")
     reject_unknown(tls, _TLS_MEMBERS, "compile.evidence_tls")
