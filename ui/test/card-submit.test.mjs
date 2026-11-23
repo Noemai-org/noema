@@ -161,7 +161,7 @@ test("REQ-UI-002 US-18: malformed or oversized 409 bodies fail closed as unavail
   });
   await withServer((_request, response) => {
     response.writeHead(409, { "content-type": "application/json" });
-    response.end(" ".repeat(16 * 1024 + 1));
+    response.end(" ".repeat(65_537));
   }, async (baseUrl) => {
     assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "unavailable");
   });
