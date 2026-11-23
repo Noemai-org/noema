@@ -64,3 +64,46 @@ test("A479: missing host polling duration sends no request", async () => {
   });
   assert.equal(requests, 0);
 });
+
+
+test("A516: the initial POST deadline covers a server that never sends response headers", async () => {
+  const request = await fixture("message-request/start_text");
+  let posts = 0;
+  await runServer((req, res) => {
+    if (req.method === "POST") {
+      posts++;
+      req.resume();
+      // Deliberately keep the connection open without response headers.
+    } else {
+      res.writeHead(500).end();
+    }
+  }, async (baseUrl) => {
+    const started = Date.now();
+    const result = await startConversationAndPoll({ baseUrl, sessionToken: "synthetic-session", request, maxPollingMs: 60, onState: () => assert.fail("a timed-out POST must not poll") });
+    assert.equal(result, "Connection lost.");
+    assert.ok(Date.now() - started < 1500, "the POST must be bounded by its host deadline");
+  });
+  assert.equal(posts, 1, "a timed-out POST is never retried");
+});
+
+test("A516: the initial POST deadline also covers a response body that never finishes", async () => {
+  const request = await fixture("message-request/start_text");
+  let posts = 0;
+  await runServer((req, res) => {
+    if (req.method === "POST") {
+      posts++;
+      req.resume();
+      res.writeHead(202, { "content-type": "application/json" });
+      res.write("{");
+      // Headers arrived, but the body deliberately remains incomplete.
+    } else {
+      res.writeHead(500).end();
+    }
+  }, async (baseUrl) => {
+    const started = Date.now();
+    const result = await startConversationAndPoll({ baseUrl, sessionToken: "synthetic-session", request, maxPollingMs: 60, onState: () => assert.fail("an incomplete POST body must not poll") });
+    assert.equal(result, "Connection lost.");
+    assert.ok(Date.now() - started < 1500, "body consumption must share the POST deadline");
+  });
+  assert.equal(posts, 1, "a timed-out POST is never retried");
+});
