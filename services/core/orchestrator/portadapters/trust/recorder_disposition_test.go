@@ -6,6 +6,7 @@ package trustport
 // runs in CI only (pgsodium).
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -106,5 +107,33 @@ func TestAnActionDecisionIsStoredWithTheDispositionRecordedFirstThroughTheAdapte
 	}
 	if n, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || n == 0 {
 		t.Fatalf("chain verify: %d %v", n, err)
+	}
+}
+
+// Steps if and only if a disposition (A503 and the Founder's order of 22 Nov 2026): a decision with steps and no disposition, and a decision with no step that names one, are refused
+// before any transaction opens, as an unusable request (SR on noema#883).
+func TestAStepsAndDispositionThatDoNotGoTogetherAreRefusedBeforeAnyTransaction(t *testing.T) {
+	cases := map[string]func(t *testing.T) intake.RecordRequest{
+		"steps and no disposition": func(t *testing.T) intake.RecordRequest {
+			r := recRequest(t, 1)
+			r.DispositionDecisionID = ""
+			return r
+		},
+		"a disposition and no steps": func(t *testing.T) intake.RecordRequest {
+			r := recRequest(t, 0)
+			r.DispositionDecisionID = "dec_01DISP"
+			return r
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			b, w := &recBegin{tx: &recTx{}}, &recWriter{}
+			if _, err := recAdapter(t, b, newRecFacts(), w).Record(recCtx(t), build(t)); !errors.Is(err, ErrRecordRequest) {
+				t.Fatalf("err %v, want ErrRecordRequest", err)
+			}
+			if len(b.tenants) != 0 || len(w.got) != 0 {
+				t.Fatal("a refused request reached the database")
+			}
+		})
 	}
 }

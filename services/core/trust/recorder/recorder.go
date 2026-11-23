@@ -62,6 +62,9 @@ var (
 	// ErrDispositionRequired is returned when a decision that carries steps, an ALLOW that issues grants, names no disposition (REQ-TRU-010, INV-25; ruling A317 to A328, interim): every
 	// grant-issuing action decision links its ESCALATE disposition. Nothing is written.
 	ErrDispositionRequired = errors.New(errPrefix + "a decision that issues grants must name its escalation disposition")
+	// ErrDispositionWithoutSteps is returned when a decision that carries no step names a disposition (A503, REQ-TRU-010): the link belongs to an escalation action decision, which has
+	// steps, so a disposition on a decision with none is a mistake of the caller and is refused before anything is written. SCAFFOLD: the variable only, nothing returns it yet.
+	ErrDispositionWithoutSteps = errors.New(errPrefix + "a decision with no step must not name a disposition")
 	// ErrDispositionNotValid is returned when a decision names a disposition that is not an existing ESCALATE decision of the same tenant (REQ-TRU-010). The caller cannot tell
 	// which of the three it is: a missing decision, another tenant's and one with another outcome are one answer. Nothing is written.
 	ErrDispositionNotValid = errors.New(errPrefix + "the disposition is not an existing escalation decision of the tenant")
