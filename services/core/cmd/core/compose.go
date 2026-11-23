@@ -56,6 +56,12 @@ type Components struct {
 	TrustUnbuilt []string
 	// Confirmations is the confirmation route's ports (POST /v1/confirmations/{confirmation_request_id}, A341, noema#754); the route is mounted only with it.
 	Confirmations *confirmationRouteConfig
+	// Understanding is what buildUnderstanding made, for the later Trust and Evidence wiring (RuleSet, Mapping, PackRef, SealTimeout). It is not a component: Ports.Interpreter is the one
+	// /readyz names. Zero while the Interpreter is not built.
+	Understanding UnderstandingParts
+	// UnderstandingUnbuilt names the Understanding settings that are missing when some are given (A486): /readyz names each after "interpreter" as "interpreter: NAME missing" (fixed text,
+	// no value). Not a component; empty when the Interpreter is built or none of its settings is given.
+	UnderstandingUnbuilt []string
 }
 
 // Env is the process's configuration source, injected so that tests do not touch the real environment. Nothing read through it has a default (AGENT-16).
