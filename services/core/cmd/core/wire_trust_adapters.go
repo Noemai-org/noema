@@ -12,13 +12,13 @@ import (
 )
 
 // wire_trust_adapters.go builds the intake adapters that main code can build (STM-01 final composition; REQ-TRU-002, REQ-TRU-004, REQ-TRU-005; INV-03, INV-16, AGENT-16). Today that is
-// the three that read the pack: Capabilities, Scope and Authority (trustpack). Every other adapter waits on a data source or a pack load that is not on main (see
+// the three that read the pack: Capabilities, Scope and Authority (trustpack), and PackVersion, from the manifest-verified pack (compose_packsource.go). Every other adapter waits on a data source or an adapter that is not on main (see
 // status/STM-01-main-composition.md), and is named in one startup error: no fake, no invented source and no quiet nil. A pack-free adapter does not exist: each reads the pack.
 
 // EnvTrustEscalationGraph names the escalation graph of the pack (A319, A346: the pack has no field for it). Required once a pack is given; no default (A330).
 const EnvTrustEscalationGraph = "NOEMA_TRUST_ESCALATION_GRAPH"
 
-// PackSource gives the manifest-verified pack (A333, noema#773). Production has none until the pack load is on main: it must never read an unverified pack.
+// PackSource gives the manifest-verified pack (A333, noema#773). Production is productionPack (compose_packsource.go): it must never read an unverified pack.
 type PackSource func(env Env) (*trustpack.Pack, error)
 
 var errPackNotConfigured = errors.New("cmd/core: the manifest-verified pack is not available: its settings are not given")
