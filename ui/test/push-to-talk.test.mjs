@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { encodePcm16Mono, PushToTalk } from "../build/js/push-to-talk.js";
 import * as capture from "../build/js/pcm-capture.js";
 
-test("A191: PCM frames keep whole samples and never exceed 32000 bytes", () => {
+test("REQ-VOI-001 A191: PCM frames keep whole samples and never exceed 32000 bytes", () => {
   assert.equal(capture.MAX_PCM_FRAME_BYTES, 32000);
   const samples = new Float32Array(16384);
   samples[0] = -1;
