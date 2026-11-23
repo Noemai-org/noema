@@ -58,3 +58,17 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - IL writes the stamped artifact file list in the workflow; C1 confirms `disposition_decision_id` in the reconstruction facts.
 
+# Session 2026-11-23 · BEN-23 · A503 disposition-first rule restored after #887
+
+## Session summary
+- What changed: row 2's US-06 check again requires the ESCALATE disposition decision first (with an id), then at least one action decision that carries `disposition_decision_id` equal to it, all before the grant (A503, PERD 23.1, REQ-TRU-010). It was taken out of #875 at Codex's P2 because the audit route did not project the field; #887 merged and the route's DECISION facts now carry `decision_id` and `disposition_decision_id` (`services/core/record/reconstruct/project.go`, `reconstruction.v3`). PR link: the follow-up PR of this branch.
+- Why: the Record must show the disposition and the action decisions that reference it, not only that a decision was made.
+- Risks, and how they are contained: the rule reads the first DECISION item as the disposition, so it depends on the projection keeping event order; a reconstruction built before #887 fails row 2 (fails closed). Not yet checked against a real reconstruction of the stack run.
+- Tests added (REQ-TRU-010, A503): `DispositionOrder` (seven cases) and the US-06 fixtures now carry the disposition and the action decision. Two mutants of the guard each failed a test.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: read CI at the PR head, post READY FOR CODEX; when the first real stack run exists, check that its reconstruction lists the disposition first.
+- Open questions (owner): whether the real projection orders items by event sequence (EL, C1).
+- Files to read first: `benchmark/suites/g1_package.py` (`_us06_problem`), `services/core/record/reconstruct/project.go`.
+- Do not touch: `benchmark-heldout`, the oracle.
