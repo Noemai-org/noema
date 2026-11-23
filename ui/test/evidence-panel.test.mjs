@@ -46,7 +46,9 @@ test("REQ-UI-003 POC-FR-17: the ops evidence view presents the supplied record-c
   const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
   assert.deepEqual(scanVisibleText(html), []);
   assert.match(html, /record/i);
-  assert.match(html, /verified/i);
+  assert.match(html, /Verdict: ACHIEVED/);
+  assert.equal((html.match(/Verdict: ACHIEVED/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /Verified/);
   assert.ok(!html.includes(value.tenant_id));
   assert.ok(!html.includes(value.chain.head_hash));
 });
@@ -96,6 +98,8 @@ test("REQ-UI-003: operator sees supplied decision, grant, execution and outcome 
   assert.match(html, /Grant: Valid/);
   assert.match(html, /Verdict: Achieved/);
   assert.match(html, /Candidates: 1/);
+  assert.equal((html.match(/Verdict: ACHIEVED/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /Verified/);
   assert.ok(!html.includes(value.sections.find((section) => section.kind === "RESOLUTION").items[0].facts.resolved_target));
   assert.deepEqual(scanVisibleText(html), []);
 });
