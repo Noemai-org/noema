@@ -177,6 +177,37 @@ def test_two_lexicons_that_disagree_are_refused_not_merged(tmp_path: Path, edit:
         load_pack_lexicons(PACK, tmp_path)
 
 
+def write_without(into: Path, name: str, section: str) -> None:
+    raw: dict[str, Any] = json.loads(EN_FILE.read_text(encoding="utf-8"))
+    raw["lexicon_id"] = name
+    del raw[section]
+    (into / f"{name}.json").write_text(json.dumps(raw), encoding="utf-8")
+
+
+@pytest.mark.parametrize("section", ["multipliers", "relative_times", "directions"])
+def test_a_merged_lexicon_with_an_empty_section_is_refused_for_the_english_file_alone(tmp_path: Path, section: str) -> None:
+    """C1's finding on noema#901 (A535 made a missing section load as empty, so nothing refused a truncated base): the section the Normaliser needs must be there after the merge."""
+    write_without(tmp_path, "fin.lex.en_ng", section)
+    with pytest.raises(ConfigError, match=section):
+        load_pack_lexicons(PACK, tmp_path)
+
+
+@pytest.mark.parametrize("section", ["multipliers", "relative_times", "directions"])
+def test_a_merged_lexicon_with_an_empty_section_is_refused_for_the_english_and_the_pidgin_pair(tmp_path: Path, section: str) -> None:
+    write_without(tmp_path, "fin.lex.en_ng", section)
+    write_without(tmp_path, "fin.lex.pcm", section)  # a supplemental file may omit a section, but not when the base omits it too
+    with pytest.raises(ConfigError, match=section):
+        load_pack_lexicons(PACK, tmp_path)
+
+
+@pytest.mark.parametrize("section", ["multipliers", "relative_times", "directions"])
+def test_a_supplemental_file_may_omit_a_section_when_the_base_holds_it(tmp_path: Path, section: str) -> None:
+    copy_lexicon(tmp_path, "fin.lex.en_ng")
+    write_without(tmp_path, "fin.lex.pcm", section)
+    merged = load_pack_lexicons(PACK, tmp_path)
+    assert merged.multipliers and merged.times and merged.directions
+
+
 def test_two_lexicons_that_agree_on_a_phrase_merge(tmp_path: Path) -> None:
     copy_lexicon(tmp_path, "fin.lex.en_ng")
     copy_lexicon(tmp_path, "fin.lex.pcm")  # the same entries, the same meanings
