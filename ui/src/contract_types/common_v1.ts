@@ -11,11 +11,12 @@ const PATTERN_6 = new RegExp("^sha256:[0-9a-f]{64}$", "u");
 const PATTERN_7 = new RegExp("^inv_[0-9A-Za-z]{2,32}$", "u");
 const PATTERN_8 = new RegExp("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$", "u");
 const PATTERN_9 = new RegExp("^recev_[0-9A-Za-z]{2,32}$", "u");
-const PATTERN_10 = new RegExp("^[0-9]+\\.[0-9]+$", "u");
-const PATTERN_11 = new RegExp("^[a-z][a-z0-9_]*$", "u");
-const PATTERN_12 = new RegExp("^evs_[0-9A-Za-z]{2,32}$", "u");
-const PATTERN_13 = new RegExp("^ten_[0-9A-Za-z]{2,32}$", "u");
-const PATTERN_14 = new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$", "u");
+const PATTERN_10 = new RegExp("^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$", "u");
+const PATTERN_11 = new RegExp("^[0-9]+\\.[0-9]+$", "u");
+const PATTERN_12 = new RegExp("^[a-z][a-z0-9_]*$", "u");
+const PATTERN_13 = new RegExp("^evs_[0-9A-Za-z]{2,32}$", "u");
+const PATTERN_14 = new RegExp("^ten_[0-9A-Za-z]{2,32}$", "u");
+const PATTERN_15 = new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$", "u");
 
 /** CommonV1CandidateSetId, generated from common.v1.json#$defs/CandidateSetId. */
 export type CommonV1CandidateSetId = string;
@@ -94,11 +95,18 @@ export function parseCommonV1RecordEventId(v: unknown, p: string = "$"): CommonV
   return str(v, p, {pattern: PATTERN_9});
 }
 
+/** CommonV1ResourceRef, generated from common.v1.json#$defs/ResourceRef. A pack resource reference, <vertical>.<kind>:<id> (for example fin.transaction:TX88213). */
+export type CommonV1ResourceRef = string;
+
+export function parseCommonV1ResourceRef(v: unknown, p: string = "$"): CommonV1ResourceRef {
+  return str(v, p, {pattern: PATTERN_10});
+}
+
 /** CommonV1SchemaVersion, generated from common.v1.json#$defs/SchemaVersion. Semantic version of the contract, major.minor. */
 export type CommonV1SchemaVersion = string;
 
 export function parseCommonV1SchemaVersion(v: unknown, p: string = "$"): CommonV1SchemaVersion {
-  return str(v, p, {pattern: PATTERN_10});
+  return str(v, p, {pattern: PATTERN_11});
 }
 
 /** CommonV1Sig, generated from common.v1.json#$defs/Sig. Key ID plus signature (SoT §43). HMAC-SHA-256 in the POC. */
@@ -120,26 +128,26 @@ export function parseCommonV1Sig(v: unknown, p: string = "$"): CommonV1Sig {
 export type CommonV1SlotName = string;
 
 export function parseCommonV1SlotName(v: unknown, p: string = "$"): CommonV1SlotName {
-  return str(v, p, {pattern: PATTERN_11});
+  return str(v, p, {pattern: PATTERN_12});
 }
 
 /** CommonV1SnapshotId, generated from common.v1.json#$defs/SnapshotId. Sealed context snapshot ID. */
 export type CommonV1SnapshotId = string;
 
 export function parseCommonV1SnapshotId(v: unknown, p: string = "$"): CommonV1SnapshotId {
-  return str(v, p, {pattern: PATTERN_12});
+  return str(v, p, {pattern: PATTERN_13});
 }
 
 /** CommonV1TenantId, generated from common.v1.json#$defs/TenantId. */
 export type CommonV1TenantId = string;
 
 export function parseCommonV1TenantId(v: unknown, p: string = "$"): CommonV1TenantId {
-  return str(v, p, {pattern: PATTERN_13});
+  return str(v, p, {pattern: PATTERN_14});
 }
 
 /** CommonV1Timestamp, generated from common.v1.json#$defs/Timestamp. RFC 3339 instant in UTC with a Z suffix. */
 export type CommonV1Timestamp = string;
 
 export function parseCommonV1Timestamp(v: unknown, p: string = "$"): CommonV1Timestamp {
-  return str(v, p, {pattern: PATTERN_14});
+  return str(v, p, {pattern: PATTERN_15});
 }

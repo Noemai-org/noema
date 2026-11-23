@@ -17,6 +17,8 @@
   "claim_without_bound_status.json": "required",
   "claim_status_not_a_fact_status.json": "oneOf",
   "claim_text_empty.json": "minLength",
+  "classification_is_a_receipt_state.json": "enum",
+  "disposition_decision_id_not_a_decision_id.json": "pattern",
   "text_fact_with_five_joined_digits.json": "oneOf",
   "reason_codes_item_with_five_joined_digits.json": "oneOf",
   "request_id_uuid_of_31_digits_joined_by_dashes.json": "oneOf",
@@ -24,5 +26,13 @@
   "typed_id_with_digits_only_in_its_body.json": "oneOf",
   "reference_fact_with_sixteen_digits_after_the_colon.json": "oneOf",
   "unlisted_key_with_a_card_number_in_a_sentence.json": "oneOf",
-  "array_fact_item_with_a_card_number.json": "oneOf"
+  "array_fact_item_with_a_card_number.json": "oneOf",
+  "text_fact_with_unit_separator_joined_digits.json": "oneOf",
+  "text_fact_with_ten_comma_joined_digits.json": "oneOf",
+  "minted_id_of_31_characters_ending_in_a_letter.json": "oneOf",
+  "typed_id_with_sixteen_digits_and_a_letter_at_the_end.json": "oneOf",
+  "minted_id_whose_first_ulid_character_is_8.json": "oneOf",
+  "minted_id_with_a_letter_outside_the_ulid_alphabet.json": "oneOf",
+  "minted_id_in_lower_case.json": "oneOf",
+  "minted_id_of_26_digits.json": "oneOf"
 }

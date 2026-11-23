@@ -179,3 +179,127 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **Tamper signal (open, not decided):** a payload that does not match its sealed hash becomes UNKNOWN silently (A260). Where it is surfaced (a Record event or a metric) is for REC and SEC to decide; this package does not emit one. It is DEBT-44 (the Founder's order of 17 Nov 2026); A287 settles the earlier findings.
 - **EL note 2 (done):** README says the freshness bound is the layer's. **EL note 3 (answered, not coded):** in the real mapping each source feeds exactly one row, so "one row's field missing while another row of the same source is present" cannot occur end to end; the per-row path is in `internal_test.go`. A test with a second row for a source needs a mapping row the Architect has not approved (A245).
 - Debt: DEBT-44 (the tamper signal). Conflicts raised: none.
+
+# Session 2026-11-18 · ENV-04
+
+## Session summary
+- What changed: `bench-g1-stack.yml` gains `mode` (full or stack-check), SR's first-dispatch condition 1 (`tools/ci/g1_record_access.py`: exactly one SERVED RECORD_ACCESSED line per case, IDs and outcome only, empty log is NOT RUN) and condition 2 (a `joblog-scan` job that reads the finished job's log through the API and runs the leak scanner with its canary).
+- Why: A323 and A325 as relayed by the Founders; the rulings are not yet committed in `docs`, so the exact conditions are my reading of SR's words (see Open questions).
+- Risks, and how they are contained: stack-check runs no suite and is labelled NOT EVIDENCE in the summary and the Result step; the new job has `actions: read` only.
+- Tests added: `tools/ci/test_g1_record_access.py` (8), four workflow guards and mode validation cases in `benchmark/runner/test_g1_workflow.py`. Seen failing first.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: first live run is the proof; the `joblog-scan` log endpoint and the stack-check health rows are unverified (no Docker or Actions here).
+- Open questions (SR): is "exactly one SERVED per case" the intended count, and is the g1-stack job log the full scope of condition 2?
+- Do not touch: the held-out set.
+
+# Session 2026-11-19 · ENV-04 · the stack-check rename and Codex's two P2s on noema#730 (IL)
+- Renamed the dispatch mode `smoke` to `stack-check` (A354 to A356 as relayed; the text is not yet in `docs`): `full` is the only mode that can be evidence; `stack-check` brings the stack up and checks that every service runs and is healthy, runs no suite, scores nothing and says so.
+- Codex P2 (a healthy stack-check run failed in the scan): the scan list is fixed per mode; `record-accessed.txt` is added only for `full`.
+- Codex P2 (the job log's own digits, among them the seed in the command line, the run id, the image version and the dispatch inputs the runner echoes, would fail the job-log scan): `tools/ci/leakscan.py --no-digit-rule` turns off the digit-run rule and nothing else; the job-log scan uses it, with no allow rule; `g1_leakscan.py --no-digit-rule` probes only the kinds that remain (canary, api key, JWT-shaped, bearer token) and is NOT RUN if one is not reported. Tests: the scanner, the probe (each remaining kind dropped by a wrapper is refused) and two workflow guards (the flag is used once, only for the job log; the scan list per mode).
+- Not verified: the whole job-log path (the API's log endpoint and the real log's content) until the first live run.
+
+# Session 2026-11-19 · ENV-04 · noema#730: the request-log count, the pinned canary and the saved scan output (IL)
+- RECORD_ACCESSED (A354): `tools/ci/g1_record_access.py` takes `--requests benchmark/out/run/requests.jsonl` (the runner's own per-request record; format proposed by BO: case_id, correlation_id, method, path, status, kind in case, reconstruction or probe; no header, body or token). The expected SERVED count per correlation is the number of `reconstruction` requests answered 200; a probe or a refused read adds nothing. A missing, empty or no-reconstruction record is NOT RUN; an extra field, a bad status or kind, or a correlation outside the run is NOT MET. The writer is BO's (runner). Mutations: expected count fixed at 1, and counting non-200 reads: both caught.
+- Canary (A354): one fixed synthetic value from split literals (`g1_leakscan.CANARY`), SHA-256 asserted by a test; the scan reports the kind and never the value (existing tests kept).
+- The scan's own stdout is saved to `benchmark/out/leak-scan.txt` (the exit code survives the pipe by PIPESTATUS) and uploaded after a clean scan, for BO's package row 8.
+- Not available from the mock-case log: write counts. mock-case logs only refusals; the writes are in its command log behind the truth listener, which only the runner may read (BO's oracle client).
+
+# Session 2026-11-19 · ENV-04 · browser checks after the stack is up (A388, IL)
+- `bench-g1-stack.yml` gains an opt-in boolean `playwright` (default off). When set, a step runs `npm ci` and `npx playwright test -c playwright.stack.config.mjs` in `ui/` against the stack's UI on 127.0.0.1:8082, before the stack stops; without `ui/playwright.stack.config.mjs` (FE owns it and the specs) it is NOT RUN (3), never a pass. A requested check that is not 0 fails the Result step; the checks are labelled not evidence for G1. Opt-in until the wiring merges.
+- Not verified: no live run; FE's stack config and specs do not exist yet.
+
+# Session 2026-11-20 · ENV-04 · the stamp for the G1 package (noema#717; IL)
+- The first line of `benchmark/out/leak-scan.txt` is `stamp: <dispatch sha> <run id>`, and `fault-plans.json` and `negative-probes.json` carry a top-level `"stamp": {"sha", "run_id"}` (`benchmark.runner.evidence --sha --run-id`: 40 lowercase hexadecimal and digits, both or neither, refused before anything is read). `reconstructions.json` is BO's writer: BO stamps it the same way.
+
+# Session 2026-11-20 · ENV-04 · Codex and SR on noema#730 (IL)
+- The rulings behind the conditions are committed now: A323 and A325 in `docs/decisions/DEC-2026-11-18-architect-rulings-a317-a328.md`, A354 and A355 in `DEC-2026-11-19-architect-rulings-a341-a357.md`. The earlier line "the rulings are not yet committed" is superseded by those records. Gap against A323's text: A323 says the stack-check also checks `/readyz` and the netcheck; as built it checks that every service is running and, where it has a health check, healthy. `/readyz` and the netcheck are not in the workflow yet (follow-up).
+- Codex P2 (the evidence's unknown-correlation probe made the request record NOT MET): a request of kind `probe` may name a correlation outside the run; a `reconstruction` or `case` request may not.
+- Codex P2 (the stamp's run id is a digit run the artifact scan found): one anchored allow pattern for the `"run_id"` line (14 patterns). The SHA is one hexadecimal token, which the digit rule does not read as a run, so it needs none.
+- Not changed: `print` in the CI checkers (AGENTS §7's rule is for service code; every `tools/ci` CLI writes its result to stdout, 54 call sites), and the request-record writer (BO's, agreed by message; until it exists a full run is NOT RUN, never a pass).
+
+# Session 2026-11-20 · ENV-04 · A445 on noema#730: readiness reported by the stack-check (IL)
+- The stack-check now reports `/readyz` (asked from the runner, on the core's network) and the static netcheck (`deploy/compose/netcheck/profiles.py`) in the job log, the Summary and step outputs. `READINESS_REQUIRED` in the Result step is `"false"` now; the final composition PR flips it, after which a core that does not answer 200 or a failing netcheck fails the stack-check (A445, interim). The `print` rule is for `services/` (A445): Codex's P1 on this PR is answered on that ruling.
+- Not verified: no live run; the runner's `http.client` call and the netcheck on the Actions runner.
+
+# Session 2026-11-20 · ENV-04 · BO's package step (A444, noema#821; IL)
+- A `package` step after the evidence and before the leak scan (full mode): `python -m benchmark.runner.package_artifacts --run /bench-out/run --sha $GITHUB_SHA --run-id $GITHUB_RUN_ID --probes /bench-out/evidence/negative-probes.json` in the runner container. It writes `stamp.json` and `mock-case-writes.json` into the run directory (so they are scanned and uploaded) and stamps the probes file. The Result step fails the run unless it exits 0 (1: a case whose writes could not be counted; 2: unusable input). Depends on noema#821 merging first: until the module exists a full run fails at this step.
+- `reconstructions.json` and `requests.jsonl` stay BO's (runner writers).
+
+# Session 2026-11-19 · ENV-04 · the A356 bench settings and the per-tenant Trust login files (IL)
+- `bench-stack.yml`: the A356 table as bench core values (`NOEMA_TRUST_AT_RISK_BPS` removed as corrected: trustlimits reads it from the pack), the three paths, and a one-shot `trust-dsn-init` (no network, root, secret `noema_tenant_login_password`) that writes one `trust_rw__<tenant>` DSN file per tenant into the `trust_dsns` volume at mode 0400, owner 65532; the core mounts it read-only and waits for the step.
+- netcheck: `trust-dsn-init` is a sidecar exempt by exact name (`ONE_SHOT_NAMES`); only postgres and that step hold the password; only that step (writable) and the core (read-only) mount the volume; the core's A356 values are checked by number; 10 new self-test mutations (124, all caught).
+- Not done here (waits): `policy-publish` and `tenant-init` one-shots (C1's script and #771 are not on main; the core-trust key provisioning script is not found), `NOEMA_PACK_MANIFEST` (needs the core's loader), `NOEMA_GRANT_KEY_DIR` is set but unread until EL wires it.
+- Not run locally: `trust-dsn/test_init.py` (needs Linux; no Docker daemon here): CI is its proof.
+
+# Session 2026-11-19 · ENV-04 · the optional Intron key mount (A377 to A379, IL)
+- `deploy/compose/bench-intron.yml` (optional overlay, added by `make bench-up` only when `NOEMA_BENCH_INTRON_KEY_FILE` is set): `INTRON_API_KEY_FILE=/run/intron/key` and one read-only bind of the host file into the model service. No dummy file, no environment variable for the key. Facts from Voice (noema#689's reader): unset means the provider is not registered and the service starts; a set variable with a bad file fails at call time; the file needs mode 0600 or 0400 and owner uid 10001.
+- netcheck resolves the bench stack with the overlay too and checks it (variable and mount together, bench only, one read-only bind of one file at that path, never a folder or volume; the core cannot mount it); 8 new mutations (132 total, all caught).
+- Not done: the workflows' own compose commands do not add the overlay (no Environment file path yet); the bench Environment writing the file, owned by the user the bench model runs as (the invoking user, NOEMA_BENCH_UID, not 10001; Codex on noema#790), is the runner's step when the key exists.
+
+# Session 2026-11-20 · ENV-04 · SR's two hardening items on noema#790 (IL)
+- `trust-dsn-init` now has `cap_drop: [ALL]` and `cap_add: [CHOWN, FOWNER, SETUID, SETGID]` (give the file to the core's user, set its mode after it is no longer the step's own, read it back as that user), and the read-back child drops supplementary groups (`os.setgroups([])`) before `setgid`/`setuid`. netcheck requires exactly that set (3 mutations; 135 in all, caught) and the overlay text rule now fails on no input (checked by the self-test).
+- Not verified at run time: no Docker daemon here. If a capability is missing the step fails closed and the core does not start; the first stack-check shows it. `grant-keys-init` (merged) has neither hardening; a follow-up is SR's call.
+
+# Session 2026-11-20 · ENV-04 · Codex and SR on noema#790 (IL)
+- Codex P1 (fresh checkout, `NOEMA_TENANTS` unset): postgres and `trust-dsn-init` fell back to the stand-in tenant but `secrets_local.sh` read only `NOEMA_TENANTS`, so the emitter-login secret was never made and `init.sh` refused. `make bench-up` now uses one effective list (`BENCH_TENANTS`, NOEMA_TENANTS else BENCH_TENANT) for the secret step and for Compose; `deploy/compose/test_bench_tenants.py` (run in `compose-scripts`) reads the real Makefile and overlay. Not done and not mine to guess: mapping the tenant logins in the database (`provision-tenants.sh` after the migrations) is C2's compose sequencing.
+- Codex P2 (the key file owner): `bench-model.yml` runs the model as the invoking user, so the key must be owned by that user, not by 10001. The overlay comment, the README and this file say so. Voice's "10001" was the image's own user.
+
+# Session 2026-11-20 · ENV-04 · A445 on noema#790 (IL)
+- `NOEMA_PACK_MANIFEST=fintech/manifest.v1.json`, `NOEMA_PACK_MAX_BYTES=1048576`, `NOEMA_PACK_MAX_DEPTH=32` in the bench core settings (the Architect's bench values; the largest pack file is 64,069 bytes), checked by number in netcheck (137 mutations). `secrets_local.sh` makes the core-trust signing seed (`secrets/core_trust_ed25519_seed_1`, 64 lower-case hexadecimal, mode 600, kept on a second run, never printed): the form `signing.LoadRing` reads from `core-trust.ed25519.<version>.key`. A one-shot that sets its mode and owner, the `policy-publish` step and the netcheck rule "no other service lists or mounts the core-trust slot" come with #771 and C1's tenant-init: there is no consumer to mount it yet, and no Compose secret names it, so nothing holds it.
+- Not run here: `test_secrets_local.sh` (the whole script exceeds my local time limit on Windows); the new lines were checked in isolation.
+
+# Session 2026-11-19 · ENV-04 G1 evidence: SR's two first-dispatch conditions (noema#436, A323)
+## Session summary
+- What changed: `benchmark/runner/evidence.py` (each probe has its own principal, letters only; the unknown correlation is recorded; new `record-access` command), `benchmark/runner/test_evidence.py`, `.github/workflows/bench-g1-stack.yml` (job-log capture, `access` step, show step after a clean scan, Result fails on the access check), `benchmark/runner/test_g1_workflow.py`.
+- Why: SR's conditions of 15 Nov: (1) the core's access log must show the reconstruction handler ran for the control and the unknown-correlation probe and for no refusal; (2) the job log is as public as an artifact, so runner, generator, scorer and evidence output goes to files that the leak scan covers and is shown only after a clean scan.
+- Risks, and how they are contained: the workflow is IL's file (A323); this edit is the conditions only, no smoke mode. `make bench-up` output (image builds, paths) still goes to the job log: it carries no case data. A probe principal has no digit, so it adds no digit run to the core log or the scan.
+- Tests added (REQ-SEC-004, INV-12, INV-22; criterion 9 of noema#436): `test_evidence.py` (ProbePrincipals, RecordAccess: 9 tests), `test_g1_workflow.py` (3 tests). Mutants: 12 of the evidence logic and 7 of the workflow, each killed.
+## Pre-work for the next agent
+- Exact next step: IL merges main into the smoke-mode change over these step names; the first dispatch counts only after Codex, SR and a Founder.
+- Do not touch: the leak scan's planted kinds.
+
+# Session 2026-11-20 · ENV-04 · noema#730 merged with main (IL)
+- Merged `origin/main` once (A468: a merge-main commit voids nothing). Main now has noema#727's design: the runner, generator, scorer and evidence write to `benchmark/out/joblog/*.log` (nothing they print reaches the job log), and a `record-access` evidence step (criterion 9, second half; step id `access`). This PR keeps both: that step now runs in full mode only, and the request-record count of A354 is a separate step `count` (`tools/ci/g1_record_access.py --requests`). Every `$compose exec` of this PR (the `/readyz` probe, the generator, the evidence stamps and BO's `package_artifacts`) ends in a joblog redirect, as main's test requires.
+- The stack-check's `/readyz` answer is read from `benchmark/out/joblog/readyz.log`; the allow file has 15 patterns (main's 14 plus the stamp's `run_id` line); `evidence.py` takes `--sha`/`--run-id` on fault-plans and probes and still takes none on `record-access`.
+- Offline: `test_g1_workflow` and `test_evidence` (66), `test_g1_record_access` 14, `test_g1_leakscan` 16, lint OK. Not run: the workflow.
+- Codex P2 (the package step called Compose without `NOEMA_BENCH_OUT`, `NOEMA_BENCH_UID`, `NOEMA_BENCH_GID` and `NOEMA_BENCH_MAX_BODY_BYTES`, which bench-stack.yml requires): the step now exports the same four, and a test requires them in every step that defines the compose command (red first).
+
+# Session 2026-11-20 · ENV-04 · Codex's `.env` finding on noema#790 (IL)
+- Codex P2 (twice): the stand-in fallback overrode a tenant list set only in Compose's `.env`. `deploy/compose/bench_tenants.sh` now gives the one effective list (the shell, then `.env`, then the stand-in tenant; an empty result is no list) and `make bench-up` passes it to `secrets_local.sh` and to Compose (`BENCH_TENANTS`). `test_bench_tenants.py` runs the script on ten cases (shell wins, `.env` only, quoted, comment, look-alike, empty shell value, the fallback as an argument) and reads the real Makefile. Merged main once (conflict only in `compose-scripts.yml`, both sides kept).
+
+# Session 2026-11-20 · ENV-04 · the independent reads of noema#790 at `8e4865e7` (IL)
+- SR P2 and C1 P2: the tenant list is pasted into the recipe as text, so a `.env` value with a quote or a `$(...)` would run as shell. `bench_tenants.sh` now checks every word (and the stand-in tenant) against the tenant shape and prints nothing and exits non-zero otherwise; `bench-up` stops on an empty list before anything runs. A test with fifteen hostile values, in the shell and in `.env`, was written first and failed.
+- C1 P3 (1): `trust-dsn-init` removes the DSN file of a tenant that left the list and stops on any entry that is not a tenant file (tests written first; Linux-only, so CI is their proof). P3 (2): noted in the README (a 600 secret needs another mount). P3 (3): the stand-in tenant must be in the list (refused otherwise). P3 (4) and (5): the body and the README are updated; `test_secrets_local.sh` is run by CI (my host cannot run it in full).
+- EL: the body is brought to the current head and says SR should read the delta since `fc50470d`.
+
+# Session 2026-11-20 · ENV-04 · the independent reads of noema#730 at `527fa32e`, and the merge (IL)
+- Merged `origin/main` once (conflict only in this file; both sides kept; main now has noema#821, so BO's writers are in).
+- C1 P3 (3), EL: `--no-digit-rule` kept the Luhn-valid card-number rule on (a run id has 11 digits and cannot be a card of 13 to 19); it turns off only the generic digit-run and the ten-digit account rules. The probe now plants and requires `card_number` in that mode too. Tests first (red): scanner, probe, wrapper mutants for the new kind, and a card number in the public job log.
+- C1 P3 (2): the standing `"run_id"` allow pattern (any 20 digits) is gone (14 patterns again); the scan step builds this run's allow file (the standing one plus one line that names `$GITHUB_RUN_ID` exactly), so only this run's own id passes under that key. Tests first: the exact id passes, a different 11-digit id, a 20-digit string and a doubled id are found.
+- C1 P3 (1): the `count` step's comment no longer claims a control read per case (that is the `access` step's check). EL: `READINESS_REQUIRED` has an owner (IL, noema#436) and its flip is the final composition PR's (A445).
+- Not changed: the task id (`ENV-04` is the G1 stack workflow's name in this repository's history; the plan row of that id is different: the Steward can re-point it).
+
+# Session 2026-11-20 · ENV-04 · A477 and the lower-case tenant list on noema#790 (IL)
+- A477 (docs#213, interim): the gateway, worker and recovery bench values are in the bench core's settings and in netcheck's table by number (`NOEMA_INPUT_DEDUP_WINDOW` 5m, `NOEMA_INPUT_RECORD_TIMEOUT` 5s, queue 64, workers 1, run timeout 180000, start timeout 30000, `NOEMA_EDGE_KEY_MAX_ACTIVE` 2, activity timeout 240000, drain 30000, recovery idle 240000, batch 50). `settings_order_problems` checks the ordering the loaders enforce (activity and recovery idle each above the run timeout); 141 mutations. A475's lifetimes (grant 60 s, record 60 s, transaction 10 s) are not added: their setting names are not yet on `main`.
+- Item 6 (C1's P2): every word of the tenant list must match `^[a-z0-9_]+$` before the tenant shape is checked, so an upper-case word is refused. My earlier hostile-value tests were weaker than they looked (a single-word list also failed for lacking the stand-in tenant); each hostile value is now tried alone and beside the stand-in tenant, and `ten_AB9` failed first.
+- Not added (names or shapes not final): the core-edge key seed, the input hash key and the edge DSN one-shot (A469 to A485 item 3: file-mounted, owner-only, mode 0400; EL states a loader's different mode in its PR), and the migrate and tenant-init one-shots (noema#846 is ready; noema#852 is a draft with two open decisions).
+
+# Session 2026-11-21 · ENV-04 · the core restart and the re-read phases in the stack job (A476, A502; IL)
+- A476 (corrected by A502): the recovery trigger is a restart of the core container (the core runs one recovery sweep at startup). Three full-mode steps between the evidence and the package: `restart` (`docker compose restart core`), `recovery` and `replay` (BO's `reread --phase after_recovery` and `--phase after_replay`, noema#854: each waits for `/readyz` 200 with a 120 s bound, reads every case's reconstruction through the audit-only route as an audit session of the run's own IdP, and `after_replay` requires the bytes to equal the first read). The Result step fails the run unless each exits 0. No credential file and no seeded principal (A502). The 120 s bound is a run setting I chose, not a ruling: BO may change it with a one-line test change.
+- Depends on noema#854 merging first: until `benchmark.runner.reread` is on `main`, a full run fails at `recovery` with NOT RUN. The stack-check mode does not run these steps.
+- Not verified: the workflow itself (no Actions or Docker here); `docker compose restart` on the runner and the core's recovery sweep at startup (EL's, noema#789 merged).
+
+# Session 2026-11-22 · ENV-04 · noema#876 (IL)
+- The two re-read steps take the five IdP flags from `benchmark/out/idp/runner-args` (written by `make bench-tokens`; host paths mapped to `/bench-out`), never `--tokens-dir` (A517). `--artifact-files` belongs to BO's package renderer (noema#875, not on main): the stamped list is added when #875 merges.
+
+# Session 2026-11-21 · ENV-04 · the A506 rows for the final composition (IL)
+- A506 (docs#222, interim): every row the core reads at the heads of noema#838, main and noema#847 is in the bench core's settings and in netcheck's table by value (paths, the two key max-active values, the Temporal namespace, task queue and CA file, the escalation graph, the Recorder's lifetimes), with the grant-not-above-record ordering. `trust-dsn-init` now has one job per DSN directory (four; the edge login uses its own per-login secret); a new one-shot `core-keys-init` writes the two signing-key files and the input hash key (64 hex, 0400, owner 65532); `secrets_local.sh` makes the three values. Netcheck: every DSN and key volume has one writer and the core as its only (read-only) reader, the key values are held by `core-keys-init` only, the emitter secrets by postgres and `trust-dsn-init` only, the Temporal client certificate and key and `NOEMA_WRITE_SWAP_DECISIONS` are never set. 157 mutations (16 new), all caught.
+- Values that are EL's proposals, not rulings: the Recorder lifetimes (noema#847's body; the Founder confirms). Not added: `NOEMA_TRUST_AT_RISK_BPS` (the pack's), anything test-only.
+- Not verified: the Linux-only tests (`trust-dsn/test_init.py` 14, `core-keys/test_init.py` 7, `test_secrets_local.sh`) and the stack; no Docker daemon here. Whether the core loads what the init writes needs noema#838 on `main` (noema#692).
+
+# Session 2026-11-22 · ENV-04 · noema#874 reopened as a clean branch (A429, A509; IL)
+- noema#874's `checks` job failed on gitleaks (1 leak in my commit): the test literal `EDGE_PASSWORD = "<24 hex characters>"` (a high-entropy value on a name that says PASSWORD). A429 says a PR whose history carries a key-shaped test string is closed and reopened from a fresh branch with the clean tree, with no ignore line and no rewrite; so #874 is closed and this branch carries one commit with a readable placeholder (`synthetic-edge-login-secret`, which still meets the 16-character rule).
+- Codex P1 (the key initializer cannot read secrets that keep the host user's ownership and mode 0600 once every capability is dropped): `core-keys-init` adds `DAC_READ_SEARCH` (reads any file, writes none; never `DAC_OVERRIDE`), netcheck requires exactly that set and has two new mutations (159). Not testable without root and a differently-owned source (CI runs as a non-root user), so the netcheck rule and the first stack-check are the proof; `trust-dsn-init` is unchanged (its secrets are mode 644).
+- A509: the DSN files are mode 0400 owned by uid 65532 (the core's uid): unchanged, tested in `trust-dsn/test_init.py`.

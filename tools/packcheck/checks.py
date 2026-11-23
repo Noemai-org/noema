@@ -1,6 +1,6 @@
 """packcheck: every pack check, with one code path for the command line, the tests and CI (SoT 15.4, REQ-CAP-001, REQ-AG-001, REQ-AG-002).
 
-Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, reasons, templates, conformance.
+Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, roles, reasons, templates, conformance.
 Not checked here: 'a capability has no benchmark cases' (AGENT-06): no benchmark case set exists yet.
 """
 from __future__ import annotations
@@ -216,6 +216,79 @@ def check_predicates(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     return out
 
 
+def slot_type(slot: dict) -> predicate.Type:
+    """The predicate type of an intent node's slot: a Reference with a closed vocabulary is an Enum of it, any other slot is opaque (compared only with null or, for a Reference, a string)."""
+    if slot["type"] == "Reference":
+        return ("Enum", frozenset(slot["vocabulary"])) if slot.get("vocabulary") else predicate.REF
+    return (slot["type"],)
+
+
+def check_write_when(pack: dict) -> list[Problem]:
+    """A364 (interim, relayed): an intent node's `write_when` is a predicate over the node's own slots (an absent slot is null): it parses, is Boolean and names only those slots."""
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        if "write_when" not in n:
+            continue
+        where = f"{n['node_id']}.write_when"
+        try:
+            t = predicate.check(n["write_when"], predicate.Scope({}, {s["name"]: slot_type(s) for s in n["slots"]}))
+        except predicate.PredicateError as exc:
+            out.append(("predicate", f"{where}: {exc}"))
+            continue
+        if t != predicate.BOOL:
+            out.append(("predicate", f"{where}: must be Boolean, found {t[0]}"))
+    return out
+
+
+def check_graph_params(pack: dict, graphs: dict[str, dict], pack_dir: Path) -> list[Problem]:
+    """A369 (interim, relayed): a node that declares `params` declares exactly the inputs of its capability (every required input covered, no extra), once each; its slots and map keys
+    are the intent nodes' own, its map values are `case_reasons`, its facts are declared predicate variables and its policy params are carried by a PERMIT rule of the capability (and
+    an owner_queue is in the routing allowlist). A node without `params` declares none (absent means no params)."""
+    out: list[Problem] = []
+    out += [("reasons", f"case_reasons: duplicate code {c!r}") for c in sorted({r["code"] for r in pack.get("case_reasons", [])}) if [x["code"] for x in pack["case_reasons"]].count(c) > 1]
+    codes = {r["code"] for r in pack.get("case_reasons", [])}
+    slots = {s["name"]: s for n in pack["intent_nodes"] for s in n["slots"]}
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    allow = set(pack.get("routing_allowlist", []))
+    for g in graphs.values():
+        for n in g["nodes"]:
+            if "params" not in n:
+                continue
+            where = f"{g['graph_id']}.{n['node_id']}"
+            names = [p["name"] for p in n["params"]]
+            out += [("graph", f"{where}: declares param {d!r} more than once") for d in sorted({x for x in names if names.count(x) > 1})]
+            cap = caps.get(n["capability_id"])
+            if cap is None:
+                continue
+            path = pack_dir / cap["input_schema"]
+            if not path.is_file():
+                out.append(("graph", f"{where}: the input schema {cap['input_schema']} of {cap['capability_id']} does not exist"))
+                continue
+            schema = validate.load_strict(path)
+            out += [("graph", f"{where}: required input {r!r} of {cap['capability_id']} has no param") for r in schema.get("required", []) if r not in names]
+            out += [("graph", f"{where}: param {x!r} is not an input of {cap['capability_id']}") for x in sorted(set(names)) if x not in schema.get("properties", {})]
+            for p in n["params"]:
+                if "slot" in p and p["slot"] not in slots:
+                    out.append(("graph", f"{where}: param {p['name']!r}: {p['slot']!r} is not a slot of any intent node"))
+                if "map" in p:
+                    m = p["map"]
+                    if m["from"] not in slots:
+                        out.append(("graph", f"{where}: param {p['name']!r}: {m['from']!r} is not a slot of any intent node"))
+                    else:
+                        vocab = set(slots[m["from"]].get("vocabulary", []))
+                        out += [("graph", f"{where}: param {p['name']!r}: map key {k!r} is not in the vocabulary of slot {m['from']!r}") for k in m["values"] if k not in vocab]
+                    out += [("graph", f"{where}: param {p['name']!r}: map value {v!r} is not in case_reasons") for v in m["values"].values() if v not in codes]
+                if "fact" in p and p["fact"] not in pack.get("predicate_variables", {}):
+                    out.append(("graph", f"{where}: param {p['name']!r}: fact {p['fact']!r} is not a declared predicate variable"))
+                if "policy_param" in p:
+                    carriers = [r for r in pack["policy"]["rules"] if r["effect"] == "PERMIT" and cap["capability_id"] in r["applies_to"] and p["policy_param"] in r.get("params", {})]
+                    if not carriers:
+                        out.append(("graph", f"{where}: param {p['name']!r}: no PERMIT rule of {cap['capability_id']} carries policy param {p['policy_param']!r}"))
+                    if p["policy_param"] == "owner_queue":
+                        out += [("graph", f"{where}: policy owner_queue {r['params']['owner_queue']!r} of {r['rule_id']} is not in routing_allowlist") for r in carriers if r["params"]["owner_queue"] not in allow]
+    return out
+
+
 def check_graphs(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     out: list[Problem] = []
     caps = {c["capability_id"]: c for c in pack["capabilities"]}
@@ -308,6 +381,20 @@ def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
             component[find(e["node_id"])] = find(e["depends_on"])
         if len({find(i) for i in known}) > 1:
             out.append(("graph", f"{gid}: the graph is not connected by its edges (a list of endpoints is not a graph)"))
+    return out
+
+
+A1_ROLES = frozenset({"customer", "ops", "approver", "audit"})
+
+
+def check_approver_roles(pack: dict) -> list[Problem]:
+    """A377 (interim, relayed): ROLE:<role> names one of the four A1 roles. Read from a policy rule's approver_requirement and a trust profile's approvals."""
+    out: list[Problem] = []
+    found = [(f"{r['rule_id']}.approver_requirement", (r.get("params") or {}).get("approver_requirement")) for r in pack["policy"]["rules"]]
+    found += [(f"{t['profile_id']}.approvals", a) for t in pack["trust_profiles"] for a in t.get("approvals", [])]
+    for where, value in found:
+        if isinstance(value, str) and value.startswith("ROLE:") and value[len("ROLE:"):] not in A1_ROLES:
+            out.append(("roles", f"{where}: {value!r} names a role outside {sorted(A1_ROLES)}"))
     return out
 
 
@@ -437,7 +524,10 @@ MANIFEST_KINDS = {
     "pack": ("", "fintech_v*.json"),
     "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
     "recon_rules": ("fintech/recon_rules", "*.json"),
+    "action_graph": ("fintech/graph", "*.json"),  # A510
 }
+# The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
+SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
 WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -474,6 +564,30 @@ def _manifest_id(doc: dict, id_key: str) -> str | None:
     return f"{value}@{version}"
 
 
+def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Problem]:
+    """A510: the action graphs the manifest pins are exactly the ones the verified pack file names in `action_graph_files`, so no graph is served unpinned and none is pinned for nothing."""
+    if pack_file is None:
+        return []
+    try:
+        body = json.loads(pack_file.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return [("manifest", "the pack file is not valid JSON, so the graphs it names cannot be read")]
+    named = body.get("action_graph_files") if isinstance(body, dict) else None
+    if named is None:
+        named = []
+    if not isinstance(named, list) or not all(isinstance(n, str) for n in named):
+        return [("manifest", "the pack file's action_graph_files is not a list of paths")]
+    out: list[Problem] = []
+    if len(set(named)) != len(named):
+        out.append(("manifest", "the pack file names an action graph twice"))
+    pinned_paths = {f["path"] for f in pinned}
+    for rel in sorted(set(named) - pinned_paths):
+        out.append(("manifest", f"{_shown(rel)} is an action graph the pack names and the manifest does not pin"))
+    for rel in sorted(pinned_paths - set(named)):
+        out.append(("manifest", f"{_shown(rel)} is pinned as an action graph and the pack does not name it"))
+    return out
+
+
 def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
     evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
@@ -499,7 +613,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     files = doc["files"]
     by_kind: dict[str, list[dict]] = {k: [f for f in files if f["kind"] == k] for k in MANIFEST_KINDS}
     for kind, entries in by_kind.items():
-        if len(entries) != 1:
+        if kind in SINGLE_KINDS and len(entries) != 1:
             out.append(("manifest", f"the manifest must list exactly one {kind} file, it lists {len(entries)}"))
     seen: set[str] = set()
     readable: dict[str, Path] = {}
@@ -552,6 +666,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
                     continue
                 suffix = " (a symlink)" if full.is_symlink() else ""
                 out.append(("manifest", f"{rel}{suffix} is a {kind} file and is not listed in the manifest"))
+    out += _graph_set_problems(by_kind["action_graph"], readable.get("pack"))
     expected = doc["expected"]
     for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id")):
         path = readable.get(kind)
@@ -593,8 +708,8 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs)
-    problems += check_graphs(pack, graphs) + check_graph_permits(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack)
+    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     if templates == "enforce":

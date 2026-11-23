@@ -117,3 +117,19 @@ def test_a_named_pipe_is_refused_without_blocking_on_open(tmp_path: Path) -> Non
         worker.join(timeout=5.0)
         pytest.fail("opening a named pipe blocked")
     assert len(outcome) == 1 and isinstance(outcome[0], KeyFileError)
+
+
+@POSIX
+def test_a_file_owned_by_someone_else_than_the_effective_user_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # SR on noema#689: the SEC-09 loader pattern
+    path = write(tmp_path, SYNTHETIC)
+    owner = os.geteuid()  # type: ignore[attr-defined,unused-ignore]
+    monkeypatch.setattr(os, "geteuid", lambda: owner + 1)  # the reader runs as another user than the file's owner
+    with pytest.raises(KeyFileError) as caught:
+        key_reader({ENV_KEY_FILE: str(path)})()
+    assert SYNTHETIC not in str(caught.value) and str(path) not in str(caught.value)
+
+
+@POSIX
+def test_a_file_owned_by_the_effective_user_is_accepted(tmp_path: Path) -> None:
+    path = write(tmp_path, SYNTHETIC)
+    assert key_reader({ENV_KEY_FILE: str(path)})() == SYNTHETIC

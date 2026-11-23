@@ -17,6 +17,7 @@ from typing import Any
 
 from benchmark.bakeoff.budget import BudgetExceeded, BudgetGuard, projected_micros
 from benchmark.compile_acceptance.golden import Golden, canonical_input
+from benchmark.compile_acceptance.record_only import RecordOnlyInput
 from benchmark.compile_acceptance.recording import Recorder
 from benchmark.compile_acceptance.runner import CompileFailed
 
@@ -26,7 +27,9 @@ LEXICON_FILE = ROOT / "packs" / "fintech" / "lexicons" / "fin.lex.en_ng.json"
 MASKING_LIMITS = ROOT / "packs" / "fintech" / "limits" / "masking_limits.json"
 OUT_OF_SCOPE_NODE = "fin.meta.out_of_scope"
 # Settings of this run, not safety thresholds: the pool is the number of provider calls that may be in flight at once; the three bounds are the compile service's own (noema#635 reads them from a file).
-POOL_SIZE = 4
+# The pipeline starts five calls together (run.py step 2) and a full pool refuses a call at once, so the pool is five plus one spare for a call whose caller timed out and whose thread still holds its
+# worker. Four refused the injection screen in run 44521380842 (UND-16); test_pool.py reads the five from the pipeline.
+POOL_SIZE = 6
 COMPILE_TIMEOUT_S = 240.0
 MAX_PROPOSAL_BYTES = 65_536
 MAX_REQUEST_BYTES = 65_536
@@ -66,7 +69,9 @@ class RecordingTransport:
             reply = await self._inner.post(url, headers, body, timeout_s, max_bytes)
         except errors.ProviderError as err:
             self._guard.settle(None, projected)
-            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=err.kind.name, projected_micros=projected, cost_micros=projected)
+            # A372: a refusal that came from this service's own full pool (`local`: nothing was sent) is its own label, not a provider outage. Accounting is unchanged (open question in the PR).
+            label = "POOL_REFUSED" if err.local else err.kind.name
+            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=label, projected_micros=projected, cost_micros=projected)
             self.calls += 1
             raise
         actual = _usage_micros(reply.body, self._in, self._out)
@@ -118,13 +123,24 @@ class LiveBackend:
 
     async def compile_one(self, g: Golden) -> Mapping[str, Any]:
         types = import_module("noema_model.understanding.resolution")
-        self._transport.case_id = g.case_id
-        self._recorder.case_id = g.case_id
-        self._candidates.rows = tuple(
-            types.Candidate(f"c{n}", f"fin.transaction:TX{chr(ord('A') + n)}", amount, "NGN", CANDIDATES_AT, who, "0001", "OUTGOING", True) for n, (who, amount) in enumerate(g.candidates))
+        rows = tuple(types.Candidate(f"c{n}", f"fin.transaction:TX{chr(ord('A') + n)}", amount, "NGN", CANDIDATES_AT, who, "0001", "OUTGOING", True) for n, (who, amount) in enumerate(g.candidates))
+        return await self._compile(g.case_id, canonical_input(g), rows)
+
+    async def record_one(self, inp: RecordOnlyInput) -> Mapping[str, Any]:
+        """One input of the record-only pass (A361, A372, A439, A460): the same service and recorder, the canonical input the core's Interpreter port built (the fixture's), and the candidates of the case's world
+        rows (BO's file), newest first, so the candidate source answers what the core's would. Nothing is invented for it."""
+        types = import_module("noema_model.understanding.resolution")
+        rows = tuple(types.Candidate(r["candidate_id"], r["resource_ref"], r["amount_minor"], r["currency"], datetime.strptime(r["occurred_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC),
+                                     r["counterparty_display"], r["account_last4"], r["direction"], r["beneficiary_alias_match"]) for r in inp.candidates)
+        return await self._compile(inp.case_id, inp.canonical, rows)
+
+    async def _compile(self, case_id: str, canonical: Mapping[str, Any], rows: tuple[Any, ...]) -> Mapping[str, Any]:
+        self._transport.case_id = case_id
+        self._recorder.case_id = case_id
+        self._candidates.rows = rows
         compiler = import_module("noema_model.understanding.compiler.service")
         try:
-            return dict(await self._service.run(canonical_input(g), self._pack_ref, None))
+            return dict(await self._service.run(dict(canonical), self._pack_ref, None))
         except (compiler.ProviderUnavailable, compiler.InputInvalid) as err:
             raise CompileFailed(f"the compile service gave no usable proposal ({type(err).__name__})") from None
 

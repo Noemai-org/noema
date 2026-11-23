@@ -5,7 +5,7 @@
 // sealed one or not an object, and an item that is not KNOWN are each evidence that cannot satisfy a rule. Every item is required (A245). The time is the injected clock's; the answer is a
 // function of the items, the rule set and the mapping (INV-21), so the same evidence in any order gives the same reconciliation id.
 //
-// May import: the standard library, evidence/layer, evidence/payloadread, evidence/readseal, platform/clock, trust/reconcile and its mapping (pure packages).
+// May import: the standard library, evidence/layer, evidence/payloadread, evidence/readseal, evidence/snapshot (the Fact type), internal/predicate (the mapped values), platform/clock, trust/reconcile and its mapping (pure packages).
 //
 // Must never: read a store itself (the payload reader is given), call a model, decide what a classification allows (Trust does), put a payload, a store's error text or a connection string in an
 // error message, or default anything it was not given.
@@ -24,7 +24,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/evidence/readseal"
+	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/internal/predicate"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile/mapping"
@@ -114,36 +116,125 @@ func (r *Reconciler) check(it layer.Item, repeated bool, now time.Time) error {
 	return nil
 }
 
-// rows gives the evidence of one item: one per row of the rule set's vocabulary its source feeds. The payload is read only for a KNOWN item, since no other can satisfy a rule.
-func (r *Reconciler) rows(ctx context.Context, tenantID string, it layer.Item) ([]reconcile.Evidence, error) {
-	status := statuses[it.Status]
-	payload, trusted := map[string]any{}, false
-	if status == reconcile.Known {
+// itemRows is what one item gives the Reconciler, read once for Classify and for Facts: the rows the mapping gives for its source, the item's status, whether the payload they were
+// made from is the sealed one, and, when it is not, why. The payload is read only for a KNOWN item, since no other can satisfy a rule. A store or context failure is an error here.
+type itemRows struct {
+	mapped   []mapping.Row
+	status   reconcile.FactStatus
+	trusted  bool
+	unsealed error
+}
+
+func (r *Reconciler) itemRows(ctx context.Context, tenantID string, it layer.Item) (itemRows, error) {
+	out := itemRows{status: statuses[it.Status]}
+	payload := map[string]any{}
+	if out.status == reconcile.Known {
 		obj, err := r.c.Payloads.Payload(ctx, tenantID, it)
 		switch {
 		case err == nil:
-			payload, trusted = obj, true
+			payload, out.trusted = obj, true
 		case errors.Is(err, payloadread.ErrHashMismatch), errors.Is(err, payloadread.ErrNotObject), errors.Is(err, payloadread.ErrNotCanonical):
-			// the payload is not the sealed one, or not one object: the item is UNKNOWN, not an error (A260)
+			out.unsealed = err // the payload is not the sealed one, or not one object: the item is UNKNOWN, not an error (A260)
 		default:
-			return nil, &opError{kind: ErrRead, cause: err}
+			return itemRows{}, &opError{kind: ErrRead, cause: err}
 		}
 	}
 	mapped, err := r.c.Mapping.Rows(it.Source, payload)
 	if err != nil || len(mapped) == 0 {
-		return nil, ErrItem
+		return itemRows{}, ErrItem
+	}
+	out.mapped = mapped
+	return out, nil
+}
+
+// rowStatus is the status a row of the item has: a KNOWN item's row is UNKNOWN when the payload is not the sealed one or gave the row no field (absence is never a fact, INV-19).
+func (g itemRows) rowStatus(row mapping.Row) reconcile.FactStatus {
+	if g.status == reconcile.Known && (!g.trusted || len(row.Fields) == 0) {
+		return reconcile.Unknown
+	}
+	return g.status
+}
+
+// rows gives the evidence of one item: one per row of the rule set's vocabulary its source feeds.
+func (r *Reconciler) rows(ctx context.Context, tenantID string, it layer.Item) ([]reconcile.Evidence, error) {
+	g, err := r.itemRows(ctx, tenantID, it)
+	if err != nil {
+		return nil, err
 	}
 	expires := expiry(it)
-	out := make([]reconcile.Evidence, 0, len(mapped))
-	for _, row := range mapped {
-		st := status
-		if st == reconcile.Known && (!trusted || len(row.Fields) == 0) {
-			st = reconcile.Unknown
-		}
-		out = append(out, reconcile.Evidence{ID: it.EvidenceID + "/" + row.Entity, Source: it.Source, Entity: row.Entity, Status: st, EffectiveAt: it.EffectiveAt.Unix(), ExpiresAt: expires,
+	out := make([]reconcile.Evidence, 0, len(g.mapped))
+	for _, row := range g.mapped {
+		out = append(out, reconcile.Evidence{ID: it.EvidenceID + "/" + row.Entity, Source: it.Source, Entity: row.Entity, Status: g.rowStatus(row), EffectiveAt: it.EffectiveAt.Unix(), ExpiresAt: expires,
 			Required: true, Fields: row.Fields})
 	}
 	return out, nil
+}
+
+// ErrPayload marks an item whose stored payload is not the sealed one, is not one object or is not canonical: Classify turns it into an UNKNOWN row (A260); Facts, which a
+// confirmation's binding rests on, refuses it (A365 refined).
+var ErrPayload = errors.New(prefix + "the stored payload is not usable as the sealed one")
+
+// Facts gives the mapped, normalized facts of one evidence item (A365 refined, REQ-TRU-009, REQ-CTX-001, INV-25): one fact per row the evidence mapping gives for the item's source,
+// each with the status Classify gives the row (the item's, or UNKNOWN when a KNOWN item's payload gave the row no field) and the typed fields the payload gave. It is the same read
+// and the same mapping as Classify's (itemRows), so the facts are exactly what the decision rests on; a field the mapping does not look at is not in them. Their digest
+// (snapshot.FactsDigest) is what a confirmation's binding holds for the item.
+//
+// It needs no time and no freshness limit of the item, and no clock. Where Classify turns a payload that is not the sealed one into an UNKNOWN row, Facts refuses it with ErrPayload
+// (the cause is kept, never printed): a binding cannot rest on a payload that cannot be verified. A store or context failure is ErrRead; an item that cannot be used (no tenant, no
+// evidence id, no source, a status that is not one, a source the mapping does not know) is ErrItem. On any error the facts are nil.
+func (r *Reconciler) Facts(ctx context.Context, tenantID string, it layer.Item) ([]snapshot.Fact, error) {
+	if _, ok := statuses[it.Status]; !ok || tenantID == "" || it.EvidenceID == "" || it.Source == "" {
+		return nil, ErrItem
+	}
+	g, err := r.itemRows(ctx, tenantID, it)
+	if err != nil {
+		return nil, err
+	}
+	if g.unsealed != nil {
+		return nil, &opError{kind: ErrPayload, cause: g.unsealed}
+	}
+	out := make([]snapshot.Fact, 0, len(g.mapped))
+	for _, row := range g.mapped {
+		fields := make(map[string]snapshot.FactValue, len(row.Fields))
+		for name, v := range row.Fields {
+			fv, ok := factValue(v)
+			if !ok {
+				return nil, ErrItem
+			}
+			fields[name] = fv
+		}
+		out = append(out, snapshot.Fact{Entity: row.Entity, Status: factStatusName(g.rowStatus(row), it), Fields: fields})
+	}
+	return out, nil
+}
+
+// factStatusName is the contract's name of a row's status: the item's own, or UNKNOWN when the row was demoted.
+func factStatusName(rowStatus reconcile.FactStatus, it layer.Item) string {
+	if rowStatus == reconcile.Unknown {
+		return string(contracts.EnumsV1FactStatusUNKNOWN)
+	}
+	return string(it.Status)
+}
+
+// factValue is a mapped value as a typed fact value with canonical text. A null value, or a kind this does not know, is not a fact.
+func factValue(v predicate.Value) (snapshot.FactValue, bool) {
+	switch v.Kind {
+	case predicate.KindEnum:
+		return snapshot.FactValue{Kind: snapshot.KindEnum, Text: v.S}, true
+	case predicate.KindString:
+		return snapshot.FactValue{Kind: snapshot.KindString, Text: v.S}, true
+	case predicate.KindReference:
+		return snapshot.FactValue{Kind: snapshot.KindReference, Text: v.S}, true
+	case predicate.KindBoolean:
+		return snapshot.FactValue{Kind: snapshot.KindBoolean, Text: strconv.FormatBool(v.B)}, true
+	case predicate.KindInteger:
+		return snapshot.FactValue{Kind: snapshot.KindInteger, Text: strconv.FormatInt(v.I, 10)}, true
+	case predicate.KindTimestamp:
+		return snapshot.FactValue{Kind: snapshot.KindTimestamp, Text: strconv.FormatInt(v.I, 10)}, true
+	case predicate.KindDuration:
+		return snapshot.FactValue{Kind: snapshot.KindDuration, Text: strconv.FormatInt(v.I, 10)}, true
+	}
+	return snapshot.FactValue{}, false
 }
 
 // expiry is the end of the item's effective freshness: its read time plus the limit AssignStatus applied (the stricter of the source's and the profile's, INV-23), so no clock is needed for it.

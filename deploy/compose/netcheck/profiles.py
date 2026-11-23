@@ -131,9 +131,11 @@ NETWORKS = {
     "hostility-proxy-credentials": set(),
     "standin-credentials": set(),
     "grant-keys-init": set(),
+    "trust-dsn-init": set(),
+    "core-keys-init": set(),
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init"}
+SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
@@ -157,7 +159,7 @@ EXPECTED_SERVICES = {
     "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
@@ -179,6 +181,68 @@ MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" 
 # them into the `grant_keys` volume, which the CORE mounts read-only and nothing else mounts (Codex and SR on noema#700). Names only.
 GRANT_KEY_SECRETS = {"grant_hmac_key_a": "grant.hmac.1.key", "grant_hmac_key_b": "grant.hmac.2.key"}
 GRANT_INIT, GRANT_VOLUME = "grant-keys-init", "grant_keys"
+# A356 (interim, relayed): the bench core's settings with no default in code, the Architect's values, and the per-tenant Trust login DSN files. The tenant login password is a file secret held by
+# postgres (init.sh makes the logins) and by the one-shot trust-dsn-init step ONLY; that step writes the DSN files into the trust_dsns volume, which the core mounts read-only and nothing else
+# mounts. NOEMA_TRUST_AT_RISK_BPS is not here: trustlimits reads it from the pack. Changing a number is a ruling, not an edit (AGENT-16). Names and numbers only.
+BENCH_CORE_SETTINGS = {
+    "NOEMA_STORE_TIMEOUT_MS": "1000", "NOEMA_SEAL_TIMEOUT_MS": "1000", "NOEMA_COMPILE_TIMEOUT_MS": "3000", "NOEMA_READ_TIMEOUT_MS": "2000", "NOEMA_TRUST_DB_TIMEOUT_MS": "1000",
+    "NOEMA_TRUST_RECONCILE_TIMEOUT_MS": "1000", "NOEMA_GRANT_KEY_MAX_ACTIVE": "2", "NOEMA_DB_SERIALIZATION_ATTEMPTS": "3", "NOEMA_OUTBOX_INTERVAL_MS": "1000",
+    "NOEMA_GRANT_KEY_DIR": "/run/grant-keys", "NOEMA_PACK_DIR": "/run/packs", "NOEMA_TRUST_DSN_DIR": "/run/trust-dsn",
+    # A445 (interim): the pack bounds are the Architect's bench values (the largest pack file is 64,069 bytes); the manifest path is a setting, not a constant, because a fixed path would name a vertical in core.
+    "NOEMA_PACK_MANIFEST": "fintech/manifest.v1.json", "NOEMA_PACK_MAX_BYTES": "1048576", "NOEMA_PACK_MAX_DEPTH": "32",
+    # A506 (interim, from the code at the heads of noema#838, main and noema#847): the DSN, key and hash-key paths, the Temporal values, the escalation graph and the Recorder's lifetimes (EL's values in
+    # noema#847's body, the Founder to confirm).
+    "NOEMA_RECORD_READ_DSN_DIR": "/run/record-read-dsn",
+    "NOEMA_ORCHESTRATOR_DSN_DIR": "/run/orchestrator-dsn",
+    "NOEMA_EDGE_DSN_DIR": "/run/edge-dsn",
+    "NOEMA_ORCHESTRATOR_KEY_DIR": "/run/orchestrator-keys",
+    "NOEMA_EDGE_KEY_DIR": "/run/edge-keys",
+    "NOEMA_INPUT_HASH_KEY_FILE": "/run/input-hash/key",
+    "NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE": "2",
+    "NOEMA_TEMPORAL_NAMESPACE": "default",
+    "NOEMA_TEMPORAL_TASK_QUEUE": "noema-investigations",
+    "NOEMA_TEMPORAL_TLS_CA_FILE": "/run/tls/ca.crt",
+    "NOEMA_TRUST_ESCALATION_GRAPH": "fin.graph.escalate",
+    "NOEMA_TRUST_GRANT_LIFETIME_MS": "600000",
+    "NOEMA_TRUST_RECORD_LIFETIME_MS": "600000",
+    "NOEMA_TRUST_TX_TIMEOUT_MS": "10000",
+    # A477 (interim): the gateway, worker and recovery settings; Compose only, bench only, no code default. Durations are Go durations ("5m"), the others whole numbers.
+    "NOEMA_INPUT_DEDUP_WINDOW": "5m", "NOEMA_INPUT_RECORD_TIMEOUT": "5s", "NOEMA_INVESTIGATION_QUEUE": "64", "NOEMA_INVESTIGATION_WORKERS": "1", "NOEMA_INVESTIGATION_RUN_TIMEOUT_MS": "180000", "NOEMA_INVESTIGATION_START_TIMEOUT_MS": "30000", "NOEMA_EDGE_KEY_MAX_ACTIVE": "2", "NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS": "240000", "NOEMA_TEMPORAL_SHUTDOWN_DRAIN_MS": "30000", "NOEMA_STM_RECOVERY_IDLE_MS": "240000", "NOEMA_STM_RECOVERY_BATCH_SIZE": "50"
+}
+
+
+def settings_order_problems(values):
+    """The ordering constraints of A477, which the loaders enforce: the activity timeout and the recovery idle time must each exceed the investigation run timeout, or a live run could be picked
+    up twice. A value that is not a whole number is a problem too."""
+    try:
+        run = int(values["NOEMA_INVESTIGATION_RUN_TIMEOUT_MS"])
+        activity = int(values["NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS"])
+        idle = int(values["NOEMA_STM_RECOVERY_IDLE_MS"])
+    except (KeyError, ValueError):
+        return ["the run timeout, the activity timeout and the recovery idle time must be whole numbers of milliseconds (A477)"]
+    bad = []
+    if activity <= run:
+        bad.append("NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS must exceed NOEMA_INVESTIGATION_RUN_TIMEOUT_MS (A477)")
+    if idle <= run:
+        bad.append("NOEMA_STM_RECOVERY_IDLE_MS must exceed NOEMA_INVESTIGATION_RUN_TIMEOUT_MS (A477)")
+    try:
+        if int(values["NOEMA_TRUST_GRANT_LIFETIME_MS"]) > int(values["NOEMA_TRUST_RECORD_LIFETIME_MS"]):
+            bad.append("NOEMA_TRUST_GRANT_LIFETIME_MS must not exceed NOEMA_TRUST_RECORD_LIFETIME_MS (A506, A503)")
+    except (KeyError, ValueError):
+        bad.append("the grant and record lifetimes must be whole numbers of milliseconds (A506)")
+    return bad
+
+
+# A506: the DSN directories and the key directories. Each is written once by its one-shot (trust-dsn-init for the four DSN volumes, core-keys-init for the three key volumes) and mounted read-only by the
+# core and by nothing else; the three key values are held by core-keys-init only; the per-login emitter secrets are mounted by postgres and trust-dsn-init only.
+KEYS_INIT = "core-keys-init"
+DSN_VOLUMES = ("trust_dsns", "orchestrator_dsns", "record_read_dsns", "edge_dsns")
+KEY_VOLUMES = ("orchestrator_keys", "edge_keys", "input_hash")
+KEY_SECRETS = ("core_workflows_ed25519_seed_1", "core_edge_ed25519_seed_1", "input_hash_key")
+NEVER_SET = {"NOEMA_TEMPORAL_TLS_CERT_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client certificate stays unset (A506)",
+             "NOEMA_TEMPORAL_TLS_KEY_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client key stays unset (A506)",
+             "NOEMA_WRITE_SWAP_DECISIONS": "a test-only switch for the proposer-swap fixture, never a Compose setting (A506)"}
+TRUST_DSN_INIT, TRUST_DSN_VOLUME, TENANT_LOGIN_SECRET = "trust-dsn-init", "trust_dsns", "noema_tenant_login_password"
 # The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
 # server certificate, TEMPORAL_TLS_SERVER_CA_CERT the CA the in-process worker trusts, TEMPORAL_TLS_FRONTEND_SERVER_NAME the name it verifies) and the settings the image's CLI reads
 # to reach it (TEMPORAL_TLS, TEMPORAL_TLS_CA, TEMPORAL_TLS_SERVER_NAME). In that template TEMPORAL_TLS_SERVER_CA_CERT is ALSO the root of the internode CLIENT, so setting it makes the
@@ -190,10 +254,24 @@ BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
 BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
 
-def resolved(profile):
+INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
+
+
+def intron_overlay_text_problems(text):
+    """The overlay's own text must set bind.create_host_path: false (Voice): Compose creates a missing host path as an EMPTY DIRECTORY, and the key reader would then refuse it at every call with
+    no sign at start-up. It is read from the file, not from `docker compose config`, because older Compose versions do not print that key back."""
+    uncommented = chr(10).join(line.split(" #", 1)[0] for line in text.splitlines() if not line.lstrip().startswith("#"))
+    if not re.search(r"(?m)^\s+bind:[ \t]*" + chr(10) + r"\s+create_host_path:\s*false[ \t]*$", uncommented):
+        return [f"{INTRON_OVERLAY}: the key bind must set bind.create_host_path: false, or a wrong host path becomes an empty directory at the key path (A379)"]
+    return []
+
+
+def resolved(profile, with_intron=False):
     files = [str(COMPOSE_FILE)] + ([str(COMPOSE_FILE.parent / f) for f in BENCH_OVERLAYS] if profile == "bench" else [])
+    if with_intron:
+        files.append(str(COMPOSE_FILE.parent / INTRON_OVERLAY))
     cmd = ["docker", "compose"] + [a for f in files for a in ("-f", f)] + ["--profile", profile, "config", "--format", "json"]
-    out = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **BENCH_ENV} if profile == "bench" else None)
+    out = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **BENCH_ENV, **({"NOEMA_BENCH_INTRON_KEY_FILE": "/tmp/noema-intron-key"} if with_intron else {})} if profile == "bench" else None)
     if out.returncode != 0:
         raise SystemExit(f"docker compose config failed for profile {profile}: {out.stderr.strip()[:300]}")
     return json.loads(out.stdout)
@@ -230,7 +308,7 @@ def check(cfg, profile):
             # every three seconds: five-digit ports are digit runs, so a clean run would fail its own scan (Codex P1 on noema#591).
             bad.append(f"{profile}: the model's uvicorn must run with --no-access-log (its access log carries the client port, a digit run the leak scan would report)")
         for flag in ("privileged", "cap_add", "devices"):
-            if svc.get(flag):
+            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT)):  # the one-shot adds exactly four, checked by its own rule below
                 bad.append(f"{profile}: {name} sets {flag}")
         for flag in ("pid", "ipc", "userns_mode"):
             if svc.get(flag) == "host":
@@ -303,6 +381,56 @@ def check(cfg, profile):
                 bad.append(f"{profile}: {GRANT_INIT} must mount {GRANT_VOLUME} writable exactly once (SEC-09)")
             if str(svc.get("user", "")) not in ("0:0", "0", "root"):
                 bad.append(f"{profile}: {GRANT_INIT} must run as root to set the key file owner (SEC-09)")
+        # A356: the tenant login password and the DSN files it makes.
+        if TENANT_LOGIN_SECRET in held and name not in ("postgres", TRUST_DSN_INIT):
+            bad.append(f"{profile}: {name} holds {TENANT_LOGIN_SECRET}; only postgres and {TRUST_DSN_INIT} may (INV-29, A356)")
+        dsn_mounts = [v for v in vols if v.get("source") == TRUST_DSN_VOLUME]
+        if dsn_mounts and name not in ("core", TRUST_DSN_INIT):
+            bad.append(f"{profile}: {name} mounts the {TRUST_DSN_VOLUME} volume; only the core (read-only) and {TRUST_DSN_INIT} may (INV-29, A356)")
+        # A506: every DSN and key volume has one writer and one reader; the key values and the emitter secrets have their holders.
+        for volume, writer in [(v, TRUST_DSN_INIT) for v in DSN_VOLUMES] + [(v, KEYS_INIT) for v in KEY_VOLUMES]:
+            mounts = [v for v in vols if v.get("source") == volume]
+            if mounts and name not in ("core", writer):
+                bad.append(f"{profile}: {name} mounts the {volume} volume; only the core (read-only) and {writer} may (INV-29, A506)")
+            if name == writer and len([m for m in mounts if not m.get("read_only")]) != 1:
+                bad.append(f"{profile}: {writer} must mount {volume} writable exactly once (A506)")
+            if name == "core" and profile == "bench" and (len(mounts) != 1 or not mounts[0].get("read_only")):
+                bad.append(f"{profile}: the core must mount the {volume} volume exactly once, read-only (A506)")
+        for secret in KEY_SECRETS:
+            if secret in held and name != KEYS_INIT:
+                bad.append(f"{profile}: {name} holds the secret {secret}; only {KEYS_INIT} may (INV-29, A506)")
+        if any(str(v.get("source", "")).rstrip("/").endswith("emitter_logins") for v in vols) and name not in ("postgres", TRUST_DSN_INIT):
+            bad.append(f"{profile}: {name} mounts the per-login emitter secrets; only postgres and {TRUST_DSN_INIT} may (INV-29, A506)")
+        for setting, why in NEVER_SET.items():
+            if setting in (svc.get("environment") or {}):
+                bad.append(f"{profile}: {name} sets {setting}: {why}")
+        if name == KEYS_INIT:
+            if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "DAC_READ_SEARCH", "FOWNER", "SETGID", "SETUID"]:
+                bad.append(f"{profile}: {KEYS_INIT} must drop ALL capabilities and add back only CHOWN, DAC_READ_SEARCH, FOWNER, SETUID and SETGID: DAC_READ_SEARCH so it can READ the key secrets, which keep the host user's ownership and mode 0600 (Codex P1 on noema#874); never DAC_OVERRIDE (A506)")
+            if set(held) != set(KEY_SECRETS):
+                bad.append(f"{profile}: {KEYS_INIT} must hold exactly the three key secrets {list(KEY_SECRETS)} (A506)")
+        if name == "core" and profile == "bench":
+            for init in (TRUST_DSN_INIT, KEYS_INIT):
+                if (svc.get("depends_on") or {}).get(init, {}).get("condition") != "service_completed_successfully":
+                    bad.append(f"{profile}: the core must wait for {init} to complete successfully (A506)")
+        if name == TRUST_DSN_INIT:
+            if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "FOWNER", "SETGID", "SETUID"]:
+                bad.append(f"{profile}: {TRUST_DSN_INIT} must drop ALL capabilities and add back only CHOWN, FOWNER, SETUID and SETGID (SR on noema#790)")
+            if set(held) != {TENANT_LOGIN_SECRET}:
+                bad.append(f"{profile}: {TRUST_DSN_INIT} must hold the secret {TENANT_LOGIN_SECRET} and nothing else (A356)")
+            if len([v for v in dsn_mounts if not v.get("read_only")]) != 1:
+                bad.append(f"{profile}: {TRUST_DSN_INIT} must mount {TRUST_DSN_VOLUME} writable exactly once (A356)")
+        if name == "core" and profile == "bench":
+            for setting, value in BENCH_CORE_SETTINGS.items():
+                got = str((svc.get("environment") or {}).get(setting, ""))
+                if got != value:
+                    bad.append(f"{profile}: the core's {setting} is {got!r}, the Architect's bench value is {value!r} (A356; AGENT-16: a number changes by ruling)")
+            if "NOEMA_TRUST_AT_RISK_BPS" in (svc.get("environment") or {}):
+                bad.append(f"{profile}: the core sets NOEMA_TRUST_AT_RISK_BPS; trustlimits reads it from the pack (A356 as corrected)")
+            if len(dsn_mounts) != 1 or not dsn_mounts[0].get("read_only"):
+                bad.append(f"{profile}: the core must mount the {TRUST_DSN_VOLUME} volume exactly once, read-only (A356)")
+            if (svc.get("depends_on") or {}).get(TRUST_DSN_INIT, {}).get("condition") != "service_completed_successfully":
+                bad.append(f"{profile}: the core must wait for {TRUST_DSN_INIT} to complete successfully, or it starts without a Trust login (A356)")
         if name == "temporal":
             # Temporal TLS (A296): in the bench profile the frontend presents a certificate and the CLI the healthcheck and the namespace set-up use trusts the stack's CA, so a plain
             # client is refused (EL's "refuse plain" test follows). The server keeps only its own key and the CA certificate.
@@ -325,6 +453,19 @@ def check(cfg, profile):
             bad.append(f"{profile}: {name} carries the Intron key as an environment variable; it comes only from a file mount (A249)")
         if name != "model" and ("INTRON_API_KEY_FILE" in env_names or any("intron" in m.lower() for m in mounts)):
             bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
+        if name == "model":
+            # A377 to A379: the key file is mounted in the bench profile only, read-only, as one bind of one file at one path, and the variable and the mount come together or not at all.
+            key_env = str((svc.get("environment") or {}).get("INTRON_API_KEY_FILE", ""))
+            key_mounts = [v for v in (svc.get("volumes") or []) if isinstance(v, dict) and str(v.get("target", "")) == INTRON_TARGET]
+            if key_env and profile != "bench":
+                bad.append(f"{profile}: the model has INTRON_API_KEY_FILE; the key mount exists in the bench profile only (A377 to A379)")
+            if bool(key_env) != bool(key_mounts):
+                bad.append(f"{profile}: the model's INTRON_API_KEY_FILE and its key mount must come together: a variable with no file, or a file with no variable (A379)")
+            if key_env and key_env != INTRON_TARGET:
+                bad.append(f"{profile}: INTRON_API_KEY_FILE is {key_env!r}, not {INTRON_TARGET} (A379)")
+            for v in key_mounts:
+                if v.get("type") != "bind" or not v.get("read_only") or str(v.get("source", "")).rstrip("/").endswith(("secrets", "/")) or len(key_mounts) != 1:
+                    bad.append(f"{profile}: the Intron key must be one read-only bind of one file, never a folder (A379)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "model":
@@ -355,7 +496,7 @@ def check(cfg, profile):
 def self_test(configs):
     """Each mutation must make check() report something; a rule that cannot fail proves nothing. `configs` maps profile to its resolved config."""
     import copy
-    dev, ci, bench, demo = configs["dev"], configs["ci"], configs["bench"], configs["demo"]
+    dev, ci, bench, demo = configs["dev"], configs["ci"], configs["bench"], configs["demo"]  # configs["bench+intron"] is the bench stack with the optional key overlay (A377 to A379)
     sidecar = {"network_mode": "none"}
     cases = {  # label -> (profile, mutation applied to a copy of that profile's configuration)
         "core joins bench_net (oracle)": ("dev", lambda c: c["services"]["core"]["networks"].update({"bench_net": None})),
@@ -436,6 +577,14 @@ def self_test(configs):
         "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
         "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
         "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
+        "the bench model gets the key file variable but no mount": ("bench", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"})),
+        "the bench model with the key mount loses the variable": ("bench+intron", lambda c: c["services"]["model"]["environment"].pop("INTRON_API_KEY_FILE")),
+        "the bench key mount is writable": ("bench+intron", lambda c: [v.update({"read_only": False}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
+        "the bench key mount is a folder named secrets": ("bench+intron", lambda c: [v.update({"source": "/h/secrets"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
+        "the bench key mount is a named volume": ("bench+intron", lambda c: [v.update({"type": "volume"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
+        "the key file variable points elsewhere": ("bench+intron", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/other"})),
+        "the core mounts the key file too": ("bench+intron", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp/noema-intron-key", "target": "/run/intron/key", "read_only": True})),
+        "the dev model has the key file variable": ("dev", lambda c: [c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"}), c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/k", "target": "/run/intron/key", "read_only": True})]),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
         "the ui lists a grant key as a secret": ("dev", lambda c: c["services"]["ui"].update({"secrets": [{"source": "grant_hmac_key_a"}]})),
         "the model carries a grant key file setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "/x"})),
@@ -469,6 +618,43 @@ def self_test(configs):
         "the bench temporal stops mounting its key": ("bench", lambda c: c["services"]["temporal"].update({"volumes": [v for v in c["services"]["temporal"]["volumes"] if not str(v.get("source", "")).endswith("temporal.key")]})),
         "temporal serves TLS in dev (outside the bench profile)": ("dev", lambda c: c["services"]["temporal"].setdefault("environment", {}).update({"TEMPORAL_TLS_FRONTEND_CERT": "/x"})),
         "the model mounts the temporal key": ("dev", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/tls/temporal.key", "target": "/x"})),
+        "the bench core drops the trust_dsns volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "trust_dsns"]})),
+        "the bench core mounts trust_dsns writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "trust_dsns"]),
+        "the bench core does not wait for trust-dsn-init": ("bench", lambda c: c["services"]["core"]["depends_on"].pop("trust-dsn-init")),
+        "the bench core holds the tenant login password": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "noema_tenant_login_password", "target": "x"})),
+        "the bench model mounts trust_dsns": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "trust_dsns", "target": "/x", "read_only": True})),
+        "trust-dsn-init also holds the core password": ("bench", lambda c: c["services"]["trust-dsn-init"]["secrets"].append({"source": "noema_core_password", "target": "x"})),
+        "trust-dsn-init keeps every capability": ("bench", lambda c: c["services"]["trust-dsn-init"].pop("cap_drop")),
+        "trust-dsn-init adds a capability it does not need": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].append("DAC_OVERRIDE")),
+        "trust-dsn-init loses a capability it needs": ("bench", lambda c: c["services"]["trust-dsn-init"]["cap_add"].remove("SETGID")),
+        "trust-dsn-init is dropped": ("bench", lambda c: c["services"].pop("trust-dsn-init")),
+        "a bench DSN volume is mounted by the model": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "edge_dsns", "target": "/x", "read_only": True})),
+        "the bench core mounts a key volume writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "edge_keys"]),
+        "the bench core drops the input hash volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "input_hash"]})),
+        "the bench core drops a DSN volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "orchestrator_dsns"]})),
+        "the bench core does not wait for core-keys-init": ("bench", lambda c: c["services"]["core"]["depends_on"].pop("core-keys-init")),
+        "the core holds a key secret": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "input_hash_key", "target": "x"})),
+        "core-keys-init also holds the core password": ("bench", lambda c: c["services"]["core-keys-init"]["secrets"].append({"source": "noema_core_password", "target": "x"})),
+        "core-keys-init loses a secret": ("bench", lambda c: c["services"]["core-keys-init"]["secrets"].pop()),
+        "core-keys-init cannot read a secret it does not own": ("bench", lambda c: c["services"]["core-keys-init"]["cap_add"].remove("DAC_READ_SEARCH")),
+        "core-keys-init may override file permissions": ("bench", lambda c: c["services"]["core-keys-init"]["cap_add"].append("DAC_OVERRIDE")),
+        "core-keys-init keeps every capability": ("bench", lambda c: c["services"]["core-keys-init"].pop("cap_drop")),
+        "core-keys-init is dropped": ("bench", lambda c: c["services"].pop("core-keys-init")),
+        "the model mounts the per-login emitter secrets": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/emitter_logins", "target": "/x", "read_only": True})),
+        "the core sets the Temporal client certificate": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TEMPORAL_TLS_CERT_FILE": "/x"})),
+        "the core sets the test-only swap switch": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_WRITE_SWAP_DECISIONS": "1"})),
+        "the bench core's grant lifetime exceeds its record lifetime": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TRUST_GRANT_LIFETIME_MS": "700000"})),
+        "the bench core's escalation graph changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TRUST_ESCALATION_GRAPH": "fin.graph.other"})),
+        "the bench core's Temporal task queue changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TEMPORAL_TASK_QUEUE": "default"})),
+        "the bench core's input dedup window changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INPUT_DEDUP_WINDOW": "24h"})),
+        "the bench core runs two investigation workers": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INVESTIGATION_WORKERS": "2"})),
+        "the bench core's activity timeout drops below the run timeout": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS": "100000"})),
+        "the bench core loses the recovery batch size": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_STM_RECOVERY_BATCH_SIZE")),
+        "the bench core's pack size bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_PACK_MAX_BYTES": "4194304"})),
+        "the bench core loses the pack manifest setting": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PACK_MANIFEST")),
+        "the bench core's store timeout changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_STORE_TIMEOUT_MS": "5000"})),
+        "the bench core loses a settings-table value": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_DB_SERIALIZATION_ATTEMPTS")),
+        "the bench core sets the at-risk limit itself": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TRUST_AT_RISK_BPS": "2500"})),
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
         "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
@@ -476,14 +662,21 @@ def self_test(configs):
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
     missed = []
+    overlay_text = (COMPOSE_FILE.parent / INTRON_OVERLAY).read_text(encoding="utf-8")
+    if intron_overlay_text_problems("") == [] or intron_overlay_text_problems("services: {}") == []:
+        missed.append("the overlay text rule passes on no input or on a file without the key (it must fail)")
+    for label, mutant in {"the overlay drops create_host_path": overlay_text.replace("create_host_path: false", "create_host_path: true"),
+                          "the overlay has create_host_path only in a comment": overlay_text.replace("bind:" + chr(10) + "          create_host_path: false", "# bind:" + chr(10) + "          # create_host_path: false")}.items():
+        if mutant == overlay_text or not intron_overlay_text_problems(mutant):
+            missed.append(f"the overlay text rule did not fire for: {label}")
     for label, (profile, mutate) in cases.items():
         mutated = copy.deepcopy(configs[profile])
         mutate(mutated)
-        if not check(mutated, profile):
+        if not check(mutated, profile.split("+")[0]):
             missed.append(label)
     # And the unmutated configurations must be clean, so a firing rule is the mutation and not noise.
     for profile, cfg in configs.items():
-        if check(cfg, profile):
+        if check(cfg, profile.split("+")[0]):
             missed.append(f"unmutated {profile} is not clean")
     # The inventory: every name of .env.example that is a key or an endpoint must be classified as a provider name, or this rule would not know it (Codex P2 on noema#641).
     env_example = COMPOSE_FILE.parent.parent.parent / ".env.example"
@@ -511,6 +704,11 @@ def main():
         found = check(cfg, profile)
         print(f"{'FAIL' if found else 'ok  '} profile {profile:6} services: {', '.join(sorted(cfg['services']))}")
         failures += found
+    # The bench stack with the optional Intron key overlay (A377 to A379): the same rules, and the key mount is the model's alone.
+    configs["bench+intron"] = resolved("bench", with_intron=True)
+    found = check(configs["bench+intron"], "bench") + intron_overlay_text_problems((COMPOSE_FILE.parent / INTRON_OVERLAY).read_text(encoding="utf-8"))
+    print(f"{'FAIL' if found else 'ok  '} profile bench with the optional Intron key overlay")
+    failures += found
     # The names the core reads are the Env... constants of its model client (noema#563). When that file is in this tree the two lists must be the same set, so the Compose file and the
     # code cannot drift apart again; on a tree without it (before noema#563 merges) only the Compose side is checked, and this line says so.
     if MODEL_CLIENT_SOURCE.is_file():

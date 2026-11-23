@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 )
 
@@ -44,6 +45,10 @@ func full() Components {
 		Records: &failingDBs{},
 		// The investigation reader (A243): GET /v1/investigations/{id} is part of the slice, so a composition without it is not complete.
 		Investigations: &fakeReader{},
+		// The Input Gateway: POST /v1/conversations is part of the slice too, so a composition without it is not complete.
+		Gateway: &inputgateway.Gateway{},
+		// The confirmation route (POST /v1/confirmations/{id}, A341, noema#754) is part of the slice too.
+		Confirmations: &confirmationRouteConfig{},
 	}
 }
 

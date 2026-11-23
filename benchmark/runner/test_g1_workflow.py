@@ -39,12 +39,12 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertNotRegex(block.group(1), r"(?m)^\s+default:")
         self.assertIn('case "$BENCH_MAX_BODY_BYTES" in', self.script)
 
-    def validate(self, run_id: str, body: str) -> int:
+    def validate(self, run_id: str, body: str, mode: str = "full") -> int:
         """Runs the workflow's own 'Validate the inputs' step in bash with these two values."""
         step = re.search(r"(?ms)- name: Validate the inputs\n\s+run: \|\n(.*?)(?=^      - )", self.text)
         assert step
         script = "\n".join(line[10:] for line in step.group(1).splitlines())
-        return subprocess.run(["bash", "-c", script], env={"PATH": os.environ.get("PATH", ""), "GIVEN_RUN_ID": run_id, "BENCH_MAX_BODY_BYTES": body}, capture_output=True, check=False).returncode
+        return subprocess.run(["bash", "-c", script], env={"PATH": os.environ.get("PATH", ""), "GIVEN_RUN_ID": run_id, "BENCH_MAX_BODY_BYTES": body, "MODE": mode}, capture_output=True, check=False).returncode
 
     @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's validation step")
 
@@ -54,6 +54,9 @@ class G1StackWorkflow(unittest.TestCase):
             self.assertEqual(self.validate(run_id, "16384"), 0, repr(run_id))
         for run_id in ("ok\nGITHUB_OUTPUT_INJECTION=1", "ok\n", "\nok", "a b", "a;b", "$(x)", "a" * 65, "x/y", "x\ry"):
             self.assertEqual(self.validate(run_id, "16384"), 2, repr(run_id))
+        self.assertEqual(self.validate("", "16384", "stack-check"), 0)
+        for mode in ("", "FULL", "full\nstack-check", "stack-check;x", "other"):
+            self.assertEqual(self.validate("", "16384", mode), 2, repr(mode))
         for body in ("1", "16384", "9" * 16):
             self.assertEqual(self.validate("", body), 0, repr(body))
         for body in ("", "0", "016384", "16384\n99", "16384\n", "-1", "1.5", "1e3", "9" * 17, "1 2"):
@@ -82,7 +85,7 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn('exit "$fail"', result.group(0))
 
     def test_the_leak_scan_runs_the_canary_probe_and_covers_every_uploaded_path_and_the_summary(self) -> None:
-        scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py (.*?)\n\s*echo \"scan=", self.script, re.S)
+        scan = re.search(r"(set -- benchmark/out/run .*?)\n\s*echo \"scan=", self.script, re.S)
         assert scan
         scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", scan.group(1))}
         self.assertIn("benchmark/out/summary.md", scan.group(1))
@@ -90,8 +93,110 @@ class G1StackWorkflow(unittest.TestCase):
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded
         for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip()):
+            if path == "benchmark/out/leak-scan.txt":
+                continue  # the scan's own output (file, line, kind, length and fingerprint only: never a value); it cannot be scanned before it exists. BO's package row 8 reads it.
             self.assertIn(path.rstrip("/"), scanned, f"{path} is uploaded but not leak-scanned")
-        self.assertIn("--allow tools/ci/g1_leakscan.allow", scan.group(1))
+        self.assertIn('--allow "$allow"', scan.group(1))
+
+    def test_the_scan_output_is_kept_for_the_package_and_the_scan_exit_code_survives_the_pipe(self) -> None:
+        # BO's package row 8 (A355) is computed from the scan's own output, so the workflow saves it. The pipe must not hide the scan's exit code.
+        step = re.search(r"(?ms)- id: scan\n(.*?)(?=^      - )", self.text)
+        assert step
+        self.assertRegex(step.group(1), r'(?m)"\$@" \| tee -a benchmark/out/leak-scan\.txt$')
+        self.assertIn('echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"', step.group(1))
+        uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
+        assert uploaded
+        self.assertIn("benchmark/out/leak-scan.txt", uploaded.group(1))
+
+    def test_the_evidence_carries_the_dispatch_sha_and_run_id_for_the_package_to_compare(self) -> None:
+        # noema#717 (BO's package, relayed by SR): the first line of leak-scan.txt is `stamp: <sha> <run id>`, and the evidence files carry the same two values in a top-level "stamp".
+        self.assertIn('echo "stamp: $GITHUB_SHA $GITHUB_RUN_ID" > benchmark/out/leak-scan.txt', self.script)
+        self.assertLess(self.script.index('> benchmark/out/leak-scan.txt'), self.script.index("| tee -a benchmark/out/leak-scan.txt"), "the stamp line is written first; the scan appends")
+        self.assertEqual(self.script.count('--sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"'), 3, "both evidence commands (fault plans and probes) and the package step are stamped")
+        for command in ("fault-plans", "probes"):
+            self.assertIn("python -m benchmark.runner.evidence " + command, self.script)
+
+    # A445 (interim): the stack-check reports /readyz and the netcheck now, and requires them once the final composition PR merges.
+    def test_the_stack_check_reports_readyz_and_the_netcheck_and_does_not_require_them_yet(self) -> None:
+        block = re.search(r'(?s)if \[ "\$MODE" = stack-check \]; then(.*?)\n          else\n', self.script)
+        assert block, "no stack-check block"
+        self.assertIn('HTTPConnection("core", 8080', block.group(1))
+        self.assertIn('"/readyz"', block.group(1))
+        self.assertIn("deploy/compose/netcheck/profiles.py", block.group(1))
+        self.assertIn('echo "readyz=${readyz:-not-checked}" >> "$GITHUB_OUTPUT"', self.script)
+        self.assertIn('echo "netcheck=${netcheck:-not-checked}" >> "$GITHUB_OUTPUT"', self.script)
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        self.assertIn('READINESS_REQUIRED: "false"', result.group(0))  # flipped to "true" by the final composition PR (A445)
+        self.assertRegex(result.group(0), r'(?s)\[ "\$READINESS_REQUIRED" = true \].*READYZ.*NETCHECK')
+        summary = re.search(r"(?ms)- name: Summary.*?(?=^      - name:)", self.text)
+        assert summary
+        self.assertIn("/readyz", summary.group(0))
+        self.assertIn("netcheck", summary.group(0))
+
+    # A444 (BO, noema#821): the package step stamps the run directory and the probes file and counts each case's writes from the runner's own results.
+    def test_every_step_that_calls_compose_exports_the_variables_the_overlay_requires(self) -> None:
+        # Codex P2 on noema#730: exports of one step do not reach the next, and bench-stack.yml requires NOEMA_BENCH_OUT, NOEMA_BENCH_UID, NOEMA_BENCH_GID and NOEMA_BENCH_MAX_BODY_BYTES with `${...:?}`,
+        # so a step that calls `$compose` without them fails at configuration, before it runs anything. Each step that defines the compose command exports all four, from the same expressions.
+        steps = re.split(r"(?m)^      - ", self.text)
+        called = [s for s in steps if 'compose="docker compose' in s]
+        self.assertGreaterEqual(len(called), 4, "the run, evidence, package and access steps call compose")
+        for step in called:
+            name = step.splitlines()[0][:70]
+            for variable in ('NOEMA_BENCH_OUT="$PWD/benchmark/out"', 'NOEMA_BENCH_UID="$(id -u)"', 'NOEMA_BENCH_GID="$(id -g)"', "NOEMA_BENCH_MAX_BODY_BYTES="):
+                self.assertIn(variable, step, f"{name}: calls compose without {variable.split('=')[0]}")
+            self.assertRegex(step, r"export NOEMA_BENCH_OUT=.*STANDIN_TENANT_ID=ten_alpha", name)
+
+    # A476 and A502 (relayed): the core is restarted after the cases, then BO's reread adds after_recovery and after_replay before the package stamps the file.
+    def test_the_core_is_restarted_after_the_evidence_and_the_two_rereads_follow_before_the_package(self) -> None:
+        order = [self.text.index(f"- id: {i}") for i in ("evidence", "restart", "recovery", "replay", "package")]
+        self.assertEqual(order, sorted(order), "evidence, restart, recovery, replay, package")
+        restart = re.search(r"(?ms)- id: restart\n(.*?)(?=^      - )", self.text)
+        assert restart
+        self.assertIn("if: always() && inputs.mode == 'full'", restart.group(1))
+        self.assertIn("$compose restart core >> benchmark/out/joblog/restart.log 2>&1", restart.group(1))
+        for step, phase, needs in (("recovery", "after_recovery", "restart"), ("replay", "after_replay", "recovery")):
+            body = re.search(r"(?ms)- id: " + step + r"\n(.*?)(?=^      - )", self.text)
+            assert body
+            text = body.group(1)
+            self.assertIn(f"if: always() && inputs.mode == 'full' && steps.{needs}.outputs.{needs} == '0'", text)
+            self.assertIn("python -m benchmark.runner.reread --run /bench-out/run --phase " + phase, text)
+            self.assertIn("benchmark/out/idp/runner-args", text, "the five IdP flags come from the bench-tokens runner-args file (A517)")
+            self.assertIn("$idp_args", text)
+            self.assertNotIn("--tokens-dir", text)
+            self.assertNotIn("--idp-key", text, "no hard-coded IdP flag")
+            for flag in ("--api-url http://core:8080", "--readyz-url http://core:8080/readyz", "--ready-timeout-s 120"):
+                self.assertIn(flag, text, flag)
+            self.assertIn(">> benchmark/out/joblog/reread.log 2>&1", text)
+            self.assertNotIn("audit-credential", text, "A502: no credential file, no seeded principal")
+            self.assertIn(f'echo "{step}=$?" >> "$GITHUB_OUTPUT"', text)
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        for name, step in (("RESTART", "restart"), ("RECOVERY", "recovery"), ("REPLAY", "replay")):
+            self.assertIn(f"{name}: ${{{{ steps.{step}.outputs.{step} }}}}", result.group(0))
+            self.assertRegex(result.group(0), r'\[ "\$\{' + name + r':-missing\}" = 0 \]')
+
+    def test_the_package_step_runs_after_the_evidence_and_before_the_scan_and_a_failure_fails_the_result(self) -> None:
+        step = re.search(r"(?ms)- id: package\n(.*?)(?=^      - )", self.text)
+        assert step, "no package step"
+        body = step.group(1)
+        self.assertIn("if: always() && inputs.mode == 'full'", body)
+        self.assertIn("python -m benchmark.runner.package_artifacts", body)
+        self.assertIn('--sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"', body)
+        self.assertIn("--run /bench-out/run", body)
+        self.assertIn("--probes /bench-out/evidence/negative-probes.json", body)
+        self.assertIn('echo "package=$?" >> "$GITHUB_OUTPUT"', body)
+        self.assertLess(self.text.index("- id: evidence"), self.text.index("- id: package"))
+        self.assertLess(self.text.index("- id: package"), self.text.index("- id: scan"), "the new files are scanned and uploaded")
+        self.assertLess(self.text.index("- id: package"), self.text.index("name: Stop the stack"), "the stack is still up")
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        self.assertIn("PACKAGE: ${{ steps.package.outputs.package }}", result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{PACKAGE:-missing\}" = 0 \]')
+
+    def test_the_record_access_check_takes_the_runners_request_record(self) -> None:
+        # A354: the expected RECORD_ACCESSED count is derived from the run's own request record (benchmark/out/run/requests.jsonl), not a constant.
+        self.assertIn("--requests benchmark/out/run/requests.jsonl", self.script)
 
     def test_nothing_is_uploaded_unless_the_scan_is_clean_and_the_scan_comes_first(self) -> None:
         self.assertIn("if: always() && steps.scan.outputs.scan == '0'", self.script)
@@ -171,10 +276,51 @@ class G1StackWorkflow(unittest.TestCase):
 
     def test_the_leak_scan_allow_file_names_only_numeric_fields_and_the_scorers_metadata_lines(self) -> None:
         allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
-        self.assertEqual(len([l for l in allow if l.strip()]), 13)
+        self.assertEqual(len([l for l in allow if l.strip()]), 14)
+        self.assertNotIn('"run_id"', "\n".join(allow), "the run id is allowed per run by the workflow, never by a standing pattern (C1 on noema#730)")
         for line in allow:
             if line.strip():
                 self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
+
+    def test_the_scan_allows_the_stamp_of_this_run_only_by_an_exact_per_run_pattern(self) -> None:
+        # C1 on noema#730 (P3): a standing `[0-9]{1,20}` pattern lets any 20-digit string through under a "run_id" key. The workflow builds the allow file for the run: the standing file plus one line
+        # that names this run's own id, so only that id passes.
+        step = re.search(r"(?ms)- id: scan\n(.*?)(?=^      - )", self.text)
+        assert step
+        self.assertIn('cp tools/ci/g1_leakscan.allow "$allow"', step.group(1))
+        self.assertIn('"$GITHUB_RUN_ID"', step.group(1))
+        self.assertRegex(step.group(1), r"""printf '%s\\n' '\^\\s\*"run_id":\\s\*"'"\$GITHUB_RUN_ID"'",\?\\s\*\$' >> "\$allow\"""")
+        standing = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
+        run_id = "44318438906"
+        per_run = '^\\s*"run_id":\\s*"' + run_id + '",?\\s*$'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            allow = root / "allow"
+            allow.write_text("\n".join(standing + [per_run]) + "\n", encoding="utf-8")
+            (root / "out").mkdir()
+            stamp = '{\n  "stamp": {\n    "run_id": "%s",\n    "sha": "0123456789abcdef0123456789abcdef01234567"\n  }\n}\n'
+            (root / "out" / "p.json").write_text(stamp % run_id, encoding="utf-8")
+            code = subprocess.run([sys.executable, "-I", str(WORKFLOW.parents[2] / "tools" / "ci" / "leakscan.py"), "--allow", str(allow), str(root / "out")], capture_output=True, text=True, check=False).returncode
+            self.assertEqual(code, 0, "this run's own id passes")
+            for other in ("44318438907", "01234567890123456789", "4431843890644318438906"):
+                (root / "out" / "p.json").write_text(stamp % other, encoding="utf-8")
+                code = subprocess.run([sys.executable, "-I", str(WORKFLOW.parents[2] / "tools" / "ci" / "leakscan.py"), "--allow", str(allow), str(root / "out")], capture_output=True, text=True, check=False).returncode
+                self.assertEqual(code, 1, f"another digit string under run_id ({other}) must be found")
+
+    def test_the_standing_allow_file_no_longer_passes_a_run_id_and_the_other_leak_shapes_are_still_found(self) -> None:
+        # C1 on noema#730 (P3): the standing allow file holds no run id (the workflow adds this run's own line, tested above), so the stamp is a finding under it.
+        # Codex P2 on noema#730: the stamp carries the run id (digits) and the commit SHA (40 hexadecimal, which can hold a run of five digits). The allow file lets exactly those two lines through the
+        # digit-run rule; a number under any other key, or a 12-digit value under the stamp's key that is not a run id, is still found.
+        stamp = '{\n  "met": true,\n  "stamp": {\n    "run_id": "44318438906",\n    "sha": "0123456789abcdef0123456789abcdef01234567"\n  }\n}\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "out").mkdir()
+            (root / "out" / "negative-probes.json").write_text(stamp, encoding="utf-8")
+            self.assertEqual(self.scan(root / "out"), 1, "the standing allow file does not pass a run id")
+            self.assertEqual(self.scan(root / "out", use_allow=False), 1, "without the allow file the stamp is a finding")
+            for leak in ('  "account": "0123456789"\n', '    "run_id": "x 0123456789"\n', '    "sha": "0123456789abcdef0123456789abcdef01234567 0123456789"\n'):  # the SHA is one hexadecimal token, which the digit rule does not read as a run
+                (root / "out" / "negative-probes.json").write_text(stamp + leak, encoding="utf-8")
+                self.assertEqual(self.scan(root / "out"), 1, leak)
 
     def test_a_captured_service_log_is_not_scanned_with_the_model_access_log_on(self) -> None:
         # Codex P1 on noema#591: uvicorn's access line carries the client's ephemeral port, five digits, on every request and on the health check every three seconds, so a captured model
@@ -259,6 +405,130 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn("benchmark/out/score/", self.text)
         self.assertNotRegex(self.text, r"secrets\.")
         self.assertNotIn("heldout", self.text.lower().replace("never mounted or read", ""))
+
+    # SR's first-dispatch conditions and the stack-check mode (A323, A325 as relayed; noema#436).
+    def test_mode_is_a_choice_of_full_or_stack_check_and_defaults_to_full(self) -> None:
+        block = re.search(r"(?ms)^      mode:\n(.*?)(?=^      [a-z_]+:\n|^permissions:)", self.text)
+        assert block
+        self.assertIn("type: choice", block.group(1))
+        self.assertIn("default: full", block.group(1))
+        for option in ("- full", "- stack-check"):
+            self.assertIn(option, block.group(1))
+
+    def test_stack_check_never_runs_the_suite_and_never_counts_as_evidence(self) -> None:
+        self.assertRegex(self.script, r'MODE" = stack-check')
+        self.assertIn("STACK-CHECK", self.text)
+        self.assertIn("not evidence", self.text.lower())
+        evidence = re.search(r"(?ms)- id: evidence\n(.*?)(?=^      - )", self.text)
+        assert evidence
+        self.assertIn("inputs.mode == 'full'", evidence.group(1))
+
+    def test_every_record_read_is_counted_in_the_core_log_in_full_mode(self) -> None:
+        self.assertIn("tools/ci/g1_record_access.py", self.script)
+        self.assertIn("--core-log benchmark/out/service-logs/core.log", self.script)
+        self.assertIn("--correlations benchmark/out/run/correlations.json", self.script)
+        self.assertIn("RECORD_ACCESSED", self.text)
+        self.assertIn("steps.count.outputs.record_accessed", self.script)
+
+    def test_a_stack_check_run_scans_only_what_it_produced(self) -> None:
+        # Codex P2 on noema#730: a stack-check run has no access check, so record-accessed.txt never exists; naming it in the scan made a healthy run fail before the Result step.
+        step = re.search(r"(?ms)- id: scan\n(.*?)(?=^      - )", self.text)
+        assert step
+        body = step.group(1)
+        self.assertIn("MODE: ${{ inputs.mode }}", body)
+        self.assertRegex(body, r'\[ "\$MODE" = stack-check \] \|\| set -- "\$@" benchmark/out/record-accessed\.txt')
+        base = re.search(r"set -- (benchmark/out/run [^\n]*)", body)
+        assert base
+        self.assertNotIn("record-accessed", base.group(1), "the base list is what every mode produces")
+
+    def test_the_job_log_scan_turns_off_only_the_digit_rule(self) -> None:
+        # Codex P2 on noema#730: the runner writes its own digits into the log (image version, run id, byte counts, the dispatch inputs it echoes, the seed in the command), which the digit-run
+        # rule cannot be allowed for without a broad exemption. The flag turns that one rule off for that one file; every other rule is still probed (tools/ci/test_g1_leakscan.py).
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        line = re.search(r"python3 -I tools/ci/g1_leakscan\.py ([^\n]*)", job.group(1))
+        assert line
+        self.assertIn("--no-digit-rule", line.group(1))
+        self.assertNotIn("--allow", line.group(1), "no allow rule is used for the job log: the digit rule is off, not worked around")
+        self.assertEqual(len(re.findall(r"python3 -I tools/ci/g1_leakscan\.py --no-digit-rule", self.text)), 1, "only the job log is scanned without the digit rule")
+
+    # A388: Playwright against the running stack, after the stack is up, opt-in until the wiring merges. FE owns the specs.
+    def test_the_browser_checks_are_an_opt_in_boolean_that_defaults_to_off(self) -> None:
+        inp = re.search(r"(?ms)^      playwright:\n(.*?)(?=^      \w+:\n|^permissions:)", self.text)
+        assert inp, "no playwright input"
+        self.assertIn("type: boolean", inp.group(1))
+        self.assertIn("default: false", inp.group(1))
+
+    def test_the_browser_step_runs_only_when_asked_before_the_stack_stops_and_says_not_run_without_a_stack_config(self) -> None:
+        step = re.search(r"(?ms)- id: playwright\n(.*?)(?=^      - )", self.text)
+        assert step, "no playwright step"
+        body = step.group(1)
+        self.assertIn("if: always() && inputs.playwright", body)
+        self.assertLess(self.text.index("- id: playwright"), self.text.index("name: Stop the stack"), "the stack must still be up")
+        self.assertIn("playwright.stack.config.mjs", body)
+        self.assertRegex(body, r"(?s)NOT RUN.*playwright=3")  # no config for a stack run: NOT RUN (3), never a pass; the Result step fails a requested check that is not 0
+        self.assertIn("NOEMA_UI_URL: http://127.0.0.1:8082", body)
+        self.assertNotIn("secrets.", body)
+        self.assertNotIn("npm install", body)  # npm ci only: the lock file decides what runs
+        self.assertIn("setup-node@", self.text)
+
+    def test_a_requested_browser_check_that_did_not_pass_fails_the_run_and_is_never_g1_evidence(self) -> None:
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        self.assertIn("PLAYWRIGHT: ${{ steps.playwright.outputs.playwright }}", result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{PLAYWRIGHT:-missing\}" = 0 \]')
+        self.assertIn("not evidence for G1", self.text.split("id: playwright")[1].split("- name: Stop the stack")[0])
+
+    def test_the_job_log_is_scanned_by_a_job_that_starts_after_it_ends(self) -> None:
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job, "no joblog-scan job"
+        body = job.group(1)
+        self.assertIn("needs: g1-stack", body)
+        self.assertIn("if: always()", body)
+        self.assertIn("actions: read", body)
+        self.assertIn("tools/ci/g1_leakscan.py", body)
+        self.assertIn("/logs", body)
+        self.assertNotIn("contents: write", body)
+
+    # SR's two first-dispatch conditions on noema#436 (A323): the job log is scanned, and the access log shows the handler ran for no refusal.
+    def commands(self) -> list[str]:
+        """The workflow's shell commands, each backslash continuation joined to its line."""
+        return [c for c in re.sub(r"\\\n\s*", " ", self.script).splitlines() if c.strip()]
+
+    def test_nothing_the_runner_the_generator_the_scorer_or_the_evidence_prints_reaches_the_job_log(self) -> None:
+        execs = [c for c in self.commands() if "$compose exec" in c]
+        self.assertGreaterEqual(len(execs), 6, "the generator, the runner, the scorer and the three evidence commands")
+        for command in execs:
+            self.assertRegex(command, r">> benchmark/out/joblog/[a-z]+\.log 2>&1\s*$", command[:120])
+
+    def test_the_job_log_files_are_scanned_uploaded_and_shown_only_after_a_clean_scan(self) -> None:
+        scan = re.search(r"(?ms)- id: scan\n.*?(?=^      - )", self.script)
+        upload = re.search(r"(?ms)- name: Upload the artifacts.*?(?=^      - )", self.text)
+        assert scan and upload
+        self.assertIn("benchmark/out/joblog", scan.group(0))
+        self.assertIn("benchmark/out/joblog/", upload.group(0))
+        show = re.search(r"(?ms)- name: Show the run output \(only if the leak scan is clean\)\n(.*?)(?=^      - )", self.text)
+        assert show
+        self.assertRegex(show.group(1), r'if \[ "\$\{SCAN:-missing\}" = 0 \]')
+        self.assertLess(self.text.index("- id: scan"), self.text.index("Show the run output"), "the output is shown after the scan, never before")
+        # the steps that run the stack print no run output before the scan: no `cat` of a joblog file outside the show step
+        outside = self.text.replace(show.group(0), "")
+        self.assertNotRegex(outside, r"cat [^\n]*joblog")
+
+    def test_the_access_log_step_runs_after_the_logs_are_collected_and_before_the_stack_stops_and_fails_the_job(self) -> None:
+        order = [self.text.index(x) for x in ("- id: evidence", "- id: logs", "- id: access", "name: Stop the stack")]
+        self.assertEqual(order, sorted(order), "the probes, then the log capture, then the access check, then the stop")
+        step = re.search(r"(?ms)- id: access\n(.*?)(?=^      - )", self.text)
+        assert step
+        self.assertRegex(step.group(1), r"benchmark\.runner\.evidence record-access --probes ")
+        self.assertIn("/bench-out/evidence/negative-probes.json", step.group(1))
+        self.assertIn("/bench-out/service-logs/core.log", step.group(1))
+        self.assertIn("--other-tenant-id ten_other", step.group(1))
+        self.assertIn("if: always()", step.group(1))
+        result = re.search(r"(?ms)- name: Result .*", self.text)
+        assert result
+        self.assertIn("RECORD_ACCESS: ${{ steps.access.outputs.record_access }}", result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{RECORD_ACCESS:-missing\}" = 0 \] \|\| \{[^\n]*fail=1')
 
 
 if __name__ == "__main__":

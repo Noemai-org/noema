@@ -37,6 +37,29 @@ for name in grant_hmac_key_a grant_hmac_key_b; do
   chmod 600 "$dir/$name"
 done
 
+# The core-trust signing seed (A445, interim): the Ed25519 seed of the identity `core-trust`, 32 random bytes as 64 lower-case hexadecimal characters, the form execution/signing.LoadRing reads from
+# core-trust.ed25519.<version>.key (mode 0400, owned by the reading process: a one-shot step sets that, as for the grant keys). Version 1 only; a rotation adds version 2 beside it. Kept if present, never
+# printed. C1's tenant-init registers the PUBLIC key in signing_key; nothing here derives or prints it.
+if [ ! -s "$dir/core_trust_ed25519_seed_1" ]; then
+  # umask 077 in a subshell: the file is created at 0600 and is never wider, not even before the chmod below (SR on noema#790).
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_trust_ed25519_seed_1" )
+fi
+chmod 600 "$dir/core_trust_ed25519_seed_1"
+
+# The core's other key files (A506, interim): the orchestrator's (`core-workflows`) and the gateway's (`core-edge`) Ed25519 seeds and the input hash key, each 32 random bytes as 64 lower-case hexadecimal
+# characters (the form the loaders read: the seeds as core-workflows.ed25519.1.key and core-edge.ed25519.1.key, the hash key as one file of at least 32 bytes), kept if present, never printed. A
+# one-shot step (deploy/compose/core-keys) gives them the mode 0400 and the owner the loaders require.
+if [ ! -s "$dir/core_workflows_ed25519_seed_1" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_workflows_ed25519_seed_1" )
+fi
+if [ ! -s "$dir/core_edge_ed25519_seed_1" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_edge_ed25519_seed_1" )
+fi
+if [ ! -s "$dir/input_hash_key" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/input_hash_key" )
+fi
+chmod 600 "$dir/core_workflows_ed25519_seed_1" "$dir/core_edge_ed25519_seed_1" "$dir/input_hash_key"
+
 # One secret file per emitter login (ruling A4): NOEMA_TENANTS x NOEMA_EMITTERS (default core-edge). Missing files are made with a random value;
 # existing files are kept. The folder is mounted read-only into postgres only; init.sh refuses a missing, empty or duplicated secret.
 mkdir -p "$dir/emitter_logins"

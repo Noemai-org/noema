@@ -81,6 +81,67 @@
               "HANDOFF",
               null
             ]
+          },
+          "params": {
+            "description": "A369 (interim, relayed): where each param of this step comes from. Optional and additive; absent means no params. A param is its `name` and exactly one kind: `slot` (a resolved slot of the intent node), `const` (a literal), `map` (the slot `from` mapped through `values`, a closed table of pack values), `fact` (a named fact the plan evaluation supplies), `policy_param` (a param of the winning PERMIT rule) or `evidence_packet` (true: the evidence packet). packcheck holds them to the capability's input schema.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+                },
+                "slot": {
+                  "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+                },
+                "const": {
+                  "type": [
+                    "string",
+                    "integer",
+                    "boolean"
+                  ]
+                },
+                "map": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+                    },
+                    "values": {
+                      "type": "object",
+                      "propertyNames": {
+                        "pattern": "^[A-Z][A-Z0-9_]*$"
+                      },
+                      "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]*$"
+                      },
+                      "minProperties": 1
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "values"
+                  ],
+                  "additionalProperties": false
+                },
+                "fact": {
+                  "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+                },
+                "policy_param": {
+                  "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+                },
+                "evidence_packet": {
+                  "const": true
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "minProperties": 2,
+              "maxProperties": 2,
+              "additionalProperties": false
+            }
           }
         },
         "required": [

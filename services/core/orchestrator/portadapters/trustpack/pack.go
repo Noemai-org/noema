@@ -56,6 +56,8 @@ type Pack struct {
 	// rooted is, for a capability that is the capability of a declared root node, the capability IDs of every node that depends on that root, the root included, sorted, over
 	// every graph that declares it a root.
 	rooted map[string][]string
+	// owned is, for each intent node whose trust profile says the principal must own a slot, what the pack says of that ownership, read at load and judged by OwnershipKinds.
+	owned map[string]nodeOwnership
 }
 
 type nodeAuthority struct {
@@ -98,7 +100,7 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 	if err != nil {
 		return nil, packErr("the capability registry refuses the pack: %v", err)
 	}
-	p := &Pack{reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}}
+	p := &Pack{reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}}
 	for _, d := range doc.Capabilities {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
 	}
@@ -115,12 +117,16 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 
 func (p *Pack) loadNodes(doc contracts.PackV1) error {
 	profiles := map[string]map[string]struct{}{}
+	mustOwn := map[string][]string{}
 	for _, tp := range doc.TrustProfiles {
 		id := string(tp.ProfileId)
 		if _, dup := profiles[id]; dup {
 			return packErr("a trust profile is repeated")
 		}
 		profiles[id] = setOf(tp.Authority.RolesAllowed)
+		for _, name := range tp.Authority.PrincipalMustOwn {
+			mustOwn[id] = append(mustOwn[id], string(name))
+		}
 	}
 	for _, n := range doc.IntentNodes {
 		id := string(n.NodeId)
@@ -139,6 +145,9 @@ func (p *Pack) loadNodes(doc contracts.PackV1) error {
 			return packErr("an intent node names a trust profile the pack does not have")
 		}
 		p.nodes[id] = nodeAuthority{profiled: true, roles: roles}
+		if own := mustOwn[*n.TrustProfile]; len(own) > 0 {
+			p.owned[id] = readOwnership(own, n.Slots)
+		}
 	}
 	return nil
 }
