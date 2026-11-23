@@ -557,9 +557,11 @@ class G1StackWorkflow(unittest.TestCase):
         # on a failure, so it is kept in a file and shown when the read fails.
         job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
         assert job
-        read = re.search(r"gh api \"repos/\$REPO/actions/jobs/\$id/logs\"[^\n]*", job.group(1))
+        read = re.search(r"gh api [^\n]*actions/jobs/\$id/logs\"[^\n]*", job.group(1))
         assert read, "the log read was not found"
         self.assertNotIn("2>/dev/null", read.group(0))
+        # The reason the first three runs could not read the log (run 45127413024): gh refuses to print a response with terminal escape sequences, and a job log has them. The scanner must see them.
+        self.assertIn("--allow-escape-sequences", read.group(0))
         self.assertIn("joblog-read.err", job.group(1))
         self.assertRegex(job.group(1), r"head -c \d+ \"?\$RUNNER_TEMP/joblog-read\.err")
 
