@@ -546,6 +546,28 @@ class CandidateLabels(unittest.TestCase):
         self.assertEqual(checks.ASKABLE_ATTRIBUTES, checks.LABEL_ATTRIBUTES - {"currency"})  # the currency is shown with the amount; it is not asked by itself
 
 
+    def test_a_template_holds_no_number_of_any_kind_and_no_invisible_separator(self):
+        """A555 (REQ-AMB-004, AGENT-13): `\\d` misses superscripts, circled digits, fractions and roman numerals (Unicode categories Nl and No), and a zero-width or bidi character
+        between two placeholders keeps them apart to the eye of a program and together to the eye of a customer. Both are refused in the literal text."""
+        cases = {
+            "a superscript digit": "{attr:amount_minor} \u00b2",
+            "a circled digit": "{attr:amount_minor} \u2460",
+            "a vulgar fraction": "{attr:amount_minor} \u00bd",
+            "a roman numeral": "{attr:amount_minor} \u216b",
+            "a zero-width space between two placeholders": "{attr:amount_minor}\u200b{attr:account_last4}",
+            "a zero-width joiner between two placeholders": "{attr:amount_minor}\u200d{attr:account_last4}",
+            "a right-to-left override": "{attr:amount_minor} \u202e",
+            "a control character": "{attr:amount_minor}\u0007",
+        }
+        for name, text in cases.items():
+            self.assertTrue(self.problems(lambda d, text=text: d.__setitem__("display_template", text)), name)
+            self.assertTrue(self.problems(lambda d, text=text: d["attribute_order"][0].__setitem__("label_template", text.replace("amount_minor", "occurred_at").replace("account_last4", "occurred_at"))), name + " (attribute label)")
+
+    def test_a_plain_separator_between_placeholders_is_accepted(self):
+        for sep in (" ", ", ", " - ", " to "):
+            self.assertEqual(self.problems(lambda d, sep=sep: d.__setitem__("display_template", "{attr:amount_minor}" + sep + "{attr:account_last4}")), [], repr(sep))
+
+
 class HandoffRoutes(unittest.TestCase):
     """A531 (interim, relayed, not yet committed; REQ-TRU-004, REQ-AG-002). The pack's `handoff_routes`: which reason code goes to a handoff, to a queue of the pack's own
     routing allowlist, for which intent nodes (absent: all). The route is data; a free-form destination is not representable. All data is SYNTHETIC."""
