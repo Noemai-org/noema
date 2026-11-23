@@ -51,7 +51,7 @@ class EnumsV1ConsequenceLevel(StrEnum):
 
 
 class EnumsV1CoreReasonCode(StrEnum):
-    """The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED) and the last three of the original list are [REC] until the founders co... Source: enums.v1.json#$defs/CoreReasonCode"""
+    """The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED), NO_RUNNABLE_CAPABILITY added by ruling A531 and the last three of the ... Source: enums.v1.json#$defs/CoreReasonCode"""
 
     PROHIBITED_CAPABILITY = 'PROHIBITED_CAPABILITY'
     AMBIGUOUS_COUNTERPARTY = 'AMBIGUOUS_COUNTERPARTY'
@@ -73,6 +73,7 @@ class EnumsV1CoreReasonCode(StrEnum):
     TARGET_FROZEN = 'TARGET_FROZEN'
     CLOCK_BREACHED_UNROUTED = 'CLOCK_BREACHED_UNROUTED'
     DISPATCH_BUDGET_EXHAUSTED = 'DISPATCH_BUDGET_EXHAUSTED'
+    NO_RUNNABLE_CAPABILITY = 'NO_RUNNABLE_CAPABILITY'
 
 
 # EnumsV1DataSensitivity. Source: enums.v1.json#$defs/DataSensitivity

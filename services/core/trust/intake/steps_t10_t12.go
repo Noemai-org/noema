@@ -13,6 +13,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 )
 
+// reasonNoRunnable is the core reason code of a first evaluation with no runnable capability (A531).
+const reasonNoRunnable = "NO_RUNNABLE_CAPABILITY"
+
 // Errors of T10 to T12. None is a decision: the evaluation turns each into UNKNOWN INTERNAL_ERROR at the step (INV-16).
 var (
 	errNotReady   = errors.New("intake: the step ran before the evaluation held what it needs")
@@ -22,6 +25,7 @@ var (
 	// the two refusals of a continuation (TRU-14): not decisions, so they end the evaluation in UNKNOWN INTERNAL_ERROR like any other step failure (INV-16)
 	errStepNotWrite   = errors.New("intake: a continuation was asked for an intent that leads to no write")
 	errStepNotAllowed = errors.New("intake: the continuation's capability is not authorized and runnable now")
+	errNoHandoff      = errors.New("intake: no authorized capability is runnable and the pack routes no handoff for it")
 )
 
 // packReason makes the reason code `<vertical>.reason.<name>` a pack gave (T10 and T12 take nothing else from a pack, and core codes are never a pack's to give).
@@ -278,7 +282,7 @@ func (e *evaluation) t12(ctx context.Context) decide.StepResult {
 		statuses = append(statuses, st)
 	}
 	if len(statuses) == 0 {
-		return e.dispatchBudget(ctx, r)
+		return e.afterClocks(ctx, r)
 	}
 	routing, err := e.svc.Ports.Clocks.Route(ctx, q, statuses)
 	if err != nil {
@@ -291,9 +295,43 @@ func (e *evaluation) t12(ctx context.Context) decide.StepResult {
 				return escalateCore(r, "CLOCK_BREACHED_UNROUTED", passed())
 			}
 		}
-		return e.dispatchBudget(ctx, r)
+		return e.afterClocks(ctx, r)
 	}
 	return escalate(r, routing.ReasonCode, decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
+}
+
+// afterClocks is what T12 asks once the clocks are done, in this order: is anything runnable (A531), then the dispatch budget (A224). Both may end the evaluation in ESCALATE, which T14
+// may not (PERD 23.3).
+func (e *evaluation) afterClocks(ctx context.Context, r decide.ResolvedIntent) decide.StepResult {
+	if res, stop := e.noRunnable(ctx, r); stop {
+		return res
+	}
+	return e.dispatchBudget(ctx, r)
+}
+
+// noRunnable is the end of a first evaluation of a write when no authorized capability is runnable now (A531, interim, relayed, not yet committed): neither PLAN_INVALID nor a WAIT but
+// the explicit result NO_RUNNABLE_CAPABILITY, and never a grant. The disposition stays ESCALATE when the pack routes that reason to a handoff (the orchestrator raises the ops alert on
+// the reason; Trust has no alert port); with no handoff routed, no port, or a port that fails, it is UNKNOWN. stop is false when something is runnable, and for a read, a continuation
+// and a service with no Runnable port, which ask nothing here.
+func (e *evaluation) noRunnable(ctx context.Context, r decide.ResolvedIntent) (res decide.StepResult, stop bool) {
+	ok, err := e.firstCapabilities(ctx)
+	switch {
+	case err != nil:
+		return decide.FailStep(err), true
+	case ok:
+		return decide.Continue(), false
+	}
+	if e.svc.Handoffs == nil {
+		return decide.FailStep(errNoHandoff), true
+	}
+	routed, err := e.svc.Handoffs.Routed(ctx, HandoffQuery{TenantID: e.intent.TenantID, IntentNode: e.intent.IntentNode, ReasonCode: reasonNoRunnable})
+	switch {
+	case err != nil:
+		return decide.FailStep(err), true
+	case !routed:
+		return decide.FailStep(errNoHandoff), true
+	}
+	return escalateCore(r, reasonNoRunnable, passed()), true
 }
 
 // dispatchBudget is the last question of T12 for a write: has any capability the intent authorizes used the ledger's dispatch budget on the target (A224, A254; Codex P2 on

@@ -39,9 +39,10 @@ var (
 	ErrRouteGrantRefused = errors.New("worker: Trust did not issue the route grant")
 )
 
-// RouteDecision is the ask to Trust for the route step as its own action decision on one capability, bound to the case and the version token that were read back.
+// RouteDecision is the ask to Trust for the route step as its own action decision on one capability, bound to the case and the owner queue. The version token is not here: Execution
+// reads it fresh at dispatch; nor is the create receipt: the case ID comes from the verified create outcome.
 type RouteDecision struct {
-	TenantID, CorrelationID, CaseID, VersionToken, OwnerQueue, CreateReceiptID, CapabilityID string
+	TenantID, CorrelationID, CaseID, OwnerQueue, CapabilityID string
 }
 
 // RouteDecisionResult is Trust's answer: the outcome, the Decision Record Trust wrote before it answered and the grants it issued with it.
@@ -75,8 +76,8 @@ func (i routeGrantIssuer) IssueRouteGrant(ctx context.Context, req workflows.Rou
 			return "", fmt.Errorf("%w: the request does not name its %s", ErrRouteGrantRefused, name)
 		}
 	}
-	res, err := i.trust.DecideRoute(ctx, RouteDecision{TenantID: req.TenantID, CorrelationID: req.CorrelationID, CaseID: req.CaseID, VersionToken: req.VersionToken,
-		OwnerQueue: req.PlannedQueue, CreateReceiptID: req.CreateReceiptID, CapabilityID: bridge.CapRouteToInternalOwner})
+	res, err := i.trust.DecideRoute(ctx, RouteDecision{TenantID: req.TenantID, CorrelationID: req.CorrelationID, CaseID: req.CaseID,
+		OwnerQueue: req.PlannedQueue, CapabilityID: bridge.CapRouteToInternalOwner})
 	if err != nil {
 		return "", fmt.Errorf("worker: Trust route decision: %w", err)
 	}
