@@ -17,10 +17,7 @@ function useExpired(expiresAt: string, now: number | undefined): boolean {
     }
     if (cardExpiry(expiresAt, clock()) === "unavailable") return;
     const remaining = expires - clock();
-    if (!Number.isFinite(remaining) || remaining <= 0) {
-      setCurrent(clock());
-      return;
-    }
+    if (!Number.isFinite(remaining) || remaining <= 0) return;
     const timer = setTimeout(() => setCurrent(clock()), Math.min(remaining, 2_147_483_647));
     return () => clearTimeout(timer);
   }, [expires, now, current]);
