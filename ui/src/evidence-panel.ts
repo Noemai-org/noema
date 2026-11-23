@@ -23,7 +23,6 @@ function details(kind: ReconstructionV3SectionKind, facts: Record<string, unknow
   if (kind === "RESOLUTION" && Number.isInteger(facts.candidate_count) && typeof facts.candidate_count === "number" && facts.candidate_count >= 0 && facts.candidate_count <= 20) out.push(`Candidates: ${facts.candidate_count}`);
   if (kind === "DECISION") out.push(mapped(facts, "decision_outcome", decision, "Decision"));
   if (kind === "ACTION") out.push(mapped(facts, "execution_state", execution, "Execution"), mapped(facts, "grant_state", grant, "Grant"));
-  if (kind === "VERIFICATION") out.push(mapped(facts, "verdict", verdict, "Verdict"));
   if (kind === "EXPLANATION" && typeof facts.text === "string") out.push(facts.text);
   return out.filter((text): text is string => text !== null);
 }
