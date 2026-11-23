@@ -129,6 +129,8 @@ Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14
 
 **Migration note (AGENT-15).** `pack.v1.json` gains four optional properties: `action_graph_files`, `routing_allowlist`, `evidence_descriptors` and `predicate_variables`. No existing property changes and no document valid before is invalid now, so the file stays `v1`. packcheck requires `evidence_descriptors` and `predicate_variables` when a pack holds any predicate.
 
+**Migration note (AGENT-15), 22 Nov 2026 (A520, DEBT-54).** `intent-node.v1.json` gains an optional `subject_slot` (a `SlotName`): the slot of the node whose resolved reference is the subject of the intent, for the logical resolution epoch. No existing property changes and no document valid before is invalid now, so the file stays `v1`; the generated Go and Pydantic models are regenerated. packcheck requires it to name a Resource slot of the same node.
+
 **Migration note (AGENT-15), clarification.** `clarification.v1.json` gains an optional `mode` (`OPTIONS` default, `ATTRIBUTE`) and an `attribute` that ATTRIBUTE mode requires (DEC-2026-10-20 D4). Existing fields are unchanged and every earlier document stays valid, so the file stays `v1`.
 
 **Migration note (AGENT-15), clarification, 18 Nov 2026 (A275).** `clarification.v1.json` and the clarification card of `overlay-card.v1.json` gain a required `none_option_id`, the core-minted ID of the "None of these" choice, which the UI submits as `option_id`. A minor change in place before any consumer: a document without it no longer validates. See `contracts/README.md`.

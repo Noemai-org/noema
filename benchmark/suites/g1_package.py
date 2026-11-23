@@ -300,6 +300,17 @@ def _us06_problem(doc: Any) -> tuple[str | None, tuple[int, ...]]:
             return f"{kinds.count(kind)} {kind} events, not exactly one", counts
     if not kinds.count("VERIFICATION_READ"):
         return "no VERIFICATION_READ: the outcome was not verified by key", counts
+    decisions = _facts(doc, "DECISION")
+    at_decision = [seq for seq, kind in events if kind == "DECISION_MADE"]
+    if decisions is None or len(at_decision) < 2 or len(decisions) < 2:
+        return "needs the ESCALATE disposition decision and at least one action decision that references it (A503, PERD 23.1)", counts
+    disposition = decisions[0]
+    if disposition.get("decision_outcome") != "ESCALATE" or not _text_value(disposition.get("decision_id")):
+        return "the first decision is not the ESCALATE disposition decision with an id (A503, PERD 23.1)", counts
+    if any(f.get("disposition_decision_id") != disposition["decision_id"] for f in decisions[1:]):
+        return "an action decision after the disposition does not reference it by disposition_decision_id (A503, REQ-TRU-010)", counts
+    if max(at_decision) > min(seq for seq, kind in events if kind == "GRANT_ISSUED"):
+        return "a decision is recorded after the grant was issued", counts
     at = {k: [seq for seq, kind in events if kind == k] for k in ("GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT")}
     if not (at["GRANT_SPENT"][0] < at["DISPATCH_ATTEMPTED"][0] < at["RECEIPT"][0] < min(at["VERIFICATION_READ"]) < at["VERDICT"][0] and max(at["VERIFICATION_READ"]) < at["VERDICT"][0]):
         return "the events are not in order: spend, dispatch, receipt, the read by key, the verdict", counts
