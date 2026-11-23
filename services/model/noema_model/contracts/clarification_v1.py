@@ -35,8 +35,8 @@ class ClarificationV1(ContractModel):
     slot: CommonV1SlotName
     question_key: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')]
     options: Annotated[list[ClarificationV1OptionsItem], Field(max_length=4)] | None = Field(default=None)
-    allow_none: Literal[True]
-    none_option_id: Annotated[str, StringConstraints(pattern='\\A(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}\\Z')]
+    allow_none: Literal[True] | None = Field(default=None)
+    none_option_id: Annotated[str, StringConstraints(pattern='\\A(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}\\Z')] | None = Field(default=None)
     expires_at: CommonV1Timestamp
     round: Annotated[int, Field(ge=1, le=2)]
     mode: ClarificationV1Mode | None = Field(default=None)

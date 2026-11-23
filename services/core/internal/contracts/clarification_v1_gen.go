@@ -62,15 +62,15 @@ type ClarificationV1 struct {
 	Slot                CommonV1SlotName              `json:"slot"`
 	QuestionKey         string                        `json:"question_key"`
 	Options             *[]ClarificationV1OptionsItem `json:"options,omitempty"`
-	AllowNone           bool                          `json:"allow_none"`
-	NoneOptionId        string                        `json:"none_option_id"`
+	AllowNone           *bool                         `json:"allow_none,omitempty"`
+	NoneOptionId        *string                       `json:"none_option_id,omitempty"`
 	ExpiresAt           CommonV1Timestamp             `json:"expires_at"`
 	Round               int64                         `json:"round"`
 	Mode                *ClarificationV1Mode          `json:"mode,omitempty"`
 	Attribute           *CommonV1SlotName             `json:"attribute,omitempty"`
 }
 
-var ClarificationV1Shape = objectShape{name: "ClarificationV1", props: map[string]bool{"clarification_id": true, "candidate_set_id": true, "candidate_set_version": true, "slot": true, "question_key": true, "options": true, "allow_none": true, "none_option_id": true, "expires_at": true, "round": true, "mode": true, "attribute": true}, required: []string{"clarification_id", "slot", "question_key", "allow_none", "none_option_id", "expires_at", "round"}, nonNull: map[string]bool{"clarification_id": true, "candidate_set_id": true, "candidate_set_version": true, "slot": true, "question_key": true, "options": true, "allow_none": true, "none_option_id": true, "expires_at": true, "round": true, "mode": true, "attribute": true}, closed: true}
+var ClarificationV1Shape = objectShape{name: "ClarificationV1", props: map[string]bool{"clarification_id": true, "candidate_set_id": true, "candidate_set_version": true, "slot": true, "question_key": true, "options": true, "allow_none": true, "none_option_id": true, "expires_at": true, "round": true, "mode": true, "attribute": true}, required: []string{"clarification_id", "slot", "question_key", "expires_at", "round"}, nonNull: map[string]bool{"clarification_id": true, "candidate_set_id": true, "candidate_set_version": true, "slot": true, "question_key": true, "options": true, "allow_none": true, "none_option_id": true, "expires_at": true, "round": true, "mode": true, "attribute": true}, closed: true}
 
 func (t *ClarificationV1) UnmarshalJSON(b []byte) error {
 	raw, err := ClarificationV1Shape.check(b)
@@ -82,7 +82,7 @@ func (t *ClarificationV1) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &a); err != nil {
 		return fmt.Errorf("contracts: ClarificationV1: %w", err)
 	}
-	if a.AllowNone != true {
+	if a.AllowNone != nil && *a.AllowNone != true {
 		return fmt.Errorf("contracts: ClarificationV1.allow_none: must be %s", "true")
 	}
 	_ = raw
