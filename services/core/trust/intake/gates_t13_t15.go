@@ -433,7 +433,8 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	}
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
 		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
-		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash, ConfirmationBindingEvidenceHash: bindingEvidence})
+		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash, ConfirmationBindingEvidenceHash: bindingEvidence,
+		DispositionDecisionID: e.disposition()})
 	if err != nil {
 		return decide.FailStep(err)
 	}
@@ -449,4 +450,48 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	}
 	e.late.recorded = RecordResult{DecisionID: res.DecisionID, GrantIDs: append([]string(nil), res.GrantIDs...)}
 	return decide.Stop(d)
+}
+
+// disposition is the ESCALATE decision a continuation follows, as the caller named it (A534); empty for a first evaluation and for a continuation that names none.
+func (e *evaluation) disposition() string {
+	if e.step == nil {
+		return ""
+	}
+	return e.step.disposition
+}
+
+// recordEscalate wraps a step so that an ESCALATE it ends the evaluation with is recorded through the Recorder before it is returned (A534, interim, relayed, not yet committed; EC-E16):
+// the decision with the evaluated basis, no step, no plan, no confirmation request, no grant. The decision ID of the record is the result's. When the Record fails, or answers what a
+// decision with no step cannot be (no or malformed decision ID, a grant, a request), the step fails and the evaluation ends in UNKNOWN, never in an ESCALATE nobody recorded. Any other result
+// of the step is returned as it is.
+func (e *evaluation) recordEscalate(step decide.StepFunc) decide.StepFunc {
+	return func(ctx context.Context) decide.StepResult {
+		res := step(ctx)
+		d, ok := res.Decision()
+		if !ok || d.Outcome() != decide.Escalate {
+			return res
+		}
+		if e.intent == nil {
+			return decide.FailStep(errNoIntent)
+		}
+		d, err := e.withBasis(d)
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		digest, err := e.bb.Digest()
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		a := e.intent
+		rec, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+			IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+		switch {
+		case err != nil:
+			return decide.FailStep(err)
+		case !decisionIDRe.MatchString(rec.DecisionID), len(rec.GrantIDs) != 0, rec.ConfirmationRequestID != "":
+			return decide.FailStep(errAnswer)
+		}
+		e.late.recorded = RecordResult{DecisionID: rec.DecisionID}
+		return decide.Stop(d)
+	}
 }

@@ -70,7 +70,7 @@ func (s *Service) EvaluateStep(ctx context.Context, r ContinuationRequest) (Resu
 
 // scopeOf is the step a continuation request names; the facts are copied, so the caller cannot change them during the evaluation.
 func scopeOf(r ContinuationRequest) *stepScope {
-	return &stepScope{capabilityID: r.CapabilityID, facts: cloneStrings(r.Facts), packet: r.EvidencePacket, runnable: r.Runnable}
+	return &stepScope{capabilityID: r.CapabilityID, facts: cloneStrings(r.Facts), packet: r.EvidencePacket, runnable: r.Runnable, disposition: r.DispositionDecisionID}
 }
 
 func cloneStrings(m map[string]string) map[string]string {

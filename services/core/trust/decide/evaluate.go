@@ -33,6 +33,9 @@ func Stop(d Decision) StepResult { return StepResult{kind: kindStop, decision: d
 // FailStep reports that the step could not run (a dependency failure). The evaluation ends with UNKNOWN, never ALLOW (INV-16).
 func FailStep(err error) StepResult { return StepResult{kind: kindFail, err: err} }
 
+// Decision is the decision a Stop result ends the evaluation with; ok is false for a result that continues or fails.
+func (r StepResult) Decision() (d Decision, ok bool) { return r.decision, r.kind == kindStop }
+
 // Err is the step's error for a failed result, or nil.
 func (r StepResult) Err() error { return r.err }
 
