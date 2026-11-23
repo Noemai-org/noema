@@ -50,7 +50,7 @@ func allowOne() RouteDecisionResult {
 	return RouteDecisionResult{Outcome: "ALLOW", DecisionID: "dec_1", GrantIDs: []string{"grt_route1"}}
 }
 
-// INV-03, REQ-EXE-006: the route grant is the id Trust's decision returned, asked for as its own decision on the route capability, bound to the case and the version read back.
+// INV-03, REQ-EXE-006: the route grant is the id Trust's decision returned, asked for as its own decision on the route capability, bound to the case and the owner queue.
 func TestRouteIssuerAsksTrustForTheRouteCapabilityAndReturnsTrustsGrant(t *testing.T) {
 	d := &deciderFake{result: allowOne()}
 	iss, err := newRouteGrantIssuer(d)
@@ -63,7 +63,7 @@ func TestRouteIssuerAsksTrustForTheRouteCapabilityAndReturnsTrustsGrant(t *testi
 	if err != nil || id != "grt_route1" {
 		t.Fatalf("id %q, err %v", id, err)
 	}
-	want := RouteDecision{TenantID: "ten_a", CorrelationID: "cor_1", CaseID: "case_1", VersionToken: "v7", OwnerQueue: "disputes_l2", CreateReceiptID: "rcp_1", CapabilityID: bridge.CapRouteToInternalOwner}
+	want := RouteDecision{TenantID: "ten_a", CorrelationID: "cor_1", CaseID: "case_1", OwnerQueue: "disputes_l2", CapabilityID: bridge.CapRouteToInternalOwner}
 	if len(d.got) != 1 || d.got[0] != want || !d.hasDL {
 		t.Fatalf("decider saw %+v (deadline %v), want one call %+v", d.got, d.hasDL, want)
 	}

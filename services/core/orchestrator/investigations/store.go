@@ -112,11 +112,11 @@ func (s *Store) ready() error {
 var roles = map[string]bool{"customer": true, "ops": true, "approver": true, "audit": true}
 
 // checkVerified is checkSession plus what a NEW row must carry (migration 0036): the role of the verified session and the reference of the session. Nothing of a request is read.
-func checkVerified(sess orchestrator.Session, authnRef string) error {
+func checkVerified(sess orchestrator.Session) error {
 	if err := checkSession(sess); err != nil {
 		return err
 	}
-	if !roles[sess.Role] || !authnRefRe.MatchString(authnRef) {
+	if !roles[sess.Role] || !authnRefRe.MatchString(sess.AuthnRef) {
 		return fmt.Errorf("%w: the session has no valid role and authn reference", ErrRequest)
 	}
 	return nil
@@ -130,16 +130,16 @@ func checkSession(sess orchestrator.Session) error {
 }
 
 // Start makes the investigation of a recorded input, or finds the one an earlier Start made (idempotent per tenant and input, noema#477). created is true only for
-// the call that made the row. The role and the authn reference written are those of the verified session the caller passes (INV-12; A441): sess.Role and authnRef, which the
+// the call that made the row. The role and the authn reference written are those of the verified session the caller passes (INV-12; A441): sess.Role and sess.AuthnRef, which the
 // edge's session middleware produced. StartRequest carries neither, so no request value can reach the columns. A repeat Start keeps the first row's. The returned Investigation carries the state and version the row has now; a caller that finds a version above 0 must not run it again.
-func (s *Store) Start(ctx context.Context, sess orchestrator.Session, authnRef string, r StartRequest) (orchestrator.Investigation, bool, error) {
+func (s *Store) Start(ctx context.Context, sess orchestrator.Session, r StartRequest) (orchestrator.Investigation, bool, error) {
 	if err := needDeadline(ctx); err != nil {
 		return orchestrator.Investigation{}, false, err
 	}
 	if err := s.ready(); err != nil {
 		return orchestrator.Investigation{}, false, err
 	}
-	if err := checkVerified(sess, authnRef); err != nil {
+	if err := checkVerified(sess); err != nil {
 		return orchestrator.Investigation{}, false, err
 	}
 	if !investigationRe.MatchString(r.InvestigationID) || !correlationRe.MatchString(r.CorrelationID) || !recordedRe.MatchString(r.InputReceivedRef) {
@@ -161,7 +161,7 @@ func (s *Store) Start(ctx context.Context, sess orchestrator.Session, authnRef s
 	var principal string
 	err = tx.QueryRow(ctx, `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref)
 		VALUES ($1, $2, $3, $4, 'RECEIVED', 0, $5, $6, $7) ON CONFLICT ON CONSTRAINT investigation_one_per_input DO NOTHING
-		RETURNING investigation_id, state, state_version, correlation_id, principal_ref`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID, sess.PrincipalID, sess.Role, authnRef).Scan(&inv.ID, &state, &inv.Version, &corr, &principal)
+		RETURNING investigation_id, state, state_version, correlation_id, principal_ref`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID, sess.PrincipalID, sess.Role, sess.AuthnRef).Scan(&inv.ID, &state, &inv.Version, &corr, &principal)
 	created := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `SELECT investigation_id, state, state_version, correlation_id, principal_ref FROM investigation WHERE tenant_id = $1 AND input_received_ref = $2`,

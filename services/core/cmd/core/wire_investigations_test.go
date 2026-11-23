@@ -103,7 +103,7 @@ func (w *wireWorld) settings(t *testing.T) envMap {
 
 func writeDSN(t *testing.T, dir, tenant string, p *pgxpool.Pool) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, tenant), []byte(p.Config().ConnString()+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, tenant), []byte(p.Config().ConnString()+"\n"), 0o400); err != nil {
 		t.Fatal(err)
 	}
 }

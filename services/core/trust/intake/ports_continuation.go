@@ -79,3 +79,15 @@ func cloneStrings(m map[string]string) map[string]string {
 	}
 	return out
 }
+
+// HandoffQuery asks whether the pack routes a reason code to a handoff for an intent node (A531).
+type HandoffQuery struct {
+	TenantID   string
+	IntentNode string
+	ReasonCode string
+}
+
+// Handoffs answers whether the pack has a handoff for the reason, as pack data. The intake holds no routing; an error is never "routed" and never "not routed".
+type Handoffs interface {
+	Routed(ctx context.Context, q HandoffQuery) (bool, error)
+}
