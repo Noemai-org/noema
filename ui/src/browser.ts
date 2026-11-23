@@ -57,7 +57,7 @@ function LiveOverlay({ context }: { context: HostContext }) {
     setStarted(true);
     setInvalidMessage(false);
     setLost(false);
-    void startConversationAndPoll({ ...context, request: message, signal: controller.signal, onState: setState })
+    void startConversationAndPoll({ ...context, request: message, signal: controller.signal, onState: (next) => { if (request.current === controller && !controller.signal.aborted) setState(next); } })
       .then((failure) => { if (!controller.signal.aborted && failure) setLost(true); })
       .catch(() => { if (!controller.signal.aborted) setLost(true); });
   };
