@@ -552,6 +552,17 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertRegex(block.group(1), r"r\.read\(\d+\)")
         self.assertIn('readyz="$(head -n 1 benchmark/out/joblog/readyz.log)"', block.group(1))
 
+    def test_the_job_log_scan_shows_why_the_log_could_not_be_read(self) -> None:
+        # The first two stack-check runs ended with "the job log could not be read" after 60 s and no reason: the read's stderr went to /dev/null. gh prints an HTTP status line and no log text
+        # on a failure, so it is kept in a file and shown when the read fails.
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        read = re.search(r"gh api \"repos/\$REPO/actions/jobs/\$id/logs\"[^\n]*", job.group(1))
+        assert read, "the log read was not found"
+        self.assertNotIn("2>/dev/null", read.group(0))
+        self.assertIn("joblog-read.err", job.group(1))
+        self.assertRegex(job.group(1), r"head -c \d+ \"?\$RUNNER_TEMP/joblog-read\.err")
+
 
 if __name__ == "__main__":
     unittest.main()

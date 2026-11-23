@@ -453,10 +453,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/joblog"
           ok=0
           for _ in 1 2 3 4 5 6; do
-            if gh api "repos/$REPO/actions/jobs/$id/logs" > "$RUNNER_TEMP/joblog/g1-stack.log" 2>/dev/null && [ -s "$RUNNER_TEMP/joblog/g1-stack.log" ]; then ok=1; break; fi
+            if gh api "repos/$REPO/actions/jobs/$id/logs" > "$RUNNER_TEMP/joblog/g1-stack.log" 2> "$RUNNER_TEMP/joblog-read.err" && [ -s "$RUNNER_TEMP/joblog/g1-stack.log" ]; then ok=1; break; fi
             sleep 10
           done
-          [ "$ok" = 1 ] || { echo "::error::the job log could not be read; it was not scanned"; exit 3; }
+          [ "$ok" = 1 ] || { echo "::error::the job log could not be read; it was not scanned"; head -c 400 "$RUNNER_TEMP/joblog-read.err" || true; exit 3; }
           # The digit-run rule is OFF for this file only: the runner writes its own digits into the log (image version, run id, byte counts, the dispatch inputs it echoes), which no allow
           # rule short of a broad one could cover (Codex P2 on noema#730). Every other rule is still proved by a planted canary, api key, JWT-shaped value and bearer token, and applied.
           python3 -I tools/ci/g1_leakscan.py --no-digit-rule --workdir "$RUNNER_TEMP/g1-joblog-scan" "$RUNNER_TEMP/joblog/g1-stack.log"
