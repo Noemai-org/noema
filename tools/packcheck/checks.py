@@ -803,6 +803,8 @@ def check_trust_routing(pack: dict, limits: dict) -> list[Problem]:
     def bad(msg: str) -> None:
         out.append(("trust_routing", msg))
 
+    if limits.get("schema_version") != "2.0":  # A596 (interim): trust-limits is v2 and a v1 file has no compatibility path
+        bad(f"schema_version {limits.get('schema_version')!r} is not 2.0: the pack's trust-limits document is trust-limits.v2 and a v1 file is refused (A596)")
     if limits.get("pack_id") != pack["pack_id"]:
         bad(f"pack_id {limits.get('pack_id')!r} is not the pack's {pack['pack_id']!r}")
     produced = {r["code"]: r.get("produced_by") for r in pack["reason_catalogue"]}

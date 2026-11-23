@@ -27,10 +27,10 @@ func TestTheDigitCeilingIsTheMaskingLimitOfThePack(t *testing.T) {
 	}
 }
 
-// A561 (interim; PERD v1.23 section 67, "confirmation TTL 10 min"): the ceiling in code is the one number of trust-limits.v1's `maximum` for the confirmation TTL, ten minutes in
+// A561 (interim; PERD v1.23 section 67, "confirmation TTL 10 min"): the ceiling in code is the one number of trust-limits.v2's `maximum` for the confirmation TTL, ten minutes in
 // milliseconds, so the schema and the loader can never differ.
 func TestTheConfirmationCeilingIsTheSchemaMaximumAndTenMinutes(t *testing.T) {
-	b, err := os.ReadFile("../../../../contracts/schemas/trust-limits.v1.json")
+	b, err := os.ReadFile("../../../../contracts/schemas/trust-limits.v2.json")
 	if err != nil {
 		t.Fatal(err)
 	}

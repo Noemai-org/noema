@@ -1,4 +1,4 @@
-// Package trustlimits reads the two provisional limits the Trust steps use, from the pack's trust-limits.v1 document: the ambiguity absolute floor and the clock AT_RISK threshold
+// Package trustlimits reads the two provisional limits the Trust steps use, from the pack's trust-limits.v2 document: the ambiguity absolute floor and the clock AT_RISK threshold
 // (TRU-06, REQ-AMB-003, REQ-TRU-006, AGENT-16; Architect ruling A205 Q1). Both are integer basis points (0 to 10000, A166). Both values are NON-CANONICAL until GOV-06 adopts them.
 // There is no default: a document that is not exactly the contract is an error, and the zero Limits is not loaded and its accessors refuse.
 //
@@ -16,7 +16,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/ceilings"
 )
 
-// Both members are BasisPoints in trust-limits.v1: an integer from 0 to 10000 (intent-slot.v2 $defs/BasisPoints). The generated type does not check values, so Load does, against
+// Both members are BasisPoints in trust-limits.v2: an integer from 0 to 10000 (intent-slot.v2 $defs/BasisPoints). The generated type does not check values, so Load does, against
 // the bounds of ruling A233 that platform/ceilings holds: the ambiguity floor is at least 7000 (it may only tighten), the AT_RISK share is 1000 to 5000. Zero is below every
 // bound: a floor of 0 passes every candidate and an AT_RISK threshold of 0 means a clock is never AT_RISK, so a pack could switch a safety limit off (Security Reviewer on noema#574).
 const maxBasisPoints = 10000
@@ -24,7 +24,7 @@ const maxBasisPoints = 10000
 // maxDocumentBytes bounds what Load reads; the contract is five short members.
 const maxDocumentBytes = 1 << 16
 
-// Error is the typed error of Load: the document is not exactly trust-limits.v1. Reason never carries the document.
+// Error is the typed error of Load: the document is not exactly trust-limits.v2. Reason never carries the document.
 type Error struct {
 	Reason string
 	Err    error
@@ -83,10 +83,10 @@ func (l Limits) ConfirmationTTLCeilingMS() (int, error) {
 	return l.confirmCeilMS, nil
 }
 
-// packIDShape is the pattern of pack_id in trust-limits.v1.json. The generated type does not check patterns, so Load does (\z, not $).
+// packIDShape is the pattern of pack_id in trust-limits.v2.json. The generated type does not check patterns, so Load does (\z, not $).
 var packIDShape = regexp.MustCompile(`\A[a-z][a-z0-9]*\z`)
 
-// Load reads one trust-limits.v1 document for the pack named by wantPackID (the pack the caller is loading for, never taken from the document). Any deviation from the
+// Load reads one trust-limits.v2 document for the pack named by wantPackID (the pack the caller is loading for, never taken from the document). Any deviation from the
 // contract, a document of another pack included, is a *Error and the returned Limits is the zero value.
 func Load(r io.Reader, wantPackID string) (Limits, error) {
 	b, err := io.ReadAll(io.LimitReader(r, maxDocumentBytes+1))
@@ -96,7 +96,7 @@ func Load(r io.Reader, wantPackID string) (Limits, error) {
 	if len(b) > maxDocumentBytes {
 		return Limits{}, refuse("the document is larger than the contract allows", nil)
 	}
-	var d contracts.TrustLimitsV1
+	var d contracts.TrustLimitsV2
 	if err := d.UnmarshalJSON(b); err != nil {
 		return Limits{}, refuse("not exactly the contract", err)
 	}

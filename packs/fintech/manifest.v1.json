@@ -56,7 +56,7 @@
     {
       "kind": "limits",
       "path": "fintech/limits/trust_limits.json",
-      "sha256": "f6823c273a5ea8576764b291945c2fad05d23bf60477d07438d753bde2703813"
+      "sha256": "71c20c63a91d6be63f5ded0f34e9235a5c0d29ef94f323ad9766a18f2146fae7"
     }
   ]
 }

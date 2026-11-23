@@ -45,3 +45,18 @@ Ready-to-paste block for `docs/open-decisions.md` (the Steward registers it; thi
 - Exact next step: C1 reads `ConfirmationTTLCeilingMS()` in the intake and the Writer and refuses a larger TTL (A561). EL: the consumer fails closed when the limits entry is missing (A567).
 - Do not touch: the manifest pin without recomputing it with `sha256sum`.
 
+
+# Session 2026-11-23 23:00 WAT · PCK-08 (third round: A596, trust-limits v2)
+
+## Session summary
+- What changed (PR links): noema#910. Main merged (#916 and #902 landed; both packcheck test classes kept). `trust-limits` moves to v2 in one change (A596, interim): `contracts/schemas/trust-limits.v2.json` (v1 is not edited: the file, its fixtures and its generated models are exactly main's), `confirmation_ttl_ceiling_ms` required, the four A544 routing members optional; regenerated Go and Pydantic models and the shape refusals; fixtures under `valid|invalid/trust-limits.v2/` (with a v1 document refused, with and without the ceiling); `platform/trustlimits.Load` decodes `TrustLimitsV2` only and refuses v1 and a v2 file without the ceiling, with no default; the pack file says `"schema_version": "2.0"` and its manifest pin is recomputed; packcheck `trust_routing` refuses a file that is not 2.0; migration note and INVENTORY row.
+- Why: A596 (the Architect, interim): a required member is a breaking shape, so a new major; both Founders approve.
+- Risks, and how they are contained: a v1 file anywhere fails closed (Load error, `ErrNotLoaded` on the zero Limits). No consumer decodes the generated v1 type; `AtRiskFromLimits` and the accessors are unchanged.
+- Tests added: `TestAV1DocumentIsRefusedWithNoCompatibilityPath`, the packcheck v2 test, the v2 fixtures; `TestTheEnvelopeIsChecked` now refuses 3.0 (its old "2.0" case became the valid version).
+- Regression cases added: the v2 fixtures.
+- Debt entries: none. Conflicts raised: none new (A567's REQ-RES-002 conflict stands in the PR body).
+
+## Pre-work for the next agent
+- Exact next step: after both Founders approve and #910 merges, nothing for C2; EL wires `trustlimits.Load` over the v2 file.
+- Files to read first: `contracts/README.md` (trust-limits.v2), `services/core/platform/trustlimits/limits.go`.
+- Do not touch: `trust-limits.v1.json` (not edited).

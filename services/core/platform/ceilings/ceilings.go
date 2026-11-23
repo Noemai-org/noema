@@ -28,6 +28,6 @@ const (
 
 	// MaxConfirmationTTLMillis is the most a pack's confirmation TTL ceiling may be, in milliseconds: the PERD's 10 minutes (v1.23 section 67, the provisional defaults, row "Grants and
 	// confirmations": "confirmation TTL 10 min", adopted by DEC-2026-10-17, OD-P-31; ruling A561, interim). A pack may shorten it and never lengthen it. It is the same number as the
-	// `maximum` of confirmation_ttl_ceiling_ms in trust-limits.v1; ceilings_test.go fails if the two ever differ.
+	// `maximum` of confirmation_ttl_ceiling_ms in trust-limits.v2; ceilings_test.go fails if the two ever differ.
 	MaxConfirmationTTLMillis = 600000
 )

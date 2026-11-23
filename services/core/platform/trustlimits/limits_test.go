@@ -119,7 +119,7 @@ func TestAMemberWrittenTwiceIsRefused(t *testing.T) {
 
 func TestTheEnvelopeIsChecked(t *testing.T) {
 	for name, text := range map[string]string{
-		"schema_version 2.0": `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
+		"schema_version 3.0": `{"schema_version":"3.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
 		"pack_id upper":      `{"schema_version":"2.0","pack_id":"Fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
 		"pack_id newline":    `{"schema_version":"2.0","pack_id":"fin\n","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
 		"pack_id empty":      `{"schema_version":"2.0","pack_id":"","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":2500,"confirmation_ttl_ceiling_ms":600000}`,
