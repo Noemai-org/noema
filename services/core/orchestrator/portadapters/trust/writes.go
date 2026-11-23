@@ -67,8 +67,7 @@ func (w *Writes) NeedsWrite(ctx context.Context, a intake.AdmittedIntent) (bool,
 	if a.IntentNode == "" {
 		return false, fmt.Errorf("%w: the intent names no node", ErrStoredIntent)
 	}
-	// red-commit stub (A543): the rule is given the node alone, as before; GREEN passes the intent with its slot values.
-	may, err := w.rule.MayWrite(ctx, intake.AdmittedIntent{TenantID: a.TenantID, IntentID: a.IntentID, Version: a.Version, IntentNode: a.IntentNode})
+	may, err := w.rule.MayWrite(ctx, a)
 	if err != nil {
 		return false, fmt.Errorf("trustport: the write rule: %w", err)
 	}
