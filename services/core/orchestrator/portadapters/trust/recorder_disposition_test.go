@@ -102,7 +102,7 @@ func TestAnActionDecisionIsStoredWithTheDispositionRecordedFirstThroughTheAdapte
 	}
 }
 
-// Steps if and only if a disposition (A503 and the Founder's order of 22 Nov 2026): a decision with steps and no disposition, and a decision with no step that names one, are refused
+// Steps of the escalation plan if and only if a disposition (A503 and the Founder's order of 22 Nov 2026, rescoped by A534): a decision with a step of the plan and no disposition, and a decision with no step that names one, are refused
 // before any transaction opens, as an unusable request (SR on noema#883).
 func TestAStepsAndDispositionThatDoNotGoTogetherAreRefusedBeforeAnyTransaction(t *testing.T) {
 	cases := map[string]func(t *testing.T) intake.RecordRequest{
@@ -120,7 +120,7 @@ func TestAStepsAndDispositionThatDoNotGoTogetherAreRefusedBeforeAnyTransaction(t
 	for name, build := range cases {
 		t.Run(name, func(t *testing.T) {
 			b, w := &recBegin{tx: &recTx{}}, &recWriter{}
-			if _, err := recAdapter(t, b, newRecFacts(), w).Record(recCtx(t), build(t)); !errors.Is(err, ErrRecordRequest) {
+			if _, err := recAdapterWith(t, b, newRecFacts(), w, recorder.NewEscalationSet(recCap)).Record(recCtx(t), build(t)); !errors.Is(err, ErrRecordRequest) {
 				t.Fatalf("err %v, want ErrRecordRequest", err)
 			}
 			if len(b.tenants) != 0 || len(w.got) != 0 {

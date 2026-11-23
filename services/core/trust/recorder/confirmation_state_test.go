@@ -30,7 +30,7 @@ func confirmOnTheTupleOfAllowWith(t *testing.T, w *world, snapshot string) recor
 func allowOnTheTuple(t *testing.T, snapshot, event string) recorder.Request {
 	t.Helper()
 	r := allowWith(t, snapshot, event)
-	r.IntentHash = contracts.CommonV1Hash(letters(0))
+	r.IntentHash, r.DispositionDecisionID = contracts.CommonV1Hash(letters(0)), seededDispositionL // the intent of the tuple, and its own disposition (A542)
 	return r
 }
 
@@ -231,9 +231,9 @@ func TestTheConfirmationStateKeyIsPerTenant(t *testing.T) {
 	if err != nil || confirmB.Record.Outcome != "CONFIRM" {
 		t.Fatalf("tenant B's CONFIRM on the tuple tenant A has decided: %v", err)
 	}
-	bEvaluated := evaluated(t)
+	bEvaluated := evaluatedWith(t, "evs_01DSP", "3.1")                                      // its own sealed snapshot: another input than the ALLOW of the same intent (A186, A542)
 	bDispositionRequest := request(t, decision(t, decide.Escalate, bEvaluated), bEvaluated) // tenant B's own ESCALATE decision, written through B's login: the one its ALLOW names
-	bDispositionRequest.TenantID, bDispositionRequest.IntentHash = "ten_bb", h2(7)
+	bDispositionRequest.TenantID, bDispositionRequest.IntentHash = "ten_bb", contracts.CommonV1Hash(letters(0))
 	bDispositionResult, err := w.writeVia(t, bb, bDispositionRequest)
 	if err != nil {
 		t.Fatalf("tenant B's disposition: %v", err)

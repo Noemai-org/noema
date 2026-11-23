@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -391,8 +392,9 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if len(r.Steps) > 0 && d.Outcome() != decide.Allow {
 		return decide.Basis{}, "", ErrGrantsNeedAllow
 	}
-	if len(r.Steps) > 0 && r.DispositionDecisionID == "" {
-		// Every grant-issuing action decision links its disposition (REQ-TRU-010, INV-25; ruling A317 to A328, interim). Only an ALLOW reaches here with steps.
+	if r.DispositionDecisionID == "" && slices.ContainsFunc(r.Steps, func(s grants.Step) bool { return w.Escalation.Contains(s.CapabilityID) }) {
+		// An action decision with a step of the escalation plan links its disposition (REQ-TRU-010, INV-25; ruling A317 to A328, rescoped by A534, interim): the rule applies only to a decision
+		// whose steps include a capability of the injected set, so a write outside the plan (the complaint write) is an ALLOW with a grant and no disposition. Only an ALLOW reaches here with steps.
 		return decide.Basis{}, "", ErrDispositionRequired
 	}
 	if len(r.Steps) == 0 && r.DispositionDecisionID != "" {
@@ -451,10 +453,11 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 }
 
 // requireEscalationDisposition checks, before anything is written, that the disposition a decision names is an existing ESCALATE decision of the same tenant (REQ-TRU-010). A
-// missing decision, another tenant's and one with another outcome are one answer. The database's foreign key (migration 0012) says the same behind it.
+// missing decision, another tenant's, one with another outcome and (A542) one of another intent or intent hash are one answer. The database's foreign key (migration 0012) says the first three behind it.
 func requireEscalationDisposition(ctx context.Context, tx pgx.Tx, r Request) error {
-	var outcome string
-	err := tx.QueryRow(ctx, `SELECT outcome FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`, r.TenantID, r.DispositionDecisionID).Scan(&outcome)
+	var outcome, intentHash string
+	var intentID *string
+	err := tx.QueryRow(ctx, `SELECT outcome, intent_hash, json ->> 'intent_id' FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`, r.TenantID, r.DispositionDecisionID).Scan(&outcome, &intentHash, &intentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrDispositionNotValid
 	}
@@ -462,6 +465,11 @@ func requireEscalationDisposition(ctx context.Context, tx pgx.Tx, r Request) err
 		return fmt.Errorf("%sread the disposition: %w", errPrefix, err)
 	}
 	if outcome != string(decide.Escalate) {
+		return ErrDispositionNotValid
+	}
+	// A542 (interim, relayed, not yet committed): a disposition belongs to the same intent as the action decision that names it, the same intent ID and the same intent hash. An ESCALATE of
+	// the tenant for another intent, or for this intent with other content, is not this decision's disposition: the same typed answer as for one that does not exist.
+	if intentID == nil || *intentID != r.IntentID || intentHash != string(r.IntentHash) {
 		return ErrDispositionNotValid
 	}
 	return nil

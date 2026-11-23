@@ -40,7 +40,9 @@ const (
 // seededDisposition is the SYNTHETIC ESCALATE decision every world holds for the requests that carry steps (see newWorld); recordsQ counts the other decision records.
 const (
 	seededDisposition = "dec_SEEDDISP"
-	recordsQ          = `SELECT count(*) FROM decision_record WHERE decision_id <> '` + seededDisposition + `'`
+	// seededDispositionL is the same for the intent hash letters(0), the tuple of the confirmation tests (A542: a disposition belongs to the intent of the action decision that names it).
+	seededDispositionL = "dec_SEEDDISPL"
+	recordsQ           = `SELECT count(*) FROM decision_record WHERE decision_id NOT IN ('` + seededDisposition + `', '` + seededDispositionL + `')`
 )
 
 var epoch = time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
@@ -92,11 +94,16 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	// Every decision with steps names an ESCALATE disposition (A317 to A328) and every step is one of the escalation plan (the pack's graph, read as data). The disposition is
-	// the SYNTHETIC row below, inserted directly with no Record event and no grant: tests that are about something else link to it through request(); the tests of the linkage
+	// the SYNTHETIC row below, inserted directly with no Record event and no grant, for the intent and the intent hash that request() gives (A542): tests that are about something else link to it through request(); the tests of the linkage
 	// itself write real dispositions through the writer (escalation_link_test.go). Counts of decision records in these tests exclude it (recordsQ).
 	if _, err := admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		VALUES ($1, $2, jsonb_set($3::jsonb, '{outcome}', '"ESCALATE"'), 'ESCALATE', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
-		seededDisposition, tenant, testpg.DecisionDocJSON(seededDisposition, tenant, testpg.FixtureIntentHash, testpg.FixturePolicyVersion, "corr_synth01")); err != nil {
+		VALUES ($1, $2, jsonb_set(jsonb_set($3::jsonb, '{outcome}', '"ESCALATE"'), '{intent_id}', '"int_01J9X3"'), 'ESCALATE', $4, '[]', 'k1', 'aa')`,
+		seededDisposition, tenant, testpg.DecisionDocJSON(seededDisposition, tenant, string(h(1)), testpg.FixturePolicyVersion, "corr_synth01"), string(h(1))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		VALUES ($1, $2, jsonb_set(jsonb_set($3::jsonb, '{outcome}', '"ESCALATE"'), '{intent_id}', '"int_01J9X3"'), 'ESCALATE', $4, '[]', 'k1', 'aa')`,
+		seededDispositionL, tenant, testpg.DecisionDocJSON(seededDispositionL, tenant, letters(0), testpg.FixturePolicyVersion, "corr_synth01"), letters(0)); err != nil {
 		t.Fatal(err)
 	}
 	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(t, admin, clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute,
@@ -250,7 +257,7 @@ func TestAnAllowWritesTheSignedRecordThenEachGrantAndEachEventInOneTransaction(t
 	// the stored record is the v2 document, its signature verifies, and every bound field is in it
 	var stored contracts.DecisionRecordV2
 	var raw []byte
-	if err := w.admin.QueryRow(ctx(t), `SELECT json::text FROM decision_record WHERE decision_id <> '`+seededDisposition+`'`).Scan(&raw); err != nil {
+	if err := w.admin.QueryRow(ctx(t), `SELECT json::text FROM decision_record WHERE decision_id NOT IN ('`+seededDisposition+`', '`+seededDispositionL+`')`).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := stored.UnmarshalJSON(raw); err != nil {

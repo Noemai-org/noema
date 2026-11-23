@@ -194,7 +194,7 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	if r.TenantID == "" || r.PrincipalID == "" || r.Evaluated == nil {
 		return recorder.Request{}, ErrRecordRequest
 	}
-	if err := outcomeShape(r); err != nil {
+	if err := outcomeShape(r, a.escalation); err != nil {
 		return recorder.Request{}, err
 	}
 	digest, err := r.Evaluated.Digest()
@@ -243,14 +243,22 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 
 // outcomeShape is A456 (interim, relayed, not yet committed): the port serves every outcome. An ALLOW names its plan hash (a read has no steps but has its plan and its hash, A205
 // Q3; a write's steps are the intake's to count). Every other outcome has no plan hash and no step, so no grant (INV-03), and only a CONFIRM carries a confirmation request.
-func outcomeShape(r intake.RecordRequest) error {
+func outcomeShape(r intake.RecordRequest, escalation recorder.EscalationSet) error {
 	if err := declinedShape(r); err != nil {
 		return err
 	}
-	// Steps if and only if a disposition (A503): an escalation action decision carries steps and names the ESCALATE disposition recorded before it; every other decision names none. A
-	// mismatch is an unusable request, refused before any transaction opens.
-	if (len(r.Steps) > 0) != (r.DispositionDecisionID != "") {
-		return fmt.Errorf("%w: a decision names its escalation disposition if and only if it carries steps", ErrRecordRequest)
+	// The escalation action decision (A503, rescoped by A534, interim, relayed): a decision carrying a step of the pack's escalation plan names the ESCALATE disposition recorded before it,
+	// and a decision with no step names none. A decision whose steps are all outside the escalation plan (a complaint write) names none. A mismatch is an unusable request, refused before any
+	// transaction opens; the Writer checks the rest (the disposition exists, is the tenant's and the intent's, and every step is in the plan).
+	if r.DispositionDecisionID != "" && len(r.Steps) == 0 {
+		return fmt.Errorf("%w: a decision with no step names no escalation disposition", ErrRecordRequest)
+	}
+	if r.DispositionDecisionID == "" {
+		for _, s := range r.Steps {
+			if escalation.Contains(s.CapabilityID) {
+				return fmt.Errorf("%w: a step of the escalation plan needs its escalation disposition", ErrRecordRequest)
+			}
+		}
 	}
 	if r.Decision.Outcome() == decide.Allow {
 		if !recHashRe.MatchString(r.PlanHash) {
