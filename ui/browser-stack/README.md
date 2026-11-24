@@ -15,7 +15,7 @@ BENCH_COMPOSE='docker compose -f deploy/compose/docker-compose.yml -f deploy/com
 make bench-up BENCH_TENANT=ten_alpha
 ```
 
-No body-limit, event-route or polling value is introduced here. The eight NOEMA_EVENTS_* settings must be supplied by the composition owner and /readyz must be ready. The synthetic token is written to `benchmark/out/idp/tokens/ui-e2e`.
+A654 UI settings: poll every 2,000 ms, with a 60,000 ms overall ceiling. EL’s #907 body names the eight required NOEMA_EVENTS_* settings and proposes these ranges (the Architect must approve the per-setting bounds before production use): POLL_MS 2,000–60,000; MAX_STREAM_MS 60,000–900,000; WRITE_TIMEOUT_MS 1,000–30,000; READ_TIMEOUT_MS 500–10,000; MAX_EVENT_BYTES 1,024–1,048,576; MAX_STREAMS 1–1,000; MAX_STREAMS_PER_PRINCIPAL 1–10 and no greater than MAX_STREAMS; MAX_BATCH 1–500. Supply the exact eight values approved for the stack; no values are fabricated here. /readyz must be ready. The synthetic token is written to `benchmark/out/idp/tokens/ui-e2e`.
 
 ## Inputs
 
