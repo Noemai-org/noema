@@ -611,3 +611,103 @@ class HandoffRoutes(unittest.TestCase):
     def test_a_reason_code_that_is_not_a_core_code_is_refused(self):
         hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=self.with_routes([{**self.ROUTE, "reason_code": "fin.reason.permitted"}]))]
         self.assertTrue(any("fin.reason.permitted" in m for m in hits), hits)
+
+
+class Compensation(unittest.TestCase):
+    """A631, A647 (interim, relayed; REQ-CAP-004, REQ-AG-001, BD-08): the PERD's compensation rules, by packcheck. A REVERSIBLE or COMPENSABLE capability declares a compensation; an
+    IRREVERSIBLE one declares ESCALATE_ONLY and nothing else; an INVERSE_CAPABILITY names a capability that is itself registered, not prohibited and not the capability itself; a
+    prohibited capability declares no compensation and has no adapter. All data is SYNTHETIC."""
+
+    def hits(self, base):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "compensation"]
+
+    def cap(self, base, cid):
+        return next(c for c in base["capabilities"] if c["capability_id"] == cid)
+
+    def test_the_real_pack_and_the_conformance_packs_declare_compensation_by_the_rules(self):
+        base, _ = real()
+        self.assertEqual(self.hits(base), [])
+        for path in CONFORMANCE:
+            pack = json.loads(path.read_text())
+            self.assertEqual([m for c, m in checks.run(path, pack=pack) if c == "compensation"], [], path.name)
+
+    def test_the_two_irreversible_writes_of_the_pack_declare_escalate_only(self):
+        base, _ = real()
+        for cid in ("fin.cap.log_complaint_reference", "fin.cap.record_investigation_evidence"):
+            c = self.cap(base, cid)
+            self.assertEqual(c["consequence_profile"]["irreversibility"], "IRREVERSIBLE", cid)
+            self.assertEqual(c["compensation"], "ESCALATE_ONLY", cid)
+
+    def test_no_prohibited_capability_declares_a_compensation(self):
+        base, _ = real()
+        prohibited = [c for c in base["capabilities"] if c["prohibited"]]
+        self.assertTrue(prohibited)
+        for c in prohibited:
+            self.assertNotIn("compensation", c, c["capability_id"])
+            self.assertNotIn("inverse_mapping", c, c["capability_id"])
+
+    def test_an_irreversible_capability_that_declares_anything_but_escalate_only_is_refused(self):
+        for value in ("NONE_REQUIRED", "INVERSE_CAPABILITY"):
+            base, _ = real()
+            c = self.cap(base, "fin.cap.log_complaint_reference")
+            c["compensation"] = value
+            if value == "INVERSE_CAPABILITY":
+                c["inverse_mapping"] = {"capability_id": "fin.cap.route_to_internal_owner", "parameters": {"case_id": "case_id"}}
+            self.assertTrue(any("IRREVERSIBLE" in m for m in self.hits(base)), (value, self.hits(base)))
+
+    def test_a_reversible_or_compensable_capability_with_no_declared_compensation_is_refused(self):
+        for cid in ("fin.cap.route_to_internal_owner", "fin.cap.create_escalation_case"):
+            base, _ = real()
+            del self.cap(base, cid)["compensation"]
+            self.assertTrue(any(cid in m and "compensation" in m for m in self.hits(base)), (cid, self.hits(base)))
+
+    def test_an_inverse_capability_must_be_registered_not_prohibited_and_not_itself(self):
+        for target, why in (("fin.cap.not_in_the_pack", "registered"), ("fin.cap.transfer_funds", "prohibited"), ("fin.cap.create_escalation_case", "itself")):
+            base, _ = real()
+            c = self.cap(base, "fin.cap.create_escalation_case")
+            c["compensation"] = "INVERSE_CAPABILITY"
+            c["inverse_mapping"] = {"capability_id": target, "parameters": {"case_id": "case_id"}}
+            self.assertTrue(any(why in m for m in self.hits(base)), (why, self.hits(base)))
+
+    def test_an_inverse_capability_that_is_a_registered_allowed_other_capability_passes(self):
+        base, _ = real()
+        c = self.cap(base, "fin.cap.create_escalation_case")
+        c["compensation"] = "INVERSE_CAPABILITY"
+        c["inverse_mapping"] = {"capability_id": "fin.cap.route_to_internal_owner", "parameters": {"case_id": "case_id"}}
+        self.assertEqual(self.hits(base), [])
+
+    def test_a_prohibited_capability_that_declares_a_compensation_or_carries_an_adapter_is_refused(self):
+        base, _ = real()
+        self.cap(base, "fin.cap.transfer_funds")["compensation"] = "ESCALATE_ONLY"
+        self.assertTrue(any("fin.cap.transfer_funds" in m and "prohibited" in m for m in self.hits(base)), self.hits(base))
+
+
+class TenantZoneAndGraphLink(unittest.TestCase):
+    """A647, A650, A645 (interim, relayed): `tenant_zone` is a pack member, an IANA zone name (the synthetic tenant uses Africa/Lagos), and an intent node names the action graph
+    its write capability comes from (`action_graph`), a graph the pack declares. All data is SYNTHETIC."""
+
+    def problems(self, base):
+        return checks.run(PACKS / "fintech_v1.json", pack=base)
+
+    def test_the_real_pack_declares_the_synthetic_tenant_zone(self):
+        base, _ = real()
+        self.assertEqual(base.get("tenant_zone"), "Africa/Lagos")
+        self.assertEqual([p for p in self.problems(base) if p[0] in ("schema", "tenant_zone")], [])
+
+    def test_a_zone_that_is_not_an_iana_name_is_refused(self):
+        for bad in ("Lagos", "africa/lagos", "Africa/Nowhere", "UTC+1", "", "Africa/Lagos "):
+            base, _ = real()
+            base["tenant_zone"] = bad
+            self.assertTrue([p for p in self.problems(base) if p[0] in ("schema", "tenant_zone")], bad)
+
+    def test_the_investigation_node_names_the_escalation_graph_the_pack_declares(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == "fin.payments.exception.investigate")
+        self.assertEqual(node.get("action_graph"), "fin.graph.escalate")
+        self.assertIn(node["action_graph"], {g["graph_id"] for g in graphs.values()})
+        self.assertEqual([p for p in self.problems(base) if p[0] in ("schema", "references", "graph_link")], [])
+
+    def test_a_node_that_names_a_graph_the_pack_does_not_declare_is_refused(self):
+        base, _ = real()
+        next(n for n in base["intent_nodes"] if n["node_id"] == "fin.payments.exception.investigate")["action_graph"] = "fin.graph.not_there"
+        self.assertTrue(any("fin.graph.not_there" in m for _, m in self.problems(base)), self.problems(base))
