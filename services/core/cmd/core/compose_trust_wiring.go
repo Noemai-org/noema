@@ -32,7 +32,7 @@ const (
 	needScopedRead      = "the principal-scoped enterprise read (the candidates read)"
 	needEvidenceMapping = "the evidence mapping and the rule set of the Understanding half"
 	needScreen          = "the injection screen of the payload reader (screen, correlation source, alert)"
-	needListEntities    = "the resource scope of each list entity's snapshot item (no pack field names it)"
+	needListEntities    = "the list entities of the evidence mapping (none is listed, or the pack and the mapping are absent)"
 	needReconcilerData  = "the pack's escalation reason of a classification and the capabilities allowed under a freeze"
 	needClockRoutes     = "the clock routes and the anchor events of the pack"
 	// needTrustLimits is the Clocks gap's reason. The limits file (A612, interim, relayed, not yet committed) holds numbers the Clocks adapter needs, and its loader is noema#910, which is
@@ -93,9 +93,15 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 	if err != nil {
 		return trustWired{}, err
 	}
+	lists := in.ListEntities
+	if lists == nil && in.Pack != nil && in.Understanding.Mapping != nil {
+		if lists, err = listEntitiesFromDescriptors(in.Pack.PackBytes(), in.Understanding.Mapping); err != nil { // A545: from the mapping and the pack's descriptors
+			return trustWired{}, err
+		}
+	}
 	ti := trustInputsIn{
 		Pack: in.Pack, Tenants: in.Tenants, Pools: in.Pools, Timeout: timeout, Clock: in.Clock, RuleSet: in.Understanding.RuleSet, Mapping: in.Understanding.Mapping,
-		Screen: in.Screen, ListEntities: in.ListEntities, OwnershipReader: in.OwnershipReader,
+		Screen: in.Screen, ListEntities: lists, OwnershipReader: in.OwnershipReader,
 	}
 	if in.Pack != nil {
 		ti.Verified = packload.Pack{Pack: in.Pack.PackBytes()} // the one source of the pack's bytes (A548, INV-16)
@@ -116,12 +122,12 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 		return trustWired{}, err
 	}
 	w := trustWired{Inputs: inputs, Decisions: decisions, Reasons: map[string][]string{}}
-	w.reasons(in, timeoutGiven, boundGiven)
+	w.reasons(in, timeoutGiven, boundGiven, len(lists) > 0)
 	return w, nil
 }
 
 // reasons fills Reasons for every adapter that is still unbuilt.
-func (w *trustWired) reasons(in trustWiringIn, timeoutGiven, boundGiven bool) {
+func (w *trustWired) reasons(in trustWiringIn, timeoutGiven, boundGiven, haveLists bool) {
 	for _, g := range w.Decisions.Gaps {
 		if slices.Contains(wiredAdapters, g.Adapter) {
 			w.Reasons[g.Adapter] = slices.Clone(g.Missing)
@@ -157,7 +163,11 @@ func (w *trustWired) reasons(in trustWiringIn, timeoutGiven, boundGiven bool) {
 	add("Ownership", needScopedRead)
 	add("Evidence", read...)
 	add("Reconciler", needReconcilerData)
-	add("Policies", append(slices.Clone(read), needListEntities)...)
+	policies := slices.Clone(read)
+	if !haveLists {
+		policies = append(policies, needListEntities)
+	}
+	add("Policies", policies...)
 	add("Clocks", needTrustLimits, needClockRoutes)
 }
 
