@@ -1,6 +1,9 @@
 import { fetchInvestigation } from "./investigation-client.js";
 import type { InvestigationResponseV1 } from "./contract_types/customer.js";
 
+// A654: the UI polls at two-second intervals; the host supplies the 60-second ceiling.
+const POLL_INTERVAL_MS = 2_000;
+
 interface PollInput {
   baseUrl: string;
   investigationId: string;
@@ -60,6 +63,6 @@ async function pollUntilDone(input: PollInput): Promise<"Connection lost." | und
     }
     input.onState(state);
     if (state.state !== "understanding" && state.state !== "working") return;
-    await wait(1000, input.signal);
+    await wait(POLL_INTERVAL_MS, input.signal);
   }
 }
