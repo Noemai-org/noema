@@ -21,7 +21,6 @@ A654 UI settings: poll every 2,000 ms, with a 60,000 ms overall ceiling. EL’s 
 
 - `NOEMA_UI_URL=http://127.0.0.1:8082`
 - `NOEMA_UI_E2E_SESSION_TOKEN`: short-lived token file above; never commit it.
-- `NOEMA_UI_E2E_MAX_POLLING_MS`: host-approved positive integer.
 - `NOEMA_UI_E2E_MANIFEST`: local manifest with schema_version `noema-ui-journeys.v1`; J1–J8 each contain `message`, `expected_stage` (one of six public stages), and exact `expected_text`.
 
 The manifest describes already-seeded synthetic scenarios. The suite does not seed or mutate stand-in data, access oracle data, or invent fixture prompts. Run from ui/: `npm ci --ignore-scripts && npm run test:stack`. Missing inputs fail closed; the real route must return 200 text/event-stream with Cache-Control no-store.
