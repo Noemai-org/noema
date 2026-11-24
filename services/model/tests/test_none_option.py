@@ -58,4 +58,4 @@ def test_an_options_clarification_reads_with_its_candidate_set_and_its_none_choi
     parsed = ClarificationV1.model_validate_json(json.dumps(CLARIFICATION))
     assert parsed.candidate_set_id == CLARIFICATION["candidate_set_id"] and parsed.candidate_set_version == CLARIFICATION["candidate_set_version"]
     assert parsed.none_option_id == CLARIFICATION["none_option_id"] and parsed.allow_none is True
-    assert len(parsed.options) >= 2
+    assert parsed.options is not None and len(parsed.options) >= 2
