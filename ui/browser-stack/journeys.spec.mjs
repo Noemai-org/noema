@@ -1,91 +1,92 @@
 import { test as base, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { parseConversationResponseV1, parseSseEventV1 } from "../build/js/contract_types/customer.js";
+import { join, resolve } from "node:path";
+import { parseInvestigationResponseV1, parseSseEventV1 } from "../build/js/contract_types/customer.js";
+import { progressCopy } from "../build/js/progress-copy.js";
 import { RESPONSE_FRAME_LIMIT_BYTES } from "../build/js/transport-limits.js";
 import { scanVisibleText } from "../build/js/privacy.js";
 import { assertAccessible } from "../browser/flow-a11y.mjs";
 
-const token = process.env.NOEMA_UI_E2E_SESSION_TOKEN;
-const manifestPath = process.env.NOEMA_UI_E2E_MANIFEST;
+const manifestPath = resolve(process.cwd(), process.env.NOEMA_UI_E2E_MANIFEST ?? "../benchmark/journeys/j1-j8.v1.json");
+const runDir = process.env.NOEMA_UI_E2E_RUN_DIR
+  ? resolve(process.cwd(), process.env.NOEMA_UI_E2E_RUN_DIR)
+  : null;
+const tokenDir = process.env.NOEMA_UI_E2E_TOKEN_DIR
+  ? resolve(process.cwd(), process.env.NOEMA_UI_E2E_TOKEN_DIR)
+  : null;
 const maxPollingMs = 60_000; // A654: UI polling ceiling is 60 seconds.
 
-if (!token || !manifestPath || !Number.isSafeInteger(maxPollingMs) ||
-    maxPollingMs <= 0 || maxPollingMs > 2_147_483_647) {
-  throw new Error(
-    "Supply a short-lived synthetic customer token and J1–J8 manifest",
-  );
+if (!runDir || !tokenDir) {
+  throw new Error("Set NOEMA_UI_E2E_RUN_DIR to the benchmark.runner output and NOEMA_UI_E2E_TOKEN_DIR to the per-principal synthetic token directory");
 }
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 const journeyIds = ["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"];
-const stageCopy = {
-  understanding: "We're reading your request.",
-  needs_input: "We need more information from you.",
-  needs_confirmation: "Please review the action.",
-  working: "We're checking the details.",
-  answered: "This request has ended.",
-  unavailable: "We can't continue right now.",
-};
-
-if (
-  manifest?.schema_version !== "noema-ui-journeys.v1" ||
-  !manifest.journeys ||
-  journeyIds.some((id) => {
-    const journey = manifest.journeys[id];
-    return !journey ||
-      typeof journey.message !== "string" ||
-      !journey.message.trim() ||
-      !Object.hasOwn(stageCopy, journey.expected_stage) ||
-      typeof journey.expected_text !== "string" ||
-      !journey.expected_text.trim();
-  })
-) {
-  throw new Error(
-    "Manifest must define message, expected_stage and expected_text for pre-seeded synthetic J1–J8",
-  );
+if (!Array.isArray(manifest.journeys) ||
+    manifest.journeys.map((journey) => journey.journey).join(",") !== journeyIds.join(",")) {
+  throw new Error("The BEN-23 manifest must contain J1 through J8 in PERD order");
+}
+const cases = manifest.journeys.flatMap((journey) => {
+  if (!Array.isArray(journey.cases) || journey.cases.length < 1 || journey.cases.length > 3) {
+    throw new Error(`${journey.journey}: BEN-23 must provide one to three generated cases`);
+  }
+  return journey.cases.map((item) => ({ journey, item }));
+});
+for (const { journey, item } of cases) {
+  if (typeof item.case_id !== "string" || typeof item.principal_id !== "string" ||
+      !Array.isArray(item.roles) || item.roles.length !== 1 || !item.roles.includes("customer") ||
+      !Array.isArray(item.utterances) || item.utterances.length < 1 ||
+      item.utterances.some((utterance) => typeof utterance.text !== "string" || !utterance.text.trim())) {
+    throw new Error(`${journey.journey}: malformed BEN-23 case; expected a synthetic customer principal and utterances`);
+  }
+  if (Object.hasOwn(item, "expected") || Object.hasOwn(item, "oracle_ref") || Object.hasOwn(item, "ground_truth")) {
+    throw new Error(`${item.case_id}: BEN-23 is input-only under INV-22; expected results/oracle data must not enter this manifest`);
+  }
 }
 
-const test = base.extend({
-  page: async ({ page }, use) => {
-    try {
-      await use(page);
-    } finally {
-      const values = await page.evaluate(() => {
-        const root = document.body;
-        const found = [root?.textContent ?? ""];
-        for (const element of [root, ...root.querySelectorAll("*")]) {
-          for (const attribute of element.attributes) found.push(attribute.value);
-          if (
-            element instanceof HTMLInputElement ||
-            element instanceof HTMLTextAreaElement ||
-            element instanceof HTMLSelectElement
-          ) found.push(element.value);
-        }
-        return found;
-      });
-      expect(values.flatMap(scanVisibleText)).toEqual([]);
-      await assertAccessible(page);
-    }
-  },
-});
+const correlations = JSON.parse(await readFile(join(runDir, "correlations.json"), "utf8"));
 
-async function setup(page, investigationId) {
+async function caseInputs(item) {
+  const resultPath = join(runDir, "results", `${item.case_id}.json`);
+  const result = JSON.parse(await readFile(resultPath, "utf8"));
+  if (result.status !== "COMPLETED") {
+    const code = result.error?.code ?? result.status ?? "MISSING_RESULT";
+    throw new Error(`${item.case_id}: benchmark.runner did not complete this case (${code})`);
+  }
+  const correlationId = correlations[item.case_id];
+  if (typeof correlationId !== "string" || !/^corr_[0-9A-HJKMNP-TV-Z]{26}$/u.test(correlationId)) {
+    throw new Error(`${item.case_id}: benchmark.runner did not record a valid core correlation ID`);
+  }
+  const token = (await readFile(join(tokenDir, item.principal_id), "utf8")).trim();
+  if (!token) throw new Error(`${item.case_id}: no synthetic session token for principal ${item.principal_id}`);
+  return { investigationId: `inv_${correlationId.slice(5)}`, token };
+}
+
+async function assertVisibleState(page, investigationId, token) {
+  const responsePromise = page.waitForResponse((response) =>
+    response.request().method() === "GET" &&
+    new URL(response.url()).pathname === `/v1/investigations/${investigationId}`
+  );
   await page.goto("/");
-  await expect(page.getByRole("textbox", { name: "Your message" })).toBeVisible();
   await page.evaluate(async ({ id, sessionToken, pollingBound }) => {
     const app = await import("/app.js");
     app.configureOverlay({
       baseUrl: window.location.origin,
       sessionToken,
       maxPollingMs: pollingBound,
-      ...(id ? { investigationId: id } : {}),
+      investigationId: id,
     });
   }, { id: investigationId, sessionToken: token, pollingBound: maxPollingMs });
+
+  const response = await responsePromise;
+  expect(response.status()).toBe(200);
+  const investigation = parseInvestigationResponseV1(await response.json());
+  const copy = progressCopy(investigation.state);
+  expect(copy, "core must return one of the six public stages").not.toBeNull();
+  await expect(page.getByText(copy, { exact: true })).toBeVisible({ timeout: maxPollingMs });
 }
 
-// Probe the core-issued stream URL directly. The shipped UI currently consumes the
-// investigation GET/polling path; this independently verifies the events route itself.
-async function assertEventsRoute(page, streamUrl) {
+async function assertEventsRoute(page, investigationId, token) {
   const frame = await page.evaluate(async ({ path, sessionToken, maxBytes, timeoutMs }) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -103,7 +104,8 @@ async function assertEventsRoute(page, streamUrl) {
         contentType: response.headers.get("content-type"),
         cacheControl: response.headers.get("cache-control"),
       };
-      if (headers.status !== 200 || !/^text\/event-stream(?:;|$)/iu.test(headers.contentType ?? "") ||
+      if (headers.status !== 200 ||
+          !/^text\\/event-stream(?:;|$)/iu.test(headers.contentType ?? "") ||
           !headers.cacheControl?.includes("no-store") || !response.body) {
         return { headers };
       }
@@ -117,7 +119,7 @@ async function assertEventsRoute(page, streamUrl) {
           if (chunk.done) break;
           buffered += decoder.decode(chunk.value, { stream: true });
           for (;;) {
-            const boundary = buffered.indexOf("\n\n");
+            const boundary = buffered.indexOf("\\n\\n");
             if (boundary < 0) {
               if (new TextEncoder().encode(buffered).byteLength > maxBytes) {
                 throw new Error("Incomplete SSE frame exceeded the approved frame bound");
@@ -126,17 +128,17 @@ async function assertEventsRoute(page, streamUrl) {
             }
             const raw = buffered.slice(0, boundary);
             buffered = buffered.slice(boundary + 2);
-            if (new TextEncoder().encode(raw + "\n\n").byteLength > maxBytes) {
+            if (new TextEncoder().encode(raw + "\\n\\n").byteLength > maxBytes) {
               throw new Error("SSE event exceeded the approved frame bound");
             }
             if (raw.startsWith(":")) continue;
             let eventName = "";
             const data = [];
-            for (const line of raw.split(/\r?\n/u)) {
+            for (const line of raw.split(/\\r?\\n/u)) {
               if (line.startsWith("event:")) eventName = line.slice(6).trimStart();
               if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
             }
-            if (data.length) return { headers, eventName, payload: JSON.parse(data.join("\n")) };
+            if (data.length) return { headers, eventName, payload: JSON.parse(data.join("\\n")) };
           }
         }
         return { headers };
@@ -148,97 +150,82 @@ async function assertEventsRoute(page, streamUrl) {
       clearTimeout(timer);
       controller.abort();
     }
-  }, { path: streamUrl, sessionToken: token, maxBytes: RESPONSE_FRAME_LIMIT_BYTES, timeoutMs: maxPollingMs });
+  }, {
+    path: `/v1/conversations/${investigationId}/events`,
+    sessionToken: token,
+    maxBytes: RESPONSE_FRAME_LIMIT_BYTES,
+    timeoutMs: maxPollingMs,
+  });
 
   expect(frame.headers.status).toBe(200);
-  expect(frame.headers.contentType).toMatch(/^text\/event-stream(?:;|$)/iu);
+  expect(frame.headers.contentType).toMatch(/^text\\/event-stream(?:;|$)/iu);
   expect(frame.headers.cacheControl).toContain("no-store");
-  expect(frame.payload, "the real core stream must deliver at least one complete contract-backed event").toBeTruthy();
+  expect(frame.payload, "the real core stream must deliver a complete contract-backed event").toBeTruthy();
   const event = parseSseEventV1(frame.payload);
   expect(event.event).toBe(frame.eventName);
 }
 
-async function submit(page, journey) {
-  const postResponse = page.waitForResponse((response) =>
-    response.request().method() === "POST" &&
-    new URL(response.url()).pathname === "/v1/conversations"
-  );
-
-  await page.getByRole("textbox", { name: "Your message" }).fill(journey.message);
-  await page.getByRole("button", { name: "Send" }).click();
-
-  const response = await postResponse;
-  expect([200, 202]).toContain(response.status());
-  expect(response.headers()["content-type"]).toMatch(/^application\/json(?:;|$)/iu);
-
-  const conversation = parseConversationResponseV1(await response.json());
-  expect(conversation.stream_url).toBe(
-    `/v1/conversations/${conversation.investigation_id}/events`,
-  );
-  expect(conversation.conversation_ref).toBe(conversation.investigation_id);
-  await assertEventsRoute(page, conversation.stream_url);
-
-  return conversation.investigation_id;
+async function assertClean(page) {
+  const values = await page.evaluate(() => {
+    const root = document.body;
+    const found = [root?.textContent ?? ""];
+    for (const element of [root, ...root.querySelectorAll("*")]) {
+      for (const attribute of element.attributes) found.push(attribute.value);
+      if (
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement
+      ) found.push(element.value);
+    }
+    return found;
+  });
+  expect(values.flatMap(scanVisibleText)).toEqual([]);
+  await assertAccessible(page);
 }
 
-test.describe("REQ-UI-001 · real-core J1–J8", () => {
+const test = base.extend({
+  page: async ({ page }, use) => {
+    try {
+      await use(page);
+    } finally {
+      await assertClean(page);
+    }
+  },
+});
+
+test.describe("REQ-UI-001 · BEN-23 real-core J1–J8 journeys", () => {
   test.describe.configure({ mode: "serial" });
 
-  for (const id of journeyIds.filter((journeyId) => journeyId !== "J8")) {
-    test(`${id}: core public stage and customer text`, async ({ page }) => {
-      const journey = manifest.journeys[id];
-      await setup(page);
-      const investigationId = await submit(page, journey);
-
-      await expect(
-        page.getByText(stageCopy[journey.expected_stage], { exact: true }),
-      ).toBeVisible({ timeout: maxPollingMs });
-      await expect(page.locator("body")).toContainText(
-        journey.expected_text,
-        { timeout: maxPollingMs },
-      );
-      expect(investigationId).toMatch(/^inv_[0-9A-HJKMNP-TV-Z]{26}$/u);
+  for (const { journey, item } of cases) {
+    test(`${journey.journey} · ${item.case_id}: render benchmark-run core state and events`, async ({ page }) => {
+      const { investigationId, token } = await caseInputs(item);
+      await assertVisibleState(page, investigationId, token);
+      await assertEventsRoute(page, investigationId, token);
     });
   }
 
-  test("J8: a fresh browser context resumes the same investigation", async ({ browser }) => {
-    const journey = manifest.journeys.J8;
-    const firstContext = await browser.newContext();
-    const firstPage = await firstContext.newPage();
-    let investigationId;
+  for (const { journey, item } of cases.filter((entry) => entry.journey.journey === "J8")) {
+    test(`J8 · ${item.case_id}: resume the same investigation in a fresh browser context`, async ({ browser }) => {
+      const { investigationId, token } = await caseInputs(item);
+      const firstContext = await browser.newContext();
+      const firstPage = await firstContext.newPage();
+      try {
+        await assertVisibleState(firstPage, investigationId, token);
+        await assertEventsRoute(firstPage, investigationId, token);
+        await assertClean(firstPage);
+      } finally {
+        await firstContext.close();
+      }
 
-    try {
-      await setup(firstPage);
-      investigationId = await submit(firstPage, journey);
-      await expect(
-        firstPage.getByText(stageCopy[journey.expected_stage], { exact: true }),
-      ).toBeVisible({ timeout: maxPollingMs });
-      await expect(firstPage.locator("body")).toContainText(
-        journey.expected_text,
-        { timeout: maxPollingMs },
-      );
-    } finally {
-      await firstContext.close();
-    }
-
-    const resumedContext = await browser.newContext();
-    const resumedPage = await resumedContext.newPage();
-
-    try {
-      await setup(resumedPage, investigationId);
-      await assertEventsRoute(
-        resumedPage,
-        `/v1/conversations/${investigationId}/events`,
-      );
-      await expect(
-        resumedPage.getByText(stageCopy[journey.expected_stage], { exact: true }),
-      ).toBeVisible({ timeout: maxPollingMs });
-      await expect(resumedPage.locator("body")).toContainText(
-        journey.expected_text,
-        { timeout: maxPollingMs },
-      );
-    } finally {
-      await resumedContext.close();
-    }
-  });
+      const resumedContext = await browser.newContext();
+      const resumedPage = await resumedContext.newPage();
+      try {
+        await assertVisibleState(resumedPage, investigationId, token);
+        await assertEventsRoute(resumedPage, investigationId, token);
+        await assertClean(resumedPage);
+      } finally {
+        await resumedContext.close();
+      }
+    });
+  }
 });
