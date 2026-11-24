@@ -1,6 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { parseConversationResponseV1 } from "../build/js/contract_types/customer.js";
+import { parseConversationResponseV1, parseSseEventV1 } from "../build/js/contract_types/customer.js";
+import { RESPONSE_FRAME_LIMIT_BYTES } from "../build/js/transport-limits.js";
 import { scanVisibleText } from "../build/js/privacy.js";
 import { assertAccessible } from "../browser/flow-a11y.mjs";
 
@@ -85,10 +86,11 @@ async function setup(page, investigationId) {
 // Probe the core-issued stream URL directly. The shipped UI currently consumes the
 // investigation GET/polling path; this independently verifies the events route itself.
 async function assertEventsRoute(page, streamUrl) {
-  const response = await page.evaluate(async ({ path, sessionToken }) => {
+  const frame = await page.evaluate(async ({ path, sessionToken, maxBytes, timeoutMs }) => {
     const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const result = await fetch(path, {
+      const response = await fetch(path, {
         method: "GET",
         headers: { Authorization: `Bearer ${sessionToken}` },
         credentials: "omit",
@@ -96,19 +98,59 @@ async function assertEventsRoute(page, streamUrl) {
         redirect: "error",
         signal: controller.signal,
       });
-      return {
-        status: result.status,
-        contentType: result.headers.get("content-type"),
-        cacheControl: result.headers.get("cache-control"),
+      const headers = {
+        status: response.status,
+        contentType: response.headers.get("content-type"),
+        cacheControl: response.headers.get("cache-control"),
       };
+      if (headers.status !== 200 || !/^text\\/event-stream(?:;|$)/iu.test(headers.contentType ?? "") ||
+          !headers.cacheControl?.includes("no-store") || !response.body) {
+        return { headers };
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      let buffered = "";
+      let totalBytes = 0;
+      try {
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          totalBytes += chunk.value.byteLength;
+          if (totalBytes > maxBytes) throw new Error("SSE response exceeded the approved frame bound");
+          buffered += decoder.decode(chunk.value, { stream: true });
+          for (;;) {
+            const boundary = buffered.indexOf("\\n\\n");
+            if (boundary < 0) break;
+            const raw = buffered.slice(0, boundary);
+            buffered = buffered.slice(boundary + 2);
+            if (raw.startsWith(":")) continue;
+            let eventName = "";
+            const data = [];
+            for (const line of raw.split(/\\r?\\n/u)) {
+              if (line.startsWith("event:")) eventName = line.slice(6).trimStart();
+              if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+            }
+            if (data.length) return { headers, eventName, payload: JSON.parse(data.join("\\n")) };
+          }
+        }
+        return { headers };
+      } finally {
+        await reader.cancel();
+        reader.releaseLock();
+      }
     } finally {
+      clearTimeout(timer);
       controller.abort();
     }
-  }, { path: streamUrl, sessionToken: token });
+  }, { path: streamUrl, sessionToken: token, maxBytes: RESPONSE_FRAME_LIMIT_BYTES, timeoutMs: maxPollingMs });
 
-  expect(response.status).toBe(200);
-  expect(response.contentType).toMatch(/^text\/event-stream(?:;|$)/iu);
-  expect(response.cacheControl).toContain("no-store");
+  expect(frame.headers.status).toBe(200);
+  expect(frame.headers.contentType).toMatch(/^text\\/event-stream(?:;|$)/iu);
+  expect(frame.headers.cacheControl).toContain("no-store");
+  expect(frame.payload, "the real core stream must deliver at least one complete contract-backed event").toBeTruthy();
+  const event = parseSseEventV1(frame.payload);
+  expect(event.event).toBe(frame.eventName);
 }
 
 async function submit(page, journey) {
