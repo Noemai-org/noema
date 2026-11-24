@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"time"
 
@@ -33,12 +34,16 @@ type Admitted struct {
 	CorrelationID string
 	JSON          []byte // the admitted document (JCS form)
 
-	// LogicalResolutionEpoch is the epoch of the intent's resolution (A345 S1). The store sets it: it is CreationEpoch on every row, and Save refuses any other value a caller
-	// states (zero means not stated). The readers fill it from the column. The increment path is later debt.
+	// LogicalResolutionEpoch is the epoch of the intent's resolution (A345 S1; DEBT-54 part 2, A520). The Interpreter derives it from the subject's case list and states it;
+	// zero means not stated and is stored as CreationEpoch. Save refuses a negative one, one the column cannot hold, and one above CreationEpoch for an intent with no subject.
+	// The readers fill it from the column.
 	LogicalResolutionEpoch int
+	// SubjectRef is the resolved reference of the Resource slot the pack names as the subject of the intent's node (common.v1 ResourceRef), empty when the subject is not
+	// resolved or the node declares none. The readers fill it from the column (NULL reads as empty).
+	SubjectRef string
 }
 
-// CreationEpoch is the logical resolution epoch of every admitted intent at creation (A345 S1). Migration 0033 pins the column to it until the increment path is built.
+// CreationEpoch is the logical resolution epoch of an admitted intent whose subject has no closed case, and of every intent that has no subject (A345 S1, A520).
 const CreationEpoch = 1
 
 // Ref names a stored intent's Record event.
@@ -52,7 +57,9 @@ var (
 	actorRe  = regexp.MustCompile(`^[a-z]+:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	intentRe = regexp.MustCompile(`^int_[0-9A-Za-z_]{2,64}$`)
 	hashRe   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	corrRe   = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+	// subjectRe is common.v1 ResourceRef, the shape migration 0037's CHECK holds the column to.
+	subjectRe = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$`)
+	corrRe    = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
 )
 
 // Store saves admitted intents. Its Pool must log in as the tenant's own orchestrator login: the database, not this code, binds the row and the Record event to the
@@ -74,8 +81,12 @@ func (s *Store) Save(ctx context.Context, actor string, a Admitted) (Ref, error)
 		return Ref{}, errors.New(prefix + "the actor is not <kind>:<id>")
 	case !chain.ValidTenantID(a.TenantID):
 		return Ref{}, errors.New(prefix + "the tenant id is not valid")
-	case a.LogicalResolutionEpoch != 0 && a.LogicalResolutionEpoch != CreationEpoch:
-		return Ref{}, errors.New(prefix + "the logical resolution epoch is set by the store: it is 1 at creation")
+	case a.LogicalResolutionEpoch < 0 || a.LogicalResolutionEpoch > math.MaxInt32:
+		return Ref{}, errors.New(prefix + "the logical resolution epoch is not a positive integer the column can hold")
+	case a.SubjectRef != "" && !subjectRe.MatchString(a.SubjectRef):
+		return Ref{}, errors.New(prefix + "the subject reference is off its shape")
+	case a.SubjectRef == "" && a.LogicalResolutionEpoch > CreationEpoch:
+		return Ref{}, errors.New(prefix + "a logical resolution epoch above 1 needs a subject")
 	case !intentRe.MatchString(a.IntentID) || a.Version < 1 || !hashRe.MatchString(a.IntentHash) || !corrRe.MatchString(a.CorrelationID) || a.IntentNode == "":
 		return Ref{}, errors.New(prefix + "the admitted intent is incomplete")
 	}
@@ -103,8 +114,16 @@ func (s *Store) Save(ctx context.Context, actor string, a Admitted) (Ref, error)
 	if a.Supersedes != "" {
 		sup = a.Supersedes
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO admitted_intent (tenant_id, intent_id, version, supersedes, intent_node, intent_hash, correlation_id, json, logical_resolution_epoch)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`, a.TenantID, a.IntentID, a.Version, sup, a.IntentNode, a.IntentHash, a.CorrelationID, string(a.JSON), CreationEpoch); err != nil {
+	epoch := a.LogicalResolutionEpoch
+	if epoch == 0 {
+		epoch = CreationEpoch
+	}
+	var subject any
+	if a.SubjectRef != "" {
+		subject = a.SubjectRef
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO admitted_intent (tenant_id, intent_id, version, supersedes, intent_node, intent_hash, correlation_id, json, logical_resolution_epoch, subject_ref)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`, a.TenantID, a.IntentID, a.Version, sup, a.IntentNode, a.IntentHash, a.CorrelationID, string(a.JSON), epoch, subject); err != nil {
 		return fail(fmt.Errorf("%sinsert: %w", prefix, err))
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -120,7 +139,7 @@ type Reader struct {
 	Timeout time.Duration
 }
 
-const selectColumns = `SELECT tenant_id, intent_id, version, COALESCE(supersedes, ''), intent_node, intent_hash, correlation_id, json::text, logical_resolution_epoch FROM admitted_intent`
+const selectColumns = `SELECT tenant_id, intent_id, version, COALESCE(supersedes, ''), intent_node, intent_hash, correlation_id, json::text, logical_resolution_epoch, COALESCE(subject_ref, '') FROM admitted_intent`
 
 func (r *Reader) one(ctx context.Context, where string, args ...any) (Admitted, error) {
 	if r == nil || r.Pool == nil || r.Timeout <= 0 {
@@ -130,7 +149,7 @@ func (r *Reader) one(ctx context.Context, where string, args ...any) (Admitted, 
 	defer cancel()
 	var a Admitted
 	var doc string
-	err := r.Pool.QueryRow(ctx, selectColumns+where, args...).Scan(&a.TenantID, &a.IntentID, &a.Version, &a.Supersedes, &a.IntentNode, &a.IntentHash, &a.CorrelationID, &doc, &a.LogicalResolutionEpoch)
+	err := r.Pool.QueryRow(ctx, selectColumns+where, args...).Scan(&a.TenantID, &a.IntentID, &a.Version, &a.Supersedes, &a.IntentNode, &a.IntentHash, &a.CorrelationID, &doc, &a.LogicalResolutionEpoch, &a.SubjectRef)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admitted{}, ErrNotFound
 	}

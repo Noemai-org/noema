@@ -44,6 +44,8 @@ func packErr(format string, args ...any) error {
 // Pack is the pack's data as the adapters read it, loaded once and read-only after that, so it is safe to share. The zero value is not a pack: every adapter built from it, or from
 // a nil *Pack, refuses.
 type Pack struct {
+	// raw is the pack file as LoadPack read and decoded it: the one copy of its bytes (PackBytes).
+	raw []byte
 	reg *registry.Registry
 	// capRoles is each capability's descriptor roles (authority.roles_allowed), by capability ID.
 	capRoles map[string]map[string]struct{}
@@ -58,6 +60,8 @@ type Pack struct {
 	rooted map[string][]string
 	// owned is, for each intent node whose trust profile says the principal must own a slot, what the pack says of that ownership, read at load and judged by OwnershipKinds.
 	owned map[string]nodeOwnership
+	// ref is `<pack id>@<pack version>` as the pack file carries them (Ref).
+	ref string
 }
 
 type nodeAuthority struct {
@@ -100,7 +104,8 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 	if err != nil {
 		return nil, packErr("the capability registry refuses the pack: %v", err)
 	}
-	p := &Pack{reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}}
+	p := &Pack{raw: raw, reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}}
+	p.ref = string(doc.PackId) + "@" + string(doc.PackVersion)
 	for _, d := range doc.Capabilities {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
 	}

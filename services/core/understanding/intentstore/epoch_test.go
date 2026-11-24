@@ -13,6 +13,7 @@ package intentstore_test
 
 import (
 	"io/fs"
+	"math"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -85,9 +86,10 @@ func TestTheReadersReadTheEpochOfTheRow(t *testing.T) {
 			t.Errorf("%s Latest: epoch %d, err %v; want 1", group, latest.LogicalResolutionEpoch, err)
 		}
 	}
-	// The reader takes the epoch from the column, not from a constant: a row whose epoch differs (made by the administrator, who can drop the CHECK in a test database) reads as it is.
-	if _, err := w.admin.Exec(ctx(t), `ALTER TABLE admitted_intent DISABLE TRIGGER admitted_intent_immutable; ALTER TABLE admitted_intent DROP CONSTRAINT admitted_intent_epoch_is_one;
-		UPDATE admitted_intent SET logical_resolution_epoch = 5; ALTER TABLE admitted_intent ENABLE TRIGGER admitted_intent_immutable`); err != nil {
+	// The reader takes the epoch from the column, not from a constant: a row stored with epoch 5 and a subject (as 0037 allows) reads as it is. The administrator makes it in a
+	// database where the stored epoch is not 1; the immutability trigger is disabled for the test only.
+	if _, err := w.admin.Exec(ctx(t), `ALTER TABLE admitted_intent DISABLE TRIGGER admitted_intent_immutable;
+		UPDATE admitted_intent SET logical_resolution_epoch = 5, subject_ref = 'fin.transaction:TX0001'; ALTER TABLE admitted_intent ENABLE TRIGGER admitted_intent_immutable`); err != nil {
 		t.Fatal(err)
 	}
 	got, err := w.reader("execution_rw", tenantA).Latest(ctx(t), corr1)
@@ -120,12 +122,14 @@ func TestAVersionTwoOfTheSameIntentAlsoCarriesEpochOne(t *testing.T) {
 	}
 }
 
-// Silence 3: the store sets the epoch; a caller that states another one is refused before anything is appended (and before the database is asked).
-func TestSaveRefusesAnEpochOtherThanOneAndAppendsNothing(t *testing.T) {
+// DEBT-54 part 2 (A520, A513), replacing silence 3 of A345: the epoch the caller states (from the case list, by the Interpreter) must be a positive integer the column can hold. A
+// negative one, or one past the column's range, is refused before anything is appended (and before the database is asked). Zero means not stated and is stored as 1.
+func TestSaveRefusesAnEpochThatIsNotAPositiveIntegerAndAppendsNothing(t *testing.T) {
 	w := newWorld(t)
 	s := w.store(tenantA)
-	for _, bad := range []int{2, 7, -1} {
+	for _, bad := range []int{-1, -7, math.MaxInt32 + 1} {
 		a := admitted(tenantA, "int_01J9X3", 1, corr1)
+		a.SubjectRef = "fin.transaction:TX0001"
 		a.LogicalResolutionEpoch = bad
 		if _, err := s.Save(ctx(t), actor, a); err == nil || !strings.Contains(err.Error(), "epoch") {
 			t.Errorf("Save of epoch %d: %v; want a refusal that names the epoch", bad, err)
@@ -155,27 +159,32 @@ func TestSaveAcceptsAnEpochThatIsNotStatedOrOne(t *testing.T) {
 	}
 }
 
-// A345 S1 and silence 2: whoever holds the orchestrator's login and skips the store cannot store another epoch than 1, NULL or none-at-all-but-the-default.
-func TestTheDatabaseRefusesAnEpochThatIsNotOneAtCreation(t *testing.T) {
+// DEBT-54 part 2 (migration 0037 replaces the 0033 constraint that pinned the epoch to 1): whoever holds the orchestrator's login and skips the store cannot store an epoch that
+// is not positive, a NULL epoch, or an epoch above 1 for an intent with no subject (a node with no declared subject has epoch 1). An epoch above 1 with a subject is stored.
+func TestTheDatabaseRefusesAnEpochThatIsNotPositiveOrThatHasNoSubject(t *testing.T) {
 	w := newWorld(t)
-	insert := func(a any, tenantLogin string) error {
-		x := admitted(tenantA, "int_ep", 1, "corr_ep")
-		_, err := w.as(tenantLogin, tenantA).Exec(ctx(t), `INSERT INTO admitted_intent (tenant_id, intent_id, version, supersedes, intent_node, intent_hash, correlation_id, json, logical_resolution_epoch)
-			VALUES ($1, $2, $3, NULL, $4, $5, $6, $7::jsonb, $8)`, x.TenantID, x.IntentID, x.Version, x.IntentNode, x.IntentHash, x.CorrelationID, string(x.JSON), a)
+	insert := func(id string, epoch, subject any) error {
+		x := admitted(tenantA, id, 1, "corr_"+id[len(id)-3:])
+		_, err := w.as("orchestrator_rw", tenantA).Exec(ctx(t), `INSERT INTO admitted_intent (tenant_id, intent_id, version, supersedes, intent_node, intent_hash, correlation_id, json, logical_resolution_epoch, subject_ref)
+			VALUES ($1, $2, $3, NULL, $4, $5, $6, $7::jsonb, $8, $9)`, x.TenantID, x.IntentID, x.Version, x.IntentNode, x.IntentHash, x.CorrelationID, string(x.JSON), epoch, subject)
 		return err
 	}
-	for name, v := range map[string]any{"zero": 0, "two": 2, "negative": -1, "NULL": nil} {
-		if err := insert(v, "orchestrator_rw"); err == nil {
-			t.Errorf("the table stored epoch %s", name)
+	for name, c := range map[string]struct{ epoch, subject any }{"zero": {0, "fin.transaction:TX0001"}, "negative": {-1, "fin.transaction:TX0001"}, "NULL": {nil, "fin.transaction:TX0001"},
+		"two with no subject": {2, nil}, "an empty subject": {1, ""}, "a subject off its shape": {1, "txn synth"}} {
+		if err := insert("int_bad", c.epoch, c.subject); err == nil {
+			t.Errorf("the table stored %s", name)
 		}
 	}
 	if w.count("admitted_intent") != 0 {
 		t.Fatalf("a refused epoch left %d rows", w.count("admitted_intent"))
 	}
-	if err := insert(1, "orchestrator_rw"); err != nil {
-		t.Fatalf("control: epoch 1 must be stored: %v", err)
+	if err := insert("int_ok1", 1, nil); err != nil {
+		t.Fatalf("control: epoch 1 with no subject must be stored: %v", err)
 	}
-	// A writer that does not name the column (the raw inserts of other tests) gets the default, 1.
+	if err := insert("int_ok2", 2, "fin.transaction:TX0001"); err != nil {
+		t.Fatalf("control: epoch 2 with a subject must be stored: %v", err)
+	}
+	// A writer that does not name the columns (the raw inserts of other tests) gets the defaults: epoch 1 and no subject.
 	x := admitted(tenantA, "int_ep2", 1, "corr_ep2")
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO admitted_intent (tenant_id, intent_id, version, supersedes, intent_node, intent_hash, correlation_id, json) VALUES ($1, $2, $3, NULL, $4, $5, $6, $7::jsonb)`,
 		x.TenantID, x.IntentID, x.Version, x.IntentNode, x.IntentHash, x.CorrelationID, string(x.JSON)); err != nil {
@@ -228,20 +237,26 @@ func TestTheEpochIsNeverUpdated(t *testing.T) {
 }
 
 // migrationsWithout is the shipped migrations less the file of the given number: the database as it was before that migration.
-func migrationsWithout(t *testing.T, number string) fs.FS {
+func migrationsWithout(t *testing.T, numbers ...string) fs.FS {
 	t.Helper()
 	out := fstest.MapFS{}
 	entries, err := fs.ReadDir(migrations.FS, ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	dropped := false
+	dropped := 0
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
-		if strings.HasPrefix(e.Name(), number+"_") {
-			dropped = true
+		skip := false
+		for _, number := range numbers {
+			if strings.HasPrefix(e.Name(), number+"_") {
+				dropped++
+				skip = true
+			}
+		}
+		if skip {
 			continue
 		}
 		b, err := fs.ReadFile(migrations.FS, e.Name())
@@ -250,8 +265,8 @@ func migrationsWithout(t *testing.T, number string) fs.FS {
 		}
 		out[e.Name()] = &fstest.MapFile{Data: b}
 	}
-	if !dropped {
-		t.Fatalf("no migration %s exists", number)
+	if dropped != len(numbers) {
+		t.Fatalf("migrations %v: %d of them exist", numbers, dropped)
 	}
 	return out
 }
@@ -260,7 +275,7 @@ func migrationsWithout(t *testing.T, number string) fs.FS {
 // The immutability trigger never sees it: adding a column with a default is not an UPDATE.
 func TestAnUpgradeGivesTheRowsAlreadyThereEpochOne(t *testing.T) {
 	admin, _ := testpg.NewDatabase(t)
-	if _, err := db.Migrate(ctx(t), admin, migrationsWithout(t, "0033")); err != nil {
+	if _, err := db.Migrate(ctx(t), admin, migrationsWithout(t, "0033", "0037")); err != nil {
 		t.Fatalf("migrate before 0033: %v", err)
 	}
 	if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic')`, tenantA); err != nil {
