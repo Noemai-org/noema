@@ -157,10 +157,12 @@ test("REQ-UI-002 US-18: server-expired confirmation becomes terminal and offers 
   expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
 });
 
-test("REQ-UI-002: an already-expired confirmation renders terminally without an effect loop", async ({ page }) => {
+test("REQ-UI-002: a locally elapsed confirmation is sent; core expiry is terminal", async ({ page }) => {
   const value = { ...await card("confirmation"), expires_at: "2020-01-01T00:00:00Z" };
   await page.goto(origin);
   await page.evaluate((input) => window.showConfirmation(input), value);
+  await expect(page.getByRole("button", { name: "Accept" })).toBeEnabled();
+  await page.getByRole("button", { name: "Accept" }).click();
   await expect(page.getByRole("status")).toContainText("This has changed. Let me check again.");
   await expect(page.getByRole("button", { name: "Accept" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Decline" })).toBeDisabled();
