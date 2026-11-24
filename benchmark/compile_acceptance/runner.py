@@ -22,6 +22,7 @@ class CaseResult:
     case_id: str
     status: str  # MET, MISSED, ERROR or NOT_RUN
     problems: tuple[str, ...] = ()
+    evidence: tuple[str, ...] = ()  # the choice lines of the example (UND-17, A602): option ids and numbers only; empty for a case the stop never reached
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +50,8 @@ class RunResult:
 
 
 async def run_cases(goldens: Sequence[Golden], compile_one: Callable[[Golden], Awaitable[Mapping[str, Any]]], guard: BudgetGuard, recorder: Recorder, *, calls: Callable[[], int],
-                    record_only: Sequence[RecordOnlyInput] = (), record_one: Callable[[RecordOnlyInput], Awaitable[Mapping[str, Any]]] | None = None) -> RunResult:
+                    record_only: Sequence[RecordOnlyInput] = (), record_one: Callable[[RecordOnlyInput], Awaitable[Mapping[str, Any]]] | None = None,
+                    evidence: Callable[[str], Sequence[str]] | None = None) -> RunResult:
     if record_only and record_one is None:
         raise ValueError("a record-only pass needs the function that runs it")
     result = RunResult()
@@ -66,16 +68,20 @@ async def run_cases(goldens: Sequence[Golden], compile_one: Callable[[Golden], A
             result.cases.append(CaseResult(g.case_id, "NOT_RUN", ("the budget stop was reached",)))
             continue
         except CompileFailed as err:
-            result.cases.append(CaseResult(g.case_id, "ERROR", (str(err),)))
+            result.cases.append(CaseResult(g.case_id, "ERROR", (str(err),), _lines(evidence, g.case_id)))
         else:
             problems = tuple(check(g, proposal))
-            result.cases.append(CaseResult(g.case_id, "MISSED" if problems else "MET", problems))
+            result.cases.append(CaseResult(g.case_id, "MISSED" if problems else "MET", problems, _lines(evidence, g.case_id)))
         if guard.stopped:
             result.stopped = True
     if record_one is not None:
         await _record_only_pass(record_only, record_one, guard, recorder, result)
     result.spent_micros, result.calls = guard.spent_micros, calls()
     return result
+
+
+def _lines(evidence: Callable[[str], Sequence[str]] | None, case_id: str) -> tuple[str, ...]:
+    return () if evidence is None else tuple(evidence(case_id))
 
 
 async def _record_only_pass(inputs: Sequence[RecordOnlyInput], record_one: Callable[[RecordOnlyInput], Awaitable[Mapping[str, Any]]], guard: BudgetGuard, recorder: Recorder, result: RunResult) -> None:
@@ -129,6 +135,9 @@ def render_summary(result: RunResult) -> str:
     failing = [c.case_id for c in result.cases if c.status != "MET"]
     lines = [f"FAILING: {' '.join(failing) if failing else 'none'}", "", "## Golden examples", "", "| case | status | problems |", "|---|---|---|"]
     lines += [f"| {_cell(c.case_id)} | {_cell(c.status)} | {_cell('; '.join(c.problems))} |" for c in result.cases]
+    shown = [line for c in result.cases for line in c.evidence]
+    if shown:
+        lines += ["", "## Model choices (option ids and probabilities only)", "", "```", *shown, "```"]
     if result.record_only:
         lines += ["", "## Record-only inputs (recorded, not judged: no expectation)", "", "| case | status | detail |", "|---|---|---|"]
         lines += [f"| {_cell(r.case_id)} | {_cell(r.status)} | {_cell(r.detail)} |" for r in result.record_only]

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.bakeoff.budget import BudgetExceeded, BudgetGuard, projected_micros
+from benchmark.compile_acceptance.evidence import format_choice
 from benchmark.compile_acceptance.golden import Golden, canonical_input
 from benchmark.compile_acceptance.record_only import RecordOnlyInput
 from benchmark.compile_acceptance.recording import Recorder
@@ -117,9 +118,31 @@ def _letters(*parts: str) -> str:
     return "".join(out)
 
 
+class _Choices:
+    """The closed-vocabulary choices the compiler reports (UND-17, A602), filed under the example whose correlation id they carry. A report for a correlation id no example used is dropped, never filed under
+    another example. What is kept is the printed line: option ids and numbers only."""
+
+    def __init__(self) -> None:
+        self._case_of: dict[str, str] = {}
+        self._lines: dict[str, list[str]] = {}
+
+    def expect(self, correlation_id: str, case_id: str) -> None:
+        self._case_of[correlation_id] = case_id
+        self._lines.pop(case_id, None)
+
+    def note(self, correlation_id: str, choices: Any) -> None:
+        case_id = self._case_of.get(correlation_id)
+        if case_id is not None:
+            self._lines[case_id] = [format_choice(case_id, c.slot, c.chosen, c.probabilities, c.threshold) for c in choices]
+
+    def lines(self, case_id: str) -> list[str]:
+        return list(self._lines.get(case_id, []))
+
+
 class LiveBackend:
-    def __init__(self, service: Any, pack_ref: str, candidates: _Candidates, transport: Any, recorder: Recorder, pin: dict[str, Any], dry: bool) -> None:
+    def __init__(self, service: Any, pack_ref: str, candidates: _Candidates, transport: Any, recorder: Recorder, pin: dict[str, Any], dry: bool, choices: _Choices | None = None) -> None:
         self._service, self._pack_ref, self._candidates, self._transport, self._recorder, self._pin, self._dry = service, pack_ref, candidates, transport, recorder, pin, dry
+        self._choices = choices if choices is not None else _Choices()
 
     async def compile_one(self, g: Golden) -> Mapping[str, Any]:
         types = import_module("noema_model.understanding.resolution")
@@ -137,6 +160,7 @@ class LiveBackend:
     async def _compile(self, case_id: str, canonical: Mapping[str, Any], rows: tuple[Any, ...]) -> Mapping[str, Any]:
         self._transport.case_id = case_id
         self._recorder.case_id = case_id
+        self._choices.expect(str(canonical.get("correlation_id", "")), case_id)
         self._candidates.rows = rows
         compiler = import_module("noema_model.understanding.compiler.service")
         try:
@@ -145,6 +169,10 @@ class LiveBackend:
             raise CompileFailed(f"the compile service gave no usable proposal (InputInvalid:{err.reason.value})") from None  # the class, from a closed set: never a piece of the request
         except compiler.ProviderUnavailable as err:
             raise CompileFailed(f"the compile service gave no usable proposal ({type(err).__name__})") from None
+
+    def choice_lines(self, case_id: str) -> list[str]:
+        """The choice lines of an example: what the model chose for each closed-vocabulary slot, with the probabilities behind it (A602). Empty when the turn stopped before any choice."""
+        return self._choices.lines(case_id)
 
     def calls(self) -> int:
         return 0 if self._dry else int(self._transport.calls)
@@ -195,9 +223,10 @@ def build_backend(dry: bool, environ: Mapping[str, str], guard: BudgetGuard, rec
     catalogue = pipeline.NodeCatalogue.from_pack(pack, out_of_scope_node=OUT_OF_SCOPE_NODE)
     nodes = {node_id: gate.Node(slots={s.name: s.slot_type for s in info.slots}, outcomes=frozenset()) for node_id, info in catalogue.nodes.items()}
     candidates = _Candidates()
+    choices = _Choices()
     lexicon = lexicon_mod.load_pack_lexicons(pack, LEXICON_DIR)
     the_compiler = pipeline_compiler.PipelineCompiler({pack_ref: packconfig.load_pipeline_config(pack, PACK_FILE.parent, out_of_scope_node=OUT_OF_SCOPE_NODE)}, lexicon,
-                                              the_harness, candidates, _Minter(assemble.Identifiers, gate.UNSET))
+                                              the_harness, candidates, _Minter(assemble.Identifiers, gate.UNSET), diagnostics=choices.note)
     service = service_mod.CompileService(the_compiler, _Packs(pack_ref, pack["pack_id"], pack["pack_version"], nodes), max_proposal_bytes=MAX_PROPOSAL_BYTES, timeout_s=COMPILE_TIMEOUT_S, max_request_bytes=MAX_REQUEST_BYTES)
     pin = {
         "pinned_model_id": provider.model_version, "reasoning_effort": raw["providers"][name].get("reasoning_effort"), "max_output_tokens": provider.max_output_tokens,
@@ -205,7 +234,7 @@ def build_backend(dry: bool, environ: Mapping[str, str], guard: BudgetGuard, rec
         "harness_config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(), "pack_ref": pack_ref, "pack_sha256": hashlib.sha256(PACK_FILE.read_bytes()).hexdigest(),
         "lexicon_sha256": lexicon.digest, "masking_limits_sha256": hashlib.sha256(MASKING_LIMITS.read_bytes()).hexdigest(),
     }
-    return LiveBackend(service, pack_ref, candidates, wire_transport, recorder, pin, dry)
+    return LiveBackend(service, pack_ref, candidates, wire_transport, recorder, pin, dry, choices)
 
 
 def provider_env_name(raw: Mapping[str, Any], name: str) -> str:

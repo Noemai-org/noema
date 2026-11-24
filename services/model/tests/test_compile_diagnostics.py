@@ -11,6 +11,7 @@ import pytest
 from noema_model.harness.decide_types import ABSTAIN
 from noema_model.understanding.compiler.compiler import PipelineCompiler, SlotChoice
 from tests.support import run
+from tests.support_pipeline import NODE
 from tests.test_compile_compiler import CANONICAL, CONFIG, LEXICON, Minter, compile_bytes, g_a, row
 from tests.support_pipeline import FakeSource, harness_for
 
@@ -74,3 +75,20 @@ def test_the_window_of_the_turn_does_not_move_with_the_sink() -> None:
     compile_bytes(PipelineCompiler({"fin@1.0.0": CONFIG}, LEXICON, harness, source, Minter(), diagnostics=lambda _c, _s: None))
     start, end = source.queries[0].time_window  # type: ignore[misc]
     assert end - start > timedelta(0)
+
+
+def test_every_option_a_choice_carries_is_in_the_packs_vocabulary_or_is_the_abstention_never_a_request_derived_string() -> None:
+    """A612: the ids the log prints are the pack's own (the slot's vocabulary and none_or_other); a word of the utterance cannot be an option."""
+    seen: list[tuple[SlotChoice, ...]] = []
+    compile_bytes(compiler_with_sink(lambda _c, choices: seen.append(choices)))
+    node = CONFIG.catalogue.nodes[NODE]
+    for choice in seen[0]:
+        slot = next(s for s in node.slots if s.name == choice.slot)
+        allowed = set(CONFIG.catalogue.vocabulary_for(slot)) | {ABSTAIN}
+        assert set(choice.probabilities) <= allowed and (choice.chosen is None or choice.chosen in allowed)
+
+
+def test_the_choice_carries_exactly_the_members_the_benchmark_reads() -> None:
+    """The benchmark's `LiveBackend` reads `slot`, `chosen`, `probabilities` and `threshold` of a `SlotChoice` imported from the compiler module: a rename here breaks the run and this test says so first."""
+    import dataclasses
+    assert [f.name for f in dataclasses.fields(SlotChoice)] == ["slot", "chosen", "probabilities", "threshold"]

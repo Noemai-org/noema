@@ -66,6 +66,36 @@ class Format(unittest.TestCase):
         self.assertIn("b:0.0000", line)
 
 
+ID = r"(?:[a-z][a-z0-9_.]{0,63}|invalid_id)"
+DEC = r"[01]\.\d{4}"
+LINE = re.compile(rf"CHOICE (?:[A-Z][A-Z0-9-]{{0,31}}|invalid_id) slot={ID} chosen={ID} top5=(?:{ID}:{DEC}(?:,{ID}:{DEC}){{0,4}}|none) threshold=(?:{DEC}|n/a)")
+HOSTILE = ["Wetin happen to the 20k wey I send Tunde this morning?", "Send 5000 to Tunde Adeyemi", "usr_evil ten_evil", "0123456789012345", "a b", "a\nb", "a,b:c=d", "x" * 200, "", "é", "A", "9abc",
+           "fin.cap.ok", "none_or_other", "a=b top5=c", "threshold=0.9", "CHOICE G-A", "ses_abcdefghijklmnopqrstuvwxyz", "'; DROP", "\u0661\u0662\u0663\u0664\u0665"]
+
+
+class Property(unittest.TestCase):
+    """A612: whatever the option names, the slot, the case id, the chosen option, the probabilities and the threshold are, a line is the fixed words, an id-shaped option or a decimal probability, and nothing else. A string
+    that carries a word of the request is either not id-shaped (printed as invalid_id) or never reaches the line."""
+
+    def test_every_line_is_made_only_of_the_fixed_words_id_shaped_options_and_decimals(self) -> None:
+        import random
+        rng = random.Random(612)
+        for _ in range(4000):
+            names = [rng.choice(HOSTILE) if rng.random() < 0.7 else f"fin.cap.{rng.choice('abcdef')}" for _ in range(rng.randint(0, 9))]
+            probs = {n: rng.choice([0.0, 1.0, rng.random(), rng.uniform(-3, 3), 0.99999, 1e-9, float(rng.randint(0, 5))]) for n in names}
+            chosen = rng.choice([None, *HOSTILE, "fin.cap.a"])
+            threshold = rng.choice([None, Fraction(rng.randint(0, 20000), 10000), Fraction(9, 10)])
+            line = format_choice(rng.choice(["G-A", "BEN-CLEAN-0001", *HOSTILE]), rng.choice(["requested_remedy", *HOSTILE]), chosen, probs, threshold)
+            self.assertRegex(line, LINE.pattern)
+            self.assertIsNotNone(LINE.fullmatch(line), line)
+            self.assertLess(max(digit_runs(line) or [0]), 5, line)
+
+    def test_no_word_of_a_hostile_string_survives_into_a_line(self) -> None:
+        for word in ("Tunde", "Adeyemi", "usr_evil", "ten_evil", "DROP", "wey"):
+            line = format_choice("G-A", "requested_remedy", None, {f"{word} x": 0.5, "none_or_other": 0.5}, None)
+            self.assertNotIn(word, line)
+
+
 class Script:
     """A compile function that answers every golden with its good proposal and a fixed set of choice lines per case."""
 
@@ -93,14 +123,13 @@ class Runner(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([c.evidence for c in result.cases], [tuple(lines_for(c.case_id)) for c in result.cases])  # the failed one too: what the model said before the failure is the evidence
 
     async def test_a_case_the_stop_never_reached_carries_no_lines(self) -> None:
+        from benchmark.compile_acceptance.test_runner import Script as Spending
         with tempfile.TemporaryDirectory() as tmp:
-            s = Script()
-            guard = BudgetGuard(limit_micros=5_000_000)
-            guard.authorize(5_000_000)
-            guard.authorize(1)  # the stop is reached
-            rec = recorder(Path(tmp))
-            result = await run_cases(GOLDEN, s, guard, rec, calls=lambda: 1, evidence=lines_for)
-        self.assertTrue(all(c.status == "NOT_RUN" and c.evidence == () for c in result.cases))
+            guard = BudgetGuard(limit_micros=2_500, spent_micros=0)
+            s = Spending(guard, spend=1_000)
+            result = await run_cases(GOLDEN, s, guard, recorder(Path(tmp)), calls=lambda: s.calls, evidence=lines_for)
+        self.assertEqual([c.status for c in result.cases], ["MET", "MET", "NOT_RUN", "NOT_RUN", "NOT_RUN"])
+        self.assertEqual([bool(c.evidence) for c in result.cases], [True, True, False, False, False])
 
     async def test_a_run_without_an_evidence_function_is_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
