@@ -7,12 +7,12 @@ import { assertAccessible } from "../browser/flow-a11y.mjs";
 
 const token = process.env.NOEMA_UI_E2E_SESSION_TOKEN;
 const manifestPath = process.env.NOEMA_UI_E2E_MANIFEST;
-const maxPollingMs = Number(process.env.NOEMA_UI_E2E_MAX_POLLING_MS);
+const maxPollingMs = 60_000; // A654: UI polling ceiling is 60 seconds.
 
 if (!token || !manifestPath || !Number.isSafeInteger(maxPollingMs) ||
     maxPollingMs <= 0 || maxPollingMs > 2_147_483_647) {
   throw new Error(
-    "Supply a short-lived synthetic customer token, J1–J8 manifest and host-approved NOEMA_UI_E2E_MAX_POLLING_MS",
+    "Supply a short-lived synthetic customer token and J1–J8 manifest",
   );
 }
 
