@@ -577,7 +577,7 @@ func TestT15AResultThatIsNotWhatAWriteReturnsIsUnknown(t *testing.T) {
 	}
 }
 
-// EC-E16 and the order of the steps: Record is called only for an ALLOW candidate, that is, when T1 to T14 passed. A stop at any earlier step leaves it uncalled.
+// EC-E16 and the order of the steps: Record is called for an ALLOW candidate only when T1 to T14 passed. A stop at any earlier step leaves it uncalled, except an ESCALATE, which is recorded once with no step and no grant (A534).
 func TestT15RecordIsNotCalledWhenAnEarlierStepStopped(t *testing.T) {
 	stopAt := func(ev *evaluation, step decide.GateStep, d decide.Decision) decide.Steps {
 		s := ev.lateSteps()
@@ -598,13 +598,19 @@ func TestT15RecordIsNotCalledWhenAnEarlierStepStopped(t *testing.T) {
 		d    decide.Decision
 	}{{decide.T5Scope, reject}, {decide.T9Evidence, escalate}, {decide.T12Clocks, escalate}} {
 		f := newFake13()
+		f.rec = RecordResult{DecisionID: "dec_synth0006"}
 		ev := newEval13(t, f)
 		res := ev.run(tctx(t), stopAt(ev, c.step, c.d))
 		if lastTrace(res).Step != c.step {
 			t.Fatalf("stop at %v: trace %v", c.step, res.Trace)
 		}
-		if len(f.calls) != 0 {
-			t.Errorf("stop at %v: ports called: %v", c.step, f.calls)
+		// A534: an ESCALATE is recorded (once, with no step and no grant) and nothing else is called; a REJECT calls nothing.
+		want := []string(nil)
+		if c.d.Outcome() == decide.Escalate {
+			want = []string{"Recorder.Record"}
+		}
+		if !reflect.DeepEqual(f.calls, want) || (len(f.recReqs) == 1 && len(f.recReqs[0].Steps) != 0) {
+			t.Errorf("stop at %v: ports called: %v, want %v", c.step, f.calls, want)
 		}
 	}
 	// A failed step before T13 likewise.
