@@ -1,5 +1,6 @@
 import { fetchInvestigation } from "./investigation-client.js";
 import type { InvestigationResponseV1 } from "./contract_types/customer.js";
+import { POLL_INTERVAL_MS, POLL_MAX_DURATION_MS } from "./transport-limits.js";
 
 // A654: the UI polls at two-second intervals; the host supplies the 60-second ceiling.
 const POLL_INTERVAL_MS = 2_000;
@@ -28,10 +29,11 @@ export async function pollInvestigation(input: PollInput): Promise<"Connection l
   if (!Number.isSafeInteger(input.maxPollingMs) || input.maxPollingMs <= 0 || input.maxPollingMs > 2_147_483_647) return "Connection lost.";
   if (input.signal?.aborted) throw new DOMException("Aborted", "AbortError");
   const controller = new AbortController();
+  const pollingDurationMs = Math.min(input.maxPollingMs, POLL_MAX_DURATION_MS);
   let expired = false;
   const abort = () => controller.abort();
   input.signal?.addEventListener("abort", abort, { once: true });
-  const timer = setTimeout(() => { expired = true; controller.abort(); }, input.maxPollingMs);
+  const timer = setTimeout(() => { expired = true; controller.abort(); }, pollingDurationMs);
   try {
     if (input.signal?.aborted) controller.abort();
     return await pollUntilDone({ ...input, signal: controller.signal });
