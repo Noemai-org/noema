@@ -58,6 +58,7 @@ type world struct {
 	clk   *clock.Manual
 	sign  map[string]chain.Signer
 	pools map[string]*pgxpool.Pool
+	seq   int // the next number of a synthetic row a test inserts (rates_test.go)
 }
 
 func newWorld(t *testing.T) *world {
