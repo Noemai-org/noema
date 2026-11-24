@@ -187,3 +187,29 @@ func TestRES05NoGrantInsideTheWindowAndTheFreezeListAfterIt(t *testing.T) {
 		t.Errorf("a permission still names its target: %v", err)
 	}
 }
+
+// A rule that would end the question while evidence disagrees must not speak inside the window: with the disagreement set aside the reversal rule would give REVERSED_CONFIRMED, a verdict (A642: no
+// verdict inside the window). It falls back to INSUFFICIENT_EVIDENCE, and from the deadline the real contradiction stands.
+func TestRES05NoVerdictInsideTheWindowEvenIfARuleWouldGiveOne(t *testing.T) {
+	rs := ruleSetWith(t, "reversal_conflict", win(syntheticWs))
+	ev := []reconcile.Evidence{
+		{ID: "ev_reversal", Source: "fin.src.ledger", Entity: "reversal", Status: reconcile.Known, EffectiveAt: switchAt, ExpiresAt: 9000, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("POSTED"), "original_debit_linked": predicate.Bool(true)}},
+		{ID: "ev_debit", Source: "fin.src.ledger", Entity: "debit", Status: reconcile.Known, EffectiveAt: creditAt, ExpiresAt: 9000, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("NOT_POSTED")}},
+	}
+	inside, err := reconcile.Reconcile(rs, ev, deadline-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inside.Classification != reconcile.InsufficientEvidence || inside.Wait == nil || inside.Classification.IsTerminal() {
+		t.Fatalf("inside the window want INSUFFICIENT_EVIDENCE and a wait, got %s wait=%+v", inside.Classification, inside.Wait)
+	}
+	after, err := reconcile.Reconcile(rs, ev, deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Classification != reconcile.ContradictoryState || after.Wait != nil {
+		t.Fatalf("at the deadline want CONTRADICTORY_STATE, got %s wait=%+v", after.Classification, after.Wait)
+	}
+}

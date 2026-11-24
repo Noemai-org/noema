@@ -77,6 +77,9 @@ type Evidence struct {
 type Contradiction struct {
 	Label string
 	A, B  string
+	// Deadline is the end of the pair's convergence window (the earlier fact's effective time plus the window), in Unix seconds; 0 when the pair
+	// declares no window. A disagreement is expected lag while now is before Deadline (REQ-RES-005).
+	Deadline int64
 }
 
 // Result is the output of Reconcile. RuleID is "rule_id@version", or the rule set's fallback when no rule matched.
@@ -86,4 +89,18 @@ type Result struct {
 	Contributing   []string
 	Contradictions []Contradiction
 	ValidUntil     int64
+	// Wait is set when every disagreement is still inside its convergence window: the answer waits (no write, no verdict) until Until (REQ-RES-005).
+	Wait *Wait
 }
+
+// Wait is the watch of a result that waits: the earliest end of the windows that are still open and the pairs concerned.
+type Wait struct {
+	Until  int64
+	Labels []string
+}
+
+// Waiting reports whether the result waits inside a convergence window. A waiting result is neither a verdict nor a freeze.
+func (r Result) Waiting() bool { return r.Wait != nil }
+
+// Frozen reports whether the target is frozen by the contradiction (INV-20): only a disagreement outside every window freezes.
+func (r Result) Frozen() bool { return r.Classification == ContradictoryState }
