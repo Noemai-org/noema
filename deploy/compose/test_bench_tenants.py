@@ -114,10 +114,16 @@ class BenchTenants(unittest.TestCase):
         assert guard, "bench-up has no guard on an empty tenant list"
         self.assertLess(up.index(guard.group(0)), up.index("secrets_local.sh"), "the guard comes before the secret step")
 
-    def test_postgres_and_the_dsn_step_take_the_same_expression_in_the_overlay(self) -> None:
+    def test_postgres_the_dsn_step_and_the_tenant_steps_take_the_same_expression_in_the_overlay(self) -> None:
+        # One tenant list for everything that acts per tenant: postgres (logins), the DSN step (files) and the two tenant one-shots (rows and login mappings; A353, DEBT-04). Each takes the same expression,
+        # so the four cannot name different tenants.
         expr = '"${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"'
-        self.assertEqual(OVERLAY.count("NOEMA_TENANTS: " + expr), 1)
+        self.assertEqual(OVERLAY.count("NOEMA_TENANTS: " + expr), 3, "postgres, tenants-create and tenants-provision")
         self.assertEqual(OVERLAY.count("TRUST_DSN_TENANTS: " + expr), 1)
+        for service in ("tenants-create", "tenants-provision"):
+            block = re.search(r"(?ms)^  " + service + r":\n(.*?)(?=^  [a-z][a-z-]*:\n)", OVERLAY)
+            assert block, service
+            self.assertIn("NOEMA_TENANTS: " + expr, block.group(1), service)
 
 
 if __name__ == "__main__":

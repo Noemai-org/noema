@@ -32,7 +32,7 @@ type ConfirmationAnswerDecoder func(body []byte) (ConfirmationAnswer, error)
 
 // ConfirmationRequests finds the request a path names, for this tenant only.
 type ConfirmationRequests interface {
-	Lookup(ctx context.Context, tenant, requestID string) (confirm.Request, bool, error)
+	Lookup(ctx context.Context, tenant, requestID string) (confirm.StoredRequest, bool, error)
 }
 
 // ConfirmationAnswerInput is an approver's answer with the identity the session gave (INV-12); At is Unix seconds from the core's clock. It mirrors the store's AnswerInput.
@@ -45,6 +45,9 @@ type ConfirmationAnswerInput struct {
 
 // ErrConfirmationAnswered: the request was answered before, differently or by another approver (first answer wins). The store adapter maps its own conflict to it.
 var ErrConfirmationAnswered = errors.New("cmd/core: the confirmation request was answered before")
+
+// ErrConfirmationExpired: the store's own clock found the request expired when the answer arrived (A607, A368 (iv)); nothing was recorded. The store adapter maps its own error to it.
+var ErrConfirmationExpired = errors.New("cmd/core: the confirmation request has expired")
 
 // ConfirmationAnswers is the store's single method: it records the answer and appends CONFIRMATION_RECEIVED in one transaction, returns the event ID, and returns the stored event ID
 // for the identical first answer again. A second, different answer is ErrConfirmationAnswered. Answer needs a context deadline.
@@ -156,7 +159,8 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), c.Timeout) // the earlier of the request's deadline and the configured bound
 		defer cancel()
-		req, found, err := c.Requests.Lookup(ctx, p.Tenant, pathID)
+		stored, found, err := c.Requests.Lookup(ctx, p.Tenant, pathID)
+		req := stored.Request
 		if err != nil {
 			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)
 			return

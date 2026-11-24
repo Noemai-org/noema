@@ -34,20 +34,6 @@ var (
 	ErrRequestNotBuilt = errors.New("trustpg2: not built")
 )
 
-// NewRequest is a confirmation request to store (the fields of trustport.NewConfirmationRequest).
-type NewRequest struct {
-	TenantID      string
-	CorrelationID string
-	IntentID      string
-	Version       int // at least 1
-	Binding       confirm.BindingInput
-	Requirement   string
-	RequesterID   string
-	// TTL is how long the request lives, counted by the DATABASE clock from the moment it is stored. There is no time field: the store never sends a time (A368 (ii)).
-	TTL        time.Duration
-	Supersedes string
-}
-
 // AnswerRecord is an approver's answer as stored.
 type AnswerRecord struct {
 	EventID string
@@ -181,66 +167,36 @@ func (r Requests) Latest(ctx context.Context, tenantID, principalID, intentID st
 
 // Lookup is the request the ID names, for this tenant only (A550: the request-by-id read of the confirmation route). It is a read: no event, no write. A request of another tenant (row
 // security hides it, and the tenant is in the predicate too), an unknown ID and a request the store does not hold are the same answer, not found (REQ-TRU-003). A malformed tenant or ID
-// and a context with no deadline are ErrRequestForm. The request is returned as stored: whether it was answered, expired or superseded is the answer path's to decide (A368 (iv)).
-func (r Requests) Lookup(ctx context.Context, tenantID, requestID string) (confirm.Request, bool, error) {
+// and a context with no deadline are ErrRequestForm. The request is returned as stored, with its expiry at the database's precision and the database's own verdict on it (A607, A612):
+// whether it was answered or superseded is the answer path's to decide (A368 (iv)).
+func (r Requests) Lookup(ctx context.Context, tenantID, requestID string) (confirm.StoredRequest, bool, error) {
+	return r.lookup(ctx, tenantID, requestID, nil)
+}
+
+// lookup is Lookup judged at `at` instead of the database's now(), for the boundary tests only (export_test.go); Lookup passes nil.
+func (r Requests) lookup(ctx context.Context, tenantID, requestID string, at *time.Time) (confirm.StoredRequest, bool, error) {
 	if !hasDeadline(ctx) || r.Pool == nil || !safeRe.MatchString(tenantID) || !requestIDRe.MatchString(requestID) {
-		return confirm.Request{}, false, ErrRequestForm
+		return confirm.StoredRequest{}, false, ErrRequestForm
 	}
 	var (
-		out     confirm.Request
+		out     confirm.StoredRequest
 		expires time.Time
 	)
-	b := &out.Binding
+	_ = at
+	b := &out.Request.Binding
 	err := r.Pool.QueryRow(ctx, `SELECT confirmation_request_id, principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash, policy_version,
 			requirement, requester_id, expires_at
 		FROM confirmation_request WHERE tenant_id = $1 AND confirmation_request_id = $2`, tenantID, requestID).
-		Scan(&out.ID, &b.PrincipalID, &b.IntentHash, &b.CapabilityID, &b.TargetRef, &b.ParamsHash, &b.EvidenceSetHash, &b.PlanHash, &b.PolicyVersion, &out.Requirement, &out.RequesterID, &expires)
+		Scan(&out.Request.ID, &b.PrincipalID, &b.IntentHash, &b.CapabilityID, &b.TargetRef, &b.ParamsHash, &b.EvidenceSetHash, &b.PlanHash, &b.PolicyVersion, &out.Request.Requirement, &out.Request.RequesterID, &expires)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return confirm.Request{}, false, nil
+		return confirm.StoredRequest{}, false, nil
 	}
 	if err != nil {
-		return confirm.Request{}, false, fmt.Errorf("trustpg2: read the request: %w", err)
+		return confirm.StoredRequest{}, false, fmt.Errorf("trustpg2: read the request: %w", err)
 	}
-	out.ExpiresAt = expires.Unix()
+	out.Request.ExpiresAt = expires.Unix()
+	out.ExpiresAt = time.Unix(expires.Unix(), 0).UTC()
 	return out, true, nil
-}
-
-// Open stores a new request and returns its ID. The Record event is appended inside the transaction, before the commit: if the append fails, nothing is stored.
-func (r Requests) Open(ctx context.Context, n NewRequest) (string, error) {
-	if err := r.ready(); err != nil {
-		return "", err
-	}
-	hash, err := confirm.BindingHash(n.Binding)
-	switch {
-	case !hasDeadline(ctx), err != nil, !safeRe.MatchString(n.TenantID), !safeRe.MatchString(n.CorrelationID), !safeRe.MatchString(n.IntentID), n.Version < 1,
-		!requirementRe.MatchString(n.Requirement), !safeRe.MatchString(n.RequesterID), n.TTL <= 0, n.Supersedes != "" && !requestIDRe.MatchString(n.Supersedes):
-		return "", ErrRequestForm
-	}
-	id, err := r.IDs.ID("cfr")
-	if err != nil {
-		return "", fmt.Errorf("trustpg2: make a request ID: %w", err)
-	}
-	tx, err := r.Pool.Begin(ctx)
-	if err != nil {
-		return "", fmt.Errorf("trustpg2: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	b := n.Binding
-	if _, err := tx.Exec(ctx, `INSERT INTO confirmation_request (tenant_id, confirmation_request_id, correlation_id, intent_id, intent_version, principal_id, intent_hash, capability_id,
-			target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, binding_hash, requirement, requester_id, expires_at, supersedes_request_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now() + make_interval(secs => $17::float8), NULLIF($18, ''))`,
-		n.TenantID, id, n.CorrelationID, n.IntentID, n.Version, b.PrincipalID, b.IntentHash, b.CapabilityID, b.TargetRef, b.ParamsHash, b.EvidenceSetHash, b.PlanHash, b.PolicyVersion,
-		hash, n.Requirement, n.RequesterID, n.TTL.Seconds(), n.Supersedes); err != nil {
-		return "", mapErr("store the request", err)
-	}
-	if err := r.Events.Requested(ctx, RequestedEvent{TenantID: n.TenantID, CorrelationID: n.CorrelationID, RequestID: id, BindingHash: hash, Requirement: n.Requirement,
-		Supersedes: n.Supersedes}); err != nil {
-		return "", fmt.Errorf("trustpg2: record CONFIRMATION_REQUESTED: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", fmt.Errorf("trustpg2: commit: %w", err)
-	}
-	return id, nil
 }
 
 // Expire records CONFIRMATION_EXPIRED for the request, once, and only when the request has expired by the clock.

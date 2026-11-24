@@ -18,6 +18,8 @@ No message of any error prints the input, the proposal, an admitted document or 
 | `interpreter.go` | `New(Config)`, `Interpret`, the four ports (`Compiler`, `Admitter`, `Recorder`, `Saver`), the error kinds |
 | `record.go` | `RecordRecorder`: the two events as the orchestrator's emitter (`core-workflows`), one transaction per event, through the tenant's own orchestrator login (the database binds the tenant and the emitter) |
 
+**Optional epoch port (DEBT-54 part 2, A520).** `Config.Subject` (`understanding.SubjectOf(view)`) and `Config.Epochs` come together. With both, the Interpreter reads the subject of the admitted intent from the pack's `subject_slot`, asks `Epochs.EpochOf(ctx, tenant, principal, subjectRef)` for its epoch before the save, and passes both to `Save`; an unresolved subject asks nothing; a port that cannot answer is `ErrEpoch` and nothing is saved. With neither, the saved intent has epoch 1 and no subject (the G1 path).
+
 **For EL (composition root).** Build `Config` with `understanding.Client` (the mTLS `http.Client`), `understanding.Gate` (`NewGate` over `NewPackView` of the mounted pack), `RecordRecorder{Pool: <the tenant's orchestrator login pool>, Appender, Timeout}` and `intentstore.Store` on the same login. `Interpret` is called once per compile; it is not idempotent per input (a second save of the same intent version is refused by the store's unique key), so a caller that retries a turn decides what a retry means.
 
 **Not here.** The model service's compile route and compiler (`compiler/` there is empty); `INTENT_PROPOSED` (the compile answer carries no provider or model version yet); `cmd/core` wiring.

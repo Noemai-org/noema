@@ -18,10 +18,11 @@ type packFile struct {
 	PackID      string `json:"pack_id"`
 	PackVersion string `json:"pack_version"`
 	IntentNodes []struct {
-		NodeID      string   `json:"node_id"`
-		Pack        string   `json:"pack"`
-		PackVersion string   `json:"pack_version"`
-		Outcomes    []string `json:"outcome_definitions"`
+		NodeID      string          `json:"node_id"`
+		Pack        string          `json:"pack"`
+		PackVersion string          `json:"pack_version"`
+		Outcomes    []string        `json:"outcome_definitions"`
+		SubjectSlot json.RawMessage `json:"subject_slot"`
 		Slots       []struct {
 			Name string `json:"name"`
 			Type string `json:"type"`
@@ -92,6 +93,13 @@ func NewPackView(raw []byte) (PackView, error) {
 			}
 			node.Slots[s.Name] = s.Type
 		}
+		if len(n.SubjectSlot) > 0 { // present: null, a number or an unknown or non-Resource slot are all refused (the contract's member is a slot name, never null)
+			var name string
+			if json.Unmarshal(n.SubjectSlot, &name) != nil || node.Slots[name] != "Resource" { // an empty or malformed name is not a slot of the node either
+				return nil, packErr("a node's subject slot is not a Resource slot of the node")
+			}
+			node.SubjectSlot = name
+		}
 		for _, o := range n.Outcomes {
 			if !defined[o] {
 				return nil, packErr("a node names an outcome the pack does not define")
@@ -113,7 +121,7 @@ func (v *packView) Node(id string) (Node, bool) {
 	if !ok {
 		return Node{}, false
 	}
-	out := Node{Slots: make(map[string]string, len(n.Slots)), Outcomes: make(map[string]bool, len(n.Outcomes))}
+	out := Node{Slots: make(map[string]string, len(n.Slots)), Outcomes: make(map[string]bool, len(n.Outcomes)), SubjectSlot: n.SubjectSlot}
 	for k, t := range n.Slots {
 		out.Slots[k] = t
 	}

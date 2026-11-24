@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from noema_model.understanding.gate import Context, PackView, SchemaGate
+from noema_model.understanding.pipeline import InputInvalidReason
 
 
 class ProviderUnavailable(Exception):
@@ -23,7 +24,14 @@ class ScreenNotRun(ProviderUnavailable):
 
 
 class InputInvalid(Exception):
-    """The request cannot be compiled: the caller's bug or a pack this service does not hold. Nothing was sent to any provider."""
+    """The request cannot be compiled: the caller's bug or a pack this service does not hold. Nothing was sent to any provider.
+
+    `reason` is a closed internal class (UND-16, run #6), for the service's own accounting and the benchmark's failure text. It is never part of the public answer, which is `INPUT_INVALID` for every
+    reason, and it carries no part of the request (AGENT-13)."""
+
+    def __init__(self, reason: InputInvalidReason) -> None:
+        super().__init__()
+        self.reason = reason
 
 
 class Compiler(Protocol):
@@ -63,7 +71,7 @@ class CompileService:
         InputInvalid and nothing is compiled."""
         view = self._packs.view(pack_ref)
         if view is None:
-            raise InputInvalid
+            raise InputInvalid(InputInvalidReason.UNKNOWN_PACK)
         ctx = Context(
             tenant_id=str(canonical_input.get("tenant_id", "")),
             correlation_id=str(canonical_input.get("correlation_id", "")),
@@ -71,7 +79,7 @@ class CompileService:
             authn_ref=str(canonical_input.get("session_id", "")),
         )
         if not ctx.valid():
-            raise InputInvalid
+            raise InputInvalid(InputInvalidReason.IDENTITY_INVALID)
         try:
             raw = await asyncio.wait_for(self._compiler.compile(canonical_input, pack_ref, open_intent), timeout=self._timeout)
         except TimeoutError as err:

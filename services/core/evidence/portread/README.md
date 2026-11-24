@@ -16,6 +16,8 @@ The Evidence Layer's call site for the read ports of `adapters` (ENV-04 wiring s
 
 ## Case lists (TRU-07; ruling A461, interim, relayed, not yet committed; A438)
 
+`Reader.NextEpoch(ctx, scope, transactionRef)` (DEBT-54 part 2, A520) reads the case list once WITHOUT recording and returns the epoch of a new intent about the transaction: the highest epoch of a CLOSED case + 1, and 1 when none is closed; an unusable or incomplete list is `ErrEpochUnknown`, never 1.
+
 `Reader.ReadCases(ctx, scope, correlationID, transactionRef)` reads the stand-in's case list (`adapters.Case.FindCases`, mock-case's `CasePage`) and its complaint list (`adapters.CaseRecords.FindComplaints`, its own list with its own marker) and records each as one item with the payload `{"items": [...], "complete": bool}`, the keys `ListRows` reads (REQ-CTX-001, REQ-CTX-007; INV-12, INV-19, INV-21).
 
 | Rule | How |

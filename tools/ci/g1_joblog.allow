@@ -1,0 +1,6 @@
+# Lines the g1-stack JOB LOG scan lets through its digit and card rules (bench-g1-stack.yml, job joblog-scan). Each line is a regular expression searched in a whole log line.
+# One shape: a Go module download, `go: downloading <module path> <version>`, with or without the image build's step prefix (`#34 3.128 `). A pseudo-version holds a 14-digit UTC timestamp that, joined with
+# the separators, reads as a 15-digit Luhn-valid number to the card rule (runs 45128374794 and 45161180436). Every digit group is bounded to at most four digits (A154's maximum is five) EXCEPT that one
+# timestamp, which must be a valid date and time of 20xx; the log timestamp is bounded to its own shape; the module path may hold at most twelve digits in all, so a card number, written contiguously or
+# grouped with hyphens, cannot hide in it (Security Reviewer on noema#908). Nothing may follow the version. The secret, canary and JWT rules are not affected by this file.
+^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{1,9}Z (#[0-9]{1,4} [0-9]{1,4}\.[0-9]{1,4} )?go: downloading (?!(?:[^ 0-9]*[0-9]){13})[A-Za-z0-9._/~-]+ v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}(-([0-9]{1,4}\.)?20[0-9]{2}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])[0-5][0-9][0-5][0-9]-[0-9a-f]{12})?(\+incompatible)?$
