@@ -1,6 +1,6 @@
 # STM-07 gateway issuer (on noema#925)
 
-State: green held locally, not pushed (EL pushes after reading the red job).
+State: red `c877f5d1` read in CI, green `1ff3865f` pushed on #925; CI green at that head; SR READY at `1ff3865f`. PR B (recovery refuses a row with no issuer) follows after #925 merges.
 
 # Session 2026-11-24 12:00 WAT · STM-07
 
