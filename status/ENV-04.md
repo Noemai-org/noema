@@ -304,6 +304,10 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Codex P1 (the key initializer cannot read secrets that keep the host user's ownership and mode 0600 once every capability is dropped): `core-keys-init` adds `DAC_READ_SEARCH` (reads any file, writes none; never `DAC_OVERRIDE`), netcheck requires exactly that set and has two new mutations (159). Not testable without root and a differently-owned source (CI runs as a non-root user), so the netcheck rule and the first stack-check are the proof; `trust-dsn-init` is unchanged (its secrets are mode 644).
 - A509: the DSN files are mode 0400 owned by uid 65532 (the core's uid): unchanged, tested in `trust-dsn/test_init.py`.
 
+## Session 2026-11-23 (sixth) · ENV-04: BO's row 12 inputs and one source for the IdP flags
+- The scan writes BO's stamped inventory (`--inventory`, `--stamp`, `--root benchmark/out`); a new step lists the files the artifact holds (stamped `artifact-files.txt`, hidden files included, the scanner reads them) and compares it with the inventory (`files_match`, failing the Result step on a difference). The scan output, the inventory and the file list travel in a second artifact, `bench-g1-stack-evidence-<run id>`, because they are written by or after the scan and so cannot be in the scanned set; the first artifact is exactly the scanned files (the summary is now uploaded too, as it is scanned).
+- The five IdP flags come from `benchmark/out/idp/runner-args` (A517) in the run and the probes as well as the two re-reads, so a changed key id, audience or tenant reaches every step. Checked against the real scanner on a temporary tree: inventory and file list agree (`files_match=0`).
+- Found by that check, not by a unit test: the scanner reads hidden files and `upload-artifact` skips them by default, which would have made the two sets differ; the artifact now sets `include-hidden-files: true`.
 # Session 2026-11-23 · ENV-04
 
 ## Session summary
