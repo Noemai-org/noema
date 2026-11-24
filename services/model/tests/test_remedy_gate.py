@@ -10,11 +10,12 @@ abstention and is a separate call that is made only after a passed gate; an answ
 unchanged; a pack declares the gate as data, and the loader refuses a gate that is malformed or that names a slot that cannot be gated; the core names no slot.
 """
 
+import ast
 import copy
 import dataclasses
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -24,6 +25,8 @@ from noema_model.harness.errors import Reason
 from noema_model.platform.config import ConfigError
 from noema_model.understanding.compiler.packconfig import load_pipeline_config
 from noema_model.understanding.pipeline import run_pipeline
+from noema_model.harness import YesNoAnswer
+from noema_model.understanding.pipeline.steps import gate_asserted, probability_bp
 from noema_model.understanding.pipeline.templates import SLOT_GATE_V1
 from tests.support import run, timeout_error
 from tests.support_pipeline import (
@@ -269,3 +272,61 @@ def test_the_core_names_no_slot() -> None:
     for path in (root / "understanding" / "pipeline").glob("*.py"):
         text = path.read_text(encoding="utf-8")
         assert f'"{SLOT}"' not in text and f"'{SLOT}'" not in text, path.name
+
+
+# --- A612: the probability is read exactly, in integer basis points, and never as a float --------------------------------------------------------------
+
+@pytest.mark.parametrize(("text", "bp"), [
+    ("0.9", 9000), ("0.9000", 9000), ("0.89999", 8999), ("1", 10000), ("1.0", 10000), ("0", 0), ("0.0", 0),
+    ("0.95", 9500), ("0.7", 7000), ("0.0001", 1), ("0.00009", 0), ("0.99999999", 9999), ("1.000", 10000), ("0.12345678901234567", 1234),
+])
+def test_a_plain_decimal_in_range_becomes_basis_points_by_floor(text: str, bp: int) -> None:
+    assert probability_bp(text) == bp
+
+
+@pytest.mark.parametrize("bad", [
+    "1.0001", "1.1", "2", "-0.1", "+0.9", "1e0", "1E0", "0.9e0", ".9", "0.", "", None, " 0.9", "0.9 ", "0.9\n", "NaN", "nan", "inf", "-inf", "0x1", "0b1", "0,9", "0..9", "0.9.1",
+    "\u0660.\u0669", "٠.٩", "0.9\u00a0", "1_0", "00.9000000000000000000000", "0." + "9" * 40, True, False, object(), [], {},
+])
+def test_anything_else_is_not_a_probability_and_the_gate_abstains(bad: Any) -> None:
+    assert probability_bp(bad) is None
+    assert gate_asserted(YesNoAnswer("g", None, cast(Any, bad)), 9000) is False  # no crash, no stop: the slot stays absent
+
+
+@pytest.mark.parametrize(("provider_value", "bp"), [(0.9, 9000), (0.89999, 8999), (1.0, 10000), (0.0, 0), (1, 10000), (0, 0), (0.7, 7000)])
+def test_a_number_from_the_provider_layer_is_read_as_the_decimal_the_provider_wrote(provider_value: Any, bp: int) -> None:
+    """The harness hands over Python floats (parsed JSON). `repr` is the shortest decimal that reads back as that float, which is the text the provider wrote; it is read as text, by integer arithmetic."""
+    assert probability_bp(provider_value) == bp
+
+
+@pytest.mark.parametrize("not_plain", [1e-05, 1e-07, 1e16, float("nan"), float("inf"), float("-inf"), -0.0, -0.5, 1.5])
+def test_a_float_whose_text_is_not_a_plain_decimal_in_range_abstains(not_plain: float) -> None:
+    assert probability_bp(not_plain) is None
+
+
+def test_the_gate_compares_integers_against_the_pack_threshold() -> None:
+    at, below = YesNoAnswer("g", None, cast(Any, "0.9")), YesNoAnswer("g", None, cast(Any, "0.89999"))
+    assert gate_asserted(at, 9000) is True and gate_asserted(below, 9000) is False
+    assert gate_asserted(YesNoAnswer("g", True, cast(Any, "0.89999")), 9000) is False  # a yes below the threshold abstains (A606)
+    assert gate_asserted(YesNoAnswer("g", False, cast(Any, "1")), 9000) is False  # a no is a no (A606)
+
+
+def test_a_malformed_probability_leaves_the_slot_absent_and_does_not_stop_the_turn() -> None:
+    result = piped(model_for(gate=True, p=1e-05))  # its text is "1e-05": not a plain decimal
+    assert result.outcome.name == "PROPOSED" and remedy(result) is None
+
+
+def test_no_float_is_made_or_computed_in_the_gate() -> None:
+    """A612: no float(), no Decimal, no math on floats in the gate's reading. (`repr` of a provider's number is text, not arithmetic.)"""
+    source = (Path(ROOT) / "services" / "model" / "noema_model" / "understanding" / "pipeline" / "steps.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    gate = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("probability_bp", "gate_asserted")}
+    assert set(gate) == {"probability_bp", "gate_asserted"}
+    for function in gate.values():
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id not in ("float", "Decimal", "round"), (function.name, node.func.id)
+            if isinstance(node, ast.Constant):
+                assert not isinstance(node.value, float), (function.name, node.value)
+            if isinstance(node, ast.Name):
+                assert node.id not in ("Fraction", "Decimal", "math"), (function.name, node.id)
