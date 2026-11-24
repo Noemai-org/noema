@@ -336,6 +336,10 @@ type composeDeps struct {
 	TrustAdapters    func(env Env, records reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error)
 	WorkerDial       func(context.Context, *WorkerConfig) (Connection, error)
 	WorkerActivities func() *workflows.EscalateActivities
+	// Pack is the one source of the manifest-verified pack for the whole composition (A548, INV-16): the same call the TrustAdapters source makes, so the pack is loaded and verified once.
+	Pack PackSource
+	// WireTrust builds the Trust inputs and the decisions over the pack and the shared Trust logins (compose_trust_wiring.go). Nil means the composition builds none of them.
+	WireTrust func(trustWiringIn) (trustWired, error)
 }
 
 // productionDeps is the real build: the grant keys through keyfiles.Load (INV-29) and the Temporal dial of worker_dial.go. The intake adapters other tasks build, and the worker's
