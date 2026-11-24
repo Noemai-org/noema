@@ -102,8 +102,7 @@ export async function submitClarification(input: Clarification): Promise<SubmitR
 export async function submitConfirmation(input: Confirmation): Promise<SubmitResult> {
   try {
     const card = parseOverlayCardV1ConfirmationCard(input.card);
-    const state = cardExpiry(card.expires_at, Date.now());
-    if (state !== "active") return state;
+    if (!isCanonicalInstant(card.expires_at)) return "unavailable";
     if (input.response !== "ACCEPT" && input.response !== "DECLINE") return "unavailable";
     const body = parseConfirmationAnswerForPath(card.confirmation_request_id, {
       request_id: card.confirmation_request_id, response: input.response,
