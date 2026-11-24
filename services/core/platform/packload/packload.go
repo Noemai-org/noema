@@ -52,7 +52,7 @@ var (
 	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules` or `action_graph`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph` or `priority_routing`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -75,6 +75,7 @@ const (
 	kindMapping  = "evidence_mapping"
 	kindRules    = "recon_rules"
 	kindGraph    = "action_graph"
+	kindPriority = "priority_routing"
 	kindManifest = "manifest"
 )
 
@@ -164,7 +165,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 			return Pack{}, err
 		}
 	}
-	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules],
+	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules], PriorityRouting: bytesOf[kindPriority],
 		EvidenceMappingID: *doc.Expected.MappingID, ReconRuleSetID: *doc.Expected.RulesID}
 	if err := checkIDs(p); err != nil {
 		return Pack{}, err
@@ -209,7 +210,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindPriority {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++
@@ -218,7 +219,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		}
 		paths[*f.Path] = true
 	}
-	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 {
+	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 || perKind[kindPriority] > 1 {
 		return manifestDoc{}, bad
 	}
 	return doc, nil

@@ -619,9 +619,13 @@ MANIFEST_KINDS = {
     "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
     "recon_rules": ("fintech/recon_rules", "*.json"),
     "action_graph": ("fintech/graph", "*.json"),  # A510
+    "priority_routing": ("fintech/routing", "*.json"),  # PCK-09, A644: at most one
 }
 # The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
 SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
+# `priority_routing` is listed at most once (PCK-09, A644); the pack that lists it is held to its schema and to the pack's own phases and queues.
+OPTIONAL_KINDS = ("priority_routing",)
+PRIORITY_ROUTING_SCHEMA = ROOT / "packs/schemas/priority_routing.v1.json"
 WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -709,6 +713,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     for kind, entries in by_kind.items():
         if kind in SINGLE_KINDS and len(entries) != 1:
             out.append(("manifest", f"the manifest must list exactly one {kind} file, it lists {len(entries)}"))
+        if kind in OPTIONAL_KINDS and len(entries) > 1:
+            out.append(("manifest", f"the manifest must list at most one {kind} file, it lists {len(entries)}"))
     seen: set[str] = set()
     readable: dict[str, Path] = {}
     for f in files:
@@ -779,6 +785,37 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             out.append(("manifest", f"{rel} carries {carried}, the manifest expects {want_key} {expected[want_key]}"))
         if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
             out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
+    out += _priority_routing_problems(readable.get("priority_routing"), readable.get("pack"), root)
+    return out
+
+
+def _priority_routing_problems(member: Path | None, pack_file: Path | None, root: Path) -> list[Problem]:
+    """PCK-09 (A644, A616): the priority routing member is valid against its schema (priority HIGH|NORMAL|LOW, a non-empty owner queue, nothing unknown), and every phase it
+    routes is one the verified pack names in predicate_variables.sla_phase and every queue is one of the pack's routing_allowlist."""
+    if member is None:
+        return []
+    rel = member.relative_to(root).as_posix() if not member.is_symlink() else member.name
+    try:
+        body = validate.load_strict(member)
+    except (ValueError, UnicodeDecodeError) as exc:
+        return [("manifest", f"{rel} (priority_routing) is not valid JSON: {str(exc)[:100]}")]
+    errs = sorted(validate.StrictValidator(validate.load_strict(PRIORITY_ROUTING_SCHEMA)).iter_errors(body), key=lambda e: list(map(str, e.absolute_path)))
+    if errs:
+        return [("manifest", f"{rel} (priority_routing) {'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}") for e in errs]
+    if pack_file is None:
+        return []
+    try:
+        pack = json.loads(pack_file.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return []  # the pack file's own problems are reported elsewhere; its phases and queues cannot be read
+    phases = ((pack.get("predicate_variables") or {}).get("sla_phase") or {}).get("values") if isinstance(pack, dict) else None
+    queues = pack.get("routing_allowlist") if isinstance(pack, dict) else None
+    out: list[Problem] = []
+    for phase, e in body["phases"].items():
+        if not isinstance(phases, list) or phase not in phases:
+            out.append(("manifest", f"{rel} (priority_routing): phase {phase!r} is not one the pack's sla_phase names"))
+        if not isinstance(queues, list) or e["owner_queue"] not in queues:
+            out.append(("manifest", f"{rel} (priority_routing): phase {phase!r} routes to {e['owner_queue']!r}, which is not in the pack's routing_allowlist"))
     return out
 
 

@@ -40,7 +40,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other."},
+          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph", "priority_routing"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other; at most one `priority_routing` file (PCK-09, A644)."},
           "path": {
             "type": "string",
             "minLength": 1,
