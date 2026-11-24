@@ -27,9 +27,10 @@ LEXICON_DIR = ROOT / "packs" / "fintech" / "lexicons"  # the files the pack name
 MASKING_LIMITS = ROOT / "packs" / "fintech" / "limits" / "masking_limits.json"
 OUT_OF_SCOPE_NODE = "fin.meta.out_of_scope"
 # Settings of this run, not safety thresholds: the pool is the number of provider calls that may be in flight at once; the three bounds are the compile service's own (noema#635 reads them from a file).
-# The pipeline starts five calls together (run.py step 2) and a full pool refuses a call at once, so the pool is five plus one spare for a call whose caller timed out and whose thread still holds its
-# worker. Four refused the injection screen in run 44521380842 (UND-16); test_pool.py reads the five from the pipeline.
-POOL_SIZE = 6
+# The pipeline starts six calls together (run.py step 2: the enumerated slots, the slot gates, the flags, the locale, the slot mentions and the quiet injection screen; the gate was added by UND-18, A603) and a full
+# pool refuses a call at once, so the pool is six plus one spare for a call whose caller timed out and whose thread still holds its worker. Four refused the injection screen in run 44521380842 (UND-16);
+# test_pool.py reads the six from the pipeline. The pick of a gated slot is made after that gather, so it adds no concurrent call.
+POOL_SIZE = 7
 COMPILE_TIMEOUT_S = 240.0
 MAX_PROPOSAL_BYTES = 65_536
 MAX_REQUEST_BYTES = 65_536
