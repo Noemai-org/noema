@@ -60,6 +60,8 @@ type Pack struct {
 	rooted map[string][]string
 	// owned is, for each intent node whose trust profile says the principal must own a slot, what the pack says of that ownership, read at load and judged by OwnershipKinds.
 	owned map[string]nodeOwnership
+	// writeNodes is each intent node's write_when and slot declarations, as the pack file wrote them, read at load and returned as a copy by WriteWhens.
+	writeNodes map[string]WriteWhen
 }
 
 type nodeAuthority struct {
@@ -102,7 +104,7 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 	if err != nil {
 		return nil, packErr("the capability registry refuses the pack: %v", err)
 	}
-	p := &Pack{raw: raw, reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}}
+	p := &Pack{raw: raw, reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}, writeNodes: map[string]WriteWhen{}}
 	for _, d := range doc.Capabilities {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
 	}
@@ -138,6 +140,7 @@ func (p *Pack) loadNodes(doc contracts.PackV1) error {
 		if _, dup := p.nodes[id]; dup {
 			return packErr("an intent node is repeated")
 		}
+		p.writeNodes[id] = readWriteWhen(n)
 		if n.TrustProfile == nil {
 			p.nodes[id] = nodeAuthority{}
 			continue

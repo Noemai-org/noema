@@ -217,6 +217,25 @@ func TestWriteRuleKeepsItsOwnCopyOfThePack(t *testing.T) {
 type wrRawNode struct {
 	ID        string  `json:"node_id"`
 	WriteWhen *string `json:"write_when"`
+	Slots     []struct {
+		Name       string   `json:"name"`
+		Vocabulary []string `json:"vocabulary"`
+	} `json:"slots"`
+}
+
+// wrVocabulary is the closed vocabulary the pack file gives the slot of the node.
+func wrVocabulary(t testing.TB, node, slot string) []string {
+	t.Helper()
+	_, nodes := wrRealPack(t)
+	for _, n := range nodes {
+		for _, s := range n.Slots {
+			if n.ID == node && s.Name == slot && len(s.Vocabulary) > 0 {
+				return s.Vocabulary
+			}
+		}
+	}
+	t.Fatal("the pack gives no such vocabulary")
+	return nil
 }
 
 func wrRealPack(t testing.TB) (*trustpack.Pack, []wrRawNode) {
@@ -283,10 +302,9 @@ func TestWriteRuleRealPackNodeWithWriteWhenAndNodeWithout(t *testing.T) {
 		want bool
 	}{
 		{"escalation request", map[string]string{"question_type": "ESCALATION_REQUEST"}, true},
-		{"other question, no remedy", map[string]string{"question_type": "STATUS_QUESTION"}, false},
-		{"other question, a remedy", map[string]string{"question_type": "STATUS_QUESTION", "requested_remedy": "cap_synth_1"}, true},
+		{"other question, no remedy", map[string]string{"question_type": "STATUS"}, false},
+		{"other question, a remedy", map[string]string{"question_type": "STATUS", "requested_remedy": "cap_synth_1"}, true},
 		{"escalation request and a remedy", map[string]string{"question_type": "ESCALATION_REQUEST", "requested_remedy": "cap_synth_1"}, true},
-		{"lower case is another value", map[string]string{"question_type": "escalation_request"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -308,8 +326,10 @@ func TestWriteRuleRealPackNodeWithWriteWhenAndNodeWithout(t *testing.T) {
 	}
 	// A required slot of the node is missing: not evaluable, not a write, however the other slots read.
 	for name, slots := range map[string]map[string]string{
-		"no question_type":    {"subject_resource": "res_synth_1", "requested_remedy": "cap_synth_1"},
-		"no subject_resource": {"question_type": "ESCALATION_REQUEST"},
+		"no question_type":               {"subject_resource": "res_synth_1", "requested_remedy": "cap_synth_1"},
+		"no subject_resource":            {"question_type": "ESCALATION_REQUEST"},
+		"a value outside the vocabulary": {"subject_resource": "res_synth_1", "question_type": "SYNTH_NOT_IN_THE_VOCABULARY"},
+		"a value of another case":        {"subject_resource": "res_synth_1", "question_type": "escalation_request"},
 	} {
 		if got, err := r.MayWrite(context.Background(), wrIntent(with, slots)); !errors.Is(err, trustport.ErrWriteUnevaluable) || got {
 			t.Fatalf("%s: MayWrite = %v, %v; want false and ErrWriteUnevaluable", name, got, err)
@@ -323,8 +343,17 @@ func TestWriteRuleRealPackNodeWithWriteWhenAndNodeWithout(t *testing.T) {
 // INV-01, INV-21: the answer is a pure function of the pack and the slot values. Over any values it equals the expected answer, twice in a row, and no value reaches an error text.
 func TestWriteRuleRealPackIsDeterministicAndEqualsTheExpectedAnswer(t *testing.T) {
 	r, with, _ := wrRealRule(t)
+	vocabulary := wrVocabulary(t, with, "question_type")
+	inVocabulary := func(v string) bool {
+		for _, x := range vocabulary {
+			if x == v {
+				return true
+			}
+		}
+		return false
+	}
 	rapid.Check(t, func(t *rapid.T) {
-		qt := rapid.OneOf(rapid.Just("ESCALATION_REQUEST"), rapid.StringMatching(`SYNTH_[A-Z_]{0,10}`), rapid.Just("")).Draw(t, "question_type")
+		qt := rapid.OneOf(rapid.SampledFrom(vocabulary), rapid.StringMatching(`SYNTH_[A-Z_]{0,10}`), rapid.Just("")).Draw(t, "question_type")
 		remedy := rapid.OneOf(rapid.Just(""), rapid.StringMatching(`SYNTH_cap_[a-z_]{1,10}`)).Draw(t, "requested_remedy")
 		slots := map[string]string{"subject_resource": "res_synth_1", "question_type": qt}
 		if remedy != "" || rapid.Bool().Draw(t, "empty remedy entry present") {
@@ -336,9 +365,9 @@ func TestWriteRuleRealPackIsDeterministicAndEqualsTheExpectedAnswer(t *testing.T
 		if got1 != got2 || (err1 == nil) != (err2 == nil) {
 			t.Fatalf("two calls differ: %v, %v and %v, %v", got1, err1, got2, err2)
 		}
-		if qt == "" {
+		if !inVocabulary(qt) {
 			if !errors.Is(err1, trustport.ErrWriteUnevaluable) || got1 {
-				t.Fatalf("no question_type: MayWrite = %v, %v; want false and ErrWriteUnevaluable", got1, err1)
+				t.Fatalf("no question_type or one outside the vocabulary: MayWrite = %v, %v; want false and ErrWriteUnevaluable", got1, err1)
 			}
 		} else if want := qt == "ESCALATION_REQUEST" || remedy != ""; err1 != nil || got1 != want {
 			t.Fatalf("MayWrite(%q, %q) = %v, %v; want %v, nil", qt, remedy, got1, err1, want)
