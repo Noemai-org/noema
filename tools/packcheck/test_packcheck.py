@@ -559,6 +559,61 @@ class TrustRouting(unittest.TestCase):
     def test_a_document_of_another_pack_fails(self):
         self.fails(lambda l: l.__setitem__("pack_id", "xyz"), "pack_id")
 
+class ShippedLimitsSchema(unittest.TestCase):
+    """A609 (interim; AGENT-15, AGENT-16): packcheck validates the SHIPPED limits file (packs/fintech/limits/trust_limits.json) against the trust-limits.v2 JSON Schema itself, not
+    only against the hand-written routing rules. A file missing the ceiling, a v1-shaped file and a file with an unknown member each make packcheck fail."""
+
+    LIMITS = PACKS / "fintech/limits/trust_limits.json"
+
+    def setUp(self):
+        self.limits = json.loads(self.LIMITS.read_text())
+
+    def schema_problems(self, mutate=None):
+        doc = copy.deepcopy(self.limits)
+        if mutate:
+            mutate(doc)
+        fn = getattr(checks, "check_limits_schema", None)
+        if fn is None:
+            self.fail("tools/packcheck/checks.py has no check_limits_schema(limits) (A609)")
+        return fn(doc)
+
+    def run_on_copy(self, mutate):
+        """The whole packcheck run on a copy of the real packs folder whose limits file is mutated (the end-to-end proof)."""
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            dst = Path(tmp) / "packs"
+            shutil.copytree(PACKS, dst)
+            f = dst / "fintech/limits/trust_limits.json"
+            doc = json.loads(f.read_text())
+            mutate(doc)
+            f.write_text(json.dumps(doc))
+            return checks.run(dst / "fintech_v1.json")
+
+    def test_the_shipped_file_is_valid_against_the_v2_schema(self):
+        self.assertEqual(self.schema_problems(), [])
+
+    def test_a_file_missing_the_ceiling_fails(self):
+        problems = self.schema_problems(lambda d: d.pop("confirmation_ttl_ceiling_ms"))
+        self.assertTrue(problems)
+        self.assertIn("confirmation_ttl_ceiling_ms", " | ".join(m for _, m in problems))
+        self.assertTrue(self.run_on_copy(lambda d: d.pop("confirmation_ttl_ceiling_ms")), "checks.run accepted a limits file without the ceiling")
+
+    def test_a_v1_shaped_file_fails(self):
+        def v1(d):
+            d["schema_version"] = "1.0"
+            d.pop("confirmation_ttl_ceiling_ms")
+        self.assertTrue(self.schema_problems(v1))
+        self.assertTrue(self.run_on_copy(v1), "checks.run accepted a v1-shaped limits file")
+
+    def test_a_file_with_an_unknown_member_fails(self):
+        self.assertTrue(self.schema_problems(lambda d: d.__setitem__("an_unknown_member", 1)))
+        self.assertTrue(self.run_on_copy(lambda d: d.__setitem__("an_unknown_member", 1)), "checks.run accepted a limits file with an unknown member")
+
+    def test_the_schema_is_the_v2_json_schema_not_a_hand_written_rule(self):
+        """A value the JSON Schema bounds (the ceiling above 600000) fails through the schema even though no hand-written packcheck rule names it."""
+        self.assertTrue(self.schema_problems(lambda d: d.__setitem__("confirmation_ttl_ceiling_ms", 600001)))
+
+
 class CandidateLabels(unittest.TestCase):
     """A555 (interim, relayed, not yet committed; REQ-AMB-004, REQ-AMB-003). The disambiguation block of a node that searches candidates carries the pack's question key for OPTIONS mode, the
     OPTIONS label template and the fixed order of askable attributes with a label template each. A template names only the candidate attributes a label may show (never an id or a
