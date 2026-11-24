@@ -64,10 +64,47 @@ func TestTheClarificationAndTheCardCarryTheCoreMintedNoneOptionID(t *testing.T) 
 				}
 				mutate(bad)
 				raw, _ := json.Marshal(bad)
+				if label == "missing" && name == "clarification" {
+					// A593, A600: clarification.v1 requires none_option_id in every mode but SLOT, a conditional rule. The generated types model shape and leave conditional rules to the schema
+					// validator (tools/codegen/README.md), so this type decodes the document; the refusal is held by tools/contracts/test_none_option.py and test_clarification_slot_mode.py.
+					if err := json.Unmarshal(raw, c.into()); err != nil {
+						t.Errorf("%s: a clarification with no none_option_id is a conditional rule of the schema, not of the type: %v", name, err)
+					}
+					continue
+				}
 				if err := json.Unmarshal(raw, c.into()); err == nil {
 					t.Errorf("%s: a clarification whose none_option_id is %s was accepted", name, label)
 				}
 			}
 		})
+	}
+}
+
+// A582, A593 (mode SLOT): a SLOT clarification decodes with no candidate set, no options and no none choice, and writes back without inventing them; the rule that every other mode carries
+// them is the schema's (a conditional rule), held by tools/contracts/test_clarification_slot_mode.py.
+func TestASlotClarificationDecodesWithNoCandidateSetAndNoNoneChoice(t *testing.T) {
+	var c contracts.ClarificationV1
+	doc, err := decodeFixture(t, "clarification", "slot_when.json", &c)
+	if err != nil {
+		t.Fatalf("the SLOT fixture is refused: %v", err)
+	}
+	if c.Mode == nil || *c.Mode != contracts.ClarificationV1ModeSLOT || c.CandidateSetId != nil || c.CandidateSetVersion != nil || c.NoneOptionId != nil || c.AllowNone != nil || c.Attribute != nil {
+		t.Errorf("decoded %+v", c)
+	}
+	out, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"candidate_set_id", "candidate_set_version", "none_option_id", "allow_none", "attribute"} {
+		if _, ok := back[k]; ok {
+			t.Errorf("the SLOT card written back carries %s", k)
+		}
+	}
+	if back["slot"] != doc["slot"] || back["question_key"] != doc["question_key"] {
+		t.Errorf("the SLOT card lost its slot or its question key: %v", back)
 	}
 }
