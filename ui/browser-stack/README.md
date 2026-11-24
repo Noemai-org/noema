@@ -1,6 +1,6 @@
 # Real-core J1–J8 browser suite
 
-`journeys.spec.mjs` is the opt-in Playwright suite for REQ-UI-001 / PERD §11.1 and §40.4. It uses the shipped UI and real core, not a local contract server. It submits through the shipped UI and validates the core-issued conversation response. It separately probes the core-issued SSE URL for a real 200 text/event-stream response with no-store (the current UI consumer still polls investigation state). It checks public-stage copy and fixture-provided customer text, then runs DOM privacy and axe checks. J8 resumes the same investigation in a fresh browser context.
+`journeys.spec.mjs` is the opt-in Playwright suite for REQ-UI-001 / PERD §11.1 and §40.4. It uses the shipped UI and real core, not a local contract server. It submits through the shipped UI and validates the core-issued conversation response. It separately probes the core-issued SSE URL for a real 200 text/event-stream response with no-store, reads one bounded complete frame, and validates the payload with the generated sse-event.v1 parser (the current UI consumer still polls investigation state). It checks public-stage copy and fixture-provided customer text, then runs DOM privacy and axe checks. J8 resumes the same investigation in a fresh browser context.
 
 ## Stack
 
