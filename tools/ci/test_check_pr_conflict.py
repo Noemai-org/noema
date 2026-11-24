@@ -55,6 +55,15 @@ class ConflictBlock(unittest.TestCase):
             self.assertEqual(len(gaps), 1, (name, gaps))
             self.assertIn(name.split(" (")[0], gaps[0])
 
+    def test_a_missing_field_is_reported_as_missing_and_an_empty_one_as_empty(self):
+        partial = {k: v for k, v in FIELDS.items() if k != "Evidence"}
+        self.assertIn("is missing", self.gaps(IDS + block(partial))[0])
+        self.assertIn("empty or still the template placeholder", self.gaps(IDS + block({**FIELDS, "Evidence": ""}))[0])
+
+    def test_a_quoted_or_bold_marker_still_counts(self):
+        for marker in ("> CONFLICT DETECTED", "**CONFLICT DETECTED**"):
+            self.assertEqual(len(self.gaps(IDS + marker + "\n")), 6, marker)
+
     def test_an_empty_field_fails(self):
         for name in FIELDS:
             gaps = self.gaps(IDS + block({**FIELDS, name: "   "}))
