@@ -48,3 +48,18 @@ Owner: C2 · Task: UND-16 (IL, C2): the live compile acceptance run (A198); noem
 ## Pre-work for the next agent
 - Exact next step: UND-15 (the recorded-replay Understanding provider) after the Founder dispatches the live compile run: key on `request_sha256`, manifest and labels per A261; a recorded non-2xx call has a status and no reply body.
 - Do not touch: the leakscan allow file without a reason.
+
+# Session 2026-11-24 05:00 WAT · UND-16 (Repo Steward) · the stop rule for the live compile runs (A605)
+
+## Session summary
+- What changed: this file only (docs, `status/`). It records the stop rule of ruling A605 (Interim, committed in docs#237 as `DEC-2026-11-23-architect-rulings-a602-a605`) in the compile-run record, so every agent that reads a run's findings reads the rule too.
+- **The stop rule (A605).** At most **two more live compile runs**: **run 8**, and **run 9 only if run 8's now-readable evidence shows a threshold problem**. If a golden still fails after run 9, **there is no run 10 without a Founder decision**. The Founder chooses between (1) an **asymmetric pass rule**: zero false assertions on status checks are required, and misses of an explicit request are recorded and logged (the safe error); or (2) **delay**. **No golden is edited (A533).**
+- What goes with it (A602 to A604, same record): the job log prints, for each golden, the option the model chose, the top five probabilities including abstain, and the threshold applied (option ids and probabilities only; C2). The compile decision splits into a yes/no gate and a capability pick with no abstain option; the gate threshold is **9000 basis points, the Architect's interim value, a Founder decision to confirm** (AGENT-16; open decision OD-P-101 in `docs/open-decisions.md`). BO builds a labelled offline set of 24 to 30 synthetic status-check and "resend" phrasings in en-NG and Pidgin, kept apart from the held-out set (INV-22); C2 fixes the gate against it with the replay provider first. Run 8 repeats the five goldens three times to see variance.
+- What this section does not say: it asserts no result of any run after run 6 (`status/UND-16-run6.md` holds run 6's findings). Each later run's findings are written in its own session section as they are read.
+- Risks, and how they are contained: docs only; no code, no golden, no contract, no threshold value is changed here.
+- Tests added: none. Regression cases: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: read run 8's job log (A602) and recordings; write what they show as a dated section; start run 9 only if the evidence shows a threshold problem; stop after run 9 unless the Founder decides.
+- Files to read first: `status/UND-16-run6.md`, `docs/decisions/DEC-2026-11-23-architect-rulings-a602-a605.md`, `docs/open-decisions.md` (OD-P-101).
+- Do not touch: the goldens (A533); the held-out set (INV-22).
