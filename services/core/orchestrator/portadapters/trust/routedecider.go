@@ -37,6 +37,9 @@ type RouteScopes interface {
 // params binding. The composition (cmd/core) converts the worker's RouteDecision into this field by field.
 type RouteRequest struct {
 	TenantID, CorrelationID, CaseID, OwnerQueue, CapabilityID string
+	// DispositionDecisionID is the ESCALATE disposition this route step follows (A534, A539), from the workflow's input. Empty when the input had none: the decider then re-reads it
+	// from the Record by correlation (Dispositions). The intake alone decides whether it is recorded on the decision (A562: only a step of the escalation plan).
+	DispositionDecisionID string
 }
 
 // RouteResult has the same fields, in the same order, as the worker's RouteDecisionResult.
@@ -53,6 +56,8 @@ type RouteDecider struct {
 	Trust    StepEvaluator
 	Scopes   RouteScopes
 	Runnable intake.Runnable
+	// Dispositions is the by-correlation read of the ESCALATE disposition, used when a request carries none (A539). Optional: with none, an absent disposition stays absent.
+	Dispositions Dispositions
 }
 
 // DecideRoute asks Trust for the route step. The queue the worker planned is not sent: the owner queue is a param of the winning PERMIT rule, read by Trust (a mismatch with the

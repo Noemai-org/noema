@@ -43,6 +43,9 @@ var (
 // reads it fresh at dispatch; nor is the create receipt: the case ID comes from the verified create outcome.
 type RouteDecision struct {
 	TenantID, CorrelationID, CaseID, OwnerQueue, CapabilityID string
+	// DispositionDecisionID is the ESCALATE disposition the route step follows (A534, A539), from the workflow's input; empty when the input had none. Trust's adapter re-reads it from the
+	// Record by correlation then. The intake alone decides whether it is recorded on the decision (A562).
+	DispositionDecisionID string
 }
 
 // RouteDecisionResult is Trust's answer: the outcome, the Decision Record Trust wrote before it answered and the grants it issued with it.
