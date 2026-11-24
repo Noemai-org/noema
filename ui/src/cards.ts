@@ -1,4 +1,4 @@
-import { createElement as h, useEffect, useRef, useState } from "react";
+import { createElement as h, useRef, useState } from "react";
 import { parseOverlayCardV1ClarificationCard, parseOverlayCardV1ConfirmationCard, type OverlayCardV1ClarificationCard, type OverlayCardV1ConfirmationCard } from "./contract_types/overlay_card_v1.js";
 import { ContractError } from "./contract_types/_runtime.js";
 import { isCanonicalInstant } from "./card-expiry.js";
@@ -11,7 +11,6 @@ function validCardExpiry(expiresAt: string): boolean {
 
 interface ClarificationProps {
   card: OverlayCardV1ClarificationCard;
-  now?: number;
   onChoice?: (clarificationId: string, optionId: string, requestId: string) => void | "accepted" | "expired" | "unavailable" | Promise<void | "accepted" | "expired" | "unavailable">;
 }
 
@@ -26,7 +25,7 @@ export function ClarificationCard(props: Omit<ClarificationProps, "card"> & { ca
   }
 }
 
-function ClarificationView({ card, now, onChoice }: ClarificationProps) {
+function ClarificationView({ card, onChoice }: ClarificationProps) {
   const [serverExpired, setServerExpired] = useState(false);
   const lock = useRef(false);
   const inFlight = useRef(false);
@@ -66,7 +65,7 @@ function ClarificationView({ card, now, onChoice }: ClarificationProps) {
     }, option.label)),
     h("button", {
       type: "button",
-      disabled: expired || locked || !onChoice || !card.allow_none,
+      disabled: serverExpired || locked || !onChoice || !card.allow_none,
       onClick: () => choose(card.none_option_id),
     }, "None of these"),
     retry && !serverExpired ? h("button", { type: "button", onClick: () => { if (retry) { setRetry(false); void submit(); } } }, "Try again") : null,
@@ -91,7 +90,7 @@ export function ConfirmationCard(props: Omit<ConfirmationProps, "card"> & { card
   }
 }
 
-function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
+function ConfirmationView({ card, onResponse }: ConfirmationProps) {
   const [showPolicy, setShowPolicy] = useState(false);
   const lock = useRef(false);
   const inFlight = useRef(false);
