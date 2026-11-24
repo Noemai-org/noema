@@ -64,9 +64,11 @@ func (d RouteDecider) DecideRoute(ctx context.Context, r RouteRequest) (RouteRes
 	return d.DecideRouteAfter(ctx, r, "")
 }
 
-// DecideRouteAfter is DecideRoute for a route step that follows an ESCALATE disposition (A534, A539), given as an argument and not as a field of RouteRequest (A504). Stub: the
-// disposition is not used yet.
-func (d RouteDecider) DecideRouteAfter(ctx context.Context, r RouteRequest, _ string) (RouteResult, error) {
+// DecideRouteAfter is DecideRoute for a route step that follows the ESCALATE disposition `dispositionDecisionID` (A534, A539), the one the workflow's input names. It is a separate
+// argument and not a field of RouteRequest: the disposition is a link on the decision, not a parameter the step's hash binds, and the request holds only what the hash binds (A504).
+// The intake alone decides whether it is recorded (A562: only a step of the escalation plan). With an empty id and a Dispositions port, the id is re-read from the Record by correlation
+// (recovery, INV-30).
+func (d RouteDecider) DecideRouteAfter(ctx context.Context, r RouteRequest, dispositionDecisionID string) (RouteResult, error) {
 	if d.Trust == nil || d.Scopes == nil || d.Runnable == nil {
 		return RouteResult{}, ErrConfig
 	}
@@ -83,12 +85,18 @@ func (d RouteDecider) DecideRouteAfter(ctx context.Context, r RouteRequest, _ st
 	if sc.IntentRef == "" {
 		return RouteResult{}, fmt.Errorf("%w: the admitted scope names no intent", ErrIntentRef)
 	}
+	disposition, err := d.disposition(ctx, r, dispositionDecisionID)
+	if err != nil {
+		return RouteResult{}, err
+	}
 	res, err := d.Trust.EvaluateStep(ctx, intake.ContinuationRequest{
 		Request: intake.Request{Session: sc.Session, CorrelationID: r.CorrelationID, IntentRef: sc.IntentRef, EvidenceSnapshotID: sc.EvidenceSnapshotID,
 			EvidenceUnavailable: sc.EvidenceUnavailable},
 		CapabilityID: r.CapabilityID,
 		Facts:        map[string]string{"case_id": r.CaseID},
 		Runnable:     d.Runnable,
+		// The intake records it only on a step of the escalation plan (A562); it is not filtered again here.
+		DispositionDecisionID: disposition,
 	})
 	if err != nil {
 		return RouteResult{}, fmt.Errorf("trustport: evaluate the route step: %w", err)
@@ -104,4 +112,21 @@ func (d RouteDecider) DecideRouteAfter(ctx context.Context, r RouteRequest, _ st
 		return RouteResult{}, fmt.Errorf("%w: an ALLOW for the route step must carry a decision and exactly one grant", ErrBadAnswer)
 	}
 	return RouteResult{Outcome: string(outcome), DecisionID: res.DecisionID, GrantIDs: []string{res.GrantIDs[0]}}, nil
+}
+
+// disposition is the ESCALATE disposition the route step follows: the one given, or, when none is given and a Dispositions port is set, the one the Record holds for the
+// correlation (A539: recovery re-reads the Record, never workflow history; INV-30). A correlation with no disposition (ErrNoDisposition), a read that fails and a reader that says
+// "found" with no id are errors: Trust is not asked and no grant comes back. With no port an absent disposition stays absent.
+func (d RouteDecider) disposition(ctx context.Context, r RouteRequest, given string) (string, error) {
+	if given != "" || d.Dispositions == nil {
+		return given, nil
+	}
+	id, err := d.Dispositions.DispositionFor(ctx, r.TenantID, r.CorrelationID)
+	if err != nil {
+		return "", fmt.Errorf("trustport: read the ESCALATE disposition of the correlation: %w", err)
+	}
+	if id == "" {
+		return "", fmt.Errorf("%w: the disposition read found a decision with no ID", ErrBadAnswer)
+	}
+	return id, nil
 }

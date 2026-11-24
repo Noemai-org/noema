@@ -120,7 +120,7 @@ func EscalateCase(ctx workflow.Context, in EscalateInput) (EscalateResult, error
 
 	var routeGrant string
 	req := RouteGrantRequest{TenantID: in.TenantID, CorrelationID: in.CorrelationID, CaseID: view.CaseID, VersionToken: view.VersionToken,
-		PlannedQueue: in.PlannedQueue, CreateReceiptID: create.ReceiptID}
+		PlannedQueue: in.PlannedQueue, CreateReceiptID: create.ReceiptID, DispositionDecisionID: in.DispositionDecisionID}
 	if err := workflow.ExecuteActivity(writeOptions(ctx, in.ActivityTimeout), "IssueRouteGrant", req).Get(ctx, &routeGrant); err != nil {
 		return stopped(res, ReasonRouteGrantRefused), nil
 	}

@@ -80,7 +80,7 @@ func (i routeGrantIssuer) IssueRouteGrant(ctx context.Context, req workflows.Rou
 		}
 	}
 	res, err := i.trust.DecideRoute(ctx, RouteDecision{TenantID: req.TenantID, CorrelationID: req.CorrelationID, CaseID: req.CaseID,
-		OwnerQueue: req.PlannedQueue, CapabilityID: bridge.CapRouteToInternalOwner})
+		OwnerQueue: req.PlannedQueue, CapabilityID: bridge.CapRouteToInternalOwner, DispositionDecisionID: req.DispositionDecisionID})
 	if err != nil {
 		return "", fmt.Errorf("worker: Trust route decision: %w", err)
 	}
