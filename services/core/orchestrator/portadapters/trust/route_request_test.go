@@ -1,5 +1,7 @@
 package trustport_test
 
+// A639 (interim, relayed, not yet committed) amends this guard NARROWLY, in the same change as the field: RouteRequest gains Session (A625's typed data, the principal and role the
+// investigation recorded, handed by the orchestrator) and nothing else; the guard stays exact.
 // TRU-14, ruling A504 (interim; noema#785; the Security Reviewer's P2): a grant binds one capability, one target, one parameter hash and the plan step, so the route request carries only
 // what that hash binds. RouteRequest keeps case_id and owner_queue, both inside the route step's parameter hash (the pack's graph: case_id is a fact, owner_queue a policy param, and
 // nothing else is a parameter); VersionToken is read fresh by Execution at dispatch and CreateReceiptID is never needed (the case_id comes from the verified create outcome), so
@@ -14,6 +16,7 @@ import (
 	"testing"
 
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
+	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
 const packRoot = "../../../../../packs"
@@ -26,9 +29,13 @@ func TestRouteRequestHoldsOnlyTheCaseTheQueueAndWhatIdentifiesTheAsk(t *testing.
 		got = append(got, typ.Field(i).Name)
 	}
 	sort.Strings(got)
-	want := []string{"CapabilityID", "CaseID", "CorrelationID", "OwnerQueue", "TenantID"}
+	want := []string{"CapabilityID", "CaseID", "CorrelationID", "OwnerQueue", "Session", "TenantID"} // A639: Session is the one typed field A625 names; nothing else
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("RouteRequest fields %v, want exactly %v: a field outside the route step's parameter hash is believed decided and is not (A504)", got, want)
+		t.Fatalf("RouteRequest fields %v, want exactly %v: a field outside the route step's parameter hash is believed decided and is not (A504, A639)", got, want)
+	}
+	// A639: the one added field is the session the investigation recorded, as the intake's own type (principal and role), and no other type.
+	if f, _ := typ.FieldByName("Session"); f.Type != reflect.TypeOf(intake.Session{}) {
+		t.Fatalf("RouteRequest.Session is %v, want intake.Session", f.Type)
 	}
 }
 
