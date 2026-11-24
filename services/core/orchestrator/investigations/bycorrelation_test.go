@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
 )
 
@@ -110,5 +112,29 @@ func TestSessionByCorrelationWritesNothing(t *testing.T) { // A625
 	}
 	if st, v := w.row(t, tenantA, "inv_AA11"); st != "RECEIVED" || v != 0 || len(w.events(t, tenantA)) != before {
 		t.Fatalf("row %s/%d, events %d -> %d: the read changed something", st, v, before, len(w.events(t, tenantA)))
+	}
+}
+
+// optsPool delegates to the real pool and remembers how each transaction was begun.
+type optsPool struct {
+	inner investigations.Pool
+	modes []pgx.TxAccessMode
+}
+
+func (p *optsPool) BeginTx(c context.Context, o pgx.TxOptions) (pgx.Tx, error) {
+	p.modes = append(p.modes, o.AccessMode)
+	return p.inner.BeginTx(c, o)
+}
+
+// The read begins its transaction read-only, so the database itself refuses a write in it (A625: read-only).
+func TestSessionByCorrelationBeginsAReadOnlyTransaction(t *testing.T) { // A625
+	w := newStoreWorld(t)
+	w.bcSeed(t, tenantA, "inv_AA11", "recev_AA11", "corr_AA11", "usr_01", "ops")
+	p := &optsPool{inner: w.orchA}
+	if _, err := (&investigations.Store{Pool: p}).SessionByCorrelation(ctx(t), tenantA, "corr_AA11"); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.modes) != 1 || p.modes[0] != pgx.ReadOnly {
+		t.Fatalf("transactions begun with access modes %v; want exactly one, read-only", p.modes)
 	}
 }
