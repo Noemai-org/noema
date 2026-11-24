@@ -8,6 +8,5 @@
 // Must never: carry any field outside the masked candidate shape (the candidates-api-shape lint); return a
 // row the principal does not own; return a full account number or an unmasked name.
 //
-// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with
-// the engine tracks, and nothing is built here yet.
+// Built by EVD-04 (ruling A645). `Reader` is the read; the endpoint that serves it to the model service is the composition's. See README.md.
 package candidates_api
