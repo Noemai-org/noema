@@ -13,8 +13,8 @@
 - Tests added (REQ-TRU-011; INV-01, INV-12): the two above. Regression cases added: none. Debt entries: none. Conflicts raised: none.
 
 ## Signature
-- EL review of the interface above: __________ (not signed by the author; the author never approves own work, AGENTS §1).
+- EL review of the interface above: **signed, EL, 2026-11-24.** I read `intake.Request` (Session, CorrelationID, IntentRef, EvidenceSnapshotID, EvidenceUnavailable) and `intake.Session` (TenantID, PrincipalID, Role) in `trust/intake/ports.go` on current `main` merged into this branch, and the guard's member set matches them exactly. Every member is typed and none carries text, a transcript or conversation state. I ran both guards with `-race` and they pass. The import-boundary guard lists the orchestrator, edge, input gateway, understanding, evidence, execution, outcome and explanation, which are the conversation side and the other powers (INV-01, SoT 51). Limit, as SR noted: a text value inside an existing string member such as `IntentRef` is for the schema gate to refuse, not this guard. This is the Done-when review of TRU-12 (REQ-TRU-011); it is not an approval of the PR and I did not merge.
 
 ## Pre-work for the next agent
-- Exact next step: EL signs or comments; the board status of TRU-12 moves only on merged evidence (the Steward).
+- Exact next step: SR and one non-author Founder read; the board status of TRU-12 moves only on merged evidence (the Steward).
 - Do not touch: `ports.go` members of `Request` without changing the guard and this note in the same PR.
