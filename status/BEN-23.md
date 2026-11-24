@@ -84,3 +84,17 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: none for this change; row 12 on a real run waits for IL's #924 (the second artifact and the stack workflow arguments).
 - Do not touch: `benchmark-heldout`, the oracle.
+
+# Session 2026-11-24 · BEN-23 · A652: the seeded J1 to J8 manifest for the front end
+
+## Session summary
+- What changed: `benchmark/generator/journeys.py` (the builder), `benchmark/journeys/j1-j8.v1.json` and its README, `benchmark/generator/test_journeys.py` (10 tests).
+- Why: A652 asks BO to supply the seeded J1 to J8 manifest to FE (REQ-UI-001, PERD §11.1). It names, per journey, the user stories (the PERD's table) and one to three generated cases with the principal, utterances, channel, fixture, fault plan, timeline and versions, and no expectation, oracle reference or ground truth (INV-22). It is reproducible by the generator's seed; a stale committed copy fails a test.
+- J1 and J4 use the G1 pair's inputs, so the front end and the G1 run read the same cases. **J6 is thin: one case**, because the suite holds exactly one US-18 case; strengthening it waits until after G1 (changing the generator moves the manifest digest the G1 inputs record).
+- Risks, and how they are contained: SYNTHETIC; the manifest holds the generator's seed as an eight-digit number, which the digit-run rule flags if the file is ever scanned (the same seed is already in committed G1 inputs); a test strips it before it checks the rest.
+- Tests added (REQ-BEN-001, REQ-UI-001): 10. Seen failing first (import error); a mutant that adds `expected` to a case fails 2. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: FE reads `benchmark/journeys/j1-j8.v1.json` and materialises the cases with the generator.
+- Open questions (owner): whether FE needs a second case for J6 before G1 (FE, the Architect).
+- Do not touch: the generator's cases before G1.
