@@ -43,6 +43,7 @@ type Identity struct {
 	PrincipalID   string // the session subject (PERD 32.1 id rule)
 	PrincipalKind string // the principal kind of the session's role, for example "customer" (PERD 32.1)
 	SessionID     string
+	AssertedBy    string // the verified issuer of the session (edge/session.Principal.AssertedBy); never from a request (INV-12, A514)
 }
 
 // Ref names a recorded event: what the orchestrator is handed with the turn and what a retry gets back.
