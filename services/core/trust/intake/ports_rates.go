@@ -12,7 +12,7 @@ type RateQuery struct {
 	CapabilityID string
 }
 
-// Rates answers the rate question for a write. A capability that declares no limit is not limited. An error is an error, never "not exceeded": T11 fails closed on it.
+// Rates answers the rate question for a write (the optional field Service.Rates). A capability that declares no limit is not limited. An error is an error, never "not exceeded": T11 fails closed on it.
 type Rates interface {
 	Exceeded(ctx context.Context, q RateQuery) (bool, error)
 }

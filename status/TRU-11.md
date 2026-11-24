@@ -15,6 +15,6 @@ Updated 2026-11-24. Plan task TRU-11: owner C1; REQ-TRU-012; Needs TRU-02 (Done)
 - Regression cases added: the tests above. Debt entries: none. Conflicts raised: none.
 
 ## Pre-work for the next agent
-- Exact next step: after the G1 run, wire `trustport.NewRates(pools, pack, timeout)` into `cmd/core` (compose_trustinputs.go) as `Ports.Rates`; the timeout is the one of the other trust adapters (AGENT-16).
+- Exact next step: after the G1 run, wire `trustport.NewRates(pools, pack, timeout)` into `cmd/core` (compose_trustinputs.go) as `Service.Rates` (optional, not a `Ports` field: cmd/core wires every `Ports` field and refuses to start without it); the timeout is the one of the other trust adapters (AGENT-16).
 - Open questions (Architect): the three choices in the risks above; the tenant-wide limit.
 - Do not touch: the Writer's grant insert and the 0001/0012/0014 guards of `decision_grant`.

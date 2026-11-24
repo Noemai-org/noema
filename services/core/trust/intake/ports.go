@@ -122,7 +122,4 @@ type Ports struct {
 	Planner       Planner
 	Recorder      Recorder
 	Dispatches    Dispatches
-	// Rates is the per-principal rate check of T11 (REQ-TRU-012). It is optional: nil means no capability is rate limited, which is how a deployment that has not composed the
-	// adapter behaves; a composed adapter that cannot answer is an error and T11 fails closed.
-	Rates Rates
 }

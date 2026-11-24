@@ -422,11 +422,11 @@ func (e *evaluation) stepSet(ctx context.Context, authorized []string) ([]string
 // before the policy is asked and before any grant. The tenant and the principal are the authenticated session's (INV-12). It asks only for a request that leads to a write (T3), and
 // only when the Rates port is composed: a nil port limits nothing. An error from the port is an error, never "not over the rate".
 func (e *evaluation) rateLimited(ctx context.Context, r decide.ResolvedIntent, ids []string) (d decide.Decision, stop bool, err error) {
-	if e.svc.Ports.Rates == nil || !e.late.needsWrite {
+	if e.svc.Rates == nil || !e.late.needsWrite {
 		return decide.Decision{}, false, nil
 	}
 	for _, id := range ids {
-		over, err := e.svc.Ports.Rates.Exceeded(ctx, RateQuery{TenantID: e.req.Session.TenantID, PrincipalID: e.req.Session.PrincipalID, CapabilityID: id})
+		over, err := e.svc.Rates.Exceeded(ctx, RateQuery{TenantID: e.req.Session.TenantID, PrincipalID: e.req.Session.PrincipalID, CapabilityID: id})
 		if err != nil {
 			return decide.Decision{}, false, err
 		}

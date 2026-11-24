@@ -35,7 +35,7 @@ func writeEv(t *testing.T, caps []string, rates Rates) (*evaluation, *fake) {
 	f := &fake{pol: decided(policy.Permit, ""), authorized: caps}
 	ev := newEv(t, f)
 	ev.late.needsWrite = true
-	ev.svc.Ports.Rates = rates
+	ev.svc.Rates = rates
 	return ev, f
 }
 
@@ -77,7 +77,7 @@ func TestARequestThatLeadsToNoWriteIsNeverRateChecked(t *testing.T) {
 	rf := &rateFake{over: map[string]bool{"": true, tCreateCap: true}}
 	f := &fake{pol: decided(policy.Permit, "")}
 	ev := newEv(t, f).withCapability(tCreateCap)
-	ev.svc.Ports.Rates = rf // a read: needsWrite is false
+	ev.svc.Rates = rf // a read: needsWrite is false
 	_, trace := run(t, ev, decide.T11Policy)
 	wentOn(t, "a read", trace, decide.T11Policy)
 	if len(rf.asked) != 0 {
