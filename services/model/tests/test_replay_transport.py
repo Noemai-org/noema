@@ -215,6 +215,21 @@ def test_a_manifest_that_is_not_strict_json_of_the_expected_shape_is_refused(tmp
         ReplayTransport(root)
 
 
+def test_a_non_finite_number_or_a_duplicate_key_in_an_otherwise_valid_file_is_refused(tmp_path: Path) -> None:
+    """Strict JSON, as the recorder's own loader: NaN and a repeated key are refused wherever they are (manifest and recording)."""
+    for index, injected in enumerate(('"extra": NaN', '"extra": Infinity', '"calls": 1')):
+        root = write_dir(tmp_path / f"m{index}", [b"a"])
+        text = (root / "manifest.json").read_text(encoding="utf-8")
+        (root / "manifest.json").write_text(text[:-1] + ", " + injected + "}", encoding="utf-8")
+        with pytest.raises(ReplayFixturesRefused):
+            ReplayTransport(root)
+        other = write_dir(tmp_path / f"r{index}", [b"a"])
+        rec = (other / "rec-0001.json").read_text(encoding="utf-8")
+        (other / "rec-0001.json").write_text(rec[:-1] + ", " + injected.replace('"calls": 1', '"case_id": "again"') + "}", encoding="utf-8")
+        with pytest.raises(ReplayFixturesRefused):
+            ReplayTransport(other)
+
+
 def test_fixtures_that_are_not_labelled_synthetic_are_refused(tmp_path: Path) -> None:
     """AGENT-25."""
     with pytest.raises(ReplayFixturesRefused):

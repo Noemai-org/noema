@@ -55,3 +55,22 @@ State (2026-11-19): the loader, the labels and the lookup of the recordings are 
 - Open questions (Architect): the text of SR's conditions to be committed (docs#211); whether `fixture.labels` should also pin the question ids.
 - Files to read first: `benchmark/compile_acceptance/fixtures.py`, `replay.py`, the README section "Committed fixtures".
 - Do not touch: the committed fixture files (regenerate from a run, never edit by hand).
+
+# Session 2026-11-24 · UND-15 · the replay transport under providers/ (A619)
+
+## Session summary
+- What changed (PR: noema#938): `services/model/noema_model/providers/llm/replay.py` (`ReplayTransport`, `ReplayMiss`, `ReplayFixturesRefused`), `services/model/tests/test_replay_transport.py`, a README section. No new dependency, no change to the benchmark package, the live runner, a golden, an input, a threshold or a prompt.
+- Why: A619 (interim, relayed): wait for a passing run, no hand-over of run 7, build the provider class under `providers/` only. The class is the replay provider that A604 needs to fix the A603 gate offline.
+- Design: a Transport, not an adapter, so the real adapters and the harness are unchanged above it. The key is the SHA-256 of the request bytes (the recorded `request_sha256`; the parsed request cannot be turned back into those bytes, A261 silence 2). It does not import `benchmark/` (the model service never does): it carries its own small strict reader, and the strict loader of the benchmark package stays the validator of the committed set.
+- Tests added (REQ-INT-002, REQ-TST-004, AGENT-12, AGENT-14, AGENT-25, INV-29): 28, including the real `OpenAIDecisions` adapter getting a choice answer (with its probabilities, abstain included) and a yes/no gate answer from a recording, a miss on a changed request, a socket guard, link/size/strict-JSON/duplicate/extra-entry refusals, and an import-boundary test. 13 hand mutants, 11 killed at first; two (NaN and a duplicate key inside a recording) were pinned by a test added before the green; one (the lstat size check) is equivalent to the bounded read.
+- Debt entries: none. Conflicts raised: none.
+
+## Silences
+1. The gate has no recording yet. The committed run (44521380842) predates the A603 gate; no recording holds a gate question. A604 (fix the gate against BO's labelled set with the replay provider) needs recordings of the labelled phrasings, which come from a live call (a few cents) or from hand-written SYNTHETIC replies; hand-written replies test the threshold logic and not the model. Not decided here.
+2. A symlink is checked with `lstat` before the open; the fixtures are committed repository data, not a secret, so the check-then-open gap is accepted.
+3. The key function equals `ReplayStore.lookup_bytes` of the benchmark package (`"sha256:" + hexdigest`); no test imports the benchmark package from the model service.
+
+## Pre-work for the next agent
+- Exact next step: the profile switch (bench and test profiles select `ReplayTransport` by configuration; refuse to start in the demo profile) once the Architect answers the `services/` allowlist question; reduce the next PASSING run for the G1 fixtures.
+- Files to read first: `providers/llm/replay.py`, `tests/test_replay_transport.py`.
+- Do not touch: the committed fixture files.
