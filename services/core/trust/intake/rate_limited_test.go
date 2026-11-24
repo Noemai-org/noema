@@ -64,7 +64,7 @@ func TestAPrincipalUnderTheRateGoesOnToThePolicyAndIsAskedOnceForEachCapabilityO
 	ev, f := writeEv(t, []string{tCreateCap, tWriteCap}, rf)
 	_, trace := run(t, ev, decide.T11Policy)
 	wentOn(t, "under the rate", trace, decide.T11Policy)
-	want := []RateQuery{{tTenant, "usr_synth01", tCreateCap}, {tTenant, "usr_synth01", tWriteCap}}
+	want := []RateQuery{{tTenant, "usr_synth01", tWriteCap}, {tTenant, "usr_synth01", tCreateCap}} // sorted: adjust_record before create_case
 	if !reflect.DeepEqual(rf.asked, want) {
 		t.Errorf("asked %+v, want %+v: the tenant and the principal of the session, one question for each capability of the sorted set", rf.asked, want)
 	}

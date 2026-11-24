@@ -288,7 +288,10 @@ func (p *Pack) usable() bool { return p != nil && p.reg != nil }
 // RatePerPrincipalPerHour is the rate limit the capability's descriptor declares (REQ-TRU-012), for the Rates adapter. A pack that is not loaded, an unknown or a prohibited
 // capability and a descriptor with no limit all answer declared=false.
 func (p *Pack) RatePerPrincipalPerHour(id string) (limit int, declared bool) {
-	return 0, false
+	if !p.usable() {
+		return 0, false
+	}
+	return p.reg.RatePerPrincipalPerHour(id)
 }
 
 // capability is the registry's answer for an ID: whether it is registered at all (an allowed capability or a prohibited one: a prohibited capability is registered, REQ-CAP-002) and
