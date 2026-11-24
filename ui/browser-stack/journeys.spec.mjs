@@ -116,12 +116,14 @@ async function assertEventsRoute(page, streamUrl) {
           const chunk = await reader.read();
           if (chunk.done) break;
           buffered += decoder.decode(chunk.value, { stream: true });
-          if (new TextEncoder().encode(buffered).byteLength > maxBytes) {
-            throw new Error("Incomplete SSE frame exceeded the approved frame bound");
-          }
           for (;;) {
             const boundary = buffered.indexOf("\n\n");
-            if (boundary < 0) break;
+            if (boundary < 0) {
+              if (new TextEncoder().encode(buffered).byteLength > maxBytes) {
+                throw new Error("Incomplete SSE frame exceeded the approved frame bound");
+              }
+              break;
+            }
             const raw = buffered.slice(0, boundary);
             buffered = buffered.slice(boundary + 2);
             if (new TextEncoder().encode(raw + "\n\n").byteLength > maxBytes) {
