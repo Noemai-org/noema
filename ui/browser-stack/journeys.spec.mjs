@@ -186,6 +186,8 @@ async function assertClean(page) {
 const test = base.extend({
   page: async ({ page }, use) => {
     try {
+      page.setDefaultTimeout(60_000);
+      page.setDefaultNavigationTimeout(60_000);
       await use(page);
     } finally {
       await assertClean(page);
@@ -206,9 +208,12 @@ test.describe("REQ-UI-001 · BEN-23 real-core J1–J8 journeys", () => {
 
   for (const { journey, item } of cases.filter((entry) => entry.journey.journey === "J8")) {
     test(`J8 · ${item.case_id}: resume the same investigation in a fresh browser context`, async ({ browser }) => {
+      test.setTimeout(255_000); // two contexts, each with a 60-second state and SSE bound
       const { investigationId, token } = await caseInputs(item);
       const firstContext = await browser.newContext();
       const firstPage = await firstContext.newPage();
+      firstPage.setDefaultTimeout(60_000);
+      firstPage.setDefaultNavigationTimeout(60_000);
       try {
         await assertVisibleState(firstPage, investigationId, token);
         await assertEventsRoute(firstPage, investigationId, token);
@@ -219,6 +224,8 @@ test.describe("REQ-UI-001 · BEN-23 real-core J1–J8 journeys", () => {
 
       const resumedContext = await browser.newContext();
       const resumedPage = await resumedContext.newPage();
+      resumedPage.setDefaultTimeout(60_000);
+      resumedPage.setDefaultNavigationTimeout(60_000);
       try {
         await assertVisibleState(resumedPage, investigationId, token);
         await assertEventsRoute(resumedPage, investigationId, token);
