@@ -122,7 +122,7 @@ test("A491 and PERD 40.1: confirmation locks after response and reveals policy o
   expect(await page.evaluate(() => window.events)).toEqual([[value.confirmation_request_id, "ACCEPT"]]);
 });
 
-test("A576 REQ-UI-002: failed confirmation keeps the original choice locked and retries the same request", async ({ page }) => {
+test("A576 REQ-UI-002: HTTP failure never unlocks DECLINE; retry replays the original ACCEPT and request ID", async ({ page }) => {
   attempts = 0;
   const value = await card("confirmation");
   await page.goto(origin);
@@ -167,7 +167,7 @@ test("REQ-UI-002: an already-expired confirmation renders terminally without an 
 });
 
 
-test("A576 REQ-UI-002: a thrown callback keeps the original confirmation choice locked", async ({ page }) => {
+test("A576 REQ-UI-002: thrown callback never unlocks DECLINE; retry replays the original ACCEPT and request ID", async ({ page }) => {
   const value = await card("confirmation");
   await page.goto(origin);
   await page.evaluate((input) => window.showThrowingConfirmation(input), value);
