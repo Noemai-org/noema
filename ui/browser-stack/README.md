@@ -1,30 +1,39 @@
 # Real-core J1–J8 browser suite
 
-`journeys.spec.mjs` is the opt-in Playwright suite for REQ-UI-001 / PERD §11.1 and §40.4. It uses the shipped UI and real core, not a local contract server. It submits through the shipped UI and validates the core-issued conversation response. It separately probes the core-issued SSE URL for a real 200 text/event-stream response with no-store, reads one bounded complete frame, and validates the payload with the generated sse-event.v1 parser (the current UI consumer still polls investigation state). It checks public-stage copy and fixture-provided customer text, then runs DOM privacy and axe checks. J8 resumes the same investigation in a fresh browser context.
+This is the UI presentation and resume leg of the BEN-23 J1–J8 real-core journeys. It consumes BO's generated, input-only manifest and the existing `benchmark.runner` outputs. It does not add expected answers or oracle references to the manifest (INV-22).
 
-## Stack
+The benchmark runner drives each generated case through the public API and records `results/<case_id>.json` plus `correlations.json`. Playwright then opens each completed investigation in the shipped UI using the matching synthetic principal token, validates the generated investigation-response contract and the mounted SSE route/event contract, runs the DOM privacy and axe checks, and verifies J8 in a fresh browser context. The UI's existing initial-submit regression remains in `browser/real-investigation.spec.mjs`; this suite tests the full benchmark-run state as consumed by the UI.
 
-Use the existing bench profile (real core, synthetic IdP/session, stand-in and fixture-control services). Include this test-only overlay; it proxies same-origin `/v1/` to core over the UI's existing edge_net. It does not publish core or add a network.
+## Prerequisites
+
+1. Merge BO's BEN-23 manifest PR #962 and EL's events-route composition PR #907. The manifest path is `benchmark/journeys/j1-j8.v1.json`.
+2. Materialise the exact generated suite named by that manifest:
+   `python -m benchmark.generator generate --seed 20261020 --out benchmark/out/suite`.
+3. IL supplies a short-lived synthetic customer token file for every `principal_id` in the manifest, under one token directory. The existing bench issuer writes one file per principal (mode 0400); it accepts `BENCH_PRINCIPALS="id:customer ..."` and `BENCH_TOKEN_TTL` when `make bench-tokens` runs. Do not use one principal's token for another case.
+4. Run the manifest's case IDs through the existing `benchmark.runner` on the bench network with the approved API, mock-case, stand-in and proxy credentials. Preserve its output directory; the UI tests consume `correlations.json` and `results/<case_id>.json`. The runner's required fixture loader and evidence sources must be present; a NOT_RUN/ERROR result is not a passing journey.
+5. Start the real-core bench Compose profile with this test-only overlay. It proxies same-origin `/v1/` from the UI container to `core:8080` over the existing `edge_net`; it does not publish core or add a network. SSE buffering is disabled.
+
+## A654 settings
+
+- UI polling interval: 2,000 ms.
+- UI polling and initial-POST ceiling: 60,000 ms.
+- EL's #907 body names all eight required `NOEMA_EVENTS_*` settings and their proposed ranges: `POLL_MS` 2,000–60,000; `MAX_STREAM_MS` 60,000–900,000; `WRITE_TIMEOUT_MS` 1,000–30,000; `READ_TIMEOUT_MS` 500–10,000; `MAX_EVENT_BYTES` 1,024–1,048,576; `MAX_STREAMS` 1–1,000; `MAX_STREAMS_PER_PRINCIPAL` 1–10 and no greater than `MAX_STREAMS`; `MAX_BATCH` 1–500. The #907 body explicitly labels the per-setting ranges and cross-checks as proposals for Architect approval; no value is invented here. The core refuses missing/invalid settings and `/readyz` must be ready.
+
+## Run
+
+From the repository root, materialise and run the BEN-23 cases using the existing benchmark runner. Then from `ui/`:
 
 ```sh
-: "${BENCH_MAX_BODY_BYTES:?set the already-approved bench body limit}"
-: "${NOEMA_UI_E2E_MAX_POLLING_MS:?set the host-approved UI polling bound}"
-BENCH_PRINCIPALS=ui-e2e:customer \
-BENCH_TOKEN_TTL=15m \
-BENCH_COMPOSE='docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml -f ui/browser-stack/compose.real-core.yml --profile bench' \
-make bench-up BENCH_TENANT=ten_alpha
+NOEMA_UI_URL=http://127.0.0.1:8082 \
+NOEMA_UI_E2E_RUN_DIR=../benchmark/out/ui-j1-j8-run \
+NOEMA_UI_E2E_TOKEN_DIR=../benchmark/out/idp/tokens \
+npm run test:stack
 ```
 
-A654 UI settings: poll every 2,000 ms, with a 60,000 ms overall ceiling. EL’s #907 body names the eight required NOEMA_EVENTS_* settings and proposes these ranges (the Architect must approve the per-setting bounds before production use): POLL_MS 2,000–60,000; MAX_STREAM_MS 60,000–900,000; WRITE_TIMEOUT_MS 1,000–30,000; READ_TIMEOUT_MS 500–10,000; MAX_EVENT_BYTES 1,024–1,048,576; MAX_STREAMS 1–1,000; MAX_STREAMS_PER_PRINCIPAL 1–10 and no greater than MAX_STREAMS; MAX_BATCH 1–500. Supply the exact eight values approved for the stack; no values are fabricated here. /readyz must be ready. The synthetic token is written to `benchmark/out/idp/tokens/ui-e2e`.
+Optional `NOEMA_UI_E2E_MANIFEST` overrides the committed BEN-23 manifest path. The test fails closed if a case has no completed runner result, correlation ID or principal token. It adds no expected output to BEN-23; it asserts only core-issued public stage/contract data and the real SSE frame contract.
 
-## Inputs
+## Known backend/runner gates
 
-- `NOEMA_UI_URL=http://127.0.0.1:8082`
-- `NOEMA_UI_E2E_SESSION_TOKEN`: short-lived token file above; never commit it.
-- `NOEMA_UI_E2E_MANIFEST`: local manifest with schema_version `noema-ui-journeys.v1`; J1–J8 each contain `message`, `expected_stage` (one of six public stages), and exact `expected_text`.
+The current runner's `drivers.py` supports `session_start`, `clock_advance`, `confirm` and `kill_switch`. It refuses other timeline events as `EVENT_KIND_UNSUPPORTED` (never skips them). BEN-23 currently includes `webhook:settlement_updated` in J5, `webhook:reversal_posted` in J6, and `session_resume:same_channel` in J8. Those journeys remain red until their real event drivers exist. J3–J6 also depend on the production write seam/Record path; #907 itself names that as a gap. J6 is intentionally thin (one case) until after G1. These tests do not fake any of those capabilities.
 
-The manifest describes already-seeded synthetic scenarios. The suite does not seed or mutate stand-in data, access oracle data, or invent fixture prompts. Run from ui/: `npm ci --ignore-scripts && npm run test:stack`. Missing inputs fail closed; the real route must return 200 text/event-stream with Cache-Control no-store.
-
-## Boundary
-
-This is customer-surface evidence, not benchmark Record/oracle evidence for dispatch counts, no-write guarantees, tenant isolation or causal reconstruction. J2/J6 need real card events; J3–J6 need their real write/watch/confirmation paths. Missing capabilities fail; they are not mocked.
+This suite is customer-surface evidence, not a substitute for the benchmark's Record/oracle assertions or G1 evidence. No Android/WebView acceptance is claimed.
