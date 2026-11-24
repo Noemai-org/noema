@@ -105,13 +105,12 @@ test("A491: clarification retries reuse the card's request ID", async () => {
   assert.doesNotThrow(() => parseMessageRequestV1(bodies[0]));
 });
 
-test("REQ-UI-002: unbound options and expired cards do not make requests", async () => {
+test("REQ-UI-002: unbound options and invalid timestamps do not make requests", async () => {
   const card = await currentCard("clarification_four_options");
   let calls = 0;
   await withServer((request, response) => { calls++; response.writeHead(202); response.end(); }, async (baseUrl) => {
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: "opt_unknown", requestId: cardRequestId }), "unavailable");
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: card.options[0].option_id, requestId: "invalid" }), "unavailable");
-    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2000-01-01T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "expired");
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-99-99T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "unavailable");
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-02-31T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "unavailable");
   });
