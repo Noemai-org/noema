@@ -117,6 +117,26 @@ test("REQ-UI-002: unbound options and invalid timestamps do not make requests", 
   assert.equal(calls, 0);
 });
 
+test("REQ-UI-002: elapsed local clock still submits; the core decides confirmation expiry", async () => {
+  const card = { ...await currentCard("confirmation"), expires_at: "2000-01-01T00:00:00Z" };
+  let calls = 0;
+  await withServer((_request, response) => {
+    calls++;
+    response.writeHead(409, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      error: {
+        code: "CONFIRMATION_EXPIRED",
+        message: "This confirmation has expired.",
+        retryable: false,
+        correlation_id: "corr_4c21f9",
+      },
+    }));
+  }, async (baseUrl) => {
+    assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "expired");
+  });
+  assert.equal(calls, 1, "the client must send the request and let the core evaluate expiry");
+});
+
 test("REQ-UI-002: actual 503 and a closed socket produce safe failure, not server text", async () => {
   const card = await currentCard("confirmation");
   const envelope = await readFile(new URL("../../contracts/fixtures/valid/errors.v3/dependency_unavailable_retryable.json", import.meta.url));
