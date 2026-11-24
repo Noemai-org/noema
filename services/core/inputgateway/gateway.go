@@ -148,12 +148,13 @@ var (
 	sessionRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 	requestRe   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	localeRe    = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
+	issuerRe    = regexp.MustCompile(`\A[a-z][a-z0-9_-]*\z`) // the contract's asserted_by pattern (intent-object.v2)
 	refRe       = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
 )
 
 func validIdentity(id Identity) bool {
 	return chain.ValidTenantID(id.TenantID) && principalID.MatchString(id.PrincipalID) && kindRe.MatchString(id.PrincipalKind) &&
-		sessionRe.MatchString(id.SessionID)
+		sessionRe.MatchString(id.SessionID) && (id.AssertedBy == "" || issuerRe.MatchString(id.AssertedBy)) // an empty issuer is refused at Start (A584)
 }
 
 // Accept handles one input. Order: identity, body, the lookup of an earlier input, then one append (INPUT_RECEIVED, INPUT_DEDUPLICATED or the security event),
