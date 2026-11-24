@@ -2,9 +2,6 @@ import { fetchInvestigation } from "./investigation-client.js";
 import type { InvestigationResponseV1 } from "./contract_types/customer.js";
 import { POLL_INTERVAL_MS, POLL_MAX_DURATION_MS } from "./transport-limits.js";
 
-// A654: the UI polls at two-second intervals; the host supplies the 60-second ceiling.
-const POLL_INTERVAL_MS = 2_000;
-
 interface PollInput {
   baseUrl: string;
   investigationId: string;
