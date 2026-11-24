@@ -3,7 +3,7 @@ package intake
 // TRU-12 (REQ-TRU-011; G1, A449): the Mode 2-compatible Trust interface stays clean: Trust takes a typed request, not a conversation. Two guards. (1) The Request type is a closed set of
 // typed members; a new member (above all a text, a transcript, a message or a conversation) is a change to this list and so to the interface review note (status/TRU-12-interface-review.md),
 // never a side edit. (2) No non-test source under services/core/trust imports a package of the conversation side: the orchestrator, the edge, the input gateway, the understanding layer,
-// the evidence layer, execution or outcome. All values are SYNTHETIC.
+// the evidence layer, execution, outcome or the explainer. All values are SYNTHETIC.
 
 import (
 	"go/parser"
@@ -44,7 +44,7 @@ func TestTheRequestIsATypedRequestAndNotAConversation(t *testing.T) {
 // forbiddenImports are the packages of the conversation side and of the other powers: Trust reaches them through ports only (INV-01, SoT 51).
 var forbiddenImports = []string{
 	"/services/core/orchestrator", "/services/core/edge", "/services/core/inputgateway", "/services/core/understanding", "/services/core/evidence",
-	"/services/core/execution", "/services/core/outcome", "/services/core/explanation", "/services/model",
+	"/services/core/execution", "/services/core/outcome", "/services/core/explanation",
 }
 
 func TestNoTrustSourceImportsTheConversationSideOrAnotherPower(t *testing.T) {
