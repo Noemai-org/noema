@@ -46,3 +46,18 @@ Updated 2026-10-25. Renamed from `EXE-01.md`: the plan's EXE-01 is the registry 
 ### Pre-work for the next agent
 - Exact next step: if the test fails again on `main` after this merges, read the log for the three counts (at the return, after the statements ended, later) and reopen.
 - Do not touch: `services/core/execution/ledger/retry.go` (no attempt starts once the context is done).
+
+# Session 2026-11-24 04:50 WAT · EXE-02 (Repo Steward) · the deadline test counts client-issued statements (A611)
+
+## Session summary
+- What changed (noema#915): `services/core/execution/ledger/retry_test.go` only. The deadline test no longer reads the attempt count at the server and no longer allows one extra attempt. It counts the spend INSERTs the client issues, when it issues them, with a pgx tracer on a pool of the world's login (`insertCounter`, `poolCountingInserts`); the helper that ended the login's server-side connections (`endTheLoginsBackends`) is removed.
+- Why: ruling A611 (Interim, SR's proposal accepted): "the deadline test counts client-issued statements instead of allowing one extra attempt". A count taken at the server moves when a loaded server begins a statement the client sent before its context ended; a count taken when the client issues the statement does not. After `Spend` returns, any increase is a client that went on trying, so no allowance is needed.
+- Mutants, run against the real database and reverted (not committed): M1, attempts on a 30 s context instead of the caller's: fails ("Spend ran on after its context deadline"). M2, three detached attempts after the return: fails ("10 at the return, 13 later"). M3, one detached attempt after the return: fails ("10 at the return, 11 later"), which the first fix would have tolerated.
+- Risks, and how they are contained: test-only; the production retry code is untouched. The test now depends on the SQL text of the spend INSERT beginning `INSERT INTO grant_spend` (`spend.go`); if that statement is renamed, the count would be 0 and the test's lower bound (at least one attempt) fails loudly, not silently.
+- Tests added (INV-07, AGENT-12): `insertCounter` and `poolCountingInserts`, used by `TestTheContextDeadlineStopsTheAttempts`.
+- Regression cases added: the existing test, tighter again.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: if the test fails again on `main`, read the two counts in the message (at the return, later); a difference means the client issued a statement after the return.
+- Do not touch: `services/core/execution/ledger/retry.go`.

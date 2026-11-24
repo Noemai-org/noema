@@ -16,8 +16,12 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 	"github.com/Noemai-org/noema/services/core/execution/ledger"
@@ -61,29 +65,32 @@ func faultOnSpend(t *testing.T, w *world, sqlstate string, failFirst, sleepMS in
 	}
 }
 
-// endTheLoginsBackends ends every server-side connection of the tenant's execution login and returns once none is left. Spend returned on the deadline, but a statement the
-// client sent just before it can still be waiting at the server, and a loaded server may begin it after Spend returned: the probe counts it, and it is one attempt in flight,
-// not a new one. With every connection gone nothing the client sent earlier can be counted, so any attempt counted afterwards was started by the client. It polls every 25 ms,
-// counting polls and not reading the clock (the clock rule), and fails the test if connections remain after about ten seconds (a client that keeps reconnecting).
-func endTheLoginsBackends(t *testing.T, w *world) {
-	t.Helper()
-	const polls = 400
-	for i := 0; i < polls; i++ {
-		var left int
-		if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_stat_activity
-			WHERE datname = current_database() AND pid <> pg_backend_pid() AND usename LIKE 'execution_rw%'`).Scan(&left); err != nil {
-			t.Fatal(err)
-		}
-		if left == 0 {
-			return
-		}
-		if _, err := w.admin.Exec(ctx(t), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-			WHERE datname = current_database() AND pid <> pg_backend_pid() AND usename LIKE 'execution_rw%'`); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(25 * time.Millisecond)
+// insertCounter is a pgx tracer that counts the spend INSERTs the CLIENT issues, at the moment it issues them (TraceQueryStart), whatever the server does with them afterwards.
+// It is what the deadline test counts: a count taken at the server moves when a loaded server begins a statement the client sent before its context ended, which is not a new
+// attempt (ruling A611: count the client-issued statements, allow no extra attempt).
+type insertCounter struct{ n atomic.Int64 }
+
+func (c *insertCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(d.SQL)), "INSERT INTO GRANT_SPEND") {
+		c.n.Add(1)
 	}
-	t.Fatalf("connections of the execution login were still there about ten seconds after Spend returned")
+	return ctx
+}
+
+func (c *insertCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+// poolCountingInserts is a pool of the world's login whose connections count the spend INSERTs the client issues.
+func poolCountingInserts(t *testing.T, w *world) (*pgxpool.Pool, *insertCounter) {
+	t.Helper()
+	tr := &insertCounter{}
+	cfg := w.exec.Config()
+	cfg.ConnConfig.Tracer = tr
+	p, err := pgxpool.NewWithConfig(ctx(t), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p, tr
 }
 
 type spendOutcome struct {
@@ -345,17 +352,20 @@ func TestOnlyASerializationFailureIsRetried(t *testing.T) {
 }
 
 // The context deadline bounds all the attempts: with a thousand attempts allowed, every one of them slow and refused, the spend returns when the deadline does, an error,
-// and nothing goes on trying after it.
+// and the client issues no statement after it. The count is of the statements the client issues (ruling A611), taken when it issues them, so it does not depend on when a loaded
+// server begins a statement the client had already sent: any increase after Spend returned is a client that went on trying.
 func TestTheContextDeadlineStopsTheAttempts(t *testing.T) {
 	w := newWorld(t)
-	w.led.SerializationAttempts = 1000
-	probe := faultOnSpend(t, w, "40001", 1000000, 50)
+	faultOnSpend(t, w, "40001", 1000000, 50)
+	pool, issued := poolCountingInserts(t, w)
+	led, _ := ledgerOn(t, w, pool)
+	led.SerializationAttempts = 1000
 	g := w.issue(t, 1)
 	c, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	done := make(chan spendOutcome, 1)
 	go func() {
-		res, err := w.led.Spend(c, cmdFor(g))
+		res, err := led.Spend(c, cmdFor(g))
 		done <- spendOutcome{res, err}
 	}()
 	var o spendOutcome
@@ -370,21 +380,13 @@ func TestTheContextDeadlineStopsTheAttempts(t *testing.T) {
 	if !isDidNotCommit40001(o.err) && !errors.Is(o.err, context.DeadlineExceeded) && !errors.Is(o.err, context.Canceled) {
 		t.Errorf("the error is neither the did-not-commit error nor the context's: %v", o.err)
 	}
-	// Spend returned on the deadline. The one connection that held the spend runs one statement at a time, so at most ONE statement sent just before the deadline may still
-	// begin at the server after Spend returned, and the probe counts it (the failure this replaces read "8, then 9"). Anything more is a client that went on trying. So: take the
-	// count at the return, end the login's server-side connections (endTheLoginsBackends), allow the count to have moved by at most one, then check that nothing more comes.
-	atReturn := probe()
-	endTheLoginsBackends(t, w)
-	made := probe()
-	if made < 1 || made >= 1000 {
-		t.Fatalf("%d attempts were made inside a 500 ms deadline, want at least one and far fewer than 1000", made)
-	}
-	if made-atReturn > 1 {
-		t.Fatalf("%d attempts were started after Spend returned (%d at the return, %d once the statements ended), want at most the one already sent", made-atReturn, atReturn, made)
+	atReturn := issued.n.Load()
+	if atReturn < 1 || atReturn >= 1000 {
+		t.Fatalf("%d spend statements were issued inside a 500 ms deadline, want at least one and far fewer than 1000", atReturn)
 	}
 	time.Sleep(300 * time.Millisecond)
-	if later := probe(); later != made {
-		t.Fatalf("attempts went on after Spend returned: %d, then %d", made, later)
+	if later := issued.n.Load(); later != atReturn {
+		t.Fatalf("the client issued spend statements after Spend returned: %d at the return, %d later", atReturn, later)
 	}
 }
 
