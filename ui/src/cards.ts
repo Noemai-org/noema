@@ -75,7 +75,6 @@ function ClarificationView({ card, onChoice }: ClarificationProps) {
 
 interface ConfirmationProps {
   card: OverlayCardV1ConfirmationCard;
-  now?: number;
   onResponse?: (confirmationId: string, response: "ACCEPT" | "DECLINE") => void | "accepted" | "expired" | "unavailable" | Promise<void | "accepted" | "expired" | "unavailable">;
 }
 
