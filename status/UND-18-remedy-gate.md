@@ -13,3 +13,8 @@
 - Open questions (owner): the threshold value (Founder).
 - Files to read first: `understanding/pipeline/steps.py` (`gate_slots`, `pick_gated`, `gate_asserted`), `understanding/pipeline/run.py` (stage 2b).
 - Do not touch: the goldens, the inputs, the wording of the non-gated optional-slot question.
+
+## Session 2026-11-24 · UND-18 (C2), A649 and the review's P2
+- A649: the gate's probability is read from the raw JSON number token. `harness/rawjson.py` decodes with `RawNumber`/`NonNumber` and makes no float; `GateQuestion`/`GateAnswer` carry the token; `probability_bp` accepts only a `RawNumber` holding a plain decimal in [0, 1]. A missing, null, quoted, boolean, signed, NaN, Infinity or exponent-form probability abstains for that slot; invalid JSON still refuses the reply (ProviderUnavailable). A set with a gate is never sent to a decision provider (its reply is parsed to numbers at the vendor envelope), so it goes to the LLM route.
+- P2: a gated slot name declared by more than one node is refused (packcheck, the loader and `PipelineConfig`).
+- Next step: A602 reads `proposal.probabilities["requested_remedy_gate"] == {"yes_bp": n}` (present only when the token was a plain decimal).

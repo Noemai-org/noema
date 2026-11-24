@@ -386,6 +386,21 @@ def test_text_that_is_not_json_at_all_still_stops_the_turn(lexeme: str) -> None:
     assert result.outcome.name == "REJECTED_AT_GATE"  # the same refusal as any reply that is not JSON: the compile service reports ProviderUnavailable
 
 
+def test_a_gate_answer_that_selects_neither_yes_nor_no_still_refuses_the_whole_reply() -> None:
+    """Only the probability is lenient. The answer's own selection must still be yes or no."""
+    class SelectsMaybe(RawReplyModel):
+        async def complete(self, request: Any) -> Any:
+            response = await super().complete(request)
+            if request.schema_name == "harness_decide" and GATE in request.user:
+                document = json.loads(response.output_json)
+                next(a for a in document["answers"] if a["question_id"] == GATE)["selected"] = "maybe"
+                return dataclasses.replace(response, output_json=json.dumps(document))
+            return response
+
+    model = SelectsMaybe(answers={**G_A, GATE: True, SLOT: LOOKUP}, mentions=GOOD_MENTIONS, probability=0.95)
+    assert piped(model).outcome.name == "REJECTED_AT_GATE"
+
+
 def test_a_malformed_probability_on_a_question_that_is_not_a_gate_still_refuses_the_reply() -> None:
     """Only the gate's probability is lossless and abstains. Every other yes/no keeps the harness's strict reading: a number in [0, 1], else the whole reply is refused."""
     from noema_model.harness import YesNoQuestion
@@ -403,7 +418,7 @@ def test_a_gate_is_never_sent_to_a_decision_model_which_would_return_a_float() -
     llm = reply({"answers": [{"question_id": "requested_remedy_gate", "selected": "yes", "probabilities": [{"option": "yes", "p": 0.95}, {"option": "no", "p": 0.05}]}]}, version="model-gpt-2026-01-01")
     harness, native, gpt = stack([], llm_steps=[llm])
     result = run(harness.decide(DecideRequest(DecisionTask.ENUMERATED_SLOT, {"utterance": "check it"}, (GateQuestion("requested_remedy_gate", SLOT_GATE_V1),), None, "corr_test")))
-    assert native.calls == [] and len(gpt.requests) == 1
+    assert native.calls == [] and len(gpt.calls) == 1
     assert result.answers == (GateAnswer("requested_remedy_gate", True, RawNumber("0.95")),)
 
 

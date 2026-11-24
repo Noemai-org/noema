@@ -94,10 +94,16 @@ def _slot_gates(source: Mapping[str, Any], pack: Mapping[str, Any]) -> Mapping[s
     if not isinstance(raw, list) or not raw:
         raise ConfigError("understanding.slot_gates: expected a non-empty list")
     slots: dict[str, list[Mapping[str, Any]]] = {}
+    nodes_with: dict[str, int] = {}
     for node in pack.get("intent_nodes") or []:
+        seen: set[str] = set()
         for slot in require_mapping(node, "intent_nodes[]").get("slots") or []:
             item = require_mapping(slot, "intent_nodes[].slots[]")
-            slots.setdefault(require_str(item, "name", "slot"), []).append(item)
+            name = require_str(item, "name", "slot")
+            slots.setdefault(name, []).append(item)
+            if name not in seen:
+                seen.add(name)
+                nodes_with[name] = nodes_with.get(name, 0) + 1
     out: dict[str, int] = {}
     for index, entry in enumerate(raw):
         where = f"understanding.slot_gates[{index}]"
@@ -112,6 +118,8 @@ def _slot_gates(source: Mapping[str, Any], pack: Mapping[str, Any]) -> Mapping[s
         declared = slots.get(name)
         if not declared:
             raise ConfigError(f"{where}.slot: no node declares such a slot")
+        if nodes_with[name] > 1:
+            raise ConfigError(f"{where}.slot: the slot is declared by more than one node; a gate belongs to one node (the same name in a second node would receive it too)")
         if any(s.get("required") is True for s in declared):
             raise ConfigError(f"{where}.slot: only an optional slot may be gated")
         if any(s.get("vocabulary") is None and s.get("references") is None for s in declared):

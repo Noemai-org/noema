@@ -18,6 +18,8 @@ from noema_model.harness import (
     DecideRequest,
     DecisionTask,
     GenerateRequest,
+    GateAnswer,
+    GateQuestion,
     Harness,
     HarnessRejection,
     Option,
@@ -25,6 +27,7 @@ from noema_model.harness import (
     YesNoQuestion,
 )
 from noema_model.harness.errors import Reason
+from noema_model.harness.rawjson import RawNumber
 from noema_model.understanding.pipeline.catalogue import NodeCatalogue, NodeInfo, SlotInfo
 from noema_model.understanding.pipeline.templates import SLOT_GATE_V1, SLOT_MENTIONS_V1, SLOT_PICK_V1
 from noema_model.understanding.pipeline.types import FlagSpec, LocaleOption, MentionProposal, PipelineInput
@@ -119,19 +122,14 @@ async def enumerated_slots(
 _PLAIN_PROBABILITY = re.compile(r"([0-9]{1,3})(?:\.([0-9]{1,18}))?", re.ASCII)
 
 
-def probability_bp(value: object) -> int | None:
-    """A provider's probability as whole basis points, by integer arithmetic only (A612; INV-21): no float is made, converted or computed with. Only a plain decimal in [0, 1] is accepted: ASCII
-    digits with at most one decimal point and at most 18 fractional digits, no sign, exponent, space, NaN, infinity, hex or separator. The fractional part is floored to four digits, so 0.89999 is 8999 and
-    never rounds up to 9000. Anything else, a missing value included, is None, and the gate then abstains.
-
-    The provider layer hands over parsed JSON, a Python float. Its `repr` is the shortest decimal text that reads back as that float, which is the text the provider wrote, so it is read here as text (0.7 is
-    "0.7", 7000 bp, whatever the binary value of the double is). `repr` is formatting, not arithmetic. A float whose text is not a plain decimal (1e-05, nan, inf, a negative) is refused, which the gate treats as doubt. A bool is not a number."""
-    if isinstance(value, bool):
+def probability_bp(token: object) -> int | None:
+    """The probability a provider wrote, as whole basis points, by integer arithmetic only (A612, A649; INV-21): no float is made, converted or computed with. It reads the TEXT of one JSON number token
+    (`RawNumber`, kept by the harness's decoder), and accepts only a plain decimal in [0, 1]: ASCII digits with at most one decimal point and at most 18 fractional digits; no sign, exponent, space, NaN, infinity,
+    hex or separator, and nothing above 1 however small the excess. The fractional part is floored to four digits, so 0.89999 is 8999 and never rounds up to 9000. Anything else is None, and the gate then abstains:
+    a missing value, null, a boolean, a quoted string (a `str` is not a number token), a Python float (it has already lost the text it was written with: 9e-1 and 0.9 are one float) and a `NonNumber`."""
+    if not isinstance(token, RawNumber):
         return None
-    text = value if isinstance(value, str) else repr(value) if isinstance(value, (int, float)) else None
-    if text is None:
-        return None
-    match = _PLAIN_PROBABILITY.fullmatch(text)
+    match = _PLAIN_PROBABILITY.fullmatch(token.text)
     if match is None:
         return None
     whole, fraction = match.group(1), match.group(2) or ""
@@ -140,10 +138,10 @@ def probability_bp(value: object) -> int | None:
     return int(whole) * 10_000 + int((fraction + "0000")[:4])
 
 
-def gate_asserted(answer: YesNoAnswer, threshold_bp: int) -> bool:
-    """Whether a gate's yes stands (UND-18, A603, A606, A612). The probability of yes is read exactly into whole basis points (`probability_bp`) and compared as integers with the pack's threshold: no float, no
-    rounding up. Unlike `asserted`, a model that selected "yes" is not taken at its word: a yes it gives below the threshold is the doubt the gate exists for, and a false assertion is the harmful error, so doubt
-    abstains. A model that selected "no" is a no whatever its probability says, and a missing or malformed probability is doubt too."""
+def gate_asserted(answer: GateAnswer, threshold_bp: int) -> bool:
+    """Whether a gate's yes stands (UND-18, A603, A606, A612, A649). The probability of yes is read exactly from its number token into whole basis points (`probability_bp`) and compared as integers with the pack's
+    threshold: no float, no rounding up. Unlike `asserted`, a model that selected "yes" is not taken at its word: a yes it gives below the threshold is the doubt the gate exists for, and a false assertion is the
+    harmful error, so doubt abstains. A model that selected "no" is a no whatever its probability says, and a missing or malformed probability is doubt too."""
     if answer.yes is False:
         return False
     basis_points = probability_bp(answer.p_yes)
@@ -158,15 +156,17 @@ async def gate_slots(
     slots = gated_slots(node, gates)
     if not slots:
         return (), {}, None
-    questions = tuple(YesNoQuestion(f"{s.name}_gate", SLOT_GATE_V1) for s in slots)
+    questions = tuple(GateQuestion(f"{s.name}_gate", SLOT_GATE_V1) for s in slots)
     result = await harness.decide(
         DecideRequest(DecisionTask.ENUMERATED_SLOT, _state(inp), questions, inp.locale_hint, inp.correlation_id)
     )
     passed: list[str] = []
     probabilities: dict[str, Mapping[str, float]] = {}
     for slot, answer in zip(slots, result.answers, strict=True):
-        assert isinstance(answer, YesNoAnswer)
-        probabilities[f"{slot.name}_gate"] = {"yes": answer.p_yes}
+        assert isinstance(answer, GateAnswer)
+        basis_points = probability_bp(answer.p_yes)
+        if basis_points is not None:
+            probabilities[f"{slot.name}_gate"] = {"yes_bp": basis_points}  # whole basis points, an integer: what the gate compared
         if gate_asserted(answer, gates[slot.name]):
             passed.append(slot.name)
     return tuple(passed), probabilities, result.call

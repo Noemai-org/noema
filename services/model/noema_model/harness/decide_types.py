@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from noema_model.harness.errors import HarnessRejection, Reason
+from noema_model.harness.rawjson import RawNumber
 
 # The abstention every choice question must offer ("none / other", PERD §19.1). A fixed id, so the harness can check
 # it rather than trust a label.
@@ -54,6 +55,15 @@ class YesNoQuestion:
 
 
 @dataclass(frozen=True, slots=True)
+class GateQuestion:
+    """A yes/no whose probability is read from the TEXT of the provider's number (A649, A612). Same rendering as a YesNoQuestion; the answer carries the raw number token instead of a float, so a
+    malformed probability (an exponent, a quoted string, null, missing, signed, NaN) can abstain for the one slot that asked, and does not refuse the whole reply."""
+
+    question_id: str
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
 class Level:
     label: str
     description: str
@@ -68,7 +78,7 @@ class ScoreQuestion:
     levels: tuple[Level, ...]
 
 
-Question = ChoiceQuestion | YesNoQuestion | ScoreQuestion
+Question = ChoiceQuestion | YesNoQuestion | GateQuestion | ScoreQuestion
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +108,16 @@ class YesNoAnswer:
 
 
 @dataclass(frozen=True, slots=True)
+class GateAnswer:
+    """The answer to a GateQuestion. `yes` is the model's own selection (True or False). `p_yes` is the exact token the provider wrote for the probability of "yes", or None when it wrote none (missing, null, a
+    quoted string, a boolean, NaN, Infinity: nothing that is a number token). Reading the token is the caller's rule (`probability_bp`): the harness reads no probability here and makes no float."""
+
+    question_id: str
+    yes: bool | None
+    p_yes: "RawNumber | None"
+
+
+@dataclass(frozen=True, slots=True)
 class ScoreAnswer:
     """The probability per level (keys level_0, level_1, ...). `score` is the decision model's probability-weighted level
     index when it gives one; an LLM-backed answer carries only the distribution, because the harness computes no score."""
@@ -108,7 +128,7 @@ class ScoreAnswer:
     confidence: float | None = None
 
 
-Answer = ChoiceAnswer | YesNoAnswer | ScoreAnswer
+Answer = ChoiceAnswer | YesNoAnswer | GateAnswer | ScoreAnswer
 
 
 def validate_questions(questions: tuple[Question, ...]) -> None:

@@ -33,12 +33,15 @@ from noema_model.harness.accounting import (
 )
 from noema_model.harness.breaker import Breaker, BreakerState
 from noema_model.harness.config import HarnessConfig, ProviderConfig
+from noema_model.harness.rawjson import NonNumber, RawNumber, loads_lossless
 from noema_model.harness.decide_types import (
     ABSTAIN,
     Answer,
     ChoiceAnswer,
     ChoiceQuestion,
     DecisionTask,
+    GateAnswer,
+    GateQuestion,
     Question,
     ScoreAnswer,
     ScoreQuestion,
@@ -109,6 +112,56 @@ class _WireAnswer(_Wire):
 
 class _WireDecision(_Wire):
     answers: list[_WireAnswer]
+
+
+class _DecodedDecision(_WireDecision):
+    """A decision reply that was decoded with its number tokens kept: `gate_tokens` holds, per gate question, the token the provider wrote for the probability of "yes", or None."""
+
+    gate_tokens: dict[str, RawNumber | None] = {}
+
+
+def _decode_decision(text: str, questions: tuple[Question, ...]) -> _DecodedDecision:
+    """The decision reply, decoded so that the probability of a GATE question keeps the text it was written in (A649). Everything else is checked exactly as before: the JSON must be valid with no repeated key
+    (ValueError otherwise), and every other answer goes through the strict wire model, so a non-gate probability that is not a finite number in [0, 1] refuses the whole reply. For a gate question the reply
+    may carry a missing, null, quoted, boolean, signed, non-finite or exponent-form probability, or none at all: that is returned as no token (None) or the token itself, and the caller's rule judges it."""
+    raw = loads_lossless(text)
+    if not isinstance(raw, dict) or set(raw) != {"answers"} or not isinstance(raw["answers"], list):
+        raise ValueError("not a decision reply")
+    gates = {q.question_id for q in questions if isinstance(q, GateQuestion)}
+    tokens: dict[str, RawNumber | None] = {}
+    answers: list[Any] = []
+    for entry in raw["answers"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("question_id"), str):
+            raise ValueError("a malformed answer")
+        qid = entry["question_id"]
+        if qid in gates:
+            if qid in tokens or set(entry) - {"question_id", "selected", "probabilities"} or not isinstance(entry.get("selected"), str):
+                raise ValueError("a malformed gate answer")
+            tokens[qid] = None
+            options = entry.get("probabilities")
+            for item in options if isinstance(options, list) else []:
+                if not isinstance(item, dict) or set(item) - {"option", "p"} or item.get("option") not in ("yes", "no"):
+                    raise ValueError("a malformed probability entry")
+                if item["option"] == "yes":
+                    value = item.get("p")
+                    tokens[qid] = value if isinstance(value, RawNumber) else None
+            answers.append({"question_id": qid, "selected": entry["selected"], "probabilities": []})
+            continue
+        probabilities = entry.get("probabilities")
+        if isinstance(probabilities, list):
+            probabilities = [{**item, "p": _plain(item["p"])} if isinstance(item, dict) and "p" in item else item for item in probabilities]
+        answers.append({**entry, "probabilities": probabilities})
+    wire = _WireDecision.model_validate({"answers": answers}, strict=True)
+    return _DecodedDecision(answers=wire.answers, gate_tokens=tokens)
+
+
+def _plain(value: Any) -> Any:
+    """A number token of a non-gate answer as the float the strict wire model reads (it refuses a float outside [0, 1] or not finite); a non-number name stays refused."""
+    if isinstance(value, RawNumber):
+        return float(value.text)
+    if isinstance(value, NonNumber):
+        return float("nan")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +275,7 @@ class Harness:
             schema=self._schema_for(_WireDecision),
             output_type=_WireDecision,
             finalize=lambda wire: self._answers(request.questions, wire),
+            decode=(lambda text: _decode_decision(text, request.questions)) if any(isinstance(q, GateQuestion) for q in request.questions) else None,
             native=lambda cfg, provider: self._native_request(cfg, provider, request.questions, rendered),
             native_finalize=lambda reply: self._native_answers(request.questions, reply),
             locale=request.locale,
@@ -243,14 +297,18 @@ class Harness:
         def text(value: str) -> str:
             return self._redactor.mask_account_numbers(clean(value))[:limit]
 
+        if any(isinstance(q, GateQuestion) for q in questions):
+            return None  # A649: a decision provider's reply is parsed to numbers at the vendor envelope, so it cannot prove the text of a probability; a gate goes to the LLM route
         native: list[NativeQuestion] = []
         for q in questions:
             if isinstance(q, YesNoQuestion):
                 native.append(NativePredicate(q.question_id, text(q.prompt)))
             elif isinstance(q, ChoiceQuestion):
                 native.append(NativeChoice(q.question_id, text(q.prompt), tuple((o.option_id, text(o.label)) for o in q.options)))
-            else:
+            elif isinstance(q, ScoreQuestion):
                 native.append(NativeScore(q.question_id, text(q.prompt), tuple((text(lv.label), text(lv.description)) for lv in q.levels)))
+            else:
+                return None  # a gate was handled above; nothing else is left
         asked = tuple(native)
         if not provider.accepts(asked):
             return None
@@ -302,7 +360,7 @@ class Harness:
                     "question_id": q.question_id, "kind": "choice", "prompt": text(q.prompt),
                     "options": [{"option_id": o.option_id, "label": text(o.label)} for o in q.options],
                 })
-            elif isinstance(q, YesNoQuestion):
+            elif isinstance(q, (YesNoQuestion, GateQuestion)):
                 items.append({"question_id": q.question_id, "kind": "yes_no", "prompt": text(q.prompt)})
             else:
                 items.append({
@@ -323,6 +381,11 @@ class Harness:
         out: list[Answer] = []
         for q in questions:
             answer = by_id[q.question_id]
+            if isinstance(q, GateQuestion):
+                if answer.selected not in ("yes", "no") or not isinstance(wire, _DecodedDecision):
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                out.append(GateAnswer(q.question_id, answer.selected == "yes", wire.gate_tokens.get(q.question_id)))
+                continue
             probabilities: dict[str, float] = {}
             for entry in answer.probabilities:
                 if entry.option in probabilities or not 0.0 <= entry.p <= 1.0:
@@ -368,6 +431,7 @@ class Harness:
         schema: dict[str, Any],
         output_type: type[T],
         finalize: Callable[[T], R],
+        decode: Callable[[str], T] | None = None,
         native: Callable[[ProviderConfig, DecisionProvider], NativeRequest | None] | None = None,
         native_finalize: Callable[[NativeResponse], R] | None = None,
         locale: str | None,
@@ -448,7 +512,7 @@ class Harness:
                     if outcome is AttemptOutcome.OK and isinstance(response, NativeResponse) and native_finalize is not None:
                         value, outcome = self._judge_native(response, native_finalize)
                     elif outcome is AttemptOutcome.OK and isinstance(response, ProviderResponse):
-                        value, outcome = self._judge(response, output_type, finalize)
+                        value, outcome = self._judge(response, output_type, finalize, decode)
                     attempt_span.set_attribute("outcome", outcome.value)
                 latency = max(0, self._clock.monotonic_ms() - started)
                 tokens_in = response.tokens_in if response is not None else None
@@ -487,7 +551,7 @@ class Harness:
 
     @staticmethod
     def _judge(
-        response: ProviderResponse, output_type: type[T], finalize: Callable[[T], R]
+        response: ProviderResponse, output_type: type[T], finalize: Callable[[T], R], decode: Callable[[str], T] | None = None
     ) -> tuple[R | None, AttemptOutcome]:
         """Apply the schema gate to one reply: whole-reply, strict, no repair."""
         if response.finish is FinishReason.TRUNCATED:
@@ -495,8 +559,12 @@ class Harness:
         if response.finish is FinishReason.REFUSED:
             return None, AttemptOutcome.OUTPUT_REFUSED
         try:
-            _check_json(response.output_json)
-            return finalize(output_type.model_validate_json(response.output_json, strict=True)), AttemptOutcome.OK
+            if decode is None:
+                _check_json(response.output_json)
+                value = output_type.model_validate_json(response.output_json, strict=True)
+            else:
+                value = decode(response.output_json)  # its own whole-reply checks: valid JSON, no repeated key, the strict wire model
+            return finalize(value), AttemptOutcome.OK
         except (ValueError, ValidationError, HarnessRejection):
             return None, AttemptOutcome.OUTPUT_MISMATCH
 

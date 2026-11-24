@@ -560,6 +560,8 @@ def check_slot_gates(pack: dict, und: dict) -> list[Problem]:
         if not slots:
             out.append(("understanding", f"slot gate on {name}: no node declares such a slot"))
             continue
+        if sum(1 for node in pack["intent_nodes"] if any(s["name"] == name for s in node.get("slots", []))) > 1:
+            out.append(("understanding", f"slot gate on {name}: the slot is declared by more than one node; a gate belongs to one node"))
         if any(s.get("required") is True for s in slots):
             out.append(("understanding", f"slot gate on {name}: the slot is required in a node; only an optional slot may be gated"))
         if any(s.get("vocabulary") is None and s.get("references") is None for s in slots):

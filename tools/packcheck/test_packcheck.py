@@ -645,5 +645,14 @@ class SlotGates(unittest.TestCase):
     def test_a_gate_on_a_slot_no_node_declares_is_refused(self):
         self.assertTrue(any("no node" in m for m in self.hits([{**self.GATE, "slot": "no_such_slot"}])))
 
+    def test_a_gated_slot_name_declared_by_two_nodes_is_refused(self):
+        base, _ = real()
+        other = json.loads(json.dumps(next(n for n in base["intent_nodes"] if n["node_id"] == "fin.meta.out_of_scope")))
+        other["node_id"] = "fin.other.node"
+        other["slots"] = [{"name": "requested_remedy", "type": "Reference", "required": False, "references": "capability"}]
+        base["intent_nodes"].append(other)
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "understanding" and "gate" in m]
+        self.assertTrue(any("more than one node" in m for m in hits), hits)
+
     def test_a_slot_gated_twice_is_refused(self):
         self.assertTrue(any("twice" in m for m in self.hits([self.GATE, {**self.GATE, "assertion_threshold_bp": 8000}])))
