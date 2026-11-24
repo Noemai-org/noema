@@ -43,17 +43,20 @@ test("REQ-UI-001: emulated Android action targets meet the existing touch token 
     await expect(button).toBeVisible();
     await expect(button).toBeDisabled();
     const box = await button.boundingBox();
-    const minimum = await button.evaluate((element) => {
+    const dimensions = await button.evaluate((element) => {
       const style = getComputedStyle(element);
       const tokenValue = style.getPropertyValue("--noema-touch-target").trim();
       const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      expect(tokenValue.endsWith("rem")).toBe(true);
-      const token = parseFloat(tokenValue) * rootFontSize;
-      const minHeight = parseFloat(style.minHeight);
-      expect(Number.isFinite(token) && token > 0).toBe(true);
-      expect(minHeight).toBe(token);
-      return token;
+      return {
+        tokenValue,
+        rootFontSize,
+        minHeight: parseFloat(style.minHeight),
+      };
     });
+    expect(dimensions.tokenValue.endsWith("rem")).toBe(true);
+    const minimum = parseFloat(dimensions.tokenValue) * dimensions.rootFontSize;
+    expect(Number.isFinite(minimum) && minimum > 0).toBe(true);
+    expect(dimensions.minHeight).toBe(minimum);
     expect(box).not.toBeNull();
     expect(box.width).toBeGreaterThanOrEqual(minimum);
     expect(box.height).toBeGreaterThanOrEqual(minimum);
