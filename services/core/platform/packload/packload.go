@@ -28,9 +28,11 @@ import (
 
 // Pack is a verified pack: the bytes each digest covers and the ids the manifest names (`<id>@<version>`, as the files carry them).
 type Pack struct {
-	Pack              []byte
-	EvidenceMapping   []byte
-	ReconRules        []byte
+	Pack            []byte
+	EvidenceMapping []byte
+	ReconRules      []byte
+	// PriorityRouting is the verified bytes of the priority routing member (PCK-09), nil when the manifest lists none.
+	PriorityRouting   []byte
 	EvidenceMappingID string
 	ReconRuleSetID    string
 	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
