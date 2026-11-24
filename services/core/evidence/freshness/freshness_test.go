@@ -328,3 +328,100 @@ func TestNewSessionRefusesAnUnsafeConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// Codex on 78956901b (INV-16): an answer taken from a source's earlier attempt is checked against the CURRENT clock and the CURRENT effective limit before
+// it is returned. One refresh per source never authorises the reuse of an item that has become stale since.
+func refreshOnce(t *testing.T, r *rig, calls *int) freshness.Result {
+	t.Helper()
+	r.clk.Advance(time.Hour) // the first item is stale
+	return r.sess.Ensure(context.Background(), "fin.src.ledger", lim, freshness.Item{EvidenceID: "evr_old", ReadAt: t0}, func(context.Context) (freshness.Item, error) {
+		*calls++
+		return freshness.Item{EvidenceID: "evr_new", ReadAt: r.clk.Now()}, nil
+	})
+}
+
+func again(r *rig, l freshness.Limits, calls *int) freshness.Result {
+	return r.sess.Ensure(context.Background(), "fin.src.ledger", l, freshness.Item{EvidenceID: "evr_old", ReadAt: t0}, func(context.Context) (freshness.Item, error) {
+		*calls++
+		return freshness.Item{EvidenceID: "evr_other", ReadAt: r.clk.Now()}, nil
+	})
+}
+
+func TestARefreshedItemIsNotReturnedOnceItHasBecomeStale(t *testing.T) {
+	r := newRig(t)
+	calls := 0
+	if first := refreshOnce(t, r, &calls); first.Outcome != freshness.OutcomeRefreshed {
+		t.Fatalf("setup: %+v", first)
+	}
+	r.clk.Advance(2*time.Minute + time.Nanosecond) // one tick past the effective limit (the profile's 2 minutes)
+	res := again(r, lim, &calls)
+	if res.Outcome != freshness.OutcomeUnavailable || res.Item != (freshness.Item{}) || calls != 1 {
+		t.Fatalf("a refreshed item past its limit: %+v calls=%d; want UNAVAILABLE, no item, and still one re-read", res, calls)
+	}
+	if !errors.Is(res.Err, freshness.ErrAlreadyRefreshed) || !errors.Is(res.Err, freshness.ErrRefreshStale) {
+		t.Errorf("cause %v: want ErrAlreadyRefreshed and ErrRefreshStale", res.Err)
+	}
+}
+
+func TestARefreshedItemIsStillUsableExactlyAtTheLimitAndNotOneTickAfter(t *testing.T) {
+	r := newRig(t)
+	calls := 0
+	_ = refreshOnce(t, r, &calls)
+	r.clk.Advance(2 * time.Minute) // exactly the limit: fresh
+	at := again(r, lim, &calls)
+	if at.Outcome != freshness.OutcomeRefreshed || at.Item.EvidenceID != "evr_new" || calls != 1 {
+		t.Fatalf("exactly at the limit: %+v calls=%d; want the refreshed item and one re-read", at, calls)
+	}
+	r.clk.Advance(time.Nanosecond)
+	past := again(r, lim, &calls)
+	if past.Outcome != freshness.OutcomeUnavailable || past.Item != (freshness.Item{}) || calls != 1 {
+		t.Fatalf("one tick past the limit: %+v calls=%d; want UNAVAILABLE with no item", past, calls)
+	}
+}
+
+func TestACachedRefreshIsCheckedAgainstTheLimitOfTheCurrentAsk(t *testing.T) {
+	r := newRig(t)
+	calls := 0
+	_ = refreshOnce(t, r, &calls)
+	r.clk.Advance(90 * time.Second)
+	tighter := freshness.Limits{Source: limit, Profile: time.Minute}
+	if res := again(r, tighter, &calls); res.Outcome != freshness.OutcomeUnavailable || res.Item != (freshness.Item{}) || calls != 1 {
+		t.Fatalf("a tighter limit on the second ask: %+v calls=%d; want UNAVAILABLE and one re-read", res, calls)
+	}
+	if res := again(r, lim, &calls); res.Outcome != freshness.OutcomeRefreshed || res.Limit != 2*time.Minute || calls != 1 {
+		t.Errorf("the original limit still holds the item fresh at 90 s: %+v calls=%d", res, calls)
+	}
+}
+
+func TestAFreshItemIsCheckedAgainstTheCurrentClockOnEveryAsk(t *testing.T) {
+	r := newRig(t)
+	calls := 0
+	have := freshness.Item{EvidenceID: "evr_old", ReadAt: t0}
+	reread := func(context.Context) (freshness.Item, error) {
+		calls++
+		return freshness.Item{EvidenceID: "evr_new", ReadAt: r.clk.Now()}, nil
+	}
+	if res := r.sess.Ensure(context.Background(), "fin.src.ledger", lim, have, reread); res.Outcome != freshness.OutcomeFresh || calls != 0 {
+		t.Fatalf("first ask: %+v calls=%d", res, calls)
+	}
+	r.clk.Advance(2*time.Minute + time.Nanosecond)
+	res := r.sess.Ensure(context.Background(), "fin.src.ledger", lim, have, reread)
+	if res.Outcome != freshness.OutcomeRefreshed || res.Item.EvidenceID != "evr_new" || calls != 1 {
+		t.Fatalf("second ask after expiry: %+v calls=%d; want one refresh now (the first ask refreshed nothing)", res, calls)
+	}
+}
+
+func TestACachedUnavailableStaysUnavailableWhateverTheClockDoes(t *testing.T) {
+	r := newRig(t)
+	calls := 0
+	r.clk.Advance(time.Hour)
+	reread := func(context.Context) (freshness.Item, error) { calls++; return freshness.Item{}, errors.New("down") }
+	_ = r.sess.Ensure(context.Background(), "fin.src.ledger", lim, freshness.Item{EvidenceID: "evr_old", ReadAt: t0}, reread)
+	for _, step := range []time.Duration{0, time.Minute, time.Hour} {
+		r.clk.Advance(step)
+		res := r.sess.Ensure(context.Background(), "fin.src.ledger", lim, freshness.Item{EvidenceID: "evr_old", ReadAt: t0}, reread)
+		if res.Outcome != freshness.OutcomeUnavailable || res.Item != (freshness.Item{}) || calls != 1 {
+			t.Fatalf("step %v: %+v calls=%d", step, res, calls)
+		}
+	}
+}
