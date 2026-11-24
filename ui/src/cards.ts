@@ -1,27 +1,12 @@
 import { createElement as h, useEffect, useRef, useState } from "react";
 import { parseOverlayCardV1ClarificationCard, parseOverlayCardV1ConfirmationCard, type OverlayCardV1ClarificationCard, type OverlayCardV1ConfirmationCard } from "./contract_types/overlay_card_v1.js";
 import { ContractError } from "./contract_types/_runtime.js";
-import { cardExpiry } from "./card-expiry.js";
+import { isCanonicalInstant } from "./card-expiry.js";
 
-type Clock = () => number;
-const clock: Clock = () => Date.now();
 const expiredText = "This has changed. Let me check again.";
 
-function useExpired(expiresAt: string, now: number | undefined): boolean {
-  const expires = Date.parse(expiresAt);
-  const [current, setCurrent] = useState(() => now ?? clock());
-  useEffect(() => {
-    if (now !== undefined) {
-      setCurrent(now);
-      return;
-    }
-    if (cardExpiry(expiresAt, clock()) === "unavailable") return;
-    const remaining = expires - clock();
-    if (!Number.isFinite(remaining) || remaining <= 0) return;
-    const timer = setTimeout(() => setCurrent(clock()), Math.min(remaining, 2_147_483_647));
-    return () => clearTimeout(timer);
-  }, [expires, now, current]);
-  return cardExpiry(expiresAt, now ?? current) !== "active";
+function validCardExpiry(expiresAt: string): boolean {
+  return isCanonicalInstant(expiresAt);
 }
 
 interface ClarificationProps {
@@ -33,6 +18,7 @@ interface ClarificationProps {
 export function ClarificationCard(props: Omit<ClarificationProps, "card"> & { card: unknown }) {
   try {
     const card = parseOverlayCardV1ClarificationCard(props.card);
+    if (!validCardExpiry(card.expires_at)) return h("p", { role: "status" }, "This card is unavailable.");
     return h(ClarificationView, { ...props, card, key: card.clarification_id });
   } catch (error) {
     if (!(error instanceof ContractError)) throw error;
@@ -41,13 +27,13 @@ export function ClarificationCard(props: Omit<ClarificationProps, "card"> & { ca
 }
 
 function ClarificationView({ card, now, onChoice }: ClarificationProps) {
-  const expired = useExpired(card.expires_at, now);
+  const [serverExpired, setServerExpired] = useState(false);
   const lock = useRef(false);
   const inFlight = useRef(false);
   const selection = useRef<{ optionId: string; requestId: string } | null>(null);
   const [locked, setLocked] = useState(false);
   const [retry, setRetry] = useState(false);
-  const current = () => !expired && cardExpiry(card.expires_at, now ?? clock()) === "active";
+  const current = () => !serverExpired;
   const submit = async () => {
     if (!onChoice || !selection.current || !current() || inFlight.current) return;
     inFlight.current = true;
@@ -55,6 +41,7 @@ function ClarificationView({ card, now, onChoice }: ClarificationProps) {
     try {
       const result = await onChoice(card.clarification_id, selection.current.optionId, selection.current.requestId);
       if (result === "unavailable") setRetry(true);
+      else if (result === "expired") { setRetry(false); setServerExpired(true); }
     } catch {
       setRetry(true);
     } finally {
@@ -74,7 +61,7 @@ function ClarificationView({ card, now, onChoice }: ClarificationProps) {
     ...card.options.map((option) => h("button", {
       key: option.option_id,
       type: "button",
-      disabled: expired || locked || !onChoice,
+      disabled: serverExpired || locked || !onChoice,
       onClick: () => choose(option.option_id),
     }, option.label)),
     h("button", {
@@ -82,8 +69,8 @@ function ClarificationView({ card, now, onChoice }: ClarificationProps) {
       disabled: expired || locked || !onChoice || !card.allow_none,
       onClick: () => choose(card.none_option_id),
     }, "None of these"),
-    retry && !expired ? h("button", { type: "button", onClick: () => { if (retry) { setRetry(false); void submit(); } } }, "Try again") : null,
-    expired ? h("p", { role: "status" }, expiredText) : null,
+    retry && !serverExpired ? h("button", { type: "button", onClick: () => { if (retry) { setRetry(false); void submit(); } } }, "Try again") : null,
+    serverExpired ? h("p", { role: "status" }, expiredText) : null,
   );
 }
 
@@ -96,6 +83,7 @@ interface ConfirmationProps {
 export function ConfirmationCard(props: Omit<ConfirmationProps, "card"> & { card: unknown }) {
   try {
     const card = parseOverlayCardV1ConfirmationCard(props.card);
+    if (!validCardExpiry(card.expires_at)) return h("p", { role: "status" }, "This card is unavailable.");
     return h(ConfirmationView, { ...props, card, key: card.confirmation_request_id });
   } catch (error) {
     if (!(error instanceof ContractError)) throw error;
@@ -104,7 +92,6 @@ export function ConfirmationCard(props: Omit<ConfirmationProps, "card"> & { card
 }
 
 function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
-  const expired = useExpired(card.expires_at, now);
   const [showPolicy, setShowPolicy] = useState(false);
   const lock = useRef(false);
   const inFlight = useRef(false);
@@ -112,8 +99,8 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
   const [locked, setLocked] = useState(false);
   const [retry, setRetry] = useState(false);
   const [serverExpired, setServerExpired] = useState(false);
-  const isExpired = expired || serverExpired;
-  const current = () => !isExpired && cardExpiry(card.expires_at, now ?? clock()) === "active";
+  const isExpired = serverExpired;
+  const current = () => !serverExpired;
   const submit = async () => {
     if (!onResponse || !selected.current || !current() || inFlight.current) return;
     inFlight.current = true;
@@ -142,7 +129,7 @@ function ConfirmationView({ card, now, onResponse }: ConfirmationProps) {
   return h("section", { "aria-label": "Confirmation" },
     h("p", null, card.action), h("p", null, card.target), h("p", null, card.evidence_summary),
     h("button", { type: "button", disabled: isExpired || locked || !onResponse, onClick: response("ACCEPT") }, "Accept"),
-    h("button", { type: "button", disabled: expired || locked || !onResponse, onClick: response("DECLINE") }, "Decline"),
+    h("button", { type: "button", disabled: isExpired || locked || !onResponse, onClick: response("DECLINE") }, "Decline"),
     h("button", { type: "button", disabled: isExpired, onClick: () => setShowPolicy(!showPolicy), "aria-expanded": showPolicy }, "Policy details"),
     showPolicy ? h("p", null, card.policy_version) : null,
     retry && !isExpired ? h("p", { role: "status" }, "I could not confirm whether your response was recorded. Retry the same response.") : null,
