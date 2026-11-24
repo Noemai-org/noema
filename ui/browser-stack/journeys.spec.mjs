@@ -111,19 +111,19 @@ async function assertEventsRoute(page, streamUrl) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8", { fatal: true });
       let buffered = "";
-      let totalBytes = 0;
       try {
         for (;;) {
           const chunk = await reader.read();
           if (chunk.done) break;
-          totalBytes += chunk.value.byteLength;
-          if (totalBytes > maxBytes) throw new Error("SSE response exceeded the approved frame bound");
           buffered += decoder.decode(chunk.value, { stream: true });
           for (;;) {
             const boundary = buffered.indexOf("\\n\\n");
             if (boundary < 0) break;
             const raw = buffered.slice(0, boundary);
             buffered = buffered.slice(boundary + 2);
+            if (new TextEncoder().encode(raw + "\\n\\n").byteLength > maxBytes) {
+              throw new Error("SSE event exceeded the approved frame bound");
+            }
             if (raw.startsWith(":")) continue;
             let eventName = "";
             const data = [];
