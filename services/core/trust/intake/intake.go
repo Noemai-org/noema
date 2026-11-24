@@ -21,6 +21,14 @@ type Service struct {
 	Runnable Runnable
 	// Handoffs is optional (A531): whether the pack routes a reason code to a handoff for the intent node. It is asked only when no authorized capability is runnable. Nil means no handoff.
 	Handoffs Handoffs
+	// Escalation is optional (A562): which capabilities belong to the pack's escalation plan. A decision records the ESCALATE disposition it follows only when one of its steps is in the set
+	// (REQ-TRU-010); a read or a step outside the set never carries one. Nil means no step is an escalation step, so none carries a disposition (fail closed). The composition builds it from pack data.
+	Escalation EscalationSteps
+}
+
+// EscalationSteps says whether a capability is a step of the pack's escalation plan. The composition injects it; Trust holds no capability name (INV-14).
+type EscalationSteps interface {
+	Contains(capabilityID string) bool
 }
 
 // Result is the outcome of one evaluation: the decision and the trace of the steps it reached.
@@ -83,13 +91,20 @@ func (s *Service) evaluate(ctx context.Context, r Request, step *stepScope) (Res
 }
 
 // run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned; a
-// CONFIRM that T13 recorded carries its decision ID and the confirmation request it names; a REJECT of a declined approval (A435) carries its decision ID alone.
+// CONFIRM that T13 recorded carries its decision ID and the confirmation request it names; a REJECT of a declined approval (A435) and an ESCALATE (A534) carry their decision ID alone.
 func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.bb)
+	if d.Outcome() == decide.Escalate {
+		d, trace = e.recordEscalate(ctx, d, trace)
+	}
 	res := Result{Decision: d, Trace: trace}
 	switch d.Outcome() {
 	case decide.Allow, decide.Confirm:
 		res.DecisionID, res.GrantIDs, res.ConfirmationRequestID = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...), e.late.requestID
+	case decide.Escalate:
+		// A534 (interim, relayed, not yet committed): an ESCALATE the evaluation accepted was recorded before it was returned (recordEscalate in run), with no step and no grant; its decision ID is what the action decisions
+		// that follow it name as their disposition.
+		res.DecisionID = e.late.recorded.DecisionID
 	case decide.Reject:
 		// A435 (interim, relayed, not yet committed): only a decline that T13 recorded is a recorded REJECT here; it carries its decision ID, no grant and no request.
 		res.DecisionID = e.late.recorded.DecisionID
