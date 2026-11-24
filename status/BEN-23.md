@@ -73,6 +73,17 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 - Files to read first: `benchmark/suites/g1_package.py` (`_us06_problem`), `services/core/record/reconstruct/project.go`.
 - Do not touch: `benchmark-heldout`, the oracle.
 
+# Session 2026-11-24 · BEN-23 · the row-12 fixture follows A586
+
+## Session summary
+- What changed: `FILES_OK` in `benchmark/suites/test_g1_package.py` no longer lists `leak-scan.txt` or `G1-EVIDENCE-PACKAGE.md` (A586: the scan output, the inventory and the file list are the second artifact, so the main artifact is exactly the scanned files; the package is rendered after the run). The leak-scan fixtures say 10 files to match. New test `test_the_main_artifact_never_lists_the_scan_outputs_a586`. Test-only: no change to `g1_package.py`.
+- Why: the fixture contradicted the ruling. The renderer already compares the upload list with the scanner's inventory as exact sets, so a real run would have failed row 12 on the old list.
+- Risks, and how they are contained: none for the product; the renderer is unchanged. Putting `leak-scan.txt` back in the fixture fails five tests (mutation check).
+- Tests added (A586, A565): one. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none for this change; row 12 on a real run waits for IL's #924 (the second artifact and the stack workflow arguments).
+- Do not touch: `benchmark-heldout`, the oracle.
 # Session 2026-11-24 · BEN-23 · A604: the offline labelled set for `requested_remedy`
 
 ## Session summary
@@ -87,3 +98,4 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: C2 uses `load(Path("benchmark/compile_acceptance/remedy_labelled.v1.json"))` to score the compiler's gate offline with the replay provider, and reports the false-assertion and the miss counts separately, with and without the borderline items.
 - Do not touch: the goldens, the held-out set (INV-22), or any threshold (AGENT-16).
+- Split (A652, 24 Nov): this PR is the labelled set only. The SYNTHETIC boundary recordings and their generator were taken out (a revert commit, no history rewritten) and go in their own PR, regenerated on `main` after noema#932 merges. The generator work is kept on the branch `feat/BEN-23-boundary-recordings-a604` (commit `b2aee73a`).
