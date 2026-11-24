@@ -750,3 +750,67 @@ def test_the_new_report_and_then_the_rename_are_flushed_to_disk(tmp_path: Path, 
     report_file.write({"n": 1})
     report_file.close()
     assert calls == ["fsync file", "rename", "fsync directory"]  # the contents are on disk before the rename, and the rename is on disk after it
+
+
+# ---- A608: the text-to-speech audio is charged chunk by chunk as it streams; A612: only accepted audio is written, nothing partial is left in the store after a budget stop -----------------
+
+
+class ChunkedTts(Tts):
+    """Streams one-second chunks (48 kHz PCM16) and counts how many the consumer asked for: a consumer that stops must not pull more."""
+
+    def __init__(self, clock: Clock, chunks: int = 6) -> None:
+        super().__init__(clock)
+        self.total, self.pulled = chunks, 0
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text != "send ten thousand naira":
+            async for chunk in super().synthesize(request):
+                yield chunk
+            return
+        self.requests.append(request.text)
+        for index in range(self.total):
+            self.pulled += 1
+            yield AudioChunk(index, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000)  # one second
+
+
+def run_with_store(tmp_path: Path, items: list[ManifestItem], stt: object, tts: object, **over: object) -> tuple[dict[str, object], Path]:
+    root, store = make_store(tmp_path)
+    report = run(asyncio.wait_for(run_baseline(items=items, stt=stt, tts=tts, settings=settings(**over), bounds_s=(1.0, 15.0), store=store, clock_ms=Clock(), wall=wall,  # type: ignore[arg-type]
+                                               sleep=lambda s: fake_sleep([], s), tts_model_version="v1", on_progress=lambda r: None, answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))
+    return report, root
+
+
+def small(label: str) -> ManifestItem:
+    return ManifestItem(label=label, locale=Locale.PCM, origin=AudioOrigin.SYNTHETIC, speaker_ref="synthetic", audio_s=1.0, answer_s=0.5, script="send ten thousand naira")
+
+
+@POSIX
+def test_the_audio_is_charged_chunk_by_chunk_and_the_run_stops_at_the_chunk_that_would_not_fit_without_pulling_more(tmp_path: Path) -> None:
+    clock = Clock()
+    stt, tts = Stt(clock, []), ChunkedTts(clock, chunks=6)
+    report, _ = run_with_store(tmp_path, [small("u1")], stt, tts, budget_minutes=3.5 / 60)  # 3.5 s: three one-second chunks fit, the fourth would not
+    assert report["ended"] == "budget_exhausted" and stt.calls == 0
+    assert tts.pulled == 4  # the fourth chunk arrived and was refused; the fifth and sixth were never asked for (nothing is buffered first and charged after)
+    assert report["budget"]["generation_s"] == 3.0  # type: ignore[index]  # only the accepted audio is counted
+
+
+@POSIX
+def test_after_a_budget_stop_during_generation_nothing_of_the_audio_is_left_in_the_store(tmp_path: Path) -> None:
+    clock = Clock()
+    _, root = run_with_store(tmp_path, [small("u1")], Stt(clock, []), ChunkedTts(clock, chunks=6), budget_minutes=3.5 / 60)
+    assert list(root.iterdir()) == []  # no speaker folder, no partial file
+
+
+@POSIX
+def test_audio_that_cannot_be_used_because_the_session_does_not_fit_is_not_written_either(tmp_path: Path) -> None:
+    clock = Clock()
+    stt = Stt(clock, [])
+    report, root = run_with_store(tmp_path, [synthetic("u1")], stt, LongTts(clock), budget_minutes=15 / 60)  # ten seconds generated fit; sending them and speaking the answer do not
+    assert report["ended"] == "budget_exhausted" and stt.calls == 0 and list(root.iterdir()) == []
+
+
+@POSIX
+def test_only_the_audio_of_an_accepted_item_is_written_so_an_out_of_bounds_one_leaves_no_file(tmp_path: Path) -> None:
+    clock = Clock()
+    root_report, root = run_with_store(tmp_path, [synthetic("u1"), synthetic("u2")], Stt(clock, []), ShortThenLongTts(clock))
+    assert root_report["skipped_out_of_bounds"] == 1 and sorted(p.name for p in (root / "synthetic").iterdir()) == ["u2.pcm"]
