@@ -45,7 +45,7 @@ import (
 const undManifestRel = "fintech/manifest.v1.json"
 
 var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json",
-	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"} // A510: the three action graphs are pinned by the manifest too
+	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json", "fintech/routing/priority_routing.v1.json"} // A510: the three action graphs are pinned by the manifest too; PCK-09 (A644): so is the priority routing member
 
 // copyPack copies the real pack and its manifest into a fresh directory, so that a test can break one file of it.
 func copyPack(t *testing.T) string {
