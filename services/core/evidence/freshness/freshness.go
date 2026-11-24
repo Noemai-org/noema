@@ -183,7 +183,14 @@ func (s *Session) Ensure(ctx context.Context, source string, l Limits, have Item
 			}
 			return base
 		}
-		return out
+		// One refresh per source never authorises the reuse of an item that has become stale since (INV-16): the cached item is checked again
+		// against the current clock and the limit of THIS ask, and a second refresh is never made.
+		if Check(out.Item.ReadAt, s.clk.Now(), limit) != Fresh {
+			base.Outcome, base.Err = OutcomeUnavailable, fmt.Errorf("%w: %w", ErrAlreadyRefreshed, ErrRefreshStale)
+			return base
+		}
+		base.Outcome, base.Item = OutcomeRefreshed, out.Item
+		return base
 	}
 	a := &attempt{done: make(chan struct{})}
 	s.tried[source] = a // counted before the read runs, so a panic or a timeout is not retried
