@@ -32,6 +32,11 @@ const cases = manifest.journeys.flatMap((journey) => {
   }
   return journey.cases.map((item) => ({ journey, item }));
 });
+const principalIds = new Set(cases.map(({ item }) => item.principal_id));
+if (cases.length !== 19 || principalIds.size !== 19) {
+  throw new Error("Pinned BEN-23 v1.3.3 manifest must contain 19 cases for 19 distinct synthetic principals");
+}
+
 for (const { journey, item } of cases) {
   if (typeof item.case_id !== "string" || typeof item.principal_id !== "string" ||
       !Array.isArray(item.roles) || item.roles.length !== 1 || !item.roles.includes("customer") ||
