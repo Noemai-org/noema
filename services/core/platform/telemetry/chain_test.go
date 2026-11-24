@@ -78,7 +78,8 @@ func TestInjectSetsNothingForAnEmptyChain(t *testing.T) {
 	}
 }
 
-// REQ-AUD-004: a line logged through the bound logger carries correlation_id and trace_id; REQ-SEC-003: through the redactor a 16-digit run in a field is masked.
+// REQ-AUD-004: a line logged through the bound logger carries correlation_id; REQ-SEC-003: through the redactor a 16-digit run in a field is masked. The trace identifier is not
+// a log field: the redactor masks digit runs of a 32-hex identifier (found by the first version of this test, which expected it), so it would arrive mangled.
 func TestBoundLoggerCarriesTheChainAndPassesThroughTheRedactor(t *testing.T) {
 	tr := fixedTracer(t)
 	root, _ := tr.Root()
@@ -90,8 +91,11 @@ func TestBoundLoggerCarriesTheChainAndPassesThroughTheRedactor(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
 		t.Fatalf("not JSON: %v: %s", err, buf.String())
 	}
-	if line["correlation_id"] != goodCorr || line["trace_id"] != root.TraceIDHex() {
-		t.Fatalf("the chain is not on the line: %v", line)
+	if line["correlation_id"] != goodCorr {
+		t.Fatalf("the correlation id is not on the line: %v", line)
+	}
+	if _, has := line["trace_id"]; has {
+		t.Fatalf("a trace_id field would be masked by the redactor and cannot be searched: %v", line)
 	}
 	if strings.Contains(buf.String(), "1234567890123456") {
 		t.Fatalf("a 16-digit run reached the log: %s", buf.String())
