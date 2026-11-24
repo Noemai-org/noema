@@ -11,7 +11,15 @@ The benchmark runner drives each generated case through the public API and recor
    `python -m benchmark.generator generate --seed 20261020 --out benchmark/out/suite`.
 3. IL supplies a short-lived synthetic customer token file for every `principal_id` in the manifest, under one token directory. The existing bench issuer writes one file per principal (mode 0400); it accepts `BENCH_PRINCIPALS="id:customer ..."` and `BENCH_TOKEN_TTL` when `make bench-tokens` runs. Do not use one principal's token for another case.
 4. Run the manifest's case IDs through the existing `benchmark.runner` on the bench network with the approved API, mock-case, stand-in and proxy credentials. Preserve its output directory; the UI tests consume `correlations.json` and `results/<case_id>.json`. The runner's required fixture loader and evidence sources must be present; a NOT_RUN/ERROR result is not a passing journey.
-5. Start the real-core bench Compose profile with this test-only overlay. It proxies same-origin `/v1/` from the UI container to `core:8080` over the existing `edge_net`; it does not publish core or add a network. SSE buffering is disabled.
+5. Start the real-core bench Compose profile with this test-only overlay. Pass `BENCH_COMPOSE` as a Make command-line assignment (not an environment variable; the Makefile's ordinary assignment overrides environment values):
+
+   ```sh
+   : "${BENCH_MAX_BODY_BYTES:?set the approved bench body limit}"
+   : "${BENCH_TENANT:?set the approved bench tenant}"
+   make bench-up BENCH_TENANT="$BENCH_TENANT" BENCH_COMPOSE='docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml -f ui/browser-stack/compose.real-core.yml --profile bench'
+   ```
+
+   The overlay proxies same-origin `/v1/` from the UI container to `core:8080` over the existing `edge_net`; it does not publish core or add a network. SSE buffering is disabled.
 
 ## A654 settings
 
