@@ -619,9 +619,11 @@ MANIFEST_KINDS = {
     "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
     "recon_rules": ("fintech/recon_rules", "*.json"),
     "action_graph": ("fintech/graph", "*.json"),  # A510
+    "injection_patterns": ("fintech/context", "*.json"),  # A645: at most one, with its expected id
 }
 # The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
-SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
+# A645: the injection-screen patterns are pinned too (exactly one file, with `expected.injection_patterns_id`).
+SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules", "injection_patterns")
 WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -709,6 +711,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     for kind, entries in by_kind.items():
         if kind in SINGLE_KINDS and len(entries) != 1:
             out.append(("manifest", f"the manifest must list exactly one {kind} file, it lists {len(entries)}"))
+
     seen: set[str] = set()
     readable: dict[str, Path] = {}
     for f in files:
@@ -762,7 +765,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
                 out.append(("manifest", f"{rel}{suffix} is a {kind} file and is not listed in the manifest"))
     out += _graph_set_problems(by_kind["action_graph"], readable.get("pack"))
     expected = doc["expected"]
-    for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id")):
+    for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id"),
+                                   ("injection_patterns", "pack_id", "injection_patterns_id")):
         path = readable.get(kind)
         if path is None:
             continue

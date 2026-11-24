@@ -35,6 +35,10 @@ type Pack struct {
 	ReconRuleSetID    string
 	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
 	ActionGraphs map[string][]byte
+	// InjectionPatterns holds the verified bytes of the injection-screen pattern file the manifest pins (A645), and InjectionPatternsID the id the manifest expects of it. A file that is not pinned
+	// and verified is never here. A551: read-only, derived from the verified bytes, no industry term.
+	InjectionPatterns   []byte
+	InjectionPatternsID string
 }
 
 // The kinds of refusal. Callers compare with errors.Is.
@@ -50,7 +54,7 @@ var (
 	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules` or `action_graph`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph` or `injection_patterns`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -73,6 +77,7 @@ const (
 	kindMapping  = "evidence_mapping"
 	kindRules    = "recon_rules"
 	kindGraph    = "action_graph"
+	kindPatterns = "injection_patterns"
 	kindManifest = "manifest"
 )
 
@@ -111,8 +116,9 @@ type manifestDoc struct {
 	Label      *string `json:"label"`
 	Note       *string `json:"note"`
 	Expected   *struct {
-		MappingID *string `json:"evidence_mapping_id"`
-		RulesID   *string `json:"recon_rule_set_id"`
+		MappingID  *string `json:"evidence_mapping_id"`
+		RulesID    *string `json:"recon_rule_set_id"`
+		PatternsID *string `json:"injection_patterns_id"`
 	} `json:"expected"`
 	Files []manifestFile `json:"files"`
 }
@@ -170,6 +176,11 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	if err := checkGraphs(p.Pack, graphs); err != nil {
 		return Pack{}, err
 	}
+	id, ver, _, err := members(bytesOf[kindPatterns], "pack_id", "")
+	if err != nil || id+"@"+ver != *doc.Expected.PatternsID {
+		return Pack{}, refuse(ErrID, kindPatterns)
+	}
+	p.InjectionPatterns, p.InjectionPatternsID = bytesOf[kindPatterns], *doc.Expected.PatternsID
 	p.ActionGraphs = graphs
 	return p, nil
 }
@@ -207,7 +218,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindPatterns {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++
@@ -216,7 +227,11 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		}
 		paths[*f.Path] = true
 	}
-	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 {
+	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 || perKind[kindPatterns] != 1 {
+		return manifestDoc{}, bad
+	}
+	// A645: the injection patterns are listed exactly once, with their expected id.
+	if id := doc.Expected.PatternsID; id == nil || !idRe.MatchString(*id) || len(*id) > maxIDLen {
 		return manifestDoc{}, bad
 	}
 	return doc, nil

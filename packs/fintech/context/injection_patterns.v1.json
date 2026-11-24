@@ -43,6 +43,26 @@
       "id": "fin.inj.authority_claim",
       "regex": "(?i)\\b(?:i\\s+am|i'm)\\s+(?:an?\\s+|the\\s+)?(?:admin|administrator|operator|root|supervisor|developer)\\b",
       "note": "A claim of authority in text ('I am the administrator', EC-X08). Identity comes only from the session (INV-12); this reports the claim."
+    },
+    {
+      "id": "fin.inj.model_marker",
+      "regex": "(?i)\\[/?INST\\]|<<\\s*/?SYS\\s*>>|(?m:^\\s*#{2,}\\s*(?:instruction|system|response)\\b)|<\\|\\s*(?:endoftext|startoftext|eot_id|begin_of_text)\\s*\\|>",
+      "note": "A model-format marker: [INST], <<SYS>>, a '### Instruction' heading or an end-of-text token, text that only means something to a model's chat template (A645; B6)."
+    },
+    {
+      "id": "fin.inj.mode_switch",
+      "regex": "(?i)\\b(?:developer|jailbreak|god|admin|debug|unrestricted)\\s+mode\\b|\\bact\\s+as\\s+(?:DAN|an?\\s+(?:unrestricted|unfiltered))\\b|\\bpretend\\s+(?:you\\s+are|to\\s+be)\\b",
+      "note": "A mode-switch phrase: 'developer mode', 'act as DAN', 'pretend you are' (A645). A person's name or a plain word does not match: the phrase needs its verb."
+    },
+    {
+      "id": "fin.inj.command_line",
+      "regex": "(?i)\\bcurl\\b[^|\\n]{0,200}\\|\\s*(?:sh|bash)\\b|\\bpowershell(?:\\.exe)?\\s+-(?:enc|e|command)\\b|\\brm\\s+-rf\\b|```",
+      "note": "A shell or script one-liner or a fenced code block in a field that should hold a name or a note (A645). The core executes nothing a field says; this reports it."
+    },
+    {
+      "id": "fin.inj.encoded_blob",
+      "regex": "[A-Za-z0-9+/]{40,}={0,2}",
+      "note": "A long unbroken run of base64 characters: an encoded payload where a name or a note is expected (A645). A reference or an id is far shorter."
     }
   ]
 }

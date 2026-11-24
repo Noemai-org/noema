@@ -28,9 +28,17 @@
           "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*@[1-9][0-9]{0,8}$",
           "not": {"pattern": "\n"},
           "description": "`ruleset_id@version` of the listed `recon_rules` file."
+        },
+        "injection_patterns_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*@[1-9][0-9]{0,8}$",
+          "not": {"pattern": "\n"},
+          "description": "`pack_id@version` of the listed `injection_patterns` file; (A645)."
         }
       },
-      "required": ["evidence_mapping_id", "recon_rule_set_id"],
+      "required": ["evidence_mapping_id", "recon_rule_set_id", "injection_patterns_id"],
       "additionalProperties": false
     },
     "files": {
@@ -40,7 +48,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other."},
+          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph", "injection_patterns"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other; one `injection_patterns` file (A645)."},
           "path": {
             "type": "string",
             "minLength": 1,
