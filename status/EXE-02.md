@@ -47,7 +47,7 @@ Updated 2026-10-25. Renamed from `EXE-01.md`: the plan's EXE-01 is the registry 
 - Exact next step: if the test fails again on `main` after this merges, read the log for the three counts (at the return, after the statements ended, later) and reopen.
 - Do not touch: `services/core/execution/ledger/retry.go` (no attempt starts once the context is done).
 
-# Session 2026-11-24 05:30 WAT · EXE-02 (Repo Steward) · the deadline test counts every client statement (A611, Codex's P2)
+# Session 2026-11-24 04:50 WAT · EXE-02 (Repo Steward) · the deadline test counts every client statement (A611, Codex's P2)
 
 ## Session summary
 - What changed (noema#915): `services/core/execution/ledger/retry_test.go` only. The deadline test counts the statements the client issues, when it issues them, with a pgx tracer on a pool of the world's login (`statementCounter`, `poolCountingStatements`), and it allows no extra attempt (ruling A611). The helper that ended the login's server-side connections is removed.
