@@ -91,7 +91,7 @@ test("REQ-UI-003 POC-FR-17: reconstruction sections and masked explanation are p
   assert.deepEqual(scanVisibleText(html), []);
 });
 
-test("REQ-UI-003: operator sees supplied decision, grant, execution and outcome without raw references", async () => {
+test("REQ-UI-003: audit reader sees supplied decision, grant, execution and outcome without raw references", async () => {
   const value = await load("full_write_case");
   const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
   assert.match(html, /Decision: Allowed/);
