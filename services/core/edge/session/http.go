@@ -37,6 +37,11 @@ func CorrelationFromContext(ctx context.Context) string {
 	return c
 }
 
+// withPrincipal returns r with p in its context, derived from the request's own context.
+func withPrincipal(r *http.Request, p Principal) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), ctxKey{}, p))
+}
+
 // FromContext returns the authenticated principal of a request that passed Middleware.
 func FromContext(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(ctxKey{}).(Principal)
@@ -72,7 +77,7 @@ func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 				writeError(w, contracts.ErrorsV2ErrorCodeSESSIONINVALID, "The session is not valid.", corr)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
+			next.ServeHTTP(w, withPrincipal(r, p))
 		})
 	}
 }
