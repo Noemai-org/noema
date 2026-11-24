@@ -659,7 +659,9 @@ class Compensation(unittest.TestCase):
         for cid in ("fin.cap.route_to_internal_owner", "fin.cap.create_escalation_case"):
             base, _ = real()
             del self.cap(base, cid)["compensation"]
-            self.assertTrue(any(cid in m and "compensation" in m for m in self.hits(base)), (cid, self.hits(base)))
+            # The descriptor's own schema already requires it of every allowed capability (the `else` of its prohibited rule), so the refusal may come as a schema error: either way the pack is refused.
+            every = checks.run(PACKS / "fintech_v1.json", pack=base)
+            self.assertTrue(any("compensation" in m and (cid in m or c == "schema") for c, m in every), (cid, every))
 
     def test_an_inverse_capability_must_be_registered_not_prohibited_and_not_itself(self):
         for target, why in (("fin.cap.not_in_the_pack", "registered"), ("fin.cap.transfer_funds", "prohibited"), ("fin.cap.create_escalation_case", "itself")):

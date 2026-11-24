@@ -19,6 +19,7 @@ var Types = map[string]func() any{
 	"canonical-input.v1":                                    func() any { return new(CanonicalInputV1) },
 	"canonical-input.v2":                                    func() any { return new(CanonicalInputV2) },
 	"capability-descriptor.v1":                              func() any { return new(CapabilityDescriptorV1) },
+	"capability-descriptor.v2":                              func() any { return new(CapabilityDescriptorV2) },
 	"clarification-answer.v1":                               func() any { return new(ClarificationAnswerV1) },
 	"clarification.v1":                                      func() any { return new(ClarificationV1) },
 	"clock.v1":                                              func() any { return new(ClockV1) },

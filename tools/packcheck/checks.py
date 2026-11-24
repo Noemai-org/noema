@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import unicodedata
+import zoneinfo
 from fractions import Fraction
 from pathlib import Path
 
@@ -185,6 +186,54 @@ def check_capabilities(pack: dict) -> list[Problem]:
         if c["prohibited"] and (c.get("recovery") or c["verification"]["method"] == "independent_read"):
             out.append(("capability", f"{cid}: a prohibited capability carries no executable path"))
     return out
+
+
+def check_compensation(pack: dict) -> list[Problem]:
+    """REQ-CAP-004 (A631, A647): recovery is declared, never improvised. A REVERSIBLE or COMPENSABLE capability declares a compensation; an IRREVERSIBLE one declares ESCALATE_ONLY and
+    nothing else; an INVERSE_CAPABILITY names a capability that is itself registered, not prohibited and not the capability itself; a prohibited capability declares no compensation and
+    has no adapter (BD-08, REQ-CAP-002). The shape (the three values, the mapping that goes with an inverse) is capability-descriptor.v2's."""
+    out: list[Problem] = []
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    for cid, c in caps.items():
+        if c["prohibited"]:
+            if "compensation" in c or "inverse_mapping" in c:
+                out.append(("compensation", f"{cid}: a prohibited capability declares no compensation and has no adapter"))
+            continue
+        declared = c.get("compensation")
+        irreversibility = (c.get("consequence_profile") or {}).get("irreversibility")
+        if declared is None:
+            out.append(("compensation", f"{cid}: a {irreversibility or 'registered'} capability needs a declared compensation"))
+            continue
+        if irreversibility == "IRREVERSIBLE" and declared != "ESCALATE_ONLY":
+            out.append(("compensation", f"{cid}: an IRREVERSIBLE capability declares ESCALATE_ONLY and nothing else (it declares {declared})"))
+        if declared == "INVERSE_CAPABILITY":
+            inverse = (c.get("inverse_mapping") or {}).get("capability_id")
+            if inverse == cid:
+                out.append(("compensation", f"{cid}: the inverse capability is itself"))
+            elif inverse not in caps:
+                out.append(("compensation", f"{cid}: the inverse capability {inverse!r} is not registered in the pack"))
+            elif caps[inverse]["prohibited"]:
+                out.append(("compensation", f"{cid}: the inverse capability {inverse} is prohibited"))
+    return out
+
+
+def check_tenant_zone(pack: dict) -> list[Problem]:
+    """A647, A650 (REQ-DATA-002): `tenant_zone` is an IANA zone name the tz database knows. The synthetic tenant uses Africa/Lagos. Fails closed: with no tz database to ask, a zone is refused."""
+    zone = pack.get("tenant_zone")
+    if zone is None:
+        return []
+    try:
+        zoneinfo.ZoneInfo(zone)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+        return [("tenant_zone", f"tenant_zone {zone!r} is not an IANA zone name the tz database knows")]
+    return []
+
+
+def check_graph_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """A645, A647: an intent node's `action_graph` names a graph the pack declares."""
+    known = {g["graph_id"] for g in graphs.values()}
+    return [("graph_link", f"{n['node_id']}: action_graph {n['action_graph']!r} is not a graph the pack declares")
+            for n in pack["intent_nodes"] if "action_graph" in n and n["action_graph"] not in known]
 
 
 def predicates_of(pack: dict, graphs: dict[str, dict]):
@@ -802,7 +851,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
