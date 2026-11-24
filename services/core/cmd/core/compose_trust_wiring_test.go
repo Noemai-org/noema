@@ -6,6 +6,7 @@ package main
 // AGENT-13, AGENT-16. Tests of the database-backed adapters themselves are in the lanes' own files; nothing here dials a database (pools connect lazily). Every value is SYNTHETIC.
 
 import (
+	"context"
 	"os"
 	"reflect"
 	"regexp"
@@ -410,5 +411,33 @@ func TestAPackThatFailsVerificationBuildsNothing(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), dir) {
 		t.Errorf("the error names the pack directory: %v", err)
+	}
+}
+
+// Written after the hand mutation check: the one pack source of production answers once (two calls, one Pack), and the Trust logins the composition opened for the wiring are closed
+// with the rest (a pool left open would outlive the process's own close).
+func TestProductionsPackSourceAnswersOnceAndTheSharedLoginsAreClosedWithTheComposition(t *testing.T) {
+	e := twProductionEnv(t)
+	env := Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
+	d := productionDeps()
+	first, err := d.Pack(env)
+	if err != nil || first == nil {
+		t.Fatalf("pack %v, %v", first, err)
+	}
+	if second, err := d.Pack(env); err != nil || second != first {
+		t.Fatalf("a second call gave another Pack (%p, %p, %v): the pack was loaded twice", first, second, err)
+	}
+	var calls twCalls
+	_, _, closer, err := twBuild(t, e, twDeps(&loaded{}), &calls)
+	if err != nil || len(calls.wired) != 1 {
+		t.Fatalf("build: %v, wiring calls %d", err, len(calls.wired))
+	}
+	pool := calls.wired[0].Pools["ten_aa"]
+	closer()
+	closer() // safe to call twice
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := pool.Ping(ctx); err == nil || !strings.Contains(err.Error(), "closed pool") {
+		t.Errorf("a shared Trust login is still open after the composition closed: %v", err)
 	}
 }

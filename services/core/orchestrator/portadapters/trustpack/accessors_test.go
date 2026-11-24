@@ -183,3 +183,26 @@ func TestTheAccessorsNameNoIdOfThePack(t *testing.T) {
 		t.Errorf("accessors.go names ids of the pack: %v", lits)
 	}
 }
+
+// Written after the hand mutation check: two CONFIRM rules that ask the same of one capability are one requirement, not a conflict.
+func TestTwoRulesThatAskTheSameOfOneCapabilityAreNotAConflict(t *testing.T) {
+	m := files(t)
+	m[packFileName] = edit(t, m[packFileName], func(p map[string]any) {
+		rules := p["policy"].(map[string]any)["rules"].([]any)
+		for _, r := range rules {
+			if rule := r.(map[string]any); rule["effect"] == "CONFIRM" {
+				twin := map[string]any{}
+				for k, v := range rule {
+					twin[k] = v
+				}
+				twin["rule_id"] = "synthetic.twin"
+				p["policy"].(map[string]any)["rules"] = append(rules, twin)
+				return
+			}
+		}
+	})
+	got, err := mustLoadFiles(t, m).ConfirmationRequirements()
+	if err != nil || !reflect.DeepEqual(got, accExpected(t, readPackFile(t, packFileName))) {
+		t.Fatalf("got %v, %v; want the pack's own requirements", got, err)
+	}
+}
