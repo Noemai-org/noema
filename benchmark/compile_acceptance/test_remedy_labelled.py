@@ -6,6 +6,7 @@ import json
 import re
 import unittest
 from pathlib import Path
+from typing import Any, ClassVar
 
 from benchmark.compile_acceptance.golden import GOLDEN
 from benchmark.compile_acceptance.remedy_labelled import ASKS_FOR, LOCALES, Item, LabelledSetRefused, load, parse
@@ -15,6 +16,8 @@ PATH = ROOT / "benchmark" / "compile_acceptance" / "remedy_labelled.v1.json"
 
 
 class Shape(unittest.TestCase):
+    items: ClassVar[tuple[Item, ...]]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.items = load(PATH)
@@ -81,8 +84,9 @@ class Shape(unittest.TestCase):
 
 
 class Refusals(unittest.TestCase):
-    def doc(self) -> dict:
-        return json.loads(PATH.read_text(encoding="utf-8"))
+    def doc(self) -> dict[str, Any]:
+        doc: dict[str, Any] = json.loads(PATH.read_text(encoding="utf-8"))
+        return doc
 
     def test_a_malformed_file_is_refused_not_repaired(self) -> None:
         good = self.doc()
