@@ -65,24 +65,34 @@ func faultOnSpend(t *testing.T, w *world, sqlstate string, failFirst, sleepMS in
 	}
 }
 
-// insertCounter is a pgx tracer that counts the spend INSERTs the CLIENT issues, at the moment it issues them (TraceQueryStart), whatever the server does with them afterwards.
+// statementCounter is a pgx tracer that counts the statements the CLIENT issues, at the moment it issues them (TraceQueryStart), whatever the server does with them afterwards.
 // It is what the deadline test counts: a count taken at the server moves when a loaded server begins a statement the client sent before its context ended, which is not a new
-// attempt (ruling A611: count the client-issued statements, allow no extra attempt).
-type insertCounter struct{ n atomic.Int64 }
+// attempt (ruling A611: count the client-issued statements, allow no extra attempt). It counts every statement, not only the final INSERT, because a spend attempt begins
+// earlier (the lock, BEGIN, the grant read) and a retry that starts after the deadline and stops before the INSERT must not go unseen. Inserts are counted apart, to bound the
+// number of attempts. The pool's own health-check ping (the empty statement ";") is not a spend statement and is left out.
+type statementCounter struct {
+	all     atomic.Int64
+	inserts atomic.Int64
+}
 
-func (c *insertCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
-	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(d.SQL)), "INSERT INTO GRANT_SPEND") {
-		c.n.Add(1)
+func (c *statementCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+	sql := strings.ToUpper(strings.TrimSpace(d.SQL))
+	if sql == ";" || sql == "" {
+		return ctx
+	}
+	c.all.Add(1)
+	if strings.HasPrefix(sql, "INSERT INTO GRANT_SPEND") {
+		c.inserts.Add(1)
 	}
 	return ctx
 }
 
-func (c *insertCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+func (c *statementCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
-// poolCountingInserts is a pool of the world's login whose connections count the spend INSERTs the client issues.
-func poolCountingInserts(t *testing.T, w *world) (*pgxpool.Pool, *insertCounter) {
+// poolCountingStatements is a pool of the world's login whose connections count the statements the client issues.
+func poolCountingStatements(t *testing.T, w *world) (*pgxpool.Pool, *statementCounter) {
 	t.Helper()
-	tr := &insertCounter{}
+	tr := &statementCounter{}
 	cfg := w.exec.Config()
 	cfg.ConnConfig.Tracer = tr
 	p, err := pgxpool.NewWithConfig(ctx(t), cfg)
@@ -352,12 +362,12 @@ func TestOnlyASerializationFailureIsRetried(t *testing.T) {
 }
 
 // The context deadline bounds all the attempts: with a thousand attempts allowed, every one of them slow and refused, the spend returns when the deadline does, an error,
-// and the client issues no statement after it. The count is of the statements the client issues (ruling A611), taken when it issues them, so it does not depend on when a loaded
+// and the client issues no statement of any kind after it. The count is of the statements the client issues (ruling A611), every one and not only the INSERT, taken when it issues them, so it does not depend on when a loaded
 // server begins a statement the client had already sent: any increase after Spend returned is a client that went on trying.
 func TestTheContextDeadlineStopsTheAttempts(t *testing.T) {
 	w := newWorld(t)
 	faultOnSpend(t, w, "40001", 1000000, 50)
-	pool, issued := poolCountingInserts(t, w)
+	pool, issued := poolCountingStatements(t, w)
 	led, _ := ledgerOn(t, w, pool)
 	led.SerializationAttempts = 1000
 	g := w.issue(t, 1)
@@ -380,13 +390,13 @@ func TestTheContextDeadlineStopsTheAttempts(t *testing.T) {
 	if !isDidNotCommit40001(o.err) && !errors.Is(o.err, context.DeadlineExceeded) && !errors.Is(o.err, context.Canceled) {
 		t.Errorf("the error is neither the did-not-commit error nor the context's: %v", o.err)
 	}
-	atReturn := issued.n.Load()
-	if atReturn < 1 || atReturn >= 1000 {
-		t.Fatalf("%d spend statements were issued inside a 500 ms deadline, want at least one and far fewer than 1000", atReturn)
+	atReturn, insertsAtReturn := issued.all.Load(), issued.inserts.Load()
+	if insertsAtReturn < 1 || insertsAtReturn >= 1000 {
+		t.Fatalf("%d spend attempts reached their INSERT inside a 500 ms deadline, want at least one and far fewer than 1000", insertsAtReturn)
 	}
 	time.Sleep(300 * time.Millisecond)
-	if later := issued.n.Load(); later != atReturn {
-		t.Fatalf("the client issued spend statements after Spend returned: %d at the return, %d later", atReturn, later)
+	if later := issued.all.Load(); later != atReturn {
+		t.Fatalf("the client issued %d statements after Spend returned (%d at the return, %d later)", later-atReturn, atReturn, later)
 	}
 }
 
