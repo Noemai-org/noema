@@ -1,6 +1,6 @@
 """packcheck: every pack check, with one code path for the command line, the tests and CI (SoT 15.4, REQ-CAP-001, REQ-AG-001, REQ-AG-002).
 
-Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, roles, reasons, templates, conformance.
+Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, disambiguation, roles, reasons, templates, conformance.
 Not checked here: 'a capability has no benchmark cases' (AGENT-06): no benchmark case set exists yet.
 """
 from __future__ import annotations
@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
@@ -29,6 +30,13 @@ RANK = {"R0_read": 0, "R0_internal": 0, "R1_append_only": 1, "R2_non_monetary_wr
 KIND_RANKS = {"READ": {"R0_read"}, "INTERNAL": {"R0_internal"}, "WRITE": {"R1_append_only", "R2_non_monetary_write", "R3_regulatory_write"}}
 FREE_FORM = re.compile(r"[@:/\\ ]|^https?", re.I)
 CORE_REASON_CODES: set[str] = set()
+# A555: what a candidate label may show. The fields are the candidates contract's (the allowed list is derived, so a field added there is never shown by accident: it must be allowed here
+# by name); the candidate id, the resource reference and the alias flag are never in a label (REQ-AMB-004, AGENT-13). The currency is shown with the amount and is not asked by itself.
+_CANDIDATE_FIELDS = frozenset(json.loads((ROOT / "contracts/schemas/candidates-response.v1.json").read_text())["$defs"]["Candidate"]["properties"])
+LABEL_ATTRIBUTES = _CANDIDATE_FIELDS - {"candidate_id", "resource_ref", "beneficiary_alias_match"}
+ASKABLE_ATTRIBUTES = LABEL_ATTRIBUTES - {"currency"}
+LABEL_MEMBERS = ("options_key", "display_template", "attribute_order")
+PLACEHOLDER = re.compile(r"\{attr:([a-z][a-z0-9_]*)\}")
 
 
 def implied_rank(consequence: dict, side_effect: str) -> int:
@@ -449,6 +457,58 @@ def check_handoff_routes(pack: dict, allow: set[str]) -> list[Problem]:
     return out
 
 
+def _label_template_problems(where: str, text: str, allowed: frozenset[str]) -> list[str]:
+    """One label template: literal text and `{attr:<field>}` placeholders. Every placeholder names an allowed candidate field, there is at least one, no two touch (two numbers side by
+    side could make a longer digit run than the masking rule allows) and the literal text holds no digit at all, in any script (so nothing in a label can be a number of the pack's own)."""
+    out: list[str] = []
+    names = PLACEHOLDER.findall(text)
+    literal = PLACEHOLDER.sub("", text)
+    if not names:
+        out.append(f"{where}: the template names no {{attr:<field>}} placeholder")
+    out += [f"{where}: {{attr:{n}}} is not a field this template may show" for n in names if n not in allowed]
+    if "{" in literal or "}" in literal:
+        out.append(f"{where}: a brace that is not a whole {{attr:<field>}} placeholder")
+    if any(unicodedata.category(ch) in ("Nd", "Nl", "No") for ch in literal):  # a number of any kind: digits of any script, superscripts, circled digits, fractions, numerals
+        out.append(f"{where}: the literal text holds a digit")
+    if any(unicodedata.category(ch) in ("Cc", "Cf") for ch in text):  # a control, zero-width or bidi character could keep two placeholders apart for a program and together for a customer
+        out.append(f"{where}: the template holds a control or invisible character")
+    if re.search(r"\}\{", text):
+        out.append(f"{where}: two placeholders side by side")
+    return out
+
+
+def check_disambiguation(pack: dict) -> list[Problem]:
+    """A555 (REQ-AMB-004): a node that searches candidates declares the three label members together or none: the question key for OPTIONS mode, the OPTIONS label template and the fixed
+    order of askable attributes, each with its own question key and label template. Names are the candidates contract's labelable fields, listed once; question keys are listed once and the
+    OPTIONS key is none of them; an attribute's label shows only that attribute (the amount also shows its currency); the display shows any labelable field."""
+    out: list[Problem] = []
+    for node in pack["intent_nodes"]:
+        d = node.get("disambiguation") or {}
+        present = [m for m in LABEL_MEMBERS if m in d]
+        if not present:
+            continue
+        where = f"{node['node_id']}: disambiguation"
+        if len(present) != len(LABEL_MEMBERS):
+            out.append(("disambiguation", f"{where}: declares {present} without {[m for m in LABEL_MEMBERS if m not in d]}; the three go together"))
+            continue
+        if not any(s.get("resolution") == "candidate_search" for s in node["slots"]):
+            out.append(("disambiguation", f"{where}: the node has no candidate_search slot, so it has no candidate labels"))
+        problems = [f"{where}.display_template: {m}" for m in _label_template_problems("template", d["display_template"], LABEL_ATTRIBUTES)]
+        keys = [d["options_key"]]
+        names: list[str] = []
+        for i, a in enumerate(d["attribute_order"]):
+            at = f"{where}.attribute_order[{i}]"
+            if a["name"] not in ASKABLE_ATTRIBUTES:
+                problems.append(f"{at}: {a['name']!r} is not an attribute a question may ask by")
+            names.append(a["name"])
+            keys.append(a["question_key"])
+            problems += [f"{at}: {m}" for m in _label_template_problems("label_template", a["label_template"], frozenset({a["name"]} | ({"currency"} if a["name"] == "amount_minor" else set())))]
+        problems += [f"{where}.attribute_order: {n!r} is listed twice" for n in sorted({n for n in names if names.count(n) > 1})]
+        problems += [f"{where}: the question key {k!r} is used twice (options_key and attribute_order share one set)" for k in sorted({k for k in keys if keys.count(k) > 1})]
+        out += [("disambiguation", m) for m in problems]
+    return out
+
+
 def check_understanding(pack: dict, pack_dir: Path, conformance: bool = False) -> list[Problem]:
     """REQ-AMB-003: a pack that ranks candidates carries its ranking data (missing weights fail pack validation at load), the weights sum to
     exactly 1, the floor and the tolerance lie in [0, 1], each ranking node names a matcher file that exists inside the pack's folder, and no
@@ -743,7 +803,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     if problems:  # the other checks assume a well-formed pack
         return problems
     problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
-    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
+    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     if templates == "enforce":
