@@ -360,6 +360,29 @@ class G1StackWorkflow(unittest.TestCase):
             subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True, env=env)
             self.assertEqual((out / "mock-case.log").read_text(encoding="utf-8"), "real collector line\n", "an existing collector file is never touched")
 
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_a_stack_check_shows_the_tail_of_the_cores_log_only_after_a_clean_scan(self) -> None:
+        # The first two stack-checks on main ended with the core exiting 1 and the reason only inside an artifact. The tail of the core's own log is shown in the stack-check's job log, after the
+        # leak scan that already covered the file and only if it was clean; the job-log scan reads it again. A full run shows no service log.
+        show = re.search(r"(?ms)- name: Show the run output \(only if the leak scan is clean\)\n.*?        run: \|\n(.*?)(?=^      - )", self.text)
+        assert show
+        script = "\n".join(line[10:] for line in show.group(1).splitlines())
+        def run(scan: str, mode: str) -> str:
+            with tempfile.TemporaryDirectory() as tmp:
+                logs = Path(tmp, "benchmark", "out", "service-logs")
+                logs.mkdir(parents=True)
+                (logs / "core.log").write_text("".join(f"core line {i}\n" for i in range(200)), encoding="utf-8")
+                (logs / "model.log").write_text("model line\n", encoding="utf-8")
+                r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, capture_output=True, text=True, check=False, env={"PATH": os.environ["PATH"], "SCAN": scan, "MODE": mode})
+                self.assertEqual(r.returncode, 0, f"the show step must not fail a run (scan {scan}, mode {mode}): {r.stderr}")  # a group ends with its last command's status (the 23 Nov Summary step)
+                return r.stdout
+        out = run("0", "stack-check")
+        self.assertIn("core line 199", out)
+        self.assertNotIn("core line 100", out, "only the tail is shown")
+        self.assertNotIn("model line", out, "only the core's log is shown")
+        self.assertNotIn("core line", run("2", "stack-check"), "a scan that did not pass shows nothing")
+        self.assertNotIn("core line", run("0", "full"), "a full run shows no service log")
+
     def test_a_captured_service_log_is_not_scanned_with_the_model_access_log_on(self) -> None:
         # Codex P1 on noema#591: uvicorn's access line carries the client's ephemeral port, five digits, on every request and on the health check every three seconds, so a captured model
         # log would fail the scan of an otherwise clean run. The workflow captures the model's log; the bench overlay must start it without the access log.

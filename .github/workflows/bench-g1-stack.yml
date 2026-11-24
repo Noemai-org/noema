@@ -394,6 +394,9 @@ jobs:
         run: |
           if [ "${SCAN:-missing}" = 0 ]; then
             for f in benchmark/out/joblog/*.log; do [ -f "$f" ] && { echo "::group::$(basename "$f")"; cat "$f"; echo "::endgroup::"; }; done
+            # A stack-check that fails has no other place to say why: the tail of the core's own log, from the file the scan has just read (the job-log scan reads it again here). Never in a full run.
+            [ "$MODE" = stack-check ] && [ -s benchmark/out/service-logs/core.log ] && { echo "::group::core.log, last 80 lines"; tail -n 80 benchmark/out/service-logs/core.log; echo "::endgroup::"; }
+            true
           else
             echo "The run output is not shown: the leak scan did not pass (exit ${SCAN:-missing}); the files are in the artifact only if it did."
           fi
