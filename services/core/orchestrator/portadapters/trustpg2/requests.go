@@ -182,20 +182,21 @@ func (r Requests) lookup(ctx context.Context, tenantID, requestID string, at *ti
 		out     confirm.StoredRequest
 		expires time.Time
 	)
-	_ = at
 	b := &out.Request.Binding
+	// The verdict is the database's: expires_at at or before its now() (or the instant a test names) is expired, so a request exactly at its expiry is expired (A607, A612). The expiry
+	// comes back as timestamptz, at the microsecond precision the database keeps; nothing here is rounded.
 	err := r.Pool.QueryRow(ctx, `SELECT confirmation_request_id, principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash, policy_version,
-			requirement, requester_id, expires_at
-		FROM confirmation_request WHERE tenant_id = $1 AND confirmation_request_id = $2`, tenantID, requestID).
-		Scan(&out.Request.ID, &b.PrincipalID, &b.IntentHash, &b.CapabilityID, &b.TargetRef, &b.ParamsHash, &b.EvidenceSetHash, &b.PlanHash, &b.PolicyVersion, &out.Request.Requirement, &out.Request.RequesterID, &expires)
+			requirement, requester_id, expires_at, expires_at <= COALESCE($3::timestamptz, now())
+		FROM confirmation_request WHERE tenant_id = $1 AND confirmation_request_id = $2`, tenantID, requestID, at).
+		Scan(&out.Request.ID, &b.PrincipalID, &b.IntentHash, &b.CapabilityID, &b.TargetRef, &b.ParamsHash, &b.EvidenceSetHash, &b.PlanHash, &b.PolicyVersion, &out.Request.Requirement, &out.Request.RequesterID, &expires, &out.Expired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return confirm.StoredRequest{}, false, nil
 	}
 	if err != nil {
 		return confirm.StoredRequest{}, false, fmt.Errorf("trustpg2: read the request: %w", err)
 	}
-	out.Request.ExpiresAt = expires.Unix()
-	out.ExpiresAt = time.Unix(expires.Unix(), 0).UTC()
+	out.ExpiresAt = expires.UTC()
+	out.Request.ExpiresAt = expires.Unix() // the whole-second form for confirm.Resolve; the verdict above, not this, decides expiry
 	return out, true, nil
 }
 

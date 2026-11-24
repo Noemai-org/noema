@@ -110,15 +110,6 @@ func decodeConfirmationAnswer(body []byte) (ConfirmationAnswer, error) {
 	return ConfirmationAnswer{}, errConfirmationAnswer
 }
 
-// replyTime is the reply's instant in Unix seconds, rounded up: a sub-second error can make a reply late, never early.
-func replyTime(t time.Time) int64 {
-	at := t.Unix()
-	if t.Nanosecond() > 0 {
-		at++
-	}
-	return at
-}
-
 // confirmationRoute is the route. Roles: approver and customer (a customer answers only a SELF request, below); ops and audit never reach the handler.
 func confirmationRoute(c confirmationRouteConfig) edge.Route {
 	decode := c.Decode
@@ -169,10 +160,16 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 			publicError(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.", corr)
 			return
 		}
-		now := c.Clock.Now()
-		at := replyTime(now)
+		// A607, A612: the request's expiry is the DATABASE's verdict, read with the request; a request at or past its expiry by the database's clock is expired. The application clock decides nothing
+		// about expiry and is never rounded up against it.
+		if stored.Expired {
+			c.logRefusal(ctx, msgRefusedExpired, outcomeExpired, p.Tenant, pathID, p.ID)
+			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeCONFIRMATIONEXPIRED, "This confirmation has expired.", corr)
+			return
+		}
+		at := c.Clock.Now().Unix()
 		// The binding is compared by the fresh evaluation, not here: the request's own binding stands in so only the reply, the approver and the time are judged. Identity and roles are the session's.
-		res, err := confirm.Resolve(req, confirm.Event{RequestID: ans.RequestID, ApproverID: p.ID, ApproverRoles: []string{string(p.Role)}, Response: ans.Response, At: at}, req.Binding)
+		res, err := confirm.Resolve(req, confirm.Event{RequestID: ans.RequestID, ApproverID: p.ID, ApproverRoles: []string{string(p.Role)}, Response: ans.Response, At: req.ExpiresAt}, req.Binding) // At: expiry was judged by the database above, so the event is never late here
 		if err == nil && p.Role != session.RoleApprover && req.Requirement != "SELF" {
 			res = confirm.NotEligible // a customer session answers only a request that asks for the requester themselves
 		}
@@ -199,6 +196,10 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 		// The store records the answer and appends CONFIRMATION_RECEIVED in one transaction (PERD 32.4: the Record first); the route appends nothing itself. First answer wins.
 		_, err = c.Answers.Answer(ctx, ConfirmationAnswerInput{TenantID: p.Tenant, RequestID: pathID, ApproverID: p.ID, Roles: []string{string(p.Role)}, Response: ans.Response, At: at})
 		switch {
+		case errors.Is(err, ErrConfirmationExpired): // the request expired between the read and the store (A368 (iv)); nothing was recorded
+			c.logRefusal(ctx, msgRefusedExpired, outcomeExpired, p.Tenant, pathID, p.ID)
+			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeCONFIRMATIONEXPIRED, "This confirmation has expired.", corr)
+			return
 		case errors.Is(err, ErrConfirmationAnswered):
 			c.logRefusal(ctx, msgRefusedAlreadyAnswer, outcomeAlreadyAnswered, p.Tenant, pathID, p.ID)
 			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeIDEMPOTENCYCONFLICT, "This request has already been answered.", corr)
