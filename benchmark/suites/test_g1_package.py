@@ -56,10 +56,10 @@ def check_runs(sha: str = SHA, runs: list[Any] | None = None, total: int | None 
 
 
 KINDS = "canary, account_number, card_number, named_secret_value, jwt, bearer_token"
-LEAK_OK = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned 12 files, 340 lines\n"
+LEAK_OK = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned 10 files, 340 lines\n"
 
 
-FILES_OK = STAMP_LINE + "requests.jsonl\nreconstructions.json\nstamp.json\nnegative-probes.json\nmock-case-writes.json\ncorrelations.json\nscorecard-a.json\nscorecard-b.json\nreplay.json\ncheck-runs.json\nleak-scan.txt\nG1-EVIDENCE-PACKAGE.md\n"
+FILES_OK = STAMP_LINE + "requests.jsonl\nreconstructions.json\nstamp.json\nnegative-probes.json\nmock-case-writes.json\ncorrelations.json\nscorecard-a.json\nscorecard-b.json\nreplay.json\ncheck-runs.json\n"
 
 
 LEAK_BIG = STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\nleakscan OK: scanned 100 files, 340 lines\n"
@@ -377,7 +377,7 @@ class ArtifactRows(unittest.TestCase):
             ("no probe line", STAMP_LINE + "leakscan OK: scanned 12 files, 340 lines\n"), ("no clean line", STAMP_LINE + f"probe: every planted kind was found ({KINDS}): the scanner can see\n"),
             ("a kind missing", LEAK_OK.replace(", bearer_token", "")), ("a finding", LEAK_OK + "LEAK SCAN FAILED: findings in the artifacts\n"),
             ("a failed scan", LEAK_OK + "leakscan FAIL: a.log:3: jwt (length 40)\n"), ("not run", LEAK_OK + "NOT RUN: the scan itself failed or looked at nothing (exit 2)\n"),
-            ("refused", LEAK_OK + "refused: the scanner printed the canary\n"), ("zero files", LEAK_OK.replace("12 files", "0 files")), ("zero lines", LEAK_OK.replace("340 lines", "0 lines")),
+            ("refused", LEAK_OK + "refused: the scanner printed the canary\n"), ("zero files", LEAK_OK.replace("10 files", "0 files")), ("zero lines", LEAK_OK.replace("340 lines", "0 lines")),
             ("empty", ""), ("not text", None), ("a number", 7), ("only the stamp", STAMP_LINE)]
         for name, text in cases:
             self.assertIn("**NOT MET**", row(make(artifacts=art(leak_scan=text)), 8), name)
@@ -760,6 +760,17 @@ class RowTwelve(unittest.TestCase):
         self.assertIn(names[-1], uploaded_less, "the file scanned but not uploaded is named too")
         same_count_other_name = STAMP_LINE + "\n".join(names[:-1] + ["other.json"]) + "\n"
         self.assertIn("**NOT MET**", self.row12(artifact_files=FILES_OK, scan_inventory=same_count_other_name))
+
+    def test_the_main_artifact_never_lists_the_scan_outputs_a586(self) -> None:
+        # A586: the scan output, the inventory and the file list are the SECOND artifact; the main artifact is exactly the scanned files. The fixture follows the ruling, and a list that names
+        # one of the three is not met (it is uploaded but never scanned, because the scan cannot read what it has not yet written). The package itself is rendered by BO after the run, so it is not in the run's upload either.
+        names = FILES_OK.split("\n")[1:-1]
+        for scan_output in ("leak-scan.txt", "scan-inventory.txt", "artifact-files.txt", "G1-EVIDENCE-PACKAGE.md"):
+            self.assertNotIn(scan_output, names)
+            listed = FILES_OK + scan_output + "\n"
+            result = self.row12(artifact_files=listed, scan_inventory=FILES_OK, leak_scan=LEAK_BIG)
+            self.assertIn("**NOT MET**", result, scan_output)
+            self.assertIn(scan_output, result, scan_output)
 
     def test_the_order_of_the_names_does_not_matter_but_the_set_does(self) -> None:
         names = FILES_OK.split("\n")[1:-1]
