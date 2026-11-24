@@ -30,13 +30,11 @@ func deciderWith(s *stepSpy, d trustport.Dispositions) trustport.RouteDecider {
 	return r
 }
 
-// The disposition of the request goes into the continuation request unchanged, and the Record is not asked.
-func TestTheDispositionOfTheRequestGoesIntoTheContinuation(t *testing.T) {
+// The disposition given goes into the continuation request unchanged, and the Record is not asked. It is an argument and not a field of RouteRequest (A504).
+func TestTheDispositionGivenGoesIntoTheContinuation(t *testing.T) {
 	s := &stepSpy{res: withAllow(t, allowed("grt_1"))}
 	d := &dispositionsSpy{id: "dec_other"}
-	r := routeReq()
-	r.DispositionDecisionID = "dec_disposition1"
-	if _, err := deciderWith(s, d).DecideRoute(ctx(t), r); err != nil {
+	if _, err := deciderWith(s, d).DecideRouteAfter(ctx(t), routeReq(), "dec_disposition1"); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.got) != 1 || s.got[0].DispositionDecisionID != "dec_disposition1" {
@@ -47,11 +45,11 @@ func TestTheDispositionOfTheRequestGoesIntoTheContinuation(t *testing.T) {
 	}
 }
 
-// Recovery: no disposition in the request, so it is re-read from the Record by the request's tenant and correlation, and goes into the continuation.
-func TestARequestWithNoDispositionReReadsItFromTheRecordByCorrelation(t *testing.T) {
+// Recovery: no disposition given, so it is re-read from the Record by the request's tenant and correlation, and goes into the continuation.
+func TestARouteWithNoDispositionGivenReReadsItFromTheRecordByCorrelation(t *testing.T) {
 	s := &stepSpy{res: withAllow(t, allowed("grt_1"))}
 	d := &dispositionsSpy{id: "dec_stored1"}
-	if _, err := deciderWith(s, d).DecideRoute(ctx(t), routeReq()); err != nil {
+	if _, err := deciderWith(s, d).DecideRouteAfter(ctx(t), routeReq(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(d.got) != 1 || d.got[0] != "ten_1/corr_1" {
@@ -62,10 +60,10 @@ func TestARequestWithNoDispositionReReadsItFromTheRecordByCorrelation(t *testing
 	}
 }
 
-// With no disposition in the request and none on the Record, nothing is decided: Trust is not asked and no grant comes back. The typed not-found is kept for the caller.
+// With no disposition given and none on the Record, nothing is decided: Trust is not asked and no grant comes back. The typed not-found is kept for the caller.
 func TestNoDispositionOnTheRecordMeansNoDecisionAndNoGrant(t *testing.T) {
 	s := &stepSpy{res: withAllow(t, allowed("grt_1"))}
-	res, err := deciderWith(s, &dispositionsSpy{err: trustport.ErrNoDisposition}).DecideRoute(ctx(t), routeReq())
+	res, err := deciderWith(s, &dispositionsSpy{err: trustport.ErrNoDisposition}).DecideRouteAfter(ctx(t), routeReq(), "")
 	if !errors.Is(err, trustport.ErrNoDisposition) || len(res.GrantIDs) != 0 || res.DecisionID != "" {
 		t.Fatalf("%+v %v, want ErrNoDisposition and no grant", res, err)
 	}
@@ -78,7 +76,7 @@ func TestNoDispositionOnTheRecordMeansNoDecisionAndNoGrant(t *testing.T) {
 func TestAFailedDispositionReadMeansNoDecisionAndNoGrant(t *testing.T) {
 	s := &stepSpy{res: withAllow(t, allowed("grt_1"))}
 	boom := errors.New("synthetic record failure")
-	res, err := deciderWith(s, &dispositionsSpy{err: boom}).DecideRoute(ctx(t), routeReq())
+	res, err := deciderWith(s, &dispositionsSpy{err: boom}).DecideRouteAfter(ctx(t), routeReq(), "")
 	if !errors.Is(err, boom) || errors.Is(err, trustport.ErrNoDisposition) || len(res.GrantIDs) != 0 || len(s.got) != 0 {
 		t.Fatalf("%+v %v (Trust asked %d times), want the failure, no grant and no ask", res, err, len(s.got))
 	}
@@ -87,7 +85,7 @@ func TestAFailedDispositionReadMeansNoDecisionAndNoGrant(t *testing.T) {
 // A reader that says "found" with an empty id is a broken reader: refused, never passed on as "no disposition".
 func TestAFoundDispositionWithNoIDIsRefused(t *testing.T) {
 	s := &stepSpy{res: withAllow(t, allowed("grt_1"))}
-	res, err := deciderWith(s, &dispositionsSpy{id: ""}).DecideRoute(ctx(t), routeReq())
+	res, err := deciderWith(s, &dispositionsSpy{id: ""}).DecideRouteAfter(ctx(t), routeReq(), "")
 	if !errors.Is(err, trustport.ErrBadAnswer) || len(res.GrantIDs) != 0 || len(s.got) != 0 {
 		t.Fatalf("%+v %v (Trust asked %d times), want ErrBadAnswer, no grant and no ask", res, err, len(s.got))
 	}
@@ -97,7 +95,7 @@ func TestAFoundDispositionWithNoIDIsRefused(t *testing.T) {
 // behaviour for a decider built without it).
 func TestWithNoDispositionsPortAnAbsentDispositionStaysAbsent(t *testing.T) {
 	s := &stepSpy{res: withAllow(t, allowed("grt_1"))}
-	if _, err := deciderWith(s, nil).DecideRoute(ctx(t), routeReq()); err != nil {
+	if _, err := deciderWith(s, nil).DecideRouteAfter(ctx(t), routeReq(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.got) != 1 || s.got[0].DispositionDecisionID != "" {

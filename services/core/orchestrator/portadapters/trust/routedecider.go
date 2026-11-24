@@ -37,9 +37,6 @@ type RouteScopes interface {
 // params binding. The composition (cmd/core) converts the worker's RouteDecision into this field by field.
 type RouteRequest struct {
 	TenantID, CorrelationID, CaseID, OwnerQueue, CapabilityID string
-	// DispositionDecisionID is the ESCALATE disposition this route step follows (A534, A539), from the workflow's input. Empty when the input had none: the decider then re-reads it
-	// from the Record by correlation (Dispositions). The intake alone decides whether it is recorded on the decision (A562: only a step of the escalation plan).
-	DispositionDecisionID string
 }
 
 // RouteResult has the same fields, in the same order, as the worker's RouteDecisionResult.
@@ -56,7 +53,7 @@ type RouteDecider struct {
 	Trust    StepEvaluator
 	Scopes   RouteScopes
 	Runnable intake.Runnable
-	// Dispositions is the by-correlation read of the ESCALATE disposition, used when a request carries none (A539). Optional: with none, an absent disposition stays absent.
+	// Dispositions is the by-correlation read of the ESCALATE disposition, used when DecideRouteAfter is given none (A539). Optional: with none, an absent disposition stays absent.
 	Dispositions Dispositions
 }
 
@@ -64,6 +61,12 @@ type RouteDecider struct {
 // worker's dispatch fails at the Controller's params binding). An incomplete request, a scope of another tenant, a scope with no principal or intent, and an ALLOW that is not
 // exactly one grant with a decision ID are errors with no grant. Any outcome other than ALLOW is returned as it is, with no decision ID and no grant.
 func (d RouteDecider) DecideRoute(ctx context.Context, r RouteRequest) (RouteResult, error) {
+	return d.DecideRouteAfter(ctx, r, "")
+}
+
+// DecideRouteAfter is DecideRoute for a route step that follows an ESCALATE disposition (A534, A539), given as an argument and not as a field of RouteRequest (A504). Stub: the
+// disposition is not used yet.
+func (d RouteDecider) DecideRouteAfter(ctx context.Context, r RouteRequest, _ string) (RouteResult, error) {
 	if d.Trust == nil || d.Scopes == nil || d.Runnable == nil {
 		return RouteResult{}, ErrConfig
 	}
