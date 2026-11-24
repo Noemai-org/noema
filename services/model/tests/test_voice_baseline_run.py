@@ -10,7 +10,7 @@ import asyncio
 import json
 import os
 import stat
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -760,7 +760,7 @@ class ChunkedTts(Tts):
 
     def __init__(self, clock: Clock, chunks: int = 6) -> None:
         super().__init__(clock)
-        self.total, self.pulled = chunks, 0
+        self.total, self.pulled, self.closed = chunks, 0, False
 
     async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
         if request.text != "send ten thousand naira":
@@ -768,15 +768,18 @@ class ChunkedTts(Tts):
                 yield chunk
             return
         self.requests.append(request.text)
-        for index in range(self.total):
-            self.pulled += 1
-            yield AudioChunk(index, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000)  # one second
+        try:
+            for index in range(self.total):
+                self.pulled += 1
+                yield AudioChunk(index, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000)  # one second
+        finally:
+            self.closed = True
 
 
-def run_with_store(tmp_path: Path, items: list[ManifestItem], stt: object, tts: object, **over: object) -> tuple[dict[str, object], Path]:
+def run_with_store(tmp_path: Path, items: list[ManifestItem], stt: object, tts: object, bounds: tuple[float, float] = (1.0, 15.0), on_progress: Callable[[dict[str, object]], None] = lambda report: None, **over: object) -> tuple[dict[str, object], Path]:
     root, store = make_store(tmp_path)
-    report = run(asyncio.wait_for(run_baseline(items=items, stt=stt, tts=tts, settings=settings(**over), bounds_s=(1.0, 15.0), store=store, clock_ms=Clock(), wall=wall,  # type: ignore[arg-type]
-                                               sleep=lambda s: fake_sleep([], s), tts_model_version="v1", on_progress=lambda r: None, answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))
+    report = run(asyncio.wait_for(run_baseline(items=items, stt=stt, tts=tts, settings=settings(**over), bounds_s=bounds, store=store, clock_ms=Clock(), wall=wall,  # type: ignore[arg-type]
+                                               sleep=lambda s: fake_sleep([], s), tts_model_version="v1", on_progress=on_progress, answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))
     return report, root
 
 
@@ -788,8 +791,10 @@ def small(label: str) -> ManifestItem:
 def test_the_audio_is_charged_chunk_by_chunk_and_the_run_stops_at_the_chunk_that_would_not_fit_without_pulling_more(tmp_path: Path) -> None:
     clock = Clock()
     stt, tts = Stt(clock, []), ChunkedTts(clock, chunks=6)
-    report, _ = run_with_store(tmp_path, [small("u1")], stt, tts, budget_minutes=3.5 / 60)  # 3.5 s: three one-second chunks fit, the fourth would not
+    closed_when_reported: list[bool] = []
+    report, _ = run_with_store(tmp_path, [small("u1")], stt, tts, on_progress=lambda r: closed_when_reported.append(tts.closed), budget_minutes=3.5 / 60)  # 3.5 s: three one-second chunks fit, the fourth would not
     assert report["ended"] == "budget_exhausted" and stt.calls == 0
+    assert closed_when_reported == [True]  # a stream that stopped early is closed before the run reports, so the vendor stops generating (read inside the run, not after the loop shut down)
     assert tts.pulled == 4  # the fourth chunk arrived and was refused; the fifth and sixth were never asked for (nothing is buffered first and charged after)
     assert report["budget"]["generation_s"] == 3.0  # type: ignore[index]  # only the accepted audio is counted
 
@@ -812,5 +817,5 @@ def test_audio_that_cannot_be_used_because_the_session_does_not_fit_is_not_writt
 @POSIX
 def test_only_the_audio_of_an_accepted_item_is_written_so_an_out_of_bounds_one_leaves_no_file(tmp_path: Path) -> None:
     clock = Clock()
-    root_report, root = run_with_store(tmp_path, [synthetic("u1"), synthetic("u2")], Stt(clock, []), ShortThenLongTts(clock))
+    root_report, root = run_with_store(tmp_path, [synthetic("u1"), synthetic("u2")], Stt(clock, []), ShortThenLongTts(clock), bounds=(5.0, 15.0))
     assert root_report["skipped_out_of_bounds"] == 1 and sorted(p.name for p in (root / "synthetic").iterdir()) == ["u2.pcm"]

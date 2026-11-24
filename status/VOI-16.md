@@ -110,3 +110,10 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 - What changed (noema#824): the report is written whole to a temporary file beside it, flushed to disk, and renamed over the path (then the directory is flushed), so a crash never leaves a half-written report; the empty placeholder that reserves the path is kept (an existing report still refuses the run before any credit is spent) and is removed only while it is still empty and still the same file (A587).
 - Tests: red first at fea29a0f (three tests); mutants of the rename, the temp-file cleanup, the identity check and both flushes each caught.
 - Debt entries: none. Conflicts raised: none.
+
+# Session 2026-11-24 · VOI-16 (A608 and A612 in noema#824)
+
+## Session summary
+- What changed (noema#824): the text-to-speech audio is charged chunk by chunk as it streams, before the next chunk is asked for; the generation stops at the chunk that would not fit (`budget_exhausted`) and closes the stream; the synthetic audio is held in memory and written to the store only once the item is accepted (inside the bounds and with its whole session fitting), so a budget stop leaves nothing in the store.
+- Tests: red first at 8ffb07c2 (four tests); six mutants of the new behaviour each caught (the stream close needed a test that reads its flag inside the run).
+- Debt entries: none. Conflicts raised: none.

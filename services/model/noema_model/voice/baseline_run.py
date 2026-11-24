@@ -165,15 +165,30 @@ def _frames(pcm: bytes) -> tuple[AudioChunk, ...]:
     return tuple(AudioChunk(i, AudioCodec.PCM_S16LE, _STT_RATE_HZ, pcm[start:start + _FRAME_BYTES]) for i, start in enumerate(range(0, len(pcm) - len(pcm) % 2, _FRAME_BYTES)))
 
 
-async def _generate(tts: SpeechSynthesizer, text: str, locale: Locale, model_version: str, deadline_s: float) -> bytes:
+class _BudgetStop(Exception):
+    """The next chunk of audio would not fit the budget (A608): the generation stops there and nothing is kept."""
+
+
+async def _generate(tts: SpeechSynthesizer, text: str, locale: Locale, model_version: str, deadline_s: float, charge: Callable[[float], None]) -> bytes:
+    """Stream the synthetic audio, charging each chunk against the budget as it arrives and BEFORE the next one is asked for (A608): `charge` raises `BenchError` for a chunk that would not fit, and
+    the generation then stops with `_BudgetStop`. Nothing is buffered first and charged after. The audio is held in memory only; the caller writes it to the store only once the item is accepted (A612)."""
     pcm, rate = bytearray(), 0
     async with asyncio.timeout(deadline_s):
         stream = tts.synthesize(SynthesisRequest(text=text, locale=locale, model_version=model_version))
-        async for chunk in stream:
-            if chunk.codec is not AudioCodec.PCM_S16LE or (rate and chunk.sample_rate_hz != rate):
-                raise ProviderError(ProviderFailure.MALFORMED)
-            rate = chunk.sample_rate_hz
-            pcm += chunk.data
+        try:
+            async for chunk in stream:
+                if chunk.codec is not AudioCodec.PCM_S16LE or (rate and chunk.sample_rate_hz != rate) or not chunk.sample_rate_hz > 0:
+                    raise ProviderError(ProviderFailure.MALFORMED)
+                rate = chunk.sample_rate_hz
+                try:
+                    charge(len(chunk.data) / 2 / rate)  # the seconds this chunk holds
+                except BenchError:
+                    raise _BudgetStop from None
+                pcm += chunk.data
+        finally:
+            close = getattr(stream, "aclose", None)
+            if close is not None:
+                await close()  # a stream that stopped early is closed, so the vendor stops generating
     if not pcm:
         raise ProviderError(ProviderFailure.MALFORMED)
     return downsample_pcm16(bytes(pcm), rate, _STT_RATE_HZ)
@@ -229,21 +244,24 @@ async def run_baseline(
     for index, item in enumerate(plan.kept):
         if index:
             await sleep(pause_s(settings))
+        staged = False  # synthetic audio is held in memory until the item is accepted; it is written to the store only then (A612)
         if item.origin is AudioOrigin.SYNTHETIC:
             assert item.script is not None
+
+            def charge_generation(seconds: float) -> None:
+                nonlocal generation_s
+                budget.charge(seconds)
+                generation_s += seconds  # only audio that was accepted is counted
+
             try:
-                pcm = await _generate(tts, item.script, item.locale, tts_model_version, settings.session_s)
-                store.write(item.speaker_ref, f"{item.label}.pcm", pcm, wall())
-            except (ProviderError, TimeoutError, StoreError):
-                ended = "generation_or_store_failed"  # the plan stops at the first one
-                break
-            generated_s = len(pcm) / 2 / _STT_RATE_HZ
-            generation_s += generated_s
-            try:
-                budget.charge(generated_s)  # what the vendor generated, not what the manifest declared
-            except BenchError:
+                pcm = await _generate(tts, item.script, item.locale, tts_model_version, settings.session_s, charge_generation)
+            except _BudgetStop:
                 ended = "budget_exhausted"
                 break
+            except (ProviderError, TimeoutError):
+                ended = "generation_or_store_failed"  # the plan stops at the first one
+                break
+            staged = True
         else:
             assert item.file is not None
             try:
@@ -258,6 +276,12 @@ async def run_baseline(
         if budget.spent_s + utterance.duration_s + item.answer_s > budget.total_s:
             ended = "budget_exhausted"  # the audio to send and the answer to speak must both fit before anything is sent
             break
+        if staged:
+            try:
+                store.write(item.speaker_ref, f"{item.label}.pcm", pcm, wall())  # only the audio of an accepted item is written (A612): never a partial or an unusable one
+            except StoreError:
+                ended = "generation_or_store_failed"
+                break
         budget.charge(item.answer_s)  # the spoken answer is TTS audio generated for this session (the manifest's length: only its first audio is read)
         core = _StandIn(item.script if item.origin is AudioOrigin.TEAM_RECORDING else None, answer_text)
         try:
