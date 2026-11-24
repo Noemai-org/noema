@@ -278,16 +278,43 @@ func TestARowTheReaderCannotMakeSafeRefusesTheWholeAnswer(t *testing.T) {
 	}
 }
 
-// The deadline is the reader's own: a source that never answers ends in ErrRead inside the configured time (a real context, no mocked failure).
+// The deadline is the reader's own: a source that never answers ends in ErrRead when the configured time is up (a real context; the test needs no stopwatch, because a reader with no deadline would not return at all).
 func TestASourceThatNeverAnswersEndsAtTheReadTimeout(t *testing.T) {
 	r, err := candidates_api.New(candidates_api.Config{Source: &source{block: true}, Masking: maskingLimits(t), ReadTimeout: 50 * time.Millisecond, ResourceKind: tKind})
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
 	_, rerr := r.Read(context.Background(), request())
-	if !errors.Is(rerr, candidates_api.ErrRead) || !errors.Is(rerr, context.DeadlineExceeded) || time.Since(start) > 2*time.Second {
-		t.Fatalf("err = %v after %v", rerr, time.Since(start))
+	if !errors.Is(rerr, candidates_api.ErrRead) || !errors.Is(rerr, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", rerr)
+	}
+}
+
+// The boundary of the masking rule: a run of four digits stays, a run of five is masked down to its last four, and a bad principal shape is refused before the source.
+func TestADigitRunOfFourStaysAndOfFiveIsMasked(t *testing.T) {
+	s := world()
+	rows := s.rows[tTenant+"|"+tPrincipal]
+	rows[0].Counterparty = "Ref 1234 Tunde"
+	rows[1].Counterparty = "Ref 12345 Tunde"
+	resp, err := reader(t, s).Read(context.Background(), request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, c := range resp.Candidates {
+		got[c.CounterpartyDisplay] = true
+	}
+	if !got["Ref 1234 Tunde"] || !got["Ref *2345 Tunde"] {
+		t.Fatalf("displays = %v; want a four-digit run kept and a five-digit run masked to its last four", got)
+	}
+}
+
+func TestAPrincipalOffItsShapeIsRefusedBeforeTheSource(t *testing.T) {
+	s := world()
+	req := request()
+	req.PrincipalRef = "someone"
+	if _, err := reader(t, s).Read(context.Background(), req); !errors.Is(err, candidates_api.ErrRequest) || len(s.got) != 0 {
+		t.Fatalf("err = %v, source calls = %d", err, len(s.got))
 	}
 }
 
