@@ -28,11 +28,12 @@ def good() -> dict:
         "version": 1,
         "label": "SYNTHETIC",
         "note": "SYNTHETIC.",
-        "expected": {"evidence_mapping_id": "fin.map.v1@1", "recon_rule_set_id": "fin.recon.rules@1"},
+        "expected": {"evidence_mapping_id": "fin.map.v1@1", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": "fin.ctx.injection_patterns@1"},
         "files": [
             {"kind": "pack", "path": "fintech_v1.json", "sha256": HEX},
             {"kind": "evidence_mapping", "path": "fintech/evidence_mapping/mapping.v1.json", "sha256": HEX},
             {"kind": "recon_rules", "path": "fintech/recon_rules/rules.v1.json", "sha256": HEX},
+            {"kind": "injection_patterns", "path": "fintech/context/injection_patterns.v1.json", "sha256": HEX},  # A645
         ],
     }
 
@@ -64,11 +65,11 @@ class ManifestSchema(unittest.TestCase):
 
     def test_kinds_are_a_closed_list(self):
         kinds = schema()["properties"]["files"]["items"]["properties"]["kind"]["enum"]
-        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "pack", "recon_rules"])  # A510: the action graphs are pinned too
+        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "pack", "recon_rules"])  # A510: the action graphs are pinned too; A645: and the injection patterns
 
     def test_the_action_graph_kind_may_repeat_and_an_old_manifest_without_it_still_validates(self):
         doc = good()
-        self.assertEqual(errors(doc), [])  # a manifest of the three earlier kinds is still valid: the change is additive
+        self.assertEqual(errors(doc), [])  # a manifest with no action graph is still valid: the action graphs are additive (A510); the patterns file is required (A645)
         for name in ("g_one", "g_two", "g_three"):
             doc["files"].append({"kind": "action_graph", "path": f"fintech/graph/{name}.json", "sha256": HEX})
         self.assertEqual(errors(doc), [])

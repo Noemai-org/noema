@@ -29,12 +29,12 @@ REAL_MANIFEST = PACKS / "fintech/manifest.v1.json"
 MAPPING = "fintech/evidence_mapping/mapping.v1.json"
 RULES = "fintech/recon_rules/rules.v1.json"
 PACK = "fintech_v1.json"
-LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES}
+INJECTION = "fintech/context/injection_patterns.v1.json"  # A645: the injection-screen patterns are pinned too (exactly one file, with its expected id)
+LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES, "injection_patterns": INJECTION}
 # A510: the action graphs the pack names (`action_graph_files`) are pinned too, one `action_graph` entry each.
-INJECTION = "fintech/context/injection_patterns.v1.json"  # A645: the injection-screen patterns are pinned too (kind injection_patterns, at most one)
 GRAPHS = ["fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"]
-EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1"}
-INJECTION_ID = "fin.ctx.injection_patterns@1"  # A645: the expected id of the pinned patterns file; listed in `expected` when the file is pinned
+INJECTION_ID = "fin.ctx.injection_patterns@1"
+EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
 
 
 def sha256(path: Path) -> str:
@@ -121,9 +121,9 @@ class RealManifest(Base):
     def test_it_is_labelled_synthetic_and_lists_exactly_the_four_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "injection_patterns")}, LISTED)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] != "action_graph"}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
-        self.assertEqual(len(doc["files"]), 7)  # A645: and the injection patterns
+        self.assertEqual(len(doc["files"]), 7)  # A645: the four kinds and the three action graphs
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -134,14 +134,14 @@ class RealManifest(Base):
         doc = self.load()
         mapping = json.loads((PACKS / MAPPING).read_text(encoding="utf-8"))
         rules = json.loads((PACKS / RULES).read_text(encoding="utf-8"))
-        self.assertEqual(doc["expected"], {**EXPECTED, "injection_patterns_id": INJECTION_ID})
+        self.assertEqual(doc["expected"], EXPECTED)
         self.assertEqual(doc["expected"]["evidence_mapping_id"], f"{mapping['mapping_id']}@{mapping['version']}")
         self.assertEqual(doc["expected"]["recon_rule_set_id"], f"{rules['ruleset_id']}@{rules['version']}")
         self.assertEqual(mapping["ruleset"], doc["expected"]["recon_rule_set_id"])
 
     def test_every_json_file_of_a_listed_kind_is_listed(self):
         listed = {f["path"] for f in self.load()["files"]}
-        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph") for p in (PACKS / d).rglob("*.json")}
+        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/context") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
         self.assertEqual(found, listed)
 
@@ -412,46 +412,24 @@ class ActionGraphs(Base):
 
 
 class InjectionPatterns(Base):
-    """A645: the injection-screen patterns are pack data, hash-pinned like every other pack file (kind `injection_patterns`, at most one entry), so the detector runs only on verified bytes."""
-
-    def tree(self, root: Path, pinned: bool = True) -> Path:
-        manifest = build_root(root)
-        (root / INJECTION).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(PACKS / INJECTION, root / INJECTION)
-        if pinned:
-            doc = json.loads(manifest.read_text(encoding="utf-8"))
-            doc["files"].append({"kind": "injection_patterns", "path": INJECTION, "sha256": sha256(root / INJECTION)})
-            doc["expected"]["injection_patterns_id"] = INJECTION_ID
-            write(manifest, doc)
-        return manifest
+    """A645: the injection-screen patterns are pack data, hash-pinned like every other pack file (kind `injection_patterns`, exactly one entry, with its expected id), so the detector runs only on verified bytes."""
 
     def test_the_real_manifest_pins_the_pattern_file_once(self):
         doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual([f["path"] for f in doc["files"] if f["kind"] == "injection_patterns"], [INJECTION])
-
-    def test_a_good_tree_with_the_patterns_pinned_passes(self):
-        with tempfile.TemporaryDirectory() as d:
-            self.assertEqual(self.check(self.tree(Path(d)), Path(d)), [])
-
-    def test_a_changed_byte_in_the_pinned_patterns_fails(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            manifest = self.tree(root)
-            f = root / INJECTION
-            f.write_bytes(f.read_bytes() + b" ")
-            self.fails(root, manifest, INJECTION)
+        self.assertEqual(doc["expected"]["injection_patterns_id"], INJECTION_ID)
 
     def test_a_second_pattern_file_beside_the_pinned_one_fails(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            manifest = self.tree(root)
+            manifest = build_root(root)
             (root / "fintech/context/injection_patterns.v2.json").write_text("{}", encoding="utf-8")
             self.fails(root, manifest, "injection_patterns.v2.json")
 
     def test_two_pattern_entries_fail(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            manifest = self.tree(root)
+            manifest = build_root(root)
             doc = json.loads(manifest.read_text(encoding="utf-8"))
             (root / "fintech/context/other.json").write_text("{}", encoding="utf-8")
             doc["files"].append({"kind": "injection_patterns", "path": "fintech/context/other.json", "sha256": sha256(root / "fintech/context/other.json")})
@@ -461,34 +439,25 @@ class InjectionPatterns(Base):
     def test_the_pattern_file_listed_under_another_kind_fails(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            manifest = self.tree(root, pinned=False)
+            manifest = build_root(root)
             doc = json.loads(manifest.read_text(encoding="utf-8"))
-            doc["files"].append({"kind": "recon_rules", "path": INJECTION, "sha256": sha256(root / INJECTION)})
+            entry(doc, "injection_patterns")["kind"] = "recon_rules"
             write(manifest, doc)
             self.fails(root, manifest, "recon_rules")
 
-    def test_a_pinned_pattern_file_without_its_expected_id_fails(self):
+    def test_a_manifest_without_the_expected_pattern_id_fails(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            manifest = self.tree(root)
+            manifest = build_root(root)
             doc = json.loads(manifest.read_text(encoding="utf-8"))
             del doc["expected"]["injection_patterns_id"]
             write(manifest, doc)
-            self.fails(root, manifest, "injection_patterns")
+            self.fails(root, manifest, "injection_patterns_id")
 
-    def test_an_expected_id_for_a_file_that_is_not_pinned_fails(self):
+    def test_a_pinned_file_that_is_not_the_patterns_document_fails_even_when_the_hash_is_updated(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            manifest = self.tree(root, pinned=False)
-            doc = json.loads(manifest.read_text(encoding="utf-8"))
-            doc["expected"]["injection_patterns_id"] = INJECTION_ID
-            write(manifest, doc)
-            self.fails(root, manifest, "injection_patterns")
-
-    def test_a_pinned_file_that_is_not_the_patterns_document_fails(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            manifest = self.tree(root)
+            manifest = build_root(root)
             f = root / INJECTION
             f.write_text('{"pack_id":"fin.ctx.other","version":1,"patterns":[]}', encoding="utf-8")
             doc = json.loads(manifest.read_text(encoding="utf-8"))
