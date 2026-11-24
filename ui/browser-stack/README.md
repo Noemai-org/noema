@@ -9,7 +9,20 @@ The benchmark runner drives each generated case through the public API and recor
 1. Merge BO's BEN-23 manifest PR #962 and EL's events-route composition PR #907. The manifest path is `benchmark/journeys/j1-j8.v1.json`.
 2. Materialise the exact generated suite named by that manifest:
    `python -m benchmark.generator generate --seed 20261020 --out benchmark/out/suite`.
-3. IL supplies a short-lived synthetic customer token file for every `principal_id` in the manifest, under one token directory. The existing bench issuer writes one file per principal (mode 0400); it accepts `BENCH_PRINCIPALS="id:customer ..."` and `BENCH_TOKEN_TTL` when `make bench-tokens` runs. Do not use one principal's token for another case.
+3. IL supplies a short-lived synthetic customer token file for each of the 19 distinct `principal_id` values in the manifest, under one token directory. The existing bench issuer writes one file per principal (mode 0400) at `benchmark/out/idp/tokens/<principal_id>`. To derive the exact principal list without hand-copying it:
+
+   ```sh
+   export BENCH_PRINCIPALS="$(python - <<'PY'
+   import json
+   with open("benchmark/journeys/j1-j8.v1.json", encoding="utf-8") as f:
+       manifest = json.load(f)
+   print(" ".join(sorted({f"{case['principal_id']}:{case['roles'][0]}" for journey in manifest["journeys"] for case in journey["cases"]})))
+   PY
+   )"
+   : "${BENCH_TOKEN_TTL:?set an approved short-lived TTL; the issuer caps it at 15m}"
+   ```
+
+   The existing `make bench-tokens` target consumes these variables. Do not use one principal's token for another case; preserve the matching synthetic issuer key and core public-key configuration.
 4. Run the manifest's case IDs through the existing `benchmark.runner` on the bench network with the approved API, mock-case, stand-in and proxy credentials. Preserve its output directory; the UI tests consume `correlations.json` and `results/<case_id>.json`. The runner's required fixture loader and evidence sources must be present; a NOT_RUN/ERROR result is not a passing journey.
 5. Start the real-core bench Compose profile with this test-only overlay. Pass `BENCH_COMPOSE` as a Make command-line assignment (not an environment variable; the Makefile's ordinary assignment overrides environment values):
 
