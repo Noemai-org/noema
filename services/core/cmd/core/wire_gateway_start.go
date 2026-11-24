@@ -142,7 +142,6 @@ type turnStarter struct {
 	stores startStores
 	runner turnRunner
 	failed func(investigationID string, err error)
-	base   context.Context
 
 	mu       sync.Mutex
 	closed   bool
@@ -160,31 +159,32 @@ func newTurnStarter(ctx context.Context, cfg startConfig, stores startStores, ru
 	case cfg.Workers < 1 || cfg.Queue < 1 || cfg.Run <= 0 || cfg.Start <= 0:
 		return nil, errors.New("cmd/core: the investigation starter needs its four settings")
 	}
-	s := &turnStarter{cfg: cfg, stores: stores, runner: runner, failed: failed, base: context.WithoutCancel(ctx), queue: make(chan startJob, cfg.Queue), inflight: map[string]struct{}{}}
+	s := &turnStarter{cfg: cfg, stores: stores, runner: runner, failed: failed, queue: make(chan startJob, cfg.Queue), inflight: map[string]struct{}{}}
+	base := context.WithoutCancel(ctx)
 	for i := 0; i < cfg.Workers; i++ {
 		s.wg.Add(1)
-		go s.work()
+		go s.work(base)
 	}
 	return s, nil
 }
 
-func (s *turnStarter) work() {
+func (s *turnStarter) work(base context.Context) {
 	defer s.wg.Done()
 	for j := range s.queue {
-		s.run(j)
+		s.run(base, j)
 		s.mu.Lock()
 		delete(s.inflight, j.key)
 		s.mu.Unlock()
 	}
 }
 
-func (s *turnStarter) run(j startJob) {
+func (s *turnStarter) run(base context.Context, j startJob) {
 	defer func() {
 		if recover() != nil {
 			s.failed(j.turn.InvestigationID, errors.New("cmd/core: the investigation run panicked")) // the value is not kept: it can hold request data
 		}
 	}()
-	ctx, cancel := context.WithTimeout(s.base, s.cfg.Run)
+	ctx, cancel := context.WithTimeout(base, s.cfg.Run)
 	defer cancel()
 	if _, err := s.runner.RunWrite(ctx, j.session, j.turn); err != nil {
 		s.failed(j.turn.InvestigationID, err)
