@@ -41,7 +41,7 @@ test("REQ-UI-003: every committed synthetic reconstruction renders without expos
   }
 });
 
-test("REQ-UI-003 POC-FR-17: the ops evidence view presents the supplied record-chain status", async () => {
+test("REQ-UI-003 POC-FR-17: the audit evidence view presents the supplied record-chain status", async () => {
   const value = await load("full_write_case");
   const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
   assert.deepEqual(scanVisibleText(html), []);
@@ -125,16 +125,26 @@ test("REQ-UI-003: malformed conditional reconstruction fixtures are never presen
 });
 
 
-test("A570 REQ-UI-003: multiple verification items still render only the backend chain verdict line", async () => {
+test("A595/A600 REQ-UI-003: audit view shows one Record verified line only from chain.verified", async () => {
   const value = await load("full_write_case");
   const verification = value.sections.find((section) => section.kind === "VERIFICATION");
   verification.items.push({
     ...verification.items[0],
     facts: { ...verification.items[0].facts, verdict: "PENDING_EXTERNAL" },
   });
+  // A timeline verdict is descriptive event text, not the chain verification authority.
+  value.timeline = value.timeline.filter((entry) => entry.event_type !== "VERDICT");
   const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
-  assert.equal((html.match(/Verdict:/g) ?? []).length, 1);
-  assert.match(html, /Verdict: ACHIEVED/);
-  assert.doesNotMatch(html, /Verified/);
+  assert.equal((html.match(/Record verified/g) ?? []).length, 1);
+  assert.match(html, /Record verified/);
+  assert.doesNotMatch(html, /Verdict:/);
+  assert.doesNotMatch(html, /Verified(?!\s)/);
   assert.deepEqual(scanVisibleText(html), []);
+
+  const refused = { ...value, chain: { ...value.chain, verified: false } };
+  const refusedHtml = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: refused }));
+  assert.match(refusedHtml, /This evidence is unavailable/i);
+  assert.doesNotMatch(refusedHtml, /Record verified/);
+  assert.doesNotMatch(refusedHtml, /Verdict:/);
+  assert.deepEqual(scanVisibleText(refusedHtml), []);
 });
