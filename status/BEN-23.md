@@ -87,3 +87,18 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: C2 uses `load(Path("benchmark/compile_acceptance/remedy_labelled.v1.json"))` to score the compiler's gate offline with the replay provider, and reports the false-assertion and the miss counts separately, with and without the borderline items.
 - Do not touch: the goldens, the held-out set (INV-22), or any threshold (AGENT-16).
+
+# Session 2026-11-24 · BEN-23 · A604: SYNTHETIC boundary recordings of the `requested_remedy` gate, for C2
+
+## Session summary
+- What changed: `benchmark/compile_acceptance/synthetic_boundary.py` (the generator), `boundary-a604/` (143 files: 19 boundaries as a compile-run recording set, a findings file, a README) and `test_synthetic_boundary.py` (9 tests). Added as separate commits to the A604 labelled-set PR, as the dependent work of the same ruling (AGENTS §11).
+- How: the real compile service (pipeline, harness, provider adapter, recorder) runs once per boundary with a scripted inner transport. The only thing that changes per boundary is the probability the "model" wrote for the gate question; each boundary uses the next utterance of the labelled set so the requests, which a replay keys by SHA-256, are distinct. Run at noema#932's head `4d2dbb72`; two runs were byte-identical.
+- Expected outcomes are computed from the written text by exact integer and fraction arithmetic and the rule of A612, not from the implementation. Result: 12 of 19 generated boundaries agree. Seven disagree and are stated, not hidden: B14 (`9e-1` read as the float 0.9, so accepted) and B15 to B20 (a sign, NaN, infinity, null, missing, a string: the harness refuses the whole reply, and the compile service reports `ProviderUnavailable`, instead of the slot abstaining). B12 (just over one) disagrees the same way and is not committed.
+- Not committed: B02, B06 and B12, because their text holds five digits in a row, which the leak rule refuses in a committed file. They are generated with `--include-long-digit-runs`.
+- Risks, and how they are contained: SYNTHETIC, not live: every file has `run_id` `synthetic-boundary`; the README and the findings say "not live". The recorder's own manifest label still says "recorded live output (SYNTHETIC)"; it is read with `run_id`. The request bytes depend on #932's code and pack, so the keys change when #932 changes (regenerate).
+- Tests added (A604, A612): `test_synthetic_boundary.py`. Two mutants (a changed recorded probability; a flipped expected outcome) each fail a test. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#932 merges, regenerate the recordings (the command is in `boundary-a604/README.md`) and replace the directory; C2 replays the labelled set against the gate with them. The Architect and C2 decide B14 and B15 to B20.
+- Open questions (owner): whether a malformed gate probability should abstain the slot or stop the compile as a refused reply (the Architect, C2); whether three five-digit boundary lines may be allowed in `leakscan.allow` (SR).
+- Do not touch: the goldens, the held-out set (INV-22), any threshold (AGENT-16).

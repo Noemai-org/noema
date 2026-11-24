@@ -1,0 +1,230 @@
+{
+  "boundaries": [
+    {
+      "agree": true,
+      "boundary": "B01",
+      "case_id": "SB-A",
+      "expected": "ABSENT",
+      "implementation": "ABSENT",
+      "labelled_item": "RL-001",
+      "selected": "yes",
+      "why": "one basis point below the threshold",
+      "written": "0.8999"
+    },
+    {
+      "boundary": "B02",
+      "skipped": "its probability text holds a digit run of five or more, which the leak rule refuses in a committed file; generate it with --include-long-digit-runs",
+      "why": "floors to 8999, never rounds up to 9000"
+    },
+    {
+      "agree": true,
+      "boundary": "B03",
+      "case_id": "SB-C",
+      "expected": "PRESENT",
+      "implementation": "PRESENT",
+      "labelled_item": "RL-003",
+      "selected": "yes",
+      "why": "exactly the threshold",
+      "written": "0.9"
+    },
+    {
+      "agree": true,
+      "boundary": "B04",
+      "case_id": "SB-D",
+      "expected": "PRESENT",
+      "implementation": "PRESENT",
+      "labelled_item": "RL-004",
+      "selected": "yes",
+      "why": "the same value written with a trailing zero",
+      "written": "0.90"
+    },
+    {
+      "agree": true,
+      "boundary": "B05",
+      "case_id": "SB-E",
+      "expected": "PRESENT",
+      "implementation": "PRESENT",
+      "labelled_item": "RL-005",
+      "selected": "yes",
+      "why": "the same value written to four places",
+      "written": "0.9000"
+    },
+    {
+      "boundary": "B06",
+      "skipped": "its probability text holds a digit run of five or more, which the leak rule refuses in a committed file; generate it with --include-long-digit-runs",
+      "why": "floors to 9000"
+    },
+    {
+      "agree": true,
+      "boundary": "B07",
+      "case_id": "SB-G",
+      "expected": "PRESENT",
+      "implementation": "PRESENT",
+      "labelled_item": "RL-007",
+      "selected": "yes",
+      "why": "one basis point above",
+      "written": "0.9001"
+    },
+    {
+      "agree": true,
+      "boundary": "B08",
+      "case_id": "SB-H",
+      "expected": "ABSENT",
+      "implementation": "ABSENT",
+      "labelled_item": "RL-008",
+      "selected": "yes",
+      "why": "doubt",
+      "written": "0.5"
+    },
+    {
+      "agree": true,
+      "boundary": "B09",
+      "case_id": "SB-I",
+      "expected": "ABSENT",
+      "implementation": "ABSENT",
+      "labelled_item": "RL-009",
+      "selected": "yes",
+      "why": "zero as an integer",
+      "written": "0"
+    },
+    {
+      "agree": true,
+      "boundary": "B10",
+      "case_id": "SB-J",
+      "expected": "PRESENT",
+      "implementation": "PRESENT",
+      "labelled_item": "RL-010",
+      "selected": "yes",
+      "why": "one as an integer",
+      "written": "1"
+    },
+    {
+      "agree": true,
+      "boundary": "B11",
+      "case_id": "SB-K",
+      "expected": "PRESENT",
+      "implementation": "PRESENT",
+      "labelled_item": "RL-011",
+      "selected": "yes",
+      "why": "one with a decimal point",
+      "written": "1.0"
+    },
+    {
+      "boundary": "B12",
+      "skipped": "its probability text holds a digit run of five or more, which the leak rule refuses in a committed file; generate it with --include-long-digit-runs",
+      "why": "above one by less than a basis point: never floored up to one"
+    },
+    {
+      "agree": true,
+      "boundary": "B13",
+      "case_id": "SB-M",
+      "expected": "ABSENT",
+      "implementation": "ABSENT",
+      "labelled_item": "RL-013",
+      "selected": "yes",
+      "why": "an exponent: not a plain decimal",
+      "written": "1e-05"
+    },
+    {
+      "agree": false,
+      "boundary": "B14",
+      "case_id": "SB-N",
+      "expected": "ABSENT",
+      "implementation": "PRESENT",
+      "labelled_item": "RL-014",
+      "selected": "yes",
+      "why": "an exponent for 0.9: not a plain decimal, whatever it equals",
+      "written": "9e-1"
+    },
+    {
+      "agree": false,
+      "boundary": "B15",
+      "case_id": "SB-O",
+      "expected": "ABSENT",
+      "implementation": "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)",
+      "labelled_item": "RL-015",
+      "selected": "yes",
+      "why": "a sign",
+      "written": "-0.1"
+    },
+    {
+      "agree": false,
+      "boundary": "B16",
+      "case_id": "SB-P",
+      "expected": "ABSENT",
+      "implementation": "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)",
+      "labelled_item": "RL-016",
+      "selected": "yes",
+      "why": "not a number",
+      "written": "NaN"
+    },
+    {
+      "agree": false,
+      "boundary": "B17",
+      "case_id": "SB-Q",
+      "expected": "ABSENT",
+      "implementation": "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)",
+      "labelled_item": "RL-017",
+      "selected": "yes",
+      "why": "not a finite number",
+      "written": "Infinity"
+    },
+    {
+      "agree": false,
+      "boundary": "B18",
+      "case_id": "SB-R",
+      "expected": "ABSENT",
+      "implementation": "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)",
+      "labelled_item": "RL-018",
+      "selected": "yes",
+      "why": "the member is present and null",
+      "written": "null"
+    },
+    {
+      "agree": false,
+      "boundary": "B19",
+      "case_id": "SB-S",
+      "expected": "ABSENT",
+      "implementation": "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)",
+      "labelled_item": "RL-019",
+      "selected": "yes",
+      "why": "the probability member is missing",
+      "written": null
+    },
+    {
+      "agree": false,
+      "boundary": "B20",
+      "case_id": "SB-T",
+      "expected": "ABSENT",
+      "implementation": "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)",
+      "labelled_item": "RL-020",
+      "selected": "yes",
+      "why": "a string where a number is required",
+      "written": "\"0.95\""
+    },
+    {
+      "agree": true,
+      "boundary": "B21",
+      "case_id": "SB-U",
+      "expected": "ABSENT",
+      "implementation": "ABSENT",
+      "labelled_item": "RL-021",
+      "selected": "no",
+      "why": "the model's own answer is no: a no whatever its probability says",
+      "written": "0.95"
+    },
+    {
+      "agree": true,
+      "boundary": "B22",
+      "case_id": "SB-V",
+      "expected": "ABSENT",
+      "implementation": "ABSENT",
+      "labelled_item": "RL-022",
+      "selected": "yes",
+      "why": "the model says yes but gives it 0.6: doubt, the harmful case",
+      "written": "0.6"
+    }
+  ],
+  "label": "SYNTHETIC boundary recordings of the requested_remedy gate (A604): scripted replies, not live model output",
+  "threshold_bp": 9000
+}
