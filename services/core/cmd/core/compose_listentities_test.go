@@ -150,3 +150,35 @@ func TestTheDerivationNamesNoIdOfThePack(t *testing.T) {
 		}
 	}
 }
+
+// Written after the hand mutation check: a repeated entity is refused, and the Policies gap names the list entities only when they are really missing.
+func TestARepeatedEntityIsRefused(t *testing.T) {
+	_, m := tiParts(t, tiVerified(t))
+	dup := []byte(`{"pack_id":"synthetic","evidence_descriptors":[{"entity":"a","source":"s","fields":{"i":{"type":"String"}}},{"entity":"a","source":"s2","fields":{"i":{"type":"String"}}}]}`)
+	if got, err := listEntitiesFromDescriptors(dup, m); err == nil || got != nil {
+		t.Errorf("got %v, %v; want an error and no map", got, err)
+	}
+}
+
+func TestThePoliciesGapNamesTheListEntitiesOnlyWhenTheyAreMissing(t *testing.T) {
+	has := func(w trustWired) bool {
+		for _, r := range w.Reasons["Policies"] {
+			if r == needListEntities {
+				return true
+			}
+		}
+		return false
+	}
+	derived := twIn(t)
+	derived.ListEntities, derived.Screen = nil, ScreenDeps{}
+	w, err := wireTrustInputs(derived)
+	if err != nil || len(w.Reasons["Policies"]) == 0 || has(w) {
+		t.Errorf("with the entities derived and another part missing: reasons %v, %v; want reasons that do not name the list entities", w.Reasons["Policies"], err)
+	}
+	none := twIn(t)
+	none.ListEntities, none.Understanding.Mapping = nil, nil
+	w, err = wireTrustInputs(none)
+	if err != nil || !has(w) {
+		t.Errorf("with no mapping: reasons %v, %v; want the list entities named", w.Reasons["Policies"], err)
+	}
+}
