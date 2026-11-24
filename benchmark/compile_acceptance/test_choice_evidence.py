@@ -60,6 +60,12 @@ class Format(unittest.TestCase):
         self.assertNotIn("5000", line)
         self.assertIn("invalid_id", line)
 
+    def test_a_case_id_that_holds_a_digit_run_of_five_or_more_is_never_printed(self) -> None:
+        for bad in ("BEN-12345", "BEN-1-2-3-4-5", "G-A99999", "BEN-CLEAN-0001"[:4] + "0123456789"):
+            line = format_choice(bad, "requested_remedy", None, {"none_or_other": 1.0}, None)
+            self.assertTrue(line.startswith("CHOICE invalid_id "), line)
+        self.assertTrue(format_choice("BEN-CLEAN-0001", "requested_remedy", None, {"none_or_other": 1.0}, None).startswith("CHOICE BEN-CLEAN-0001 "))  # four digits: the example's own id
+
     def test_a_probability_outside_zero_and_one_is_clamped_not_printed_raw(self) -> None:
         line = format_choice("G-A", "s", "a", {"a": 1.7, "b": -0.2}, None)
         self.assertIn("a:1.0000", line)
