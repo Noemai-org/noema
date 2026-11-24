@@ -793,6 +793,15 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     return out
 
 
+def check_limits_schema(limits: dict) -> list[Problem]:
+    """A609 (interim; AGENT-15, AGENT-16): the shipped trust-limits file is validated against the trust-limits.v2 JSON Schema itself, so a file without the ceiling, a v1-shaped file and a
+    file with an unknown member fail here whatever the hand-written routing rules say. The message names the member, never a value."""
+    schemas = validate.load_schemas()
+    registry = validate.make_registry(schemas)
+    errs = validate.validator_for("trust-limits.v2", schemas, registry).iter_errors(limits)
+    return [("trust_limits", f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}") for e in errs]
+
+
 def check_trust_routing(pack: dict, limits: dict) -> list[Problem]:
     """A544 (interim; PERD v1.23 23.1, 23.3, 23.5, REQ-RES-002): the routing members of the pack's trust-limits document name only what the pack declares. An escalation reason of a classification
     is a catalogue code the pack produces from a state mapping, a clock phase's is one it produces from a clock mapping, a capability allowed under a freeze is a declared capability that is not
@@ -884,7 +893,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
         except ValueError as exc:
             problems.append(("trust_routing", str(exc)))
         else:
-            problems += check_trust_routing(pack, limits)
+            problems += check_limits_schema(limits) + check_trust_routing(pack, limits)
     if templates == "enforce":
         problems += check_templates(pack, pack_path.parent)
     return problems

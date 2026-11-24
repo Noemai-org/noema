@@ -60,3 +60,14 @@ Ready-to-paste block for `docs/open-decisions.md` (the Steward registers it; thi
 - Exact next step: after both Founders approve and #910 merges, nothing for C2; EL wires `trustlimits.Load` over the v2 file.
 - Files to read first: `contracts/README.md` (trust-limits.v2), `services/core/platform/trustlimits/limits.go`.
 - Do not touch: `trust-limits.v1.json` (not edited).
+
+# Session 2026-11-24 01:00 WAT · PCK-08 (fourth round: A609, A612)
+
+## Session summary
+- What changed (PR links): noema#910. A609: packcheck `check_limits_schema` validates the shipped `trust_limits.json` against the trust-limits.v2 JSON Schema (the schema itself), in the `run` path; negative tests (no ceiling, a v1-shaped file, an unknown member, a ceiling above the bound), each also end to end through `checks.run` on a copy of the packs folder. A612: `platform/trustlimits.LoadPackFile(files, path, wantPackID)` is the start-up validation over the verified `Pack.Limits` map; a malformed file, a v1 file, a v2 file without the ceiling, an unknown member, another pack's file, an empty or unpinned path are a `*Error`; the refusal carries no path and no content.
+- **Not wired in `cmd/core`.** The start-up code loads the pack (`packload.Load` in `wire_understanding.go`) and `Pack.Limits` is available, but the core names no pack file (INV-14) and a settings name for the path would be a new `NOEMA_*` setting (A330, AGENT-14). EL's composition names the path and calls `LoadPackFile`, then refuses to start on an error.
+- Tests added: `ShippedLimitsSchema` (5), `packfile_test.go` (3). Mutants killed: `LoadPackFile` that does not call `Load`; the schema check removed from `run`.
+
+## Pre-work for the next agent
+- Exact next step (EL): in the composition, `trustlimits.LoadPackFile(pack.Limits, <the path the composition names>, pack.Pack.PackId)`; refuse to start on an error.
+- Do not touch: `trust-limits.v1.json`.

@@ -4,6 +4,8 @@
 //
 // May import: the standard library, internal/contracts and platform/ceilings.
 //
+// LoadPackFile (A612) is the start-up form of Load over the verified Pack.Limits map.
+//
 // Must never: hold a threshold of its own, default a missing member, use a float, return a limit of a document it refused, quote the document in an error text, or read the clock.
 package trustlimits
 

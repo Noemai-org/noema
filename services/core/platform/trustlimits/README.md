@@ -9,3 +9,5 @@
 **Status.** The loader exists; no Trust step reads it yet (the steps arrive with the Trust intake). Ruling A205 Q1; AGENT-16.
 
 **Tests.** `go test -count=1 ./platform/trustlimits/` from `services/core/`.
+
+**Start-up (A612).** `LoadPackFile(files, path, wantPackID)` reads the file the composition names from the verified `Pack.Limits` map through `Load`; a malformed, v1 or incomplete file, or a path that is not pinned, is a `*Error` and the core must not start. The package names no file (INV-14); `cmd/core` does not call it yet because the path needs EL's composition (no new setting, A330).
