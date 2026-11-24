@@ -27,6 +27,13 @@ def missing(body: str) -> list[str]:
     return out
 
 
+CONFLICT_PLACEHOLDERS: dict[str, str] = {}
+
+
+def conflict_gaps(body: str) -> list[str]:
+    return []
+
+
 def main() -> int:
     body = os.environ["PR_BODY"] if "PR_BODY" in os.environ else sys.stdin.read()
     gaps = missing(body)

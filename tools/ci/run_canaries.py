@@ -32,6 +32,7 @@ def main() -> int:
     body = (CANARIES / "pr_trace_missing_ids" / "body.md").read_text()
     cases = [
         ("PR body without IDs", run([sys.executable, "-I", str(HERE / "check_pr_trace.py")], stdin=body), "pr-trace FAIL"),
+        ("PR body with a CONFLICT DETECTED marker and missing fields", run([sys.executable, "-I", str(HERE / "check_pr_trace.py")], stdin=(CANARIES / "pr_trace_conflict_without_fields" / "body.md").read_text()), "CONFLICT DETECTED block"),
         ("test-only fake secret", secret_canary(gitleaks), "leaks found"),
         ("unpinned dependency", run([sys.executable, "-I", str(HERE / "check_pins.py"), str(CANARIES / "pins_unpinned_dependency")]), "pins FAIL"),
         ("cross-service file in an image", run([sys.executable, "-I", str(HERE / "check_image_files.py"), "core", "--list", str(CANARIES / "image_cross_service" / "core.listing")]), "image-files FAIL"),
