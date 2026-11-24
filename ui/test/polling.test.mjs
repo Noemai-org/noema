@@ -19,7 +19,7 @@ async function withServer(handler, run) {
 }
 const input = (baseUrl, onState) => ({ baseUrl, investigationId: "inv_SyntheticA", sessionToken: "synthetic-session", maxResponseBytes: 16384, maxPollingMs: 15000, onState }); // Synthetic test limits only.
 
-test("REQ-UI-001 A384: poll real states at one second and stop after the supplied answer", async () => {
+test("REQ-UI-001 A384: poll real states at two seconds and stop after the supplied answer", async () => {
   const start = await fixture("understanding");
   const end = await fixture("completed_with_answer");
   const times = [], seen = [];
@@ -34,7 +34,7 @@ test("REQ-UI-001 A384: poll real states at one second and stop after the supplie
   });
   assert.deepEqual(seen, [start, end]);
   assert.equal(times.length, 2);
-  assert.ok(times[1] - times[0] >= 900);
+  assert.ok(times[1] - times[0] >= 1900);
 });
 
 test("REQ-UI-001: a host polling deadline stops an in-flight request with safe copy", async () => {
