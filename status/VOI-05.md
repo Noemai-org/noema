@@ -18,3 +18,9 @@ Updated 2026-11-12.
 
 ## Messages
 Architect's instruction of 12 Nov to take the next two unblocked tasks (data; used for: this PR and `status/VOI-08.md`).
+
+# Session 2026-11-24 · VOI-05 (the Founder's confirmations of 24 Nov)
+
+- **Confirmed by the Founder in this session (counts once this pull request is merged by a non-author Founder, AGENTS section 2, item 3):** adults only and the bystander rule of `docs/voice/recording-plan-DRAFT.md`; that the Integrator account's retention is zero days (the Founder's statement; no screenshot or key is stored in the repository: the Founder may add a one-line comment on noema#294 naming the setting and the date); that Voice starts the preparation work of VOI-04 to VOI-07 before their Needs are Done, with no recording and no Done claim.
+- **Still not done:** the private store is not evidenced as provisioned (`store.sh init` and `check` on the bench host, by a Founder), the devices and SIMs (PRE-05) are not evidenced as received, and `tasks.csv` still shows VOI-01 and VOI-05 In progress (the Steward moves status from merged evidence).
+- VOI-05 is **not Done** until the store and the retention evidence exist.
