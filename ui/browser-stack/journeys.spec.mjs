@@ -103,7 +103,7 @@ async function assertEventsRoute(page, streamUrl) {
         contentType: response.headers.get("content-type"),
         cacheControl: response.headers.get("cache-control"),
       };
-      if (headers.status !== 200 || !/^text\\/event-stream(?:;|$)/iu.test(headers.contentType ?? "") ||
+      if (headers.status !== 200 || !/^text\/event-stream(?:;|$)/iu.test(headers.contentType ?? "") ||
           !headers.cacheControl?.includes("no-store") || !response.body) {
         return { headers };
       }
@@ -116,22 +116,25 @@ async function assertEventsRoute(page, streamUrl) {
           const chunk = await reader.read();
           if (chunk.done) break;
           buffered += decoder.decode(chunk.value, { stream: true });
+          if (new TextEncoder().encode(buffered).byteLength > maxBytes) {
+            throw new Error("Incomplete SSE frame exceeded the approved frame bound");
+          }
           for (;;) {
-            const boundary = buffered.indexOf("\\n\\n");
+            const boundary = buffered.indexOf("\n\n");
             if (boundary < 0) break;
             const raw = buffered.slice(0, boundary);
             buffered = buffered.slice(boundary + 2);
-            if (new TextEncoder().encode(raw + "\\n\\n").byteLength > maxBytes) {
+            if (new TextEncoder().encode(raw + "\n\n").byteLength > maxBytes) {
               throw new Error("SSE event exceeded the approved frame bound");
             }
             if (raw.startsWith(":")) continue;
             let eventName = "";
             const data = [];
-            for (const line of raw.split(/\\r?\\n/u)) {
+            for (const line of raw.split(/\r?\n/u)) {
               if (line.startsWith("event:")) eventName = line.slice(6).trimStart();
               if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
             }
-            if (data.length) return { headers, eventName, payload: JSON.parse(data.join("\\n")) };
+            if (data.length) return { headers, eventName, payload: JSON.parse(data.join("\n")) };
           }
         }
         return { headers };
@@ -146,7 +149,7 @@ async function assertEventsRoute(page, streamUrl) {
   }, { path: streamUrl, sessionToken: token, maxBytes: RESPONSE_FRAME_LIMIT_BYTES, timeoutMs: maxPollingMs });
 
   expect(frame.headers.status).toBe(200);
-  expect(frame.headers.contentType).toMatch(/^text\\/event-stream(?:;|$)/iu);
+  expect(frame.headers.contentType).toMatch(/^text\/event-stream(?:;|$)/iu);
   expect(frame.headers.cacheControl).toContain("no-store");
   expect(frame.payload, "the real core stream must deliver at least one complete contract-backed event").toBeTruthy();
   const event = parseSseEventV1(frame.payload);
