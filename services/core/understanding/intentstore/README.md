@@ -14,6 +14,8 @@ The admitted-intent store (Architect ruling A151). It keeps every Intent Object 
 
 | `migrations/0033_admitted_intent_epoch.sql` (A345 S1) | `logical_resolution_epoch`: `integer NOT NULL DEFAULT 1`, with `CHECK (logical_resolution_epoch = 1)`. It is 1 at creation and the increment path is later debt, so the database accepts no other value; rows stored before the migration take 1. The table stays insert-only, so no role can update the column (no role holds `UPDATE` on it either). `Save` writes `CreationEpoch` (1) and refuses a caller-stated epoch other than 0 (not stated) or 1; `Get` and `Latest` return it as `Admitted.LogicalResolutionEpoch`. Version N+1 of an intent also gets 1 (the ruling says only "1 at creation"; the safer reading, no increment path exists). |
 
+| `migrations/0037_admitted_intent_epoch_path.sql` (A520, DEBT-54 part 2) | Replaces 0033's `CHECK (= 1)` with `CHECK (>= 1)`, and adds `subject_ref text` NULL (the shape of common.v1 ResourceRef, the resolved Resource slot the pack names `subject_slot`). An epoch above 1 needs a subject. Insert-only, no new grant, no new index. `Save` stores the epoch and the subject the Interpreter derived, in the same transaction as `INTENT_ADMITTED` (A482). |
+
 `Admitted` is plain values (it does not import `understanding`); the caller copies the fields from `understanding.AdmittedIntent`.
 
 ## What the database refuses (each tested)
@@ -25,7 +27,7 @@ A document that disagrees with its columns (intent id, tenant, correlation, vers
 - `intent_hash` is stored as given by the gate. The form of the hash (JCS refuses non-integer numbers, intents carry fractional confidences) is the open question on noema#454; the gate fails closed with `HASH_UNAVAILABLE` until it is answered. This store does not recompute it.
 - The tenant is bound twice (a `BEFORE INSERT` guard and the RLS `WITH CHECK`). Each alone is hidden by the other in a test; removing both is caught.
 - The number is 0026 on C1's migration table (noema#183, ruling A167). 0022 stays reserved for the evidence-set binding of A119 (EVD-02) if noema#410 returns.
-- The epoch's increment path is not built and not yet filed as debt (A345: "C2 names it when the path is built"). The migration that builds it replaces the CHECK `admitted_intent_epoch_is_one`. Trust's use of the epoch (the case rows and the complaint clock of A345 S1 and S3) is not here.
+- The epoch's increment path is built by 0037 (DEBT-54 part 2): the Interpreter derives the epoch (the highest closed case's epoch + 1, PERD 28.2) and `Save` keeps it; 0033's CHECK `admitted_intent_epoch_is_one` is replaced. Trust's use of the epoch (the case rows and the complaint clock of A345 S1 and S3) is not here.
 - No wiring in `cmd/core`: the composition root is EL's.
 
 ## Run its tests

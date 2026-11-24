@@ -59,7 +59,31 @@
         "strategy": "ranked_candidates",
         "auto_resolve_margin": 0.35,
         "max_candidates_before_escalate": 4,
-        "matcher_ref": "fintech/lexicons/recipient_matcher.json"
+        "matcher_ref": "fintech/lexicons/recipient_matcher.json",
+        "options_key": "fin.clarify.options",
+        "display_template": "{attr:amount_minor} {attr:currency} to {attr:counterparty_display}, {attr:occurred_at}, account ending {attr:account_last4}",
+        "attribute_order": [
+          {
+            "name": "occurred_at",
+            "question_key": "fin.clarify.by_time",
+            "label_template": "{attr:occurred_at}"
+          },
+          {
+            "name": "counterparty_display",
+            "question_key": "fin.clarify.by_recipient",
+            "label_template": "{attr:counterparty_display}"
+          },
+          {
+            "name": "account_last4",
+            "question_key": "fin.clarify.by_account",
+            "label_template": "account ending {attr:account_last4}"
+          },
+          {
+            "name": "amount_minor",
+            "question_key": "fin.clarify.by_amount",
+            "label_template": "{attr:amount_minor} {attr:currency}"
+          }
+        ]
       },
       "lexicon_refs": [
         "fin.lex.en_ng",

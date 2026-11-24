@@ -1,0 +1,821 @@
+"""The baseline-run entry point (VOI-16, REQ-VOI-001, REQ-VOI-004, REQ-NFR-003; rulings A332, A377 to A383, A451; AGENT-13, AGENT-16, INV-21).
+
+`run_baseline` runs the manifest one session at a time through the adapters, writes the synthetic fixtures it generates to the private store (files 0600, analysis date as modification time), paces
+the sessions, stops at the first quota refusal or after two failures in a row, and writes a counts-only report outside the store. `main` reads the key only from an owner-only file, loads the
+settings and the manifest from files (every value required, none defaulted), and refuses before any connection is made when anything is wrong. Adapters, clock, sleep and the connect factory are
+scripted stand-ins (the recorded AGENT-12 exception of noema#412); no network is involved. The store tests need POSIX file modes and run on Linux CI.
+"""
+
+import asyncio
+import json
+import os
+import stat
+from collections.abc import AsyncIterator, Callable, Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from noema_model.providers.speech.base import AudioChunk, AudioCodec, FinalTranscript, Locale, PartialTranscript, SpeechEvent, StreamRequest, TokenConfidence
+from noema_model.providers.speech.errors import ProviderError, ProviderFailure
+from noema_model.providers.speech.intron_stt import Connect, Connection
+from noema_model.providers.speech.tts import SynthesisRequest
+from noema_model.voice.baseline import AudioStore, BaselineSettings, ManifestItem
+from noema_model.voice.baseline_run import RunnerConfigError, load_manifest, load_settings, main, run_baseline
+from noema_model.voice.bench import AudioOrigin
+from tests.support import run
+from tests.support_voice import CAPS
+
+POSIX = pytest.mark.skipif(os.name == "nt", reason="file modes are POSIX")
+KEY = "synthetic-synthetic-synthetic"
+GUARD_S = 10.0
+
+SETTINGS_FILE = {
+    "stt_final_s": 20.0, "response_s": 1.0, "tts_first_s": 10.0, "session_s": 40.0, "read_s": 2.0, "close_s": 1.0, "hold_s": 5.0, "concurrency": 1, "min_pause_s": 2.0,
+    "connections_per_minute": 3, "connections_per_session": 2, "budget_minutes": 20.0, "utterance_min_s": 5.0, "utterance_max_s": 15.0,
+    "open_timeout_s": 10.0, "ping_interval_s": None, "ping_timeout_s": None, "max_message_bytes": 4194304, "tts_poll_s": 0.2,
+    "allowed_hosts": ["example.invalid"],  # A556: the Founder supplies the host the base address is pinned to; the repository never names the vendor's
+}
+WIRE = ("open_timeout_s", "ping_interval_s", "ping_timeout_s", "max_message_bytes", "tts_poll_s", "allowed_hosts")
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 0
+
+    def __call__(self) -> int:
+        return self.now
+
+
+def wall() -> datetime:
+    return datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
+
+
+class Stt:
+    """Takes 600 ms after the last frame. `script` is a list of outcomes per call: a text, or a ProviderFailure to raise, or "hang"."""
+
+    name = "fake-stt"
+    capabilities = CAPS
+
+    def __init__(self, clock: Clock, script: list[object]) -> None:
+        self.clock, self.script, self.calls, self.frames_seen = clock, list(script), 0, 0
+
+    async def transcribe(self, request: StreamRequest, audio: AsyncIterator[AudioChunk]) -> AsyncIterator[SpeechEvent]:
+        outcome = self.script[self.calls] if self.calls < len(self.script) else "send ten thousand naira"
+        self.calls += 1
+        async for chunk in audio:
+            self.frames_seen += 1
+            assert chunk.sample_rate_hz == 16000 and len(chunk.data) <= 32000  # A191: 16 kHz and at most 32,000 bytes a frame
+        if outcome == "hang":
+            await asyncio.Event().wait()
+        if isinstance(outcome, ProviderFailure):
+            raise ProviderError(outcome)
+        self.clock.now += 600
+        yield PartialTranscript(0, "x")
+        text = str(outcome)
+        yield FinalTranscript(text, tuple(TokenConfidence(w, None) for w in text.split()), None, Locale.PCM, None)
+
+
+class Tts:
+    name = "fake-tts"
+    capabilities = CAPS
+
+    def __init__(self, clock: Clock) -> None:
+        self.clock, self.requests = clock, []  # type: ignore[var-annotated]
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        self.requests.append(request.text)
+        self.clock.now += 500
+        yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000 * 6)  # six seconds at 48 kHz
+
+
+def settings(**over: object) -> BaselineSettings:
+    fields = {k: v for k, v in SETTINGS_FILE.items() if k not in ("utterance_min_s", "utterance_max_s", *WIRE)}
+    return BaselineSettings(**{**fields, **over})  # type: ignore[arg-type]
+
+
+def synthetic(label: str, seconds: float = 6.0) -> ManifestItem:
+    return ManifestItem(label=label, locale=Locale.PCM, origin=AudioOrigin.SYNTHETIC, speaker_ref="synthetic", audio_s=seconds, answer_s=2.0, script="send ten thousand naira")
+
+
+def make_store(tmp_path: Path) -> tuple[Path, AudioStore]:
+    root = tmp_path / "store"
+    root.mkdir(mode=0o700)
+    root.chmod(0o700)
+    return root, AudioStore(root, wall)
+
+
+async def fake_sleep(log: list[float], seconds: float) -> None:
+    log.append(seconds)
+
+
+def go(tmp_path: Path, items: list[ManifestItem], script: list[object], **over: object) -> tuple[dict[str, object], Stt, Tts, list[float], Path]:
+    root, store = make_store(tmp_path) if os.name != "nt" else (tmp_path, AudioStore(tmp_path, wall))
+    clock, pauses = Clock(), []  # type: ignore[var-annotated]
+    stt, tts = Stt(clock, script), Tts(clock)
+
+    async def call() -> dict[str, object]:
+        return await run_baseline(items=items, stt=stt, tts=tts, settings=settings(**over), bounds_s=(5.0, 15.0), store=store, clock_ms=clock, wall=wall,
+                                  sleep=lambda s: fake_sleep(pauses, s), tts_model_version="v1", on_progress=lambda report: None, answer_text="We found your transfer.", targets_ms=1800)
+
+    report = run(asyncio.wait_for(call(), timeout=GUARD_S))
+    return report, stt, tts, pauses, root
+
+
+@POSIX
+def test_a_synthetic_item_is_generated_stored_at_16_khz_with_the_modes_and_the_analysis_date_then_measured(tmp_path: Path) -> None:
+    report, stt, tts, pauses, root = go(tmp_path, [synthetic("u1")], [])
+    stored = root / "synthetic" / "u1.pcm"
+    assert tts.requests[0] == "send ten thousand naira"  # the script is what is generated
+    assert stored.stat().st_size == 6 * 32000  # six seconds at 48 kHz reduced to 16 kHz: 96,000 samples of 2 bytes
+    assert stat.S_IMODE(stored.stat().st_mode) == 0o600 and stat.S_IMODE(stored.parent.stat().st_mode) == 0o700 and stored.stat().st_mtime == wall().timestamp()
+    assert report["sessions"] == {"total": 1, "complete": 1, "incomplete": 0} and stt.calls == 1
+
+
+def test_sessions_are_paced_between_each_other_and_not_after_the_last(tmp_path: Path) -> None:
+    _, _, _, pauses, _ = go(tmp_path, [synthetic("u1"), synthetic("u2"), synthetic("u3")], [])
+    assert pauses == [40.0, 40.0]  # two connections a session at three a minute: 60 * 2 / 3
+
+
+def test_a_quota_refusal_ends_the_run_and_the_rest_of_the_manifest_is_not_sent(tmp_path: Path) -> None:
+    report, stt, _, _, _ = go(tmp_path, [synthetic("u1"), synthetic("u2"), synthetic("u3")], ["send ten thousand naira", ProviderFailure.RATE_LIMITED])
+    assert stt.calls == 2 and report["failures"] == {"RATE_LIMITED": 1} and report["sessions"] == {"total": 2, "complete": 1, "incomplete": 1}
+    assert report["not_run"] == 1 and report["ended"] == "rate_limited"
+
+
+def test_two_failures_in_a_row_end_the_run(tmp_path: Path) -> None:
+    report, stt, _, _, _ = go(tmp_path, [synthetic(f"u{i}") for i in range(5)], [ProviderFailure.UNAVAILABLE, ProviderFailure.UNAVAILABLE])
+    assert stt.calls == 2 and report["not_run"] == 3 and report["ended"] == "two_failures_in_a_row"
+
+
+def test_one_failure_between_successes_does_not_end_the_run(tmp_path: Path) -> None:
+    report, stt, _, _, _ = go(tmp_path, [synthetic(f"u{i}") for i in range(4)], ["ok go", ProviderFailure.UNAVAILABLE, "ok go", "ok go"])
+    assert stt.calls == 4 and report["not_run"] == 0 and report["failures"] == {"UNAVAILABLE": 1}
+
+
+def test_a_session_that_outlasts_the_whole_session_deadline_is_an_incomplete_timeout_and_the_run_goes_on(tmp_path: Path) -> None:
+    report, stt, _, _, _ = go(tmp_path, [synthetic("u1"), synthetic("u2")], ["hang", "send ten thousand naira"], session_s=0.3, stt_final_s=5.0)
+    assert report["failures"] == {"TIMEOUT": 1} and stt.calls == 2
+
+
+def test_a_manifest_that_does_not_fit_the_budget_is_trimmed_from_its_end_before_anything_is_sent(tmp_path: Path) -> None:
+    report, stt, tts, _, _ = go(tmp_path, [synthetic(f"u{i}", seconds=10.0) for i in range(10)], [], budget_minutes=2.0)  # 24 s each: five fit
+    assert stt.calls == 5 and report["dropped_from_manifest"] == 5 and len(tts.requests) == 10  # five fixtures generated and five answers spoken
+
+
+@POSIX
+def test_a_team_recording_is_read_from_the_store_and_its_accuracy_is_counted_without_keeping_the_transcript(tmp_path: Path) -> None:
+    root, store = make_store(tmp_path)
+    store.write("spk-01", "r1.pcm", b"\x10\x00" * 16000 * 6, wall())  # six seconds of 16 kHz audio
+    item = ManifestItem(label="r1", locale=Locale.PCM, origin=AudioOrigin.TEAM_RECORDING, speaker_ref="spk-01", audio_s=6.0, answer_s=2.0, script="send ten thousand naira", file="r1.pcm")
+    clock, pauses = Clock(), []  # type: ignore[var-annotated]
+    stt, tts = Stt(clock, ["send ten naira"]), Tts(clock)
+    report = run(asyncio.wait_for(run_baseline(items=[item], stt=stt, tts=tts, settings=settings(), bounds_s=(5.0, 15.0), store=store, clock_ms=clock, wall=wall,
+                                               sleep=lambda s: fake_sleep(pauses, s), tts_model_version="v1", on_progress=lambda report: None, answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))
+    assert report["accuracy"] == {"team_recordings": 1, "mean_word_error_rate": 0.25} and tts.requests == ["We found your transfer."]  # nothing generated for a recording
+    assert "naira" not in json.dumps(report) and report["origins"] == {"TEAM_RECORDING": 1}
+
+
+# ---- the files and main -----------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def write_json(path: Path, value: object) -> Path:
+    path.write_text(json.dumps(value))
+    return path
+
+
+def test_the_settings_file_must_hold_every_value_and_nothing_else_and_of_the_right_type(tmp_path: Path) -> None:
+    good = write_json(tmp_path / "s.json", SETTINGS_FILE)
+    loaded, bounds, wire = load_settings(good)
+    assert loaded.stt_final_s == 20.0 and loaded.concurrency == 1 and bounds == (5.0, 15.0)
+    assert wire.open_timeout_s == 10.0 and wire.ping_interval_s is None and wire.max_message_bytes == 4194304 and wire.tts_poll_s == 0.2
+    for field in SETTINGS_FILE:
+        partial = {k: v for k, v in SETTINGS_FILE.items() if k != field}
+        with pytest.raises(RunnerConfigError):
+            load_settings(write_json(tmp_path / "p.json", partial))
+    with pytest.raises(RunnerConfigError):
+        load_settings(write_json(tmp_path / "x.json", {**SETTINGS_FILE, "surprise": 1}))
+    with pytest.raises(RunnerConfigError):
+        load_settings(write_json(tmp_path / "t.json", {**SETTINGS_FILE, "stt_final_s": "20"}))
+    with pytest.raises(RunnerConfigError):
+        load_settings(tmp_path / "absent.json")
+    (tmp_path / "bad.json").write_text("{not json")
+    with pytest.raises(RunnerConfigError):
+        load_settings(tmp_path / "bad.json")
+    with pytest.raises(RunnerConfigError):
+        load_settings(write_json(tmp_path / "n.json", {**SETTINGS_FILE, "concurrency": 2}))
+
+
+def test_the_manifest_is_validated_item_by_item(tmp_path: Path) -> None:
+    item = {"label": "u1", "locale": "pcm", "origin": "SYNTHETIC", "speaker_ref": "synthetic", "audio_s": 6.0, "answer_s": 2.0, "script": "send ten"}
+    assert [i.label for i in load_manifest(write_json(tmp_path / "m.json", [item]))] == ["u1"]
+    for bad in ({**item, "origin": "REAL"}, {**item, "locale": "xx"}, {**item, "audio_s": -1}, {k: v for k, v in item.items() if k != "script"},
+                {**item, "origin": "TEAM_RECORDING"}, {**item, "extra": 1}):
+        with pytest.raises(RunnerConfigError):
+            load_manifest(write_json(tmp_path / "b.json", [bad]))
+    with pytest.raises(RunnerConfigError):
+        load_manifest(write_json(tmp_path / "e.json", []))
+    with pytest.raises(RunnerConfigError):
+        load_manifest(write_json(tmp_path / "d.json", [item, item]))  # labels are unique
+
+
+def args(tmp_path: Path, **over: str) -> list[str]:
+    base = {"settings": str(write_json(tmp_path / "settings.json", SETTINGS_FILE)), "manifest": str(write_json(tmp_path / "manifest.json", [{"label": "u1", "locale": "pcm", "origin": "SYNTHETIC", "speaker_ref": "synthetic", "audio_s": 6.0, "answer_s": 2.0, "script": "send ten"}])),
+            "store": str(tmp_path / "store"), "report": str(tmp_path / "report.json"), "base-url": "wss://example.invalid", "voices": str(write_json(tmp_path / "voices.json", {"pcm": {"language": "pcm", "accent": "pidgin", "gender": "female"}})),
+            "tts-model-version": "v1", "answer-text": "We found your transfer.", "target-ms": "1800", **over}
+    return [f"--{k}={v}" for k, v in base.items()]
+
+
+class Spy:
+    """A connect factory that records that it was asked for a connector, and refuses to connect: the refusals under test must happen before any connection."""
+
+    def __init__(self) -> None:
+        self.built = 0
+
+    def __call__(self, **_: object) -> Connect:
+        self.built += 1
+
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            raise AssertionError("no connection may be made")
+
+        return connect
+
+
+def run_main(argv: list[str], environ: dict[str, str], spy: Spy, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+    code = main(argv, environ, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    out = capsys.readouterr()
+    return code, out.out + out.err
+
+
+def test_without_the_key_file_variable_the_runner_refuses_before_any_connection(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, text = run_main(args(tmp_path), {}, Spy(), capsys)
+    assert code == 2 and "key" in text.lower() and KEY not in text
+
+
+@POSIX
+def test_a_key_file_that_is_not_owner_only_is_refused_and_the_key_is_never_printed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o644)
+    spy = Spy()
+    code, text = run_main(args(tmp_path), {"INTRON_API_KEY_FILE": str(key)}, spy, capsys)
+    assert code == 2 and KEY not in text and str(key) not in text
+
+
+@POSIX
+@pytest.mark.parametrize("missing", ["settings", "manifest", "store", "report", "base-url", "voices", "tts-model-version", "answer-text", "target-ms"])
+def test_every_argument_is_required_and_has_no_default(tmp_path: Path, capsys: pytest.CaptureFixture[str], missing: str) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    argv = [a for a in args(tmp_path) if not a.startswith(f"--{missing}=")]
+    code, _ = run_main(argv, {"INTRON_API_KEY_FILE": str(key)}, Spy(), capsys)
+    assert code == 2
+
+
+@POSIX
+def test_a_report_path_inside_the_store_is_refused_so_the_report_can_never_sit_among_raw_audio(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    (tmp_path / "store").mkdir(mode=0o700)
+    (tmp_path / "store").chmod(0o700)
+    spy = Spy()
+    code, _ = run_main(args(tmp_path, report=str(tmp_path / "store" / "report.json")), {"INTRON_API_KEY_FILE": str(key)}, spy, capsys)
+    assert code == 2 and spy.built == 0
+
+
+def test_the_shipped_settings_file_loads_and_holds_the_values_of_a380() -> None:
+    path = Path(__file__).resolve().parents[1] / "bench" / "baseline-settings.json"
+    loaded, bounds, wire = load_settings(path)
+    assert (loaded.stt_final_s, loaded.response_s, loaded.tts_first_s, loaded.session_s) == (20.0, 1.0, 10.0, 40.0)
+    assert (loaded.read_s, loaded.close_s, loaded.hold_s, loaded.concurrency, loaded.min_pause_s, loaded.budget_minutes) == (2.0, 1.0, 5.0, 1, 2.0, 20.0)
+    assert bounds == (5.0, 15.0) and (loaded.connections_per_minute, loaded.connections_per_session) == (3, 2) and wire.ping_interval_s is None
+    assert len(wire.allowed_hosts) >= 1  # a placeholder in the repository (never the vendor's host): the Founder sets the real one on the bench host
+
+
+# ---- an item whose audio is outside the bounds is skipped and counted, never sent, and the run goes on ---------------------------------------------------------------------------
+
+
+class ShortThenLongTts(Tts):
+    """The first generation is 3 seconds (below the bounds), the rest 6 seconds."""
+
+    def __init__(self, clock: Clock) -> None:
+        super().__init__(clock)
+        self.generations = 0
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text == "send ten thousand naira":
+            self.generations += 1
+            seconds = 3 if self.generations == 1 else 6
+            self.requests.append(request.text)
+            yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000 * seconds)
+        else:
+            async for chunk in super().synthesize(request):
+                yield chunk
+
+
+@POSIX
+def test_an_item_whose_generated_audio_is_outside_the_bounds_is_skipped_and_counted_and_the_next_item_still_runs(tmp_path: Path) -> None:
+    root, store = make_store(tmp_path)
+    clock, pauses = Clock(), []  # type: ignore[var-annotated]
+    stt, tts = Stt(clock, []), ShortThenLongTts(clock)
+    report = run(asyncio.wait_for(run_baseline(items=[synthetic("u1"), synthetic("u2")], stt=stt, tts=tts, settings=settings(), bounds_s=(5.0, 15.0), store=store, clock_ms=clock, wall=wall,
+                                               sleep=lambda s: fake_sleep(pauses, s), tts_model_version="v1", on_progress=lambda report: None, answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))
+    assert report["skipped_out_of_bounds"] == 1 and stt.calls == 1 and report["sessions"] == {"total": 1, "complete": 1, "incomplete": 0}
+
+
+# ---- --check-key (A487): one connection, no audio, prints only accepted, rejected or inconclusive ---------------------------------------------------------------------------------
+
+
+class Greeter:
+    """A scripted connection: replies with `reply` on the first receive. Records what was sent (it must be nothing) and that it was closed."""
+
+    def __init__(self, reply: str | None) -> None:
+        self.reply, self.sent, self.closed = reply, [], False  # type: ignore[var-annotated]
+
+    async def send(self, message: str) -> None:
+        self.sent.append(message)
+
+    async def recv(self) -> str:
+        if self.reply is None:
+            raise ConnectionError("dropped")
+        return self.reply
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def check_key(tmp_path: Path, reply: str | None, capsys: pytest.CaptureFixture[str], environ: dict[str, str] | None = None) -> tuple[int, str, Greeter, list[tuple[str, dict[str, str]]]]:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    greeter, seen = Greeter(reply), []
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            seen.append((url, dict(headers)))
+            return greeter
+
+        return connect
+
+    argv = ["--check-key", f"--settings={write_json(tmp_path / 'settings.json', SETTINGS_FILE)}", "--base-url=wss://example.invalid"]
+    code = main(argv, environ if environ is not None else {"INTRON_API_KEY_FILE": str(key)}, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    out = capsys.readouterr()
+    return code, out.out + out.err, greeter, seen
+
+
+def test_a_key_the_vendor_accepts_prints_accepted_sends_no_audio_and_leaves_no_key_in_the_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, text, greeter, seen = check_key(tmp_path, json.dumps({"message_type": "SESSION_CREATED", "session_id": "s", "credit_balance": 10}), capsys)
+    assert code == 0 and text.strip() == "accepted" and greeter.sent == [] and greeter.closed and KEY not in text
+    assert seen[0][1] == {"Authorization": f"Bearer {KEY}"} and seen[0][0].startswith("wss://example.invalid/")
+
+
+def test_a_key_the_vendor_refuses_prints_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, text, greeter, _ = check_key(tmp_path, json.dumps({"message_type": "AUTHENTICATION_ERROR", "message": "permission denied"}), capsys)
+    assert code == 1 and text.strip() == "rejected" and greeter.sent == [] and greeter.closed and KEY not in text
+
+
+@pytest.mark.parametrize("reply", [None, "not json", json.dumps({"message_type": "QUOTA_EXCEEDED"}), json.dumps({"message_type": "SOMETHING_NEW"})])
+def test_anything_else_is_inconclusive_never_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str], reply: str | None) -> None:
+    code, text, greeter, _ = check_key(tmp_path, reply, capsys)
+    assert code == 1 and text.strip() == "inconclusive" and greeter.sent == [] and KEY not in text
+
+
+def test_check_key_without_the_key_file_refuses_before_any_connection(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, text, greeter, seen = check_key(tmp_path, "{}", capsys, environ={})
+    assert code == 2 and seen == [] and greeter.sent == [] and KEY not in text
+
+
+# ---- the proposed manifest and voices files -------------------------------------------------------------------------------------------------------------------------------------
+
+
+def test_the_proposed_manifest_loads_fits_the_budget_and_covers_the_five_locales() -> None:
+    from noema_model.voice.baseline import plan_budget
+    from noema_model.voice.baseline_run import _load_voices
+
+    bench = Path(__file__).resolve().parents[1] / "bench"
+    items = load_manifest(bench / "manifest.proposed.json")
+    voices = _load_voices(bench / "voices.proposed.json")
+    assert {i.locale for i in items} == {Locale.EN_NG, Locale.PCM, Locale.YO, Locale.HA, Locale.IG} and set(voices) == {i.locale for i in items}
+    assert all(i.origin is AudioOrigin.SYNTHETIC and i.script for i in items)  # proposed: synthetic only, no team recording is named here
+    assert 5.0 <= min(i.audio_s for i in items) and max(i.audio_s for i in items) <= 15.0
+    plan = plan_budget(items, budget_minutes=20.0)
+    assert plan.dropped == () and plan.total_s <= 20 * 60 * 0.6  # leaves room: at most 60 percent of the 20 audio-minutes, the rest for recordings and reruns
+    assert voices[Locale.PCM].language == "pcm" and voices[Locale.PCM].accent == "pidgin" and voices[Locale.EN_NG].language == "en" and voices[Locale.EN_NG].accent == "yoruba"
+    for locale in (Locale.YO, Locale.HA, Locale.IG):
+        assert voices[locale].language == locale.value
+
+
+@pytest.mark.parametrize(("failure", "word"), [(ProviderFailure.REJECTED, "rejected"), (ProviderFailure.UNAVAILABLE, "inconclusive"), (ProviderFailure.RATE_LIMITED, "inconclusive")])
+def test_a_refusal_at_the_handshake_is_rejected_only_when_the_vendor_refused_the_key(tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: ProviderFailure, word: str) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            raise ProviderError(failure)
+
+        return connect
+
+    argv = ["--check-key", f"--settings={write_json(tmp_path / 'settings.json', SETTINGS_FILE)}", "--base-url=wss://example.invalid"]
+    code = main(argv, {"INTRON_API_KEY_FILE": str(key)}, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    out = capsys.readouterr()
+    assert out.out.strip() == word and code == (1) and KEY not in out.out + out.err
+
+
+# ---- A556: the base address is pinned to a host the Founder supplies in the settings file (required, no default) ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", [[], "example.invalid", ["https://example.invalid"], ["example.invalid:443"], ["example.invalid/path"], ["*.example.invalid"], ["Example.Invalid"], ["10.0.0.1"], ["a b"], [""], [1], ["example.invalid", 2], None])
+def test_the_allowlist_must_be_a_non_empty_list_of_plain_lowercase_host_names(tmp_path: Path, bad: object) -> None:
+    with pytest.raises(RunnerConfigError):
+        load_settings(write_json(tmp_path / "s.json", {**SETTINGS_FILE, "allowed_hosts": bad}))
+
+
+def test_the_allowlist_is_loaded_as_given(tmp_path: Path) -> None:
+    _, _, wire = load_settings(write_json(tmp_path / "s.json", {**SETTINGS_FILE, "allowed_hosts": ["example.invalid", "other.example.invalid"]}))
+    assert wire.allowed_hosts == ("example.invalid", "other.example.invalid")
+
+
+@pytest.mark.parametrize("base_url", ["wss://elsewhere.invalid", "wss://example.invalid.evil.invalid", "wss://example.invalid@evil.invalid", "wss://evil.invalid@example.invalid", "wss://example.invalid:8443", "wss://EXAMPLE.invalid.evil.invalid", "ws://example.invalid", "https://example.invalid", "example.invalid", "wss://example.invalid/stt", "wss://example.invalid?x=1"])
+def test_a_base_address_off_the_allowlist_is_refused_before_any_connection_for_a_run_and_for_check_key(tmp_path: Path, capsys: pytest.CaptureFixture[str], base_url: str) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    spy = Spy()
+    if os.name != "nt":
+        (tmp_path / "store").mkdir(mode=0o700)  # a good store, so that only the address can be what refuses the run
+        (tmp_path / "store").chmod(0o700)
+    run_args = args(tmp_path, **{"base-url": base_url})
+    assert main(run_args, {"INTRON_API_KEY_FILE": str(key)}, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s)) == 2 and spy.built == 0
+    check = ["--check-key", f"--settings={write_json(tmp_path / 'c.json', SETTINGS_FILE)}", f"--base-url={base_url}"]
+    assert main(check, {"INTRON_API_KEY_FILE": str(key)}, make_connector=spy, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s)) == 2 and spy.built == 0
+    out = capsys.readouterr()
+    assert KEY not in out.out + out.err and "evil" not in out.out + out.err  # the refusal never echoes the address it refused
+
+
+def test_a_base_address_on_the_allowlist_is_not_refused_for_that_reason(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    seen: list[str] = []
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            seen.append(url)
+            raise ProviderError(ProviderFailure.UNAVAILABLE)  # reached the connection: the address was accepted
+
+        return connect
+
+    check = ["--check-key", f"--settings={write_json(tmp_path / 'c.json', SETTINGS_FILE)}", "--base-url=wss://example.invalid"]
+    code = main(check, {"INTRON_API_KEY_FILE": str(key)}, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    assert code == 1 and capsys.readouterr().out.strip() == "inconclusive" and len(seen) == 1 and seen[0].startswith("wss://example.invalid/")
+
+
+# ---- A568: the audio the vendor actually generated and the audio sent are charged against the budget; the report is written after every session ---------------------------------------
+
+
+class LongTts(Tts):
+    """The vendor generates ten seconds for the script (the manifest declared six): what is charged is what was generated, not what was declared."""
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text == "send ten thousand naira":
+            self.requests.append(request.text)
+            yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000 * 10)
+        else:
+            async for chunk in super().synthesize(request):
+                yield chunk
+
+
+def run_with(tmp_path: Path, items: list[ManifestItem], stt: object, tts: object, on_progress: object, **over: object) -> dict[str, object]:
+    root, store = make_store(tmp_path)
+    clock = Clock()
+    return run(asyncio.wait_for(run_baseline(items=items, stt=stt, tts=tts, settings=settings(**over), bounds_s=(5.0, 15.0), store=store, clock_ms=clock, wall=wall,  # type: ignore[arg-type]
+                                             sleep=lambda s: fake_sleep([], s), tts_model_version="v1", on_progress=on_progress, answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))  # type: ignore[arg-type]
+
+
+@POSIX
+def test_audio_the_vendor_generated_beyond_what_the_manifest_declared_is_charged_and_ends_the_run_before_it_is_sent(tmp_path: Path) -> None:
+    clock = Clock()
+    stt = Stt(clock, [])
+    report = run_with(tmp_path, [synthetic("u1")], stt, LongTts(clock), lambda r: None, budget_minutes=0.25)  # 15 s: the plan (6 + 6 + 2) fits, the real audio (10 generated, 10 sent) does not
+    assert stt.calls == 0 and report["ended"] == "budget_exhausted"
+    assert report["budget"]["generation_s"] == 10.0 and report["budget"]["stt_s"] == 0.0  # type: ignore[index]
+    assert report["sessions"] == {"total": 0, "complete": 0, "incomplete": 0}
+
+
+@POSIX
+def test_the_spoken_answer_is_part_of_what_a_session_needs_so_a_run_never_overspends(tmp_path: Path) -> None:
+    clock = Clock()
+    stt = Stt(clock, [])
+    report = run_with(tmp_path, [synthetic("u1")], stt, LongTts(clock), lambda r: None, budget_minutes=21.5 / 60)  # 21.5 s: generated 10 and sent 10 fit (20), with the 2 s answer (22) they do not
+    assert stt.calls == 0 and report["ended"] == "budget_exhausted"
+
+
+class FirstLongTts(Tts):
+    """The first generation is ten seconds (declared six), the later ones six."""
+
+    def __init__(self, clock: Clock) -> None:
+        super().__init__(clock)
+        self.generations = 0
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text == "send ten thousand naira":
+            self.generations += 1
+            self.requests.append(request.text)
+            yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000 * (10 if self.generations == 1 else 6))
+        else:
+            async for chunk in super().synthesize(request):
+                yield chunk
+
+
+@POSIX
+def test_the_answer_of_an_earlier_session_is_already_charged_when_a_later_one_asks_for_room(tmp_path: Path) -> None:
+    clock = Clock()
+    stt = Stt(clock, [])
+    report = run_with(tmp_path, [synthetic("u1"), synthetic("u2")], stt, FirstLongTts(clock), lambda r: None, budget_minutes=35.5 / 60)  # u1 takes 22 s with its answer; u2 needs 14 more: 36 > 35.5
+    assert stt.calls == 1 and report["ended"] == "budget_exhausted" and report["sessions"] == {"total": 1, "complete": 1, "incomplete": 0}
+
+
+@POSIX
+def test_a_report_is_handed_out_after_every_session_and_at_the_end(tmp_path: Path) -> None:
+    clock = Clock()
+    snapshots: list[dict[str, object]] = []
+    final = run_with(tmp_path, [synthetic("u1"), synthetic("u2"), synthetic("u3")], Stt(clock, []), Tts(clock), snapshots.append)
+    assert [s["sessions"]["total"] for s in snapshots] == [1, 2, 3, 3]  # type: ignore[index]
+    assert [s["ended"] for s in snapshots] == ["in_progress", "in_progress", "in_progress", "complete"] and final == snapshots[-1]
+
+
+@POSIX
+def test_a_store_read_failure_ends_the_run_with_the_report_so_far_instead_of_losing_it(tmp_path: Path) -> None:
+    clock = Clock()
+    missing = ManifestItem(label="t1", locale=Locale.PCM, origin=AudioOrigin.TEAM_RECORDING, speaker_ref="team-01", audio_s=6.0, answer_s=2.0, script="send ten thousand naira", file="absent.pcm")
+    snapshots: list[dict[str, object]] = []
+    report = run_with(tmp_path, [synthetic("u1"), missing], Stt(clock, []), Tts(clock), snapshots.append)
+    assert report["ended"] == "store_read_failed" and report["sessions"] == {"total": 1, "complete": 1, "incomplete": 0} and snapshots[-1] == report
+
+
+class ExplodingTts(Tts):
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if len(self.requests) >= 2:
+            raise RuntimeError("an unexpected failure")
+        async for chunk in super().synthesize(request):
+            yield chunk
+
+
+@POSIX
+def test_an_unexpected_failure_mid_run_leaves_the_report_of_the_sessions_already_measured(tmp_path: Path) -> None:
+    clock = Clock()
+    snapshots: list[dict[str, object]] = []
+    with pytest.raises(RuntimeError):
+        run_with(tmp_path, [synthetic("u1"), synthetic("u2")], Stt(clock, []), ExplodingTts(clock), snapshots.append)
+    assert len(snapshots) == 1 and snapshots[0]["sessions"] == {"total": 1, "complete": 1, "incomplete": 0}  # the first session's report was handed out before the second one failed
+
+
+@POSIX
+def test_the_report_file_is_created_once_owner_only_and_rewritten_whole_never_overwriting_an_existing_one(tmp_path: Path) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    report_file = ReportFile.create(path)
+    report_file.write({"a": "x" * 500})
+    report_file.write({"b": 1})  # shorter: nothing of the longer one may remain
+    report_file.close()
+    assert json.loads(path.read_text()) == {"b": 1} and stat.S_IMODE(path.stat().st_mode) == 0o600
+    with pytest.raises(RunnerConfigError):
+        ReportFile.create(path)  # an existing report is never overwritten
+    assert json.loads(path.read_text()) == {"b": 1}
+
+
+@POSIX
+def test_an_existing_report_refuses_the_run_before_any_connection_so_no_credit_is_spent(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    (tmp_path / "store").mkdir(mode=0o700)
+    (tmp_path / "store").chmod(0o700)
+    (tmp_path / "report.json").write_text("{}")
+    spy = Spy()
+    code, _ = run_main(args(tmp_path), {"INTRON_API_KEY_FILE": str(key)}, spy, capsys)
+    assert code == 2 and spy.built == 0 and (tmp_path / "report.json").read_text() == "{}"
+
+
+# ---- A587: a run that fails before any session removes the empty report file it created, and never a non-empty one --------------------------------------------------------------
+
+
+def a_ready_run(tmp_path: Path) -> tuple[list[str], dict[str, str]]:
+    key = tmp_path / "key"
+    key.write_text(KEY)
+    key.chmod(0o600)
+    (tmp_path / "store").mkdir(mode=0o700)
+    (tmp_path / "store").chmod(0o700)
+    return args(tmp_path), {"INTRON_API_KEY_FILE": str(key)}
+
+
+@POSIX
+def test_an_empty_report_file_is_removed_a_written_one_never(tmp_path: Path) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    empty = ReportFile.create(tmp_path / "empty.json")
+    empty.discard_if_empty()
+    assert not (tmp_path / "empty.json").exists()
+    written = ReportFile.create(tmp_path / "written.json")
+    written.write({"sessions": 0})
+    written.discard_if_empty()
+    assert json.loads((tmp_path / "written.json").read_text()) == {"sessions": 0}
+
+
+@POSIX
+def test_a_file_that_replaced_the_report_is_not_removed_even_if_it_is_empty(tmp_path: Path) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    ours = ReportFile.create(path)
+    path.unlink()
+    path.write_text("")  # someone else's empty file now stands at the path
+    ours.discard_if_empty()
+    assert path.exists()
+
+
+@POSIX
+def test_a_run_that_fails_before_any_session_leaves_no_empty_report_so_it_can_be_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    argv, environ = a_ready_run(tmp_path)
+
+    def make(**_: object) -> Connect:
+        raise RuntimeError("the connector could not be built")
+
+    with pytest.raises(RuntimeError):
+        main(argv, environ, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    assert not (tmp_path / "report.json").exists()
+
+
+@POSIX
+def test_a_run_that_ends_after_writing_a_report_keeps_it_even_with_no_session_measured(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    argv, environ = a_ready_run(tmp_path)
+
+    def make(**_: object) -> Connect:
+        async def connect(url: str, headers: Mapping[str, str]) -> Connection:
+            raise ProviderError(ProviderFailure.UNAVAILABLE)  # the first generation fails: the run ends with a report that says why
+
+        return connect
+
+    code = main(argv, environ, make_connector=make, wall=wall, clock_ms=Clock(), sleep=lambda s: fake_sleep([], s))
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert code == 0 and report["ended"] == "generation_or_store_failed" and report["sessions"]["total"] == 0 and stat.S_IMODE((tmp_path / "report.json").stat().st_mode) == 0o600
+
+
+# ---- SR on #824: the report is written to a temporary file and renamed, so a crash never leaves a half-written report ----------------------------------------------------------
+
+
+@POSIX
+def test_the_new_report_is_whole_in_a_temporary_file_before_it_replaces_the_old_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    report_file = ReportFile.create(path)
+    real_replace = os.replace
+    seen: list[tuple[object, object]] = []
+
+    def checking_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        seen.append((json.loads(Path(source).read_text()), path.read_text()))  # the new document is complete before the swap; the old file is untouched until it
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", checking_replace)
+    report_file.write({"n": 1})
+    report_file.write({"n": 2, "pad": "x" * 400})
+    report_file.close()
+    assert seen == [({"n": 1}, ""), ({"n": 2, "pad": "x" * 400}, json.dumps({"n": 1}, indent=2, sort_keys=True))]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["report.json"] and stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+@POSIX
+def test_a_write_that_fails_part_way_leaves_the_previous_complete_report_and_no_temporary_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    report_file = ReportFile.create(path)
+    report_file.write({"n": 1, "pad": "x" * 300})
+
+    def failing_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        raise OSError("the swap failed")
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        report_file.write({"n": 2})
+    monkeypatch.undo()
+    assert json.loads(path.read_text()) == {"n": 1, "pad": "x" * 300} and sorted(p.name for p in tmp_path.iterdir()) == ["report.json"]
+    report_file.close()
+
+
+@POSIX
+def test_a_first_write_that_fails_leaves_only_the_empty_placeholder_which_is_then_discarded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    path = tmp_path / "report.json"
+    report_file = ReportFile.create(path)
+
+    def failing_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        raise OSError("the swap failed")
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        report_file.write({"n": 1})
+    monkeypatch.undo()
+    assert path.read_text() == "" and sorted(p.name for p in tmp_path.iterdir()) == ["report.json"]
+    report_file.discard_if_empty()
+    report_file.close()
+    assert list(tmp_path.iterdir()) == []
+
+
+@POSIX
+def test_the_new_report_and_then_the_rename_are_flushed_to_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from noema_model.voice.baseline_run import ReportFile
+
+    report_file = ReportFile.create(tmp_path / "report.json")
+    calls: list[str] = []
+    real_fsync, real_replace = os.fsync, os.replace
+
+    def fsync(descriptor: int) -> None:
+        calls.append("fsync directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "fsync file")
+        real_fsync(descriptor)
+
+    def replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        calls.append("rename")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "replace", replace)
+    report_file.write({"n": 1})
+    report_file.close()
+    assert calls == ["fsync file", "rename", "fsync directory"]  # the contents are on disk before the rename, and the rename is on disk after it
+
+
+# ---- A608: the text-to-speech audio is charged chunk by chunk as it streams; A612: only accepted audio is written, nothing partial is left in the store after a budget stop -----------------
+
+
+class ChunkedTts(Tts):
+    """Streams one-second chunks (48 kHz PCM16) and counts how many the consumer asked for: a consumer that stops must not pull more."""
+
+    def __init__(self, clock: Clock, chunks: int = 6) -> None:
+        super().__init__(clock)
+        self.total, self.pulled, self.closed = chunks, 0, False
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text != "send ten thousand naira":
+            async for chunk in super().synthesize(request):
+                yield chunk
+            return
+        self.requests.append(request.text)
+        try:
+            for index in range(self.total):
+                self.pulled += 1
+                yield AudioChunk(index, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 48000)  # one second
+        finally:
+            self.closed = True
+
+
+def run_with_store(tmp_path: Path, items: list[ManifestItem], stt: object, tts: object, bounds: tuple[float, float] = (1.0, 15.0), on_progress: Callable[[dict[str, object]], None] = lambda report: None, **over: object) -> tuple[dict[str, object], Path]:
+    root, store = make_store(tmp_path)
+    report = run(asyncio.wait_for(run_baseline(items=items, stt=stt, tts=tts, settings=settings(**over), bounds_s=bounds, store=store, clock_ms=Clock(), wall=wall,  # type: ignore[arg-type]
+                                               sleep=lambda s: fake_sleep([], s), tts_model_version="v1", on_progress=on_progress, answer_text="We found your transfer.", targets_ms=1800), timeout=GUARD_S))
+    return report, root
+
+
+def small(label: str) -> ManifestItem:
+    return ManifestItem(label=label, locale=Locale.PCM, origin=AudioOrigin.SYNTHETIC, speaker_ref="synthetic", audio_s=1.0, answer_s=0.5, script="send ten thousand naira")
+
+
+@POSIX
+def test_the_audio_is_charged_chunk_by_chunk_and_the_run_stops_at_the_chunk_that_would_not_fit_without_pulling_more(tmp_path: Path) -> None:
+    clock = Clock()
+    stt, tts = Stt(clock, []), ChunkedTts(clock, chunks=6)
+    closed_when_reported: list[bool] = []
+    report, _ = run_with_store(tmp_path, [small("u1")], stt, tts, on_progress=lambda r: closed_when_reported.append(tts.closed), budget_minutes=3.5 / 60)  # 3.5 s: three one-second chunks fit, the fourth would not
+    assert report["ended"] == "budget_exhausted" and stt.calls == 0
+    assert closed_when_reported == [True]  # a stream that stopped early is closed before the run reports, so the vendor stops generating (read inside the run, not after the loop shut down)
+    assert tts.pulled == 4  # the fourth chunk arrived and was refused; the fifth and sixth were never asked for (nothing is buffered first and charged after)
+    assert report["budget"]["generation_s"] == 3.0  # type: ignore[index]  # only the accepted audio is counted
+
+
+@POSIX
+def test_after_a_budget_stop_during_generation_nothing_of_the_audio_is_left_in_the_store(tmp_path: Path) -> None:
+    clock = Clock()
+    _, root = run_with_store(tmp_path, [small("u1")], Stt(clock, []), ChunkedTts(clock, chunks=6), budget_minutes=3.5 / 60)
+    assert list(root.iterdir()) == []  # no speaker folder, no partial file
+
+
+@POSIX
+def test_audio_that_cannot_be_used_because_the_session_does_not_fit_is_not_written_either(tmp_path: Path) -> None:
+    clock = Clock()
+    stt = Stt(clock, [])
+    report, root = run_with_store(tmp_path, [synthetic("u1")], stt, LongTts(clock), budget_minutes=15 / 60)  # ten seconds generated fit; sending them and speaking the answer do not
+    assert report["ended"] == "budget_exhausted" and stt.calls == 0 and list(root.iterdir()) == []
+
+
+@POSIX
+def test_only_the_audio_of_an_accepted_item_is_written_so_an_out_of_bounds_one_leaves_no_file(tmp_path: Path) -> None:
+    clock = Clock()
+    root_report, root = run_with_store(tmp_path, [synthetic("u1"), synthetic("u2")], Stt(clock, []), ShortThenLongTts(clock), bounds=(5.0, 15.0))
+    assert root_report["skipped_out_of_bounds"] == 1 and sorted(p.name for p in (root / "synthetic").iterdir()) == ["u2.pcm"]
