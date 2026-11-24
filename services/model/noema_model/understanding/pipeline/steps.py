@@ -5,6 +5,7 @@ Option ids sent to the model are positional (o0, o1, ...) and the labels carry t
 to be a legal identifier. The abstention is always offered and is always honoured: it becomes "no value", never a guess.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from fractions import Fraction
 from types import MappingProxyType
@@ -115,18 +116,38 @@ async def enumerated_slots(
     return values, probabilities, result.call
 
 
-def _decimal(p: float) -> Fraction:
-    """A provider's probability as the decimal it wrote, not as its binary value: 0.7 is exactly 7/10 (the double nearest to 0.7 lies a hair below it, and would make "exactly at the threshold" fail)."""
-    return Fraction(repr(p))  # repr is the shortest decimal that reads back as the same float: '0.7', '1e-05'
+_PLAIN_PROBABILITY = re.compile(r"([0-9]{1,3})(?:\.([0-9]{1,18}))?", re.ASCII)
+
+
+def probability_bp(value: object) -> int | None:
+    """A provider's probability as whole basis points, by integer arithmetic only (A612; INV-21): no float is made, converted or computed with. Only a plain decimal in [0, 1] is accepted: ASCII
+    digits with at most one decimal point and at most 18 fractional digits, no sign, exponent, space, NaN, infinity, hex or separator. The fractional part is floored to four digits, so 0.89999 is 8999 and
+    never rounds up to 9000. Anything else, a missing value included, is None, and the gate then abstains.
+
+    The provider layer hands over parsed JSON, a Python float. Its `repr` is the shortest decimal text that reads back as that float, which is the text the provider wrote, so it is read here as text (0.7 is
+    "0.7", 7000 bp, whatever the binary value of the double is). `repr` is formatting, not arithmetic. A float whose text is not a plain decimal (1e-05, nan, inf, a negative) is refused, which the gate treats as doubt. A bool is not a number."""
+    if isinstance(value, bool):
+        return None
+    text = value if isinstance(value, str) else repr(value) if isinstance(value, (int, float)) else None
+    if text is None:
+        return None
+    match = _PLAIN_PROBABILITY.fullmatch(text)
+    if match is None:
+        return None
+    whole, fraction = match.group(1), match.group(2) or ""
+    if int(whole) > 1 or (int(whole) == 1 and fraction.strip("0") != ""):
+        return None  # above 1, however small the excess: 1.00009 is not floored to 10000
+    return int(whole) * 10_000 + int((fraction + "0000")[:4])
 
 
 def gate_asserted(answer: YesNoAnswer, threshold_bp: int) -> bool:
-    """Whether a gate's yes stands (UND-18, A603). The comparison is exact: the probability of yes, as the decimal the provider wrote, against `threshold_bp / 10000`, never rounded. Unlike `asserted`, a model that selected
-    "yes" is not taken at its word: a yes it gives at a low probability is the doubt the gate exists for, and a false assertion is the harmful error, so doubt abstains. A model that
-    selected "no" is a no whatever its probability says."""
+    """Whether a gate's yes stands (UND-18, A603, A606, A612). The probability of yes is read exactly into whole basis points (`probability_bp`) and compared as integers with the pack's threshold: no float, no
+    rounding up. Unlike `asserted`, a model that selected "yes" is not taken at its word: a yes it gives below the threshold is the doubt the gate exists for, and a false assertion is the harmful error, so doubt
+    abstains. A model that selected "no" is a no whatever its probability says, and a missing or malformed probability is doubt too."""
     if answer.yes is False:
         return False
-    return _decimal(answer.p_yes) >= Fraction(threshold_bp, 10_000)
+    basis_points = probability_bp(answer.p_yes)
+    return basis_points is not None and basis_points >= threshold_bp
 
 
 async def gate_slots(

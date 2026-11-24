@@ -285,7 +285,7 @@ def test_a_plain_decimal_in_range_becomes_basis_points_by_floor(text: str, bp: i
 
 
 @pytest.mark.parametrize("bad", [
-    "1.0001", "1.1", "2", "-0.1", "+0.9", "1e0", "1E0", "0.9e0", ".9", "0.", "", None, " 0.9", "0.9 ", "0.9\n", "NaN", "nan", "inf", "-inf", "0x1", "0b1", "0,9", "0..9", "0.9.1",
+    "1.0001", "1.00009", "1.000000000000000001", "1.1", "2", "10", "100.0", "-0.1", "+0.9", "1e0", "1E0", "0.9e0", ".9", "0.", "", None, " 0.9", "0.9 ", "0.9\n", "NaN", "nan", "inf", "-inf", "0x1", "0b1", "0,9", "0..9", "0.9.1",
     "\u0660.\u0669", "٠.٩", "0.9\u00a0", "1_0", "00.9000000000000000000000", "0." + "9" * 40, True, False, object(), [], {},
 ])
 def test_anything_else_is_not_a_probability_and_the_gate_abstains(bad: Any) -> None:
