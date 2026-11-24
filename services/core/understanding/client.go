@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/telemetry"
 )
 
 // compilePath is the model service's compile endpoint (PERD 39.3, mTLS, contracts only).
@@ -103,6 +104,7 @@ func (c *Client) Compile(ctx context.Context, req CompileRequest) (Compiled, err
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("Accept", "application/json")
+	telemetry.Inject(ctx, hreq.Header) // the correlation chain of the request: Noema-Correlation-Id and a child traceparent (REC-02; REQ-AUD-004, REQ-OBS-002)
 	resp, err := c.http.Do(hreq)
 	if err != nil {
 		return Compiled{}, &CompileError{Failure: FailureUnavailable}

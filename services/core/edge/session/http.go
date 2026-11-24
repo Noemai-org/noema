@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/telemetry"
 )
 
 // CorrelationHeader carries the correlation ID on every response (PERD 39.1).
@@ -53,7 +54,7 @@ func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 				refuseNoCorrelation(w)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), corrKey{}, corr))
+			r = r.WithContext(telemetry.WithCorrelation(context.WithValue(r.Context(), corrKey{}, corr), corr)) // the same ID rides the telemetry chain: the model client sends it, the bound logger logs it (REC-02)
 			w.Header().Set(CorrelationHeader, corr)
 			authz := r.Header.Get("Authorization")
 			if authz == "" {
