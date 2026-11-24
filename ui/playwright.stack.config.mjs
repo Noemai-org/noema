@@ -13,5 +13,12 @@ if (!browser) throw new Error("Stack browser checks need pre-installed Chrome or
 
 export default defineConfig({
   testDir: "browser-stack",
-  use: { baseURL: target.origin, launchOptions: { executablePath: browser } },
+  timeout: 135_000, // one 60-second state wait + one 60-second SSE read, with cleanup margin
+  expect: { timeout: 60_000 },
+  use: {
+    baseURL: target.origin,
+    actionTimeout: 60_000,
+    navigationTimeout: 60_000,
+    launchOptions: { executablePath: browser },
+  },
 });
