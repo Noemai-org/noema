@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
@@ -460,11 +461,12 @@ func candEnumsOK(c contracts.CandidatesResponseV1Candidate) bool {
 	return true
 }
 
-// candDigitRun is the longest run of consecutive digits in s.
+// candDigitRun is the longest run of consecutive digits in s. A digit is a number of any script and any kind (Unicode categories Nd, Nl and No: Arabic-Indic, fullwidth, superscript
+// and circled digits count), so a number cannot slip past the masking limit by changing script (A555, AGENT-13).
 func candDigitRun(s string) int {
 	longest, run := 0, 0
 	for _, r := range s {
-		if r >= '0' && r <= '9' {
+		if unicode.IsNumber(r) {
 			run++
 			longest = max(longest, run)
 		} else {

@@ -337,6 +337,53 @@ class TemplateCoverage(unittest.TestCase):
         self.assertTrue(enforced and all(c == "templates" for c, _ in enforced), enforced[:2])
 
 
+class SubjectSlot(unittest.TestCase):
+    """A520 (interim, DEBT-54). The subject of an intent is a pack-declared slot of its node: `subject_slot` names a slot of the SAME node that is a Resource slot. The core reads the name
+    from the pack and never writes it in code (INV-14). A node with no Resource slot declares none."""
+
+    def problems(self, node_index, value):
+        base, graphs = real()
+        base["intent_nodes"][node_index]["subject_slot"] = value
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "subject"]
+
+    def test_the_investigate_node_declares_its_subject_and_a_node_without_a_resource_slot_declares_none(self):
+        base, _ = real()
+        declared = {n["node_id"]: n.get("subject_slot") for n in base["intent_nodes"]}
+        self.assertEqual(declared["fin.payments.exception.investigate"], "subject_resource")
+        self.assertEqual([k for k, v in declared.items() if v], ["fin.payments.exception.investigate"])
+        for n in base["intent_nodes"]:
+            if n["node_id"] in declared and declared[n["node_id"]]:
+                slot = next(s for s in n["slots"] if s["name"] == declared[n["node_id"]])
+                self.assertEqual(slot["type"], "Resource")
+
+    def test_the_real_pack_passes(self):
+        base, graphs = real()
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
+
+    def test_a_subject_slot_that_is_not_a_slot_of_its_node_is_refused(self):
+        self.assertTrue(self.problems(0, "no_such_slot"))
+        base, graphs = real()
+        for bad in ("SUBJECT_RESOURCE", "", "fin.transaction"):  # not a slot name at all: the contract's pattern refuses it before the pack check runs
+            base["intent_nodes"][0]["subject_slot"] = bad
+            self.assertTrue(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), f"{bad!r} is accepted")
+
+    def test_a_subject_slot_that_is_not_a_resource_slot_is_refused(self):
+        for bad in ("amount", "counterparty", "when", "question_type", "requested_remedy"):
+            found = self.problems(0, bad)
+            self.assertTrue(found, f"{bad!r} is accepted")
+            self.assertTrue(any("Resource" in m for m in found), found)
+
+    def test_a_node_with_no_slot_cannot_declare_a_subject(self):
+        self.assertTrue(self.problems(1, "subject_resource"))
+
+    def test_a_subject_slot_that_is_not_a_string_is_refused_by_the_schema(self):
+        base, graphs = real()
+        for bad in (None, 7, ["subject_resource"], {"a": 1}, True):
+            base["intent_nodes"][0]["subject_slot"] = bad
+            found = checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs)
+            self.assertTrue(found, f"{bad!r} is accepted")
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -409,3 +456,158 @@ class GraphParams(unittest.TestCase):
         graphs[G2]["nodes"][0]["params"].append({"name": "priority", "const": "NORMAL"})
         self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
         self.assertNotIn("params", next(n for g in graphs.values() for n in g["nodes"] if n["capability_id"] == "fin.cap.log_complaint_reference"))
+
+
+class CandidateLabels(unittest.TestCase):
+    """A555 (interim, relayed, not yet committed; REQ-AMB-004, REQ-AMB-003). The disambiguation block of a node that searches candidates carries the pack's question key for OPTIONS mode, the
+    OPTIONS label template and the fixed order of askable attributes with a label template each. A template names only the candidate attributes a label may show (never an id or a
+    reference), holds no digit of its own, and never puts two placeholders side by side, so no label can show a digit run the masking rule forbids (REQ-AMB-004, AGENT-13)."""
+
+    NODE = "fin.payments.exception.investigate"
+
+    def problems(self, mutate):
+        base, graphs = real()
+        mutate(next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)["disambiguation"])
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "disambiguation"]
+
+    def test_the_real_pack_declares_the_three_members_for_the_node_that_searches_candidates(self):
+        base, graphs = real()
+        d = next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)["disambiguation"]
+        self.assertTrue(d["options_key"] and d["display_template"])
+        self.assertEqual([a["name"] for a in d["attribute_order"]], ["occurred_at", "counterparty_display", "account_last4", "amount_minor"])
+        self.assertEqual([c for c, _ in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs)], [])
+        out = next(n for n in base["intent_nodes"] if n["node_id"] == "fin.meta.out_of_scope")
+        self.assertNotIn("disambiguation", out)
+
+    def test_a_good_change_is_accepted(self):
+        def good(d):
+            d["attribute_order"][0]["label_template"] = "around {attr:occurred_at}"
+            d["display_template"] = "{attr:amount_minor} {attr:currency} to {attr:counterparty_display}"
+        self.assertEqual(self.problems(good), [])
+
+    def test_an_attribute_that_is_not_a_labelable_candidate_field_is_refused(self):
+        for name in ("candidate_id", "resource_ref", "beneficiary_alias_match", "currency", "nope", "schema_version"):
+            def bad(d, name=name):
+                d["attribute_order"][0] = {"name": name, "question_key": "fin.clarify.by_x", "label_template": "{attr:%s}" % name}
+            self.assertTrue(self.problems(bad), name)
+
+    def test_an_attribute_or_a_key_listed_twice_is_refused(self):
+        def dup_name(d):
+            d["attribute_order"].append(dict(d["attribute_order"][0], question_key="fin.clarify.by_other"))
+        def dup_key(d):
+            d["attribute_order"][1]["question_key"] = d["attribute_order"][0]["question_key"]
+        def options_key_reused(d):
+            d["options_key"] = d["attribute_order"][0]["question_key"]
+        for case in (dup_name, dup_key, options_key_reused):
+            self.assertTrue(self.problems(case), case.__name__)
+
+    def test_a_template_names_only_known_candidate_attributes_and_an_attribute_label_only_its_own(self):
+        cases = {
+            "an unknown placeholder": lambda d: d.__setitem__("display_template", "{attr:nope}"),
+            "an id placeholder": lambda d: d.__setitem__("display_template", "{attr:candidate_id}"),
+            "a fact placeholder": lambda d: d.__setitem__("display_template", "{fact:payment.amount}"),
+            "a bare brace": lambda d: d.__setitem__("display_template", "{amount_minor}"),
+            "an unclosed brace": lambda d: d.__setitem__("display_template", "{attr:amount_minor"),
+            "a brace beside a good placeholder": lambda d: d.__setitem__("display_template", "{attr:amount_minor} {fact:payment.amount}"),
+            "a lone opening brace beside a good placeholder": lambda d: d.__setitem__("display_template", "{attr:amount_minor} {"),
+            "a stray closing brace": lambda d: d.__setitem__("display_template", "amount_minor}"),
+            "another attribute in an attribute label": lambda d: d["attribute_order"][0].__setitem__("label_template", "{attr:account_last4}"),
+            "no placeholder in an attribute label": lambda d: d["attribute_order"][0].__setitem__("label_template", "the time"),
+            "no placeholder in the display": lambda d: d.__setitem__("display_template", "a transfer"),
+        }
+        for name, case in cases.items():
+            self.assertTrue(self.problems(case), name)
+
+    def test_a_template_holds_no_digit_of_its_own_and_no_two_placeholders_touch(self):
+        cases = {
+            "a digit in the display": lambda d: d.__setitem__("display_template", "{attr:amount_minor} sent on the 5th"),
+            "a digit run in an attribute label": lambda d: d["attribute_order"][0].__setitem__("label_template", "{attr:occurred_at} 20000"),
+            "a fullwidth digit": lambda d: d.__setitem__("display_template", "{attr:amount_minor} ５"),
+            "an arabic-indic digit": lambda d: d.__setitem__("display_template", "{attr:amount_minor} ٥"),
+            "two placeholders side by side": lambda d: d.__setitem__("display_template", "{attr:amount_minor}{attr:account_last4}"),
+        }
+        for name, case in cases.items():
+            self.assertTrue(self.problems(case), name)
+
+    def test_the_three_members_go_together(self):
+        for member in ("options_key", "display_template", "attribute_order"):
+            self.assertTrue(self.problems(lambda d, m=member: d.pop(m)), member)
+
+    def test_a_node_that_does_not_search_candidates_declares_none(self):
+        base, graphs = real()
+        base["intent_nodes"][1]["disambiguation"] = dict(next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)["disambiguation"])
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "disambiguation"]
+        self.assertTrue(hits, hits)
+
+    def test_the_allowed_attributes_follow_the_candidates_contract(self):
+        schema = json.loads((ROOT / "contracts/schemas/candidates-response.v1.json").read_text())
+        fields = set(schema["$defs"]["Candidate"]["properties"])
+        self.assertEqual(checks.LABEL_ATTRIBUTES, frozenset(fields - {"candidate_id", "resource_ref", "beneficiary_alias_match"}))  # what a template may show
+        self.assertEqual(checks.ASKABLE_ATTRIBUTES, checks.LABEL_ATTRIBUTES - {"currency"})  # the currency is shown with the amount; it is not asked by itself
+
+
+    def test_a_template_holds_no_number_of_any_kind_and_no_invisible_separator(self):
+        """A555 (REQ-AMB-004, AGENT-13): `\\d` misses superscripts, circled digits, fractions and roman numerals (Unicode categories Nl and No), and a zero-width or bidi character
+        between two placeholders keeps them apart to the eye of a program and together to the eye of a customer. Both are refused in the literal text."""
+        cases = {
+            "a superscript digit": "{attr:amount_minor} \u00b2",
+            "a circled digit": "{attr:amount_minor} \u2460",
+            "a vulgar fraction": "{attr:amount_minor} \u00bd",
+            "a roman numeral": "{attr:amount_minor} \u216b",
+            "a zero-width space between two placeholders": "{attr:amount_minor}\u200b{attr:account_last4}",
+            "a zero-width joiner between two placeholders": "{attr:amount_minor}\u200d{attr:account_last4}",
+            "a right-to-left override": "{attr:amount_minor} \u202e",
+            "a control character": "{attr:amount_minor}\u0007",
+        }
+        for name, text in cases.items():
+            self.assertTrue(self.problems(lambda d, text=text: d.__setitem__("display_template", text)), name)
+            self.assertTrue(self.problems(lambda d, text=text: d["attribute_order"][0].__setitem__("label_template", text.replace("amount_minor", "occurred_at").replace("account_last4", "occurred_at"))), name + " (attribute label)")
+
+    def test_a_plain_separator_between_placeholders_is_accepted(self):
+        for sep in (" ", ", ", " - ", " to "):
+            self.assertEqual(self.problems(lambda d, sep=sep: d.__setitem__("display_template", "{attr:amount_minor}" + sep + "{attr:account_last4}")), [], repr(sep))
+
+
+class HandoffRoutes(unittest.TestCase):
+    """A531 (interim, relayed, not yet committed; REQ-TRU-004, REQ-AG-002). The pack's `handoff_routes`: which reason code goes to a handoff, to a queue of the pack's own
+    routing allowlist, for which intent nodes (absent: all). The route is data; a free-form destination is not representable. All data is SYNTHETIC."""
+
+    ROUTE = {"reason_code": "NO_RUNNABLE_CAPABILITY", "owner_queue": "PAYMENTS_OPERATIONS"}
+
+    def routing(self, base):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "routing" and "handoff" in m]
+
+    def with_routes(self, routes):
+        base, _ = real()
+        base["handoff_routes"] = routes
+        return base
+
+    def test_the_real_pack_routes_no_runnable_capability_to_a_queue_of_its_own_allowlist(self):
+        base, _ = real()
+        routes = {r["reason_code"]: r for r in base.get("handoff_routes", [])}
+        self.assertIn("NO_RUNNABLE_CAPABILITY", routes)
+        self.assertIn(routes["NO_RUNNABLE_CAPABILITY"]["owner_queue"], base["routing_allowlist"])
+        self.assertNotIn("intent_nodes", routes["NO_RUNNABLE_CAPABILITY"])
+
+    def test_a_route_to_a_queue_outside_the_allowlist_is_refused(self):
+        hits = self.routing(self.with_routes([{**self.ROUTE, "owner_queue": "NOT_A_QUEUE"}]))
+        self.assertTrue(any("allowlist" in m for m in hits), hits)
+
+    def test_a_reason_code_routed_twice_is_refused(self):
+        hits = self.routing(self.with_routes([self.ROUTE, dict(self.ROUTE)]))
+        self.assertTrue(any("twice" in m for m in hits), hits)
+
+    def test_an_intent_node_the_pack_does_not_declare_is_refused(self):
+        hits = self.routing(self.with_routes([{**self.ROUTE, "intent_nodes": ["fin.not.a.node"]}]))
+        self.assertTrue(any("intent node" in m for m in hits), hits)
+
+    def test_a_route_for_a_declared_node_and_a_distinct_reason_passes(self):
+        base, _ = real()
+        node = base["intent_nodes"][0]["node_id"]
+        base["handoff_routes"] = [self.ROUTE, {"reason_code": "INSUFFICIENT_EVIDENCE", "owner_queue": base["routing_allowlist"][0], "intent_nodes": [node]}]
+        self.assertEqual(self.routing(base), [])
+        self.assertEqual([p for p in checks.run(PACKS / "fintech_v1.json", pack=base) if p[0] in ("schema", "reasons")], [])
+
+    def test_a_reason_code_that_is_not_a_core_code_is_refused(self):
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=self.with_routes([{**self.ROUTE, "reason_code": "fin.reason.permitted"}]))]
+        self.assertTrue(any("fin.reason.permitted" in m for m in hits), hits)

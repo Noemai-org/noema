@@ -1,9 +1,14 @@
 package recorder
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
@@ -12,7 +17,8 @@ import (
 // NewConfirmationRequest is the confirmation request a CONFIRM decision creates (SoT 43.2a, REQ-TRU-009). The first eight values are the binding (ConfirmationBindingEvidenceHash is the
 // content digest of A435, which the payload and the contract call evidence_set_hash); the writer computes the binding
 // hash from them with trust/confirm.BindingHash and mints the cfr_ ID itself, so neither is ever taken from the caller. Requirement is the contract's approver requirement (SELF,
-// MAKER_CHECKER or ROLE:<role>), RequesterID the principal that asked (the admitted intent's, INV-12) and ExpiresAt the expiry in Unix seconds.
+// MAKER_CHECKER or ROLE:<role>), RequesterID the principal that asked (the admitted intent's, INV-12) and ExpiresAt the expiry in Unix seconds on the writer's clock, from which the writer takes
+// only the request's TTL: the stored expiry is the database's clock plus that TTL (A552).
 type NewConfirmationRequest struct {
 	PrincipalID                     string
 	IntentHash                      string
@@ -78,8 +84,44 @@ func (w *Writer) checkRequest(r Request, basis decide.Basis) error {
 //
 // The policy_version member is the policy version of the binding: the composite "sha256:<hex>" (decide.CompositePolicyVersion, A341 and A367), checked equal to the basis's by
 // checkRequest. It is a content-hash typed value, which the payload guard (A184) exempts whole although its hex holds a run of more than four digits; the guard is not changed.
-func confirmationRequested(c *NewConfirmationRequest, requestID, decisionID, binding string) map[string]any {
+func confirmationRequested(c *NewConfirmationRequest, requestID, decisionID, binding string, expires time.Time) map[string]any {
 	return map[string]any{"confirmation_request_id": requestID, "decision_id": decisionID, "binding_hash": binding, "principal_id": c.PrincipalID, "intent_hash": c.IntentHash,
 		"capability_id": c.CapabilityID, "target_ref": c.TargetRef, "params_hash": c.ParamsHash, "evidence_set_hash": c.ConfirmationBindingEvidenceHash, "plan_hash": c.PlanHash,
-		"policy_version": c.PolicyVersion, "approver_requirement": c.Requirement, "requester_id": c.RequesterID, "expires_at": string(stamp(time.Unix(c.ExpiresAt, 0)))}
+		"policy_version": c.PolicyVersion, "approver_requirement": c.Requirement, "requester_id": c.RequesterID, "expires_at": string(stamp(expires))}
+}
+
+// insertRequest writes the confirmation_request row of a CONFIRM in the caller's transaction (A552) and returns the expiry the database gave it. The expiry is the DATABASE clock plus the
+// request's TTL (migration 0032, A368 (ii)); the TTL is the request's expiry on the writer's clock minus the writer's clock, which checkRequest has shown to be positive. The row names the
+// head of the action's chain (the request no other supersedes, for the same tenant, intent, capability and target) as its predecessor, so a fresh request after an expiry or an answer
+// keeps the chain linear; the database's own trigger refuses a successor of a request that is open, and a race for the successor slot is the unique key's: both are ErrConfirmationRequestOpen.
+func (w *Writer) insertRequest(ctx context.Context, tx pgx.Tx, r Request, requestID, binding string, intentVersion int) (time.Time, error) {
+	c := r.ConfirmationRequest
+	ttl := c.ExpiresAt - w.Clock.Now().Unix()
+	if ttl < 1 {
+		return time.Time{}, fmt.Errorf("%w: the confirmation request does not expire after now", ErrRequest)
+	}
+	var supersedes *string
+	var head string
+	err := tx.QueryRow(ctx, `SELECT q.confirmation_request_id FROM confirmation_request q WHERE q.tenant_id = $1 AND q.intent_id = $2 AND q.capability_id = $3 AND q.target_ref = $4
+		AND NOT EXISTS (SELECT 1 FROM confirmation_request s WHERE s.tenant_id = q.tenant_id AND s.supersedes_request_id = q.confirmation_request_id)`,
+		r.TenantID, r.IntentID, c.CapabilityID, c.TargetRef).Scan(&head)
+	switch {
+	case err == nil:
+		supersedes = &head
+	case !errors.Is(err, pgx.ErrNoRows):
+		return time.Time{}, fmt.Errorf("%sread the head of the request chain: %w", errPrefix, err)
+	}
+	var expires time.Time
+	if err := tx.QueryRow(ctx, `INSERT INTO confirmation_request (tenant_id, confirmation_request_id, correlation_id, intent_id, intent_version, principal_id, intent_hash, capability_id,
+			target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, binding_hash, requirement, requester_id, expires_at, supersedes_request_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now() + ($17::bigint * interval '1 second'), $18) RETURNING expires_at`,
+		r.TenantID, requestID, r.CorrelationID, r.IntentID, intentVersion, c.PrincipalID, c.IntentHash, c.CapabilityID, c.TargetRef, c.ParamsHash, c.ConfirmationBindingEvidenceHash, c.PlanHash,
+		c.PolicyVersion, binding, c.Requirement, c.RequesterID, ttl, supersedes).Scan(&expires); err != nil {
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && (pg.Code == pgUniqueViolation || pg.Code == pgIntegrityViolation) {
+			return time.Time{}, ErrConfirmationRequestOpen
+		}
+		return time.Time{}, fmt.Errorf("%sinsert the confirmation request: %w", errPrefix, err)
+	}
+	return expires, nil
 }

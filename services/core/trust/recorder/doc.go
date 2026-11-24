@@ -41,7 +41,10 @@
 // others could never be accepted; the decision record and the grant still bind the one policy the request names), that the binding can be computed (trust/confirm.BindingHash refuses an empty value or one outside its character set), the requirement, a
 // requester, and that the expiry is after the writer's own clock; any failure is ErrRequest. Then, on the new-decision path only, it mints the cfr_ ID with its own generator (the caller
 // never supplies one) and computes the binding hash itself (never a caller's), names the request in the DECISION_MADE payload (confirmation_request_id) and appends CONFIRMATION_REQUESTED
-// right after DECISION_MADE, by the Trust emitter, in the same transaction: the decision, its request and its events commit together or not at all. The payload is confirmation_request_id,
+// right after DECISION_MADE, by the Trust emitter, in the same transaction: the decision, its request and its events commit together or not at all. Since A552 (interim, relayed, not yet committed)
+// the request is also a ROW of confirmation_request (migration 0032) written in that transaction, before the event: its expiry is the DATABASE clock plus the request's TTL (the request's ExpiresAt
+// minus the writer's clock), the event carries the expiry the row has, and the row supersedes the head of the action's chain (the request no other supersedes, for the same tenant, intent,
+// capability and target), so a fresh request after an expiry or an answer keeps the chain linear; the database refuses a successor of an open request, which is ErrConfirmationRequestOpen. The payload is confirmation_request_id,
 // decision_id, binding_hash, principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, approver_requirement, requester_id and
 // expires_at (an RFC 3339 timestamp, as in SoT 43.2a), all identifiers, hashes or the expiry (policy_version is the composite policy version in the content-hash form "sha256:<hex>", A367, a typed value the payload guard, A184, exempts), so the confirmation store can rebuild the request from the event; the object_ref is the
 // request ID. Result.ConfirmationRequestID is the minted ID; it is empty when a stored decision of the same input was returned (A186): that path creates no event and no second request, and

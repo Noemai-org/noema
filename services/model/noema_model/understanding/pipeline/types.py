@@ -31,6 +31,18 @@ class ScreenStage(StrEnum):
     CANDIDATES = "CANDIDATES"
 
 
+class InputInvalidReason(StrEnum):
+    """Why a request was refused as invalid input (UND-16, run #6). A closed set, internal to the model service: it is never part of an answer, which stays `INPUT_INVALID` for every one of them (AGENT-13).
+    It names a class and never carries a piece of the request."""
+
+    NOT_FINAL_TRANSCRIPT = "NOT_FINAL_TRANSCRIPT"  # REQ-INP-001
+    CANDIDATE_REQUEST_INVALID = "CANDIDATE_REQUEST_INVALID"  # the Evidence API refused the query as invalid
+    UNKNOWN_PACK = "UNKNOWN_PACK"
+    NOT_TEXT_CHANNEL = "NOT_TEXT_CHANNEL"
+    BAD_RECEIVED_AT = "BAD_RECEIVED_AT"
+    IDENTITY_INVALID = "IDENTITY_INVALID"
+
+
 class Outcome(StrEnum):
     PROPOSED = "PROPOSED"
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
@@ -162,3 +174,4 @@ class PipelineResult:
     injection_signals: Mapping[str, bool]
     calls: tuple[CallRecord, ...]
     screen_not_run: tuple[ScreenStage, ...] = ()
+    input_invalid: InputInvalidReason | None = None

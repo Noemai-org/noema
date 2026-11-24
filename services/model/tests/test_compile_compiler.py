@@ -209,12 +209,13 @@ def test_an_evidence_api_that_cannot_answer_is_provider_unavailable_and_never_a_
         compile_bytes(compiler_for(g_a(), FakeSource(fail=True)))
 
 
-def test_a_request_with_no_time_the_lexicon_can_read_is_input_invalid_and_reads_nothing() -> None:
+def test_a_request_with_no_time_the_lexicon_can_read_is_proposed_with_the_resource_unresolved_and_reads_nothing() -> None:
+    """A535 (interim) replaces the earlier refusal: no default window, no refusal. Nothing is read (the Evidence read needs a window, REQ-CTX-006); Trust asks."""
     source = FakeSource((row("a"),))
     mentions = {**GOOD_MENTIONS, "when": {"present": False, "surface_form": "", "proposed_value": "", "confidence": 0.0}}
-    with pytest.raises(InputInvalid):
-        compile_bytes(compiler_for(g_a(mentions=mentions), source), {**CANONICAL, "text": "Wetin happen to the 20k wey I send Tunde?"})
-    assert source.queries == []  # REQ-CTX-006: the read contract needs a window
+    doc = json.loads(compile_bytes(compiler_for(g_a(mentions=mentions), source), {**CANONICAL, "text": "Wetin happen to the 20k wey I send Tunde?"}))
+    assert source.queries == []
+    assert [s for s in doc["slots"].values() if s["type"] == "Resource"] == [{"type": "Resource", "status": "UNRESOLVED"}]
 
 
 def test_a_tenant_the_core_refuses_is_its_own_error_and_never_retried_as_a_provider_failure() -> None:

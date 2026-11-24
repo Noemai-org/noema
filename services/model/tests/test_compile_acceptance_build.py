@@ -278,3 +278,45 @@ def test_a_record_only_input_goes_through_the_real_pipeline_with_its_world_rows_
         assert any("Where is the" in b for b in sent)  # the utterance of the fixture's canonical input is what the pipeline sends
 
     run(go())
+
+
+# --- run #6 (noema#338; A532): the failure names its class, and the lexicon pin covers every file the pack names ----------------------------------------
+
+class _RefusingService:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def run(self, canonical: Mapping[str, Any], pack_ref: str, open_intent: Any) -> Mapping[str, Any]:
+        raise self.error
+
+
+def _backend_that_raises(error: Exception, tmp_path: Path) -> Any:
+    from benchmark.compile_acceptance.build import LiveBackend, _Candidates  # type: ignore[import-not-found,unused-ignore]
+    guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+    return LiveBackend(_RefusingService(error), "fin@1.0.0", _Candidates(), DryTransport(**RATES), rec, {}, True)
+
+
+def test_a_compile_that_was_refused_as_invalid_input_names_the_closed_reason_and_nothing_else(tmp_path: Path) -> None:
+    from noema_model.understanding.compiler.service import InputInvalid, ProviderUnavailable, ScreenNotRun
+    from noema_model.understanding.pipeline import InputInvalidReason
+    for reason in InputInvalidReason:
+        with pytest.raises(CompileFailed) as caught:
+            run(_backend_that_raises(InputInvalid(reason), tmp_path).compile_one(GOLDEN[1]))
+        assert str(caught.value) == f"the compile service gave no usable proposal (InputInvalid:{reason.value})"
+    with pytest.raises(CompileFailed) as unavailable:
+        run(_backend_that_raises(ProviderUnavailable(), tmp_path).compile_one(GOLDEN[1]))
+    assert str(unavailable.value) == "the compile service gave no usable proposal (ProviderUnavailable)"
+    with pytest.raises(CompileFailed) as screen:
+        run(_backend_that_raises(ScreenNotRun(("UTTERANCE",)), tmp_path).compile_one(GOLDEN[1]))
+    assert str(screen.value) == "the compile service gave no usable proposal (ScreenNotRun)"
+
+
+def test_the_lexicon_pin_is_the_digest_of_every_lexicon_the_pack_names_not_of_the_english_file_alone(tmp_path: Path) -> None:
+    import hashlib
+    from noema_model.understanding.compiler.lexicon import load_pack_lexicons
+    from benchmark.compile_acceptance.build import LEXICON_DIR, PACK_FILE  # type: ignore[import-not-found,unused-ignore]
+    guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+    pin = build_backend(True, {}, guard, rec, args()).pin()
+    merged = load_pack_lexicons(json.loads(PACK_FILE.read_text(encoding="utf-8")), LEXICON_DIR)
+    english = hashlib.sha256((LEXICON_DIR / "fin.lex.en_ng.json").read_bytes()).hexdigest()
+    assert pin["lexicon_sha256"] == merged.digest != english

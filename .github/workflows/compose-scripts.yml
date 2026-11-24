@@ -65,6 +65,9 @@ jobs:
       - name: core-keys init test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: python3 -I deploy/compose/core-keys/test_init.py
+      - name: operator-dsn init test (runner)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/operator-dsn/test_init.py
       # The private raw-audio store (A451; REQ-VOI-004): real directories and modes as the runner's own user, and the guard that nothing names it in a workflow or a Compose file.
       - name: audio-store test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}

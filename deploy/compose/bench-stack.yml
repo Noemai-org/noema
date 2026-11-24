@@ -23,6 +23,10 @@ volumes:
   orchestrator_keys: {}
   edge_keys: {}
   input_hash: {}
+  # The operator DSN (the superuser's, A527) and the core-trust signing key (A445): each written once by its one-shot at mode 0400 owned by uid 65532. The DSN is read by tenant-init only; the key
+  # directory by tenant-init and policy-publish only, read-only. The core mounts neither.
+  operator_dsn: {}
+  core_trust_keys: {}
 # The three key values (secrets_local.sh makes them; 64 lower-case hexadecimal characters each). Held by the core-keys-init one-shot ONLY.
 secrets:
   core_workflows_ed25519_seed_1:
@@ -31,6 +35,13 @@ secrets:
     file: ./secrets/core_edge_ed25519_seed_1
   input_hash_key:
     file: ./secrets/input_hash_key
+  # The migration password's private copy (A536): the same value as noema_migrator_password, mode 0400, owned by the host user. Held by the two one-shots that hold the migration password (migrate and
+  # tenants-provision), which run as that user; postgres reads the mode-644 original.
+  migrator_password_file:
+    file: ./secrets/migrator_password_file
+  # The core-trust Ed25519 seed (A445, interim; secrets_local.sh makes it). Held by the core-trust-keys-init one-shot ONLY.
+  core_trust_ed25519_seed_1:
+    file: ./secrets/core_trust_ed25519_seed_1
 services:
   core:
     environment:
@@ -121,6 +132,8 @@ services:
         condition: service_completed_successfully
       core-keys-init:
         condition: service_completed_successfully
+      policy-publish:
+        condition: service_completed_successfully
       hostility-proxy:
         condition: service_healthy
       standin:
@@ -182,6 +195,199 @@ services:
       - orchestrator_keys:/out/orchestrator
       - edge_keys:/out/edge
       - input_hash:/out/input-hash
+  # One-shot, as root, no network (A527): turns the superuser's password secret into the one DSN file tenant-init reads (mode 0400, owner 65532). The migration login's password is not here: it belongs to
+  # the migrate one-shot and postgres alone. It prints the file name, never the password. If it fails, tenant-init does not run.
+  operator-dsn-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    # The same capabilities as trust-dsn-init: CHOWN and FOWNER give the file to the core's user and set its mode; SETUID and SETGID read it back as that user. The secret is read through its mode
+    # (secrets_local.sh keeps the password secrets at 644 for postgres), so no read capability is needed.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
+    environment:
+      OPERATOR_DSN_SRC: /run/secrets
+      OPERATOR_DSN_OUT: /out
+      OPERATOR_DSN_UID: "65532"
+      OPERATOR_DSN_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [postgres_superuser_password]
+    volumes:
+      - ./operator-dsn/init.py:/init/init.py:ro
+      - operator_dsn:/out
+  # One-shot (A484, A521, A536): applies the migrations as the migration login and exits. From the core image under its own entrypoint, on data_net only, as the host user that owns the password file (cmd/migrate
+  # refuses a password file that is not mode 0400 and owned by the user it runs as), with a read-only root, a tmpfs and no capability. The connection is built from flags and the password FILE (never an argument,
+  # never the environment): host postgres, port 5432, database noema, the migration login, sslmode prefer (the default; the other logins' DSN files name none). One of the two holders of the migration
+  # password (A536); it holds nothing else. tenants-create, tenants-provision, tenant-init and policy-publish wait for it: key_register and the policy tables exist only after the migrations.
+  migrate:
+    image: noema-core:dev
+    profiles: [bench]
+    user: "${NOEMA_BENCH_UID:?set by make bench-up}:${NOEMA_BENCH_GID:?set by make bench-up}"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=1m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/usr/local/bin/migrate"]
+    command: ["--host", "postgres", "--port", "5432", "--database", "noema", "--user", "noema_migration_login", "--password-file", "/run/secrets/migrator_password_file", "--sslmode", "prefer", "--migrations-dir", "/migrations"]
+    secrets: [migrator_password_file]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../services/core/migrations:/migrations:ro
+  # One-shot, as root, no network (A445): turns the core-trust seed into core-trust.ed25519.1.key (64 hexadecimal characters, mode 0400, owner 65532), the form execution/signing.LoadRing reads, and checks it
+  # by reading it as that user. The seed keeps the host user's mode 0600, so DAC_READ_SEARCH (reads, writes nothing) as for core-keys-init; never DAC_OVERRIDE. It is the same script as core-keys-init.
+  core-trust-keys-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
+    environment:
+      CORE_KEYS_SRC: /run/secrets
+      CORE_KEYS_FILES: "core_trust_ed25519_seed_1=/out/core-trust/core-trust.ed25519.1.key"
+      CORE_KEYS_UID: "65532"
+      CORE_KEYS_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [core_trust_ed25519_seed_1]
+    volumes:
+      - ./core-keys/init.py:/init/init.py:ro
+      - core_trust_keys:/out/core-trust
+  # One-shot (A353, A489): creates the tenant rows (the one creator of a tenant row), as the operator's SUPERUSER, which is the only role that may insert one (row-level security on `tenant`). It runs the
+  # repository's create-tenants.sh from the database image (psql; no new image) as 65532 on data_net only. The script takes its connection from libpq's settings and passes no password: PGPASSFILE names the
+  # one-line `pgpass` file operator-dsn-init wrote. The environment names paths and tenants, never a password.
+  tenants-create:
+    image: noema-postgres:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=1m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/bin/sh", "/scripts/create-tenants.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: noema
+      PGUSER: postgres
+      PGPASSFILE: /run/operator-dsn/pgpass
+      NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      operator-dsn-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./postgres/create-tenants.sh:/scripts/create-tenants.sh:ro
+      - operator_dsn:/run/operator-dsn:ro
+  # One-shot (DEBT-04, A536, A540; provision-tenants.sh): maps each tenant's logins to the tenant and the powers, as the MIGRATION login, the one login that holds EXECUTE on provision_tenant_login and
+  # provision_emitter_login today. It runs no DDL (see the PR for every statement). From the database image, as the host user that owns the password file, with a read-only root, a tmpfs and no
+  # capability, on data_net only. It is the second holder of the migration password (A536): the wrapper writes the one-line libpq password file into the tmpfs (mode 0600, this user's) from the private copy;
+  # the password is in no argument and no environment variable, and is printed nowhere. It runs after the tenant rows exist.
+  tenants-provision:
+    image: noema-postgres:dev
+    profiles: [bench]
+    user: "${NOEMA_BENCH_UID:?set by make bench-up}:${NOEMA_BENCH_GID:?set by make bench-up}"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=1m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "umask 077; { printf 'postgres:5432:noema:noema_migration_login:'; cat /run/secrets/migrator_password_file; } > /tmp/pgpass && exec sh /scripts/provision-tenants.sh"
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: noema
+      PGUSER: noema_migration_login
+      PGPASSFILE: /tmp/pgpass
+      NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
+      NOEMA_EMITTERS: "${NOEMA_EMITTERS:-core-edge}"
+    secrets: [migrator_password_file]
+    depends_on:
+      tenants-create:
+        condition: service_completed_successfully
+    volumes:
+      - ./postgres/provision-tenants.sh:/scripts/provision-tenants.sh:ro
+  # One-shot (A484, A489): registers the core-trust PUBLIC key in signing_key (key_register) and creates no tenant row. It runs from the core image under its own entrypoint, as the image's nonroot user,
+  # on data_net only, with the superuser DSN file and the key directory read-only. There is no --tenant: tenant rows have one creator, create-tenants.sh. It prints two counts, never a key.
+  tenant-init:
+    image: noema-core:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/usr/local/bin/tenantinit"]
+    command: ["--dsn-file", "/run/operator-dsn/dsn", "--key-dir", "/run/core-trust-keys", "--key-max-active", "1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tenants-provision:
+        condition: service_completed_successfully
+      operator-dsn-init:
+        condition: service_completed_successfully
+      core-trust-keys-init:
+        condition: service_completed_successfully
+    volumes:
+      - operator_dsn:/run/operator-dsn:ro
+      - core_trust_keys:/run/core-trust-keys:ro
+  # One-shot (A445): publishes the pack's policy for the bench tenant, signed by core-trust and recorded as POLICY_PUBLISHED, so the Trust intake finds a policy in force. It runs from the core image
+  # under its own entrypoint, as nonroot, on data_net only, with the tenant's Trust login DSN file and the key directory read-only. It runs after tenant-init (the public key must be registered) and the
+  # core waits for it. The publisher is the database role of the DSN (A474); there is no --published-by.
+  policy-publish:
+    image: noema-core:dev
+    profiles: [bench]
+    user: "65532:65532"
+    networks: [data_net]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["/usr/local/bin/policypublish"]
+    command:
+      - --tenant
+      - "${STANDIN_TENANT_ID:-ten_alpha}"
+      - --pack-dir
+      - /run/packs
+      - --pack-file
+      - fintech_v1.json
+      - --dsn-file
+      - "/run/trust-dsn/${STANDIN_TENANT_ID:-ten_alpha}"
+      - --key-dir
+      - /run/core-trust-keys
+      - --key-max-active
+      - "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      trust-dsn-init:
+        condition: service_completed_successfully
+      tenant-init:
+        condition: service_completed_successfully
+    volumes:
+      - ../../packs:/run/packs:ro
+      - trust_dsns:/run/trust-dsn:ro
+      - core_trust_keys:/run/core-trust-keys:ro
   postgres:
     environment:
       NOEMA_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"

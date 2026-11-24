@@ -9,13 +9,16 @@ import (
 
 // IntentNodeV1Disambiguation is generated from intent-node.v1.json#/properties/disambiguation.
 type IntentNodeV1Disambiguation struct {
-	Strategy                    IntentNodeV1DisambiguationStrategy `json:"strategy"`
-	AutoResolveMargin           json.Number                        `json:"auto_resolve_margin"`
-	MaxCandidatesBeforeEscalate int64                              `json:"max_candidates_before_escalate"`
-	MatcherRef                  *string                            `json:"matcher_ref,omitempty"`
+	Strategy                    IntentNodeV1DisambiguationStrategy              `json:"strategy"`
+	AutoResolveMargin           json.Number                                     `json:"auto_resolve_margin"`
+	MaxCandidatesBeforeEscalate int64                                           `json:"max_candidates_before_escalate"`
+	MatcherRef                  *string                                         `json:"matcher_ref,omitempty"`
+	OptionsKey                  *string                                         `json:"options_key,omitempty"`
+	DisplayTemplate             *string                                         `json:"display_template,omitempty"`
+	AttributeOrder              *[]IntentNodeV1DisambiguationAttributeOrderItem `json:"attribute_order,omitempty"`
 }
 
-var IntentNodeV1DisambiguationShape = objectShape{name: "IntentNodeV1Disambiguation", props: map[string]bool{"strategy": true, "auto_resolve_margin": true, "max_candidates_before_escalate": true, "matcher_ref": true}, required: []string{"strategy", "auto_resolve_margin", "max_candidates_before_escalate"}, nonNull: map[string]bool{"strategy": true, "auto_resolve_margin": true, "max_candidates_before_escalate": true, "matcher_ref": true}, closed: true}
+var IntentNodeV1DisambiguationShape = objectShape{name: "IntentNodeV1Disambiguation", props: map[string]bool{"strategy": true, "auto_resolve_margin": true, "max_candidates_before_escalate": true, "matcher_ref": true, "options_key": true, "display_template": true, "attribute_order": true}, required: []string{"strategy", "auto_resolve_margin", "max_candidates_before_escalate"}, nonNull: map[string]bool{"strategy": true, "auto_resolve_margin": true, "max_candidates_before_escalate": true, "matcher_ref": true, "options_key": true, "display_template": true, "attribute_order": true}, closed: true}
 
 func (t *IntentNodeV1Disambiguation) UnmarshalJSON(b []byte) error {
 	raw, err := IntentNodeV1DisambiguationShape.check(b)
@@ -29,6 +32,30 @@ func (t *IntentNodeV1Disambiguation) UnmarshalJSON(b []byte) error {
 	}
 	_ = raw
 	*t = IntentNodeV1Disambiguation(a)
+	return nil
+}
+
+// IntentNodeV1DisambiguationAttributeOrderItem is generated from intent-node.v1.json#/properties/disambiguation/properties/attribute_order/items.
+type IntentNodeV1DisambiguationAttributeOrderItem struct {
+	Name          CommonV1SlotName `json:"name"`
+	QuestionKey   string           `json:"question_key"`
+	LabelTemplate string           `json:"label_template"`
+}
+
+var IntentNodeV1DisambiguationAttributeOrderItemShape = objectShape{name: "IntentNodeV1DisambiguationAttributeOrderItem", props: map[string]bool{"name": true, "question_key": true, "label_template": true}, required: []string{"name", "question_key", "label_template"}, nonNull: map[string]bool{"name": true, "question_key": true, "label_template": true}, closed: true}
+
+func (t *IntentNodeV1DisambiguationAttributeOrderItem) UnmarshalJSON(b []byte) error {
+	raw, err := IntentNodeV1DisambiguationAttributeOrderItemShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias IntentNodeV1DisambiguationAttributeOrderItem
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: IntentNodeV1DisambiguationAttributeOrderItem: %w", err)
+	}
+	_ = raw
+	*t = IntentNodeV1DisambiguationAttributeOrderItem(a)
 	return nil
 }
 
@@ -160,10 +187,11 @@ type IntentNodeV1 struct {
 	TrustProfile       *string                     `json:"trust_profile"`
 	OutcomeDefinitions []CommonV1PackId            `json:"outcome_definitions"`
 	WriteWhen          *CommonV1Predicate          `json:"write_when,omitempty"`
+	SubjectSlot        *CommonV1SlotName           `json:"subject_slot,omitempty"`
 	Examples           []string                    `json:"examples"`
 }
 
-var IntentNodeV1Shape = objectShape{name: "IntentNodeV1", props: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "parent": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "trust_profile": true, "outcome_definitions": true, "write_when": true, "examples": true}, required: []string{"node_id", "pack", "pack_version", "display_name", "slots", "trust_profile", "outcome_definitions", "examples"}, nonNull: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "outcome_definitions": true, "write_when": true, "examples": true}, closed: true}
+var IntentNodeV1Shape = objectShape{name: "IntentNodeV1", props: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "parent": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "trust_profile": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true}, required: []string{"node_id", "pack", "pack_version", "display_name", "slots", "trust_profile", "outcome_definitions", "examples"}, nonNull: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true}, closed: true}
 
 func (t *IntentNodeV1) UnmarshalJSON(b []byte) error {
 	raw, err := IntentNodeV1Shape.check(b)

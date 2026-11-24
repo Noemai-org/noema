@@ -119,6 +119,8 @@ func (s Session) valid() bool {
 type Node struct {
 	Slots    map[string]string // slot name to slot type (Resource, Quantity, Party, TimeRef or Reference)
 	Outcomes map[string]bool   // the node's outcome definition ids
+	// SubjectSlot names the Resource slot of the node that is the subject of its intents (A520: declared by the pack, never by the core); empty when the node declares none.
+	SubjectSlot string
 }
 
 // PackView is the loaded pack as the gate needs it. The caller adapts the pack it loaded; the gate reads no file.

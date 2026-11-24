@@ -194,3 +194,32 @@ func TestADispositionOfAnotherIntentIsRefusedThroughTheAdapter(t *testing.T) {
 		t.Errorf("the refusal changed the decisions from %d to %d", before, after)
 	}
 }
+
+// A534 (interim, relayed, not yet committed): an ESCALATE disposition replayed is the stored disposition, by the same decision key (A186: one decision per full input tuple). The second
+// Record of the same ESCALATE returns the first's decision ID, writes no row and no event, and the action decision that names it is stored once with its link. REQ-TRU-010; INV-21, INV-25.
+func TestAReplayedEscalateReturnsTheStoredDispositionByTheSameDecisionKey(t *testing.T) {
+	w := newRecWorldWith(t, recorder.NewEscalationSet(recCap))
+	first, err := w.a.Record(recCtx(t), escalateDisposition(t, 40))
+	if err != nil || first.DecisionID == "" || len(first.GrantIDs) != 0 {
+		t.Fatalf("the first record: %+v, %v", first, err)
+	}
+	r0, g0, e0 := w.rows(t)
+	second, err := w.a.Record(recCtx(t), escalateDisposition(t, 40))
+	if err != nil || second.DecisionID != first.DecisionID || len(second.GrantIDs) != 0 {
+		t.Fatalf("the replay: %+v, %v; want the stored decision %q", second, err, first.DecisionID)
+	}
+	if r1, g1, e1 := w.rows(t); r1 != r0 || g1 != g0 || e1 != e0 {
+		t.Errorf("a replay changed the rows: records %d to %d, grants %d to %d, events %d to %d", r0, r1, g0, g1, e0, e1)
+	}
+	// another input is another decision: a different intent hash is not the same key
+	other, err := w.a.Record(recCtx(t), escalateDisposition(t, 41))
+	if err != nil || other.DecisionID == first.DecisionID {
+		t.Errorf("another input returned %+v, %v; want a new decision", other, err)
+	}
+	r := recRequest(t, 1)
+	r.DispositionDecisionID = second.DecisionID
+	act, err := w.a.Record(recCtx(t), r)
+	if err != nil || len(act.GrantIDs) != 1 {
+		t.Fatalf("the action decision naming the replayed disposition: %+v, %v", act, err)
+	}
+}
