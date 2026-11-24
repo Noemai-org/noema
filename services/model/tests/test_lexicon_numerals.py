@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from noema_model.platform.config import ConfigError
-from noema_model.understanding.compiler.lexicon import Lexicon, Normaliser, merge_lexicons
+from noema_model.understanding.compiler.lexicon import MAX_SURFACE, Lexicon, Normaliser, merge_lexicons
 from noema_model.understanding.pipeline import MentionProposal, Proposal
 from tests.support_pipeline import make_input
 
@@ -119,6 +119,9 @@ def test_a_thousands_group_and_a_remainder_round_trip() -> None:
     for high in (1, 7, 20, 99, 100, 150, 999):
         for low in (0, 1, 5, 11, 20, 45, 100, 250, 999):
             phrase = (spell(high) + " thousand " + (spell(low) if low else "")).strip()
+            if len(phrase) > MAX_SURFACE:  # the surface bound (64) is the same as for digits: a longer quote is not read, whatever it says
+                assert read(f"I sent {phrase}", phrase).amount_minor is None, phrase
+                continue
             got = read(f"I sent {phrase}", phrase).amount_minor
             assert got == (high * 1000 + low) * 100, (phrase, got)
 
@@ -129,9 +132,9 @@ def test_a_numeral_word_the_customers_text_does_not_hold_is_never_taken_from_the
     assert read("Wetin happen to my money", "twenty thousand").amount_minor is None
 
 
-def test_the_largest_spoken_amount_stays_far_under_the_safe_integer() -> None:
-    phrase = "nine hundred and ninety nine million nine hundred and ninety nine thousand nine hundred and ninety nine"
-    assert read(f"I sent {phrase}", phrase).amount_minor == 999_999_999 * 100
+def test_the_largest_spoken_amount_that_fits_the_surface_bound_stays_far_under_the_safe_integer() -> None:
+    phrase = "nine hundred and ninety nine million"
+    assert read(f"I sent {phrase}", phrase).amount_minor == 999_000_000 * 100
 
 
 # --- the data: loaded, marked, merged ------------------------------------------------------------------------------------------------------
@@ -163,6 +166,27 @@ def test_the_numerals_and_the_uncertainty_words_are_in_the_english_file_and_mark
 def test_a_lexicon_whose_numerals_or_uncertainty_words_are_not_whole_is_refused_at_load(edit: Any) -> None:
     with pytest.raises(ConfigError):
         Lexicon.from_mapping(variant(edit))
+
+
+@pytest.mark.parametrize("edit", [
+    lambda r: r["joiners"][0].pop("mark"),
+    lambda r: r["joiners"].append(dict(r["joiners"][0])),
+    lambda r: r["joiners"].append({"word": "twenty", "mark": "[synthetic seed]"}),
+    lambda r: r["joiners"].append({"word": "thousand", "mark": "[synthetic seed]"}),
+    lambda r: r["joiners"].append({"word": "about", "mark": "[synthetic seed]"}),
+    lambda r: r["joiners"].append({"word": "Plus", "mark": "[synthetic seed]"}),
+    lambda r: r["joiners"][0].update({"value": 1}),
+])
+def test_a_lexicon_whose_joiners_are_not_whole_is_refused_at_load(edit: Any) -> None:
+    with pytest.raises(ConfigError):
+        Lexicon.from_mapping(variant(edit))
+
+
+def test_a_lexicon_without_a_joiner_does_not_read_a_joined_number() -> None:
+    bare = Lexicon.from_mapping(variant(lambda r: r.pop("joiners")))
+    proposal = Proposal(intent_node="x", reference_slots={}, mentions={"amount": mention("one hundred and fifty thousand")}, ambiguity_flags=(), locale="en-NG", code_switching=False, probabilities={})
+    assert Normaliser(bare, NOW).normalise(make_input("I sent one hundred and fifty thousand"), proposal).amount_minor is None
+    assert read("I sent one hundred and fifty thousand", "one hundred and fifty thousand").amount_minor == 15_000_000
 
 
 def test_a_numeral_two_lexicons_define_with_two_meanings_is_refused_at_merge() -> None:
