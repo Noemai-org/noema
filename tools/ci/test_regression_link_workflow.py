@@ -66,6 +66,15 @@ class Shape(unittest.TestCase):
         self.assertIn("REGRESSION_ALLOW_TEST_FILE=1", t)
         self.assertIn("python3 -I tools/ci/check_regression_link.py", t)
 
+    def test_it_installs_the_pinned_benchmark_requirements_before_it_runs_the_check_a652(self) -> None:
+        """A652: the check builds the generated suite to see that a linked case exists, and the suite needs the benchmark's pinned requirements. Hash-checked, before the check, no other install."""
+        t = text()
+        install = "pip install --require-hashes -r benchmark/requirements.lock"
+        self.assertIn(install, t)
+        self.assertLess(t.index(install), t.index("python3 -I tools/ci/check_regression_link.py"))
+        self.assertEqual(1, len(re.findall(r"pip install", t)), "one install, and it is the hash-checked one")
+        self.assertIn("python-version:", t)
+
     def test_no_condition_skips_the_check_on_a_label_or_description_event(self) -> None:
         self.assertNotIn("if:", text())
 
