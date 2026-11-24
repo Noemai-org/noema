@@ -81,6 +81,15 @@ func TestBuildUnderstandingTakesTheEpochSetupAndRefusesAHalfOne(t *testing.T) {
 		t.Errorf("half setup: got %v; want epochport.ErrRefused", err)
 	}
 	wantNone(t, "half epoch setup", p)
+	full := epSetup()
+	for name, setup := range map[string]*epochport.Setup{"no setup": nil, "a whole setup": &full} {
+		if p, err := buildUnderstandingWith(env, clock.NewManual(apiEpoch), undFakeRecorder(t, "ten_aa"), undAdmissions{}, setup); err != nil || p.Interpreter == nil {
+			t.Errorf("%s: got %v, interpreter %v; want a built Interpreter", name, err, p.Interpreter)
+		}
+	}
+	if p, err := buildUnderstanding(env, clock.NewManual(apiEpoch), undFakeRecorder(t, "ten_aa"), undAdmissions{}); err != nil || p.Interpreter == nil {
+		t.Errorf("buildUnderstanding (no epoch setup): got %v; want a built Interpreter", err)
+	}
 	if _, err := buildUnderstandingWith(env, clock.NewManual(apiEpoch), undFakeRecorder(t, "ten_aa"), nil, nil); err == nil || !strings.Contains(err.Error(), "admissions") {
 		t.Errorf("no setup, no admissions: got %v; want the admissions refusal", err)
 	}

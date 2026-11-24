@@ -23,6 +23,7 @@ type caseSource struct {
 	complete bool
 	err      error
 	queries  []adapters.CaseQuery
+	ctxErrs  []error
 }
 
 func (s *caseSource) CreateCase(context.Context, adapters.CreateCaseInput) adapters.WriteResult {
@@ -34,9 +35,10 @@ func (s *caseSource) RouteCase(context.Context, adapters.RouteCaseInput) adapter
 func (s *caseSource) GetCase(context.Context, string, string) (adapters.CaseRecord, error) {
 	return adapters.CaseRecord{}, errors.New("unused")
 }
-func (s *caseSource) FindCases(_ context.Context, q adapters.CaseQuery) (adapters.CasePage, error) {
+func (s *caseSource) FindCases(ctx context.Context, q adapters.CaseQuery) (adapters.CasePage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ctxErrs = append(s.ctxErrs, ctx.Err())
 	s.queries = append(s.queries, q)
 	if s.err != nil {
 		return adapters.CasePage{}, s.err
@@ -90,6 +92,9 @@ func TestEpochOfAsksTheCaseListByTheTransactionInTheSessionsScope(t *testing.T) 
 	}
 	if len(src.queries) != 1 || src.queries[0].TenantID != epTenant || src.queries[0].PrincipalID != epPrincipal || src.queries[0].TransactionRef != "txn_1" {
 		t.Errorf("the case list was asked %+v; want one query for txn_1 in the session's scope", src.queries)
+	}
+	if len(src.ctxErrs) != 1 || src.ctxErrs[0] != nil {
+		t.Errorf("the read's context was already done: %v; the bound is the setup's timeout, not zero", src.ctxErrs)
 	}
 }
 

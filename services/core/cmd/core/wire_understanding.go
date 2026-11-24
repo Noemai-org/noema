@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/evidence/epochport"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	interpreterport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/interpreter"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -116,6 +117,12 @@ type UnderstandingParts struct {
 // buildUnderstanding builds the half from the settings, the clock and the orchestrator's Recorder, whose per-tenant stores it reuses (the same login, the same signing ring). Every part is
 // required: a missing one is an error that names it. Nothing is dialled here.
 func buildUnderstanding(env Env, clk clock.Clock, recorder *orchestratorRecorder, admissions orchestrator.Admissions) (UnderstandingParts, error) {
+	return buildUnderstandingWith(env, clk, recorder, admissions, nil)
+}
+
+// buildUnderstandingWith is buildUnderstanding with the epoch setup (wire_epoch.go): nil leaves the Interpreter's Subject and Epochs both unset, a setup sets both from the gate's own
+// pack view, and a setup with a part missing stops the build.
+func buildUnderstandingWith(env Env, clk clock.Clock, recorder *orchestratorRecorder, admissions orchestrator.Admissions, epoch *epochport.Setup) (UnderstandingParts, error) {
 	switch {
 	case recorder == nil || len(recorder.stores) == 0:
 		return UnderstandingParts{}, errors.New("cmd/core: the Interpreter stores through the orchestrator's logins and needs the orchestrator's Recorder (" + EnvOrchestratorDSNDir + ")")
@@ -173,6 +180,10 @@ func buildUnderstanding(env Env, clk clock.Clock, recorder *orchestratorRecorder
 	if err != nil {
 		return UnderstandingParts{}, refused("pack view", err)
 	}
+	subject, epochs, err := epochParts(view, epoch)
+	if err != nil {
+		return UnderstandingParts{}, refused("epoch port", err)
+	}
 	gate, err := understanding.NewGate(int(gateBytes), view)
 	if err != nil {
 		return UnderstandingParts{}, refused("schema gate", err)
@@ -208,6 +219,8 @@ func buildUnderstanding(env Env, clk clock.Clock, recorder *orchestratorRecorder
 			Gate:     gate,
 			Recorder: &interpreter.RecordRecorder{Pool: pool, Appender: store.Appender, Timeout: storeTimeout},
 			Saver:    &intentstore.Store{Pool: pool, Appender: store.Appender, Timeout: storeTimeout},
+			Subject:  subject,
+			Epochs:   epochs,
 		})
 		if err != nil {
 			return UnderstandingParts{}, refused("Interpreter", err)
