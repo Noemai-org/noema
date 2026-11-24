@@ -25,10 +25,12 @@ from noema_model.harness.errors import Reason
 from noema_model.platform.config import ConfigError
 from noema_model.understanding.compiler.packconfig import load_pipeline_config
 from noema_model.understanding.pipeline import run_pipeline
-from noema_model.harness import YesNoAnswer
+from noema_model.harness import DecideRequest, DecisionTask, GateAnswer, GateQuestion
+from noema_model.harness.rawjson import NonNumber, RawNumber, loads_lossless
 from noema_model.understanding.pipeline.steps import gate_asserted, probability_bp
 from noema_model.understanding.pipeline.templates import SLOT_GATE_V1
-from tests.support import run, timeout_error
+from tests.support import reply, run, timeout_error
+from tests.test_openai_decisions import stack
 from tests.support_pipeline import (
     G_A,
     GOOD_MENTIONS,
@@ -183,7 +185,7 @@ def test_the_pick_call_is_accounted_for() -> None:
 def test_the_gate_probability_is_kept_on_the_proposal_for_the_log() -> None:
     result = piped(model_for(gate=True, p=0.95))
     assert result.proposal is not None
-    assert result.proposal.probabilities[GATE]["yes"] == pytest.approx(0.95)
+    assert result.proposal.probabilities[GATE] == {"yes_bp": 9500}  # whole basis points, an integer: the reading the gate used
 
 
 # --- what does not change -------------------------------------------------------------------------------------------------------------------
@@ -274,59 +276,184 @@ def test_the_core_names_no_slot() -> None:
         assert f'"{SLOT}"' not in text and f"'{SLOT}'" not in text, path.name
 
 
-# --- A612: the probability is read exactly, in integer basis points, and never as a float --------------------------------------------------------------
+# --- A612 and A649: the probability is the raw JSON number token, read exactly in integer basis points, and a bad one costs the slot, not the compile ------------------
+
+def test_the_decoder_keeps_the_numeric_lexeme_and_never_makes_a_float() -> None:
+    doc = loads_lossless('{"a": 9e-1, "b": 0.90, "c": 1, "d": -0.1, "e": [1.0, 9E-1]}')
+    assert doc["a"] == RawNumber("9e-1") and doc["b"] == RawNumber("0.90") and doc["c"] == RawNumber("1") and doc["d"] == RawNumber("-0.1")
+    assert doc["e"] == [RawNumber("1.0"), RawNumber("9E-1")]
+    assert not any(isinstance(v, float) for v in (doc["a"], doc["b"], doc["c"], doc["d"]))
+
+
+def test_the_decoder_names_the_non_finite_tokens_as_not_numbers() -> None:
+    doc = loads_lossless('{"a": NaN, "b": Infinity, "c": -Infinity}')
+    assert doc == {"a": NonNumber("NaN"), "b": NonNumber("Infinity"), "c": NonNumber("-Infinity")}
+
+
+@pytest.mark.parametrize("bad", ['{"a": 1, "a": 2}', "", "{", '{"a": +0.9}', '{"a": .9}', '{"a": 0.}', '{"a": 0x1}', "not json", '{"a": 1} trailing'])
+def test_invalid_json_and_a_repeated_key_are_refused_by_the_decoder(bad: str) -> None:
+    with pytest.raises(ValueError):
+        loads_lossless(bad)
+
 
 @pytest.mark.parametrize(("text", "bp"), [
     ("0.9", 9000), ("0.9000", 9000), ("0.89999", 8999), ("1", 10000), ("1.0", 10000), ("0", 0), ("0.0", 0),
     ("0.95", 9500), ("0.7", 7000), ("0.0001", 1), ("0.00009", 0), ("0.99999999", 9999), ("1.000", 10000), ("0.12345678901234567", 1234),
 ])
-def test_a_plain_decimal_in_range_becomes_basis_points_by_floor(text: str, bp: int) -> None:
-    assert probability_bp(text) == bp
+def test_a_plain_decimal_token_in_range_becomes_basis_points_by_floor(text: str, bp: int) -> None:
+    assert probability_bp(RawNumber(text)) == bp
 
 
 @pytest.mark.parametrize("bad", [
-    "1.0001", "1.00009", "1.000000000000000001", "1.1", "2", "10", "100.0", "-0.1", "+0.9", "1e0", "1E0", "0.9e0", ".9", "0.", "", None, " 0.9", "0.9 ", "0.9\n", "NaN", "nan", "inf", "-inf", "0x1", "0b1", "0,9", "0..9", "0.9.1",
-    "\u0660.\u0669", "٠.٩", "0.9\u00a0", "1_0", "00.9000000000000000000000", "0." + "9" * 40, True, False, object(), [], {},
+    "1.0001", "1.00009", "1.000000000000000001", "1.1", "2", "10", "100.0", "-0.1", "+0.9", "1e0", "1E0", "9e-1", "9E-1", "0.9e0", ".9", "0.", "", " 0.9", "0.9 ", "0.9\n", "NaN", "Infinity", "-Infinity",
+    "0x1", "0,9", "0..9", "0.9.1", "\u0660.\u0669", "٠.٩", "0.9\u00a0", "1_0", "0." + "9" * 40, "-0", "-0.0",
 ])
-def test_anything_else_is_not_a_probability_and_the_gate_abstains(bad: Any) -> None:
-    assert probability_bp(bad) is None
-    assert gate_asserted(YesNoAnswer("g", None, cast(Any, bad)), 9000) is False  # no crash, no stop: the slot stays absent
+def test_a_token_that_is_not_a_plain_decimal_in_range_is_not_a_probability(bad: str) -> None:
+    assert probability_bp(RawNumber(bad)) is None
 
 
-@pytest.mark.parametrize(("provider_value", "bp"), [(0.9, 9000), (0.89999, 8999), (1.0, 10000), (0.0, 0), (1, 10000), (0, 0), (0.7, 7000)])
-def test_a_number_from_the_provider_layer_is_read_as_the_decimal_the_provider_wrote(provider_value: Any, bp: int) -> None:
-    """The harness hands over Python floats (parsed JSON). `repr` is the shortest decimal that reads back as that float, which is the text the provider wrote; it is read as text, by integer arithmetic."""
-    assert probability_bp(provider_value) == bp
-
-
-@pytest.mark.parametrize("not_plain", [1e-05, 1e-07, 1e16, float("nan"), float("inf"), float("-inf"), -0.0, -0.5, 1.5])
-def test_a_float_whose_text_is_not_a_plain_decimal_in_range_abstains(not_plain: float) -> None:
-    assert probability_bp(not_plain) is None
+@pytest.mark.parametrize("not_a_token", ["0.9", "1", " 0.9", 0.9, 1, 0, 0.0, 1.0, True, False, None, [], {}, object(), NonNumber("NaN"), float("nan")])
+def test_only_a_raw_number_token_is_a_probability_a_string_a_float_or_a_bool_is_not(not_a_token: Any) -> None:
+    """A quoted string "0.9" is not a number, and a Python float has already lost the text it was written with (9e-1 and 0.9 are the same float)."""
+    assert probability_bp(not_a_token) is None
 
 
 def test_the_gate_compares_integers_against_the_pack_threshold() -> None:
-    at, below = YesNoAnswer("g", None, cast(Any, "0.9")), YesNoAnswer("g", None, cast(Any, "0.89999"))
+    at, below = GateAnswer("g", None, RawNumber("0.9")), GateAnswer("g", None, RawNumber("0.89999"))
     assert gate_asserted(at, 9000) is True and gate_asserted(below, 9000) is False
-    assert gate_asserted(YesNoAnswer("g", True, cast(Any, "0.89999")), 9000) is False  # a yes below the threshold abstains (A606)
-    assert gate_asserted(YesNoAnswer("g", False, cast(Any, "1")), 9000) is False  # a no is a no (A606)
+    assert gate_asserted(GateAnswer("g", True, RawNumber("0.89999")), 9000) is False  # a yes below the threshold abstains (A606)
+    assert gate_asserted(GateAnswer("g", False, RawNumber("1")), 9000) is False  # a no is a no (A606)
+    assert gate_asserted(GateAnswer("g", True, None), 9000) is False  # a missing probability is doubt
 
 
-def test_a_malformed_probability_leaves_the_slot_absent_and_does_not_stop_the_turn() -> None:
-    result = piped(model_for(gate=True, p=1e-05))  # its text is "1e-05": not a plain decimal
+# --- end to end: raw provider JSON bytes through the real harness, the real decoder and the real pipeline -------------------------------------------------
+
+ABSENT = object()  # the probability of "yes" is not in the reply at all
+NO_PROBABILITIES = object()  # the answer has no `probabilities` member at all
+
+
+class RawReplyModel(ScriptedModel):
+    """Answers like ScriptedModel, but writes the gate's probability of "yes" as the exact text given, which json.dumps could never produce (a string, null, an exponent, NaN)."""
+
+    lexeme: Any = "0.95"
+
+    async def complete(self, request: Any) -> Any:
+        response = await super().complete(request)
+        if request.schema_name != "harness_decide" or GATE not in request.user:
+            return response
+        document = json.loads(response.output_json)
+        answer = next(a for a in document["answers"] if a["question_id"] == GATE)
+        if self.lexeme is NO_PROBABILITIES:
+            del answer["probabilities"]
+        elif self.lexeme is ABSENT:
+            answer["probabilities"] = [e for e in answer["probabilities"] if e["option"] != "yes"]
+        else:
+            next(e for e in answer["probabilities"] if e["option"] == "yes")["p"] = "@@P@@"
+        text = json.dumps(document).replace('"@@P@@"', "" if self.lexeme in (ABSENT, NO_PROBABILITIES) else str(self.lexeme))
+        return dataclasses.replace(response, output_json=text)
+
+
+def raw_model(lexeme: Any, *, pick: str = LOOKUP) -> RawReplyModel:
+    model = RawReplyModel(answers={**G_A, GATE: True, SLOT: pick}, mentions=GOOD_MENTIONS, probability=0.95)
+    model.lexeme = lexeme
+    return model
+
+
+@pytest.mark.parametrize("lexeme", ["0.9", "0.90", "0.9000", "1", "1.0", "0.95", "0.99999"])
+def test_a_plain_decimal_at_or_above_the_threshold_passes_end_to_end(lexeme: str) -> None:
+    assert remedy(piped(raw_model(lexeme))) == LOOKUP
+
+
+@pytest.mark.parametrize("lexeme", ["0", "0.0", "0.89999", "0.8999", "0.5"])
+def test_a_plain_decimal_below_the_threshold_abstains_end_to_end(lexeme: str) -> None:
+    result = piped(raw_model(lexeme))
     assert result.outcome.name == "PROPOSED" and remedy(result) is None
 
 
-def test_no_float_is_made_or_computed_in_the_gate() -> None:
-    """A612: no float(), no Decimal, no math on floats in the gate's reading. (`repr` of a provider's number is text, not arithmetic.)"""
-    source = (Path(ROOT) / "services" / "model" / "noema_model" / "understanding" / "pipeline" / "steps.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    gate = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("probability_bp", "gate_asserted")}
-    assert set(gate) == {"probability_bp", "gate_asserted"}
-    for function in gate.values():
-        for node in ast.walk(function):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                assert node.func.id not in ("float", "Decimal", "round"), (function.name, node.func.id)
-            if isinstance(node, ast.Constant):
-                assert not isinstance(node.value, float), (function.name, node.value)
-            if isinstance(node, ast.Name):
-                assert node.id not in ("Fraction", "Decimal", "math"), (function.name, node.id)
+@pytest.mark.parametrize("lexeme", [
+    "9e-1", "9E-1", "9e-01", "0.9e0", "9e-1".upper(), '"0.9"', '" 0.9"', '"0.9 "', '""', "null", "true", "false", "-0.1", "-0", "1.0001", "1.00009", "NaN", "Infinity", "-Infinity", "[]", "{}", ABSENT, NO_PROBABILITIES,
+])
+def test_a_malformed_probability_abstains_for_that_slot_only_and_the_compile_goes_on(lexeme: Any) -> None:
+    result = piped(raw_model(lexeme))
+    assert result.outcome.name == "PROPOSED", lexeme  # not stopped
+    assert remedy(result) is None, lexeme  # the slot is absent: a missing or malformed probability is doubt, never a yes
+    assert result.proposal is not None and result.proposal.reference_slots["question_type"] == "STATUS"  # the other slots are untouched
+
+
+@pytest.mark.parametrize("lexeme", ["+0.9", ".9", "0.", "0x1", "0,9", "1_0", "0.9.1", "--1", "01.5e"])
+def test_text_that_is_not_json_at_all_still_stops_the_turn(lexeme: str) -> None:
+    result = piped(raw_model(lexeme))
+    assert result.outcome.name == "REJECTED_AT_GATE"  # the same refusal as any reply that is not JSON: the compile service reports ProviderUnavailable
+
+
+def test_a_malformed_probability_on_a_question_that_is_not_a_gate_still_refuses_the_reply() -> None:
+    """Only the gate's probability is lossless and abstains. Every other yes/no keeps the harness's strict reading: a number in [0, 1], else the whole reply is refused."""
+    from noema_model.harness import YesNoQuestion
+    from tests.test_openai_decisions import FLAG, decide
+
+    bad = reply({"answers": [{"question_id": "multiple_intents", "selected": "yes", "probabilities": [{"option": "yes", "p": "0.9"}, {"option": "no", "p": 0.1}]}]}, version="model-gpt-2026-01-01")
+    harness, _, _ = stack([], llm_steps=[bad], route=("gpt",))
+    assert isinstance(FLAG, YesNoQuestion)
+    with pytest.raises(HarnessRejection):
+        decide(harness, FLAG)
+
+
+def test_a_gate_is_never_sent_to_a_decision_model_which_would_return_a_float() -> None:
+    """A decision provider's reply is parsed to numbers at the vendor envelope, so it cannot prove what text a probability was written in: a set with a gate goes to the LLM route (A649)."""
+    llm = reply({"answers": [{"question_id": "requested_remedy_gate", "selected": "yes", "probabilities": [{"option": "yes", "p": 0.95}, {"option": "no", "p": 0.05}]}]}, version="model-gpt-2026-01-01")
+    harness, native, gpt = stack([], llm_steps=[llm])
+    result = run(harness.decide(DecideRequest(DecisionTask.ENUMERATED_SLOT, {"utterance": "check it"}, (GateQuestion("requested_remedy_gate", SLOT_GATE_V1),), None, "corr_test")))
+    assert native.calls == [] and len(gpt.requests) == 1
+    assert result.answers == (GateAnswer("requested_remedy_gate", True, RawNumber("0.95")),)
+
+
+def test_the_gate_reads_a_token_and_the_decode_boundary_makes_no_float() -> None:
+    """A612: no float(), no Decimal, no math on floats in the gate's reading; and the decoder of the harness never builds a float for the gate."""
+    pipeline = Path(ROOT) / "services" / "model" / "noema_model"
+    for relative, names in (("understanding/pipeline/steps.py", ("probability_bp", "gate_asserted")), ("harness/rawjson.py", ("loads_lossless",))):
+        tree = ast.parse((pipeline / relative).read_text(encoding="utf-8"))
+        found = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in names}
+        assert set(found) == set(names), relative
+        for function in found.values():
+            for node in ast.walk(function):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    assert node.func.id not in ("float", "Decimal", "round"), (function.name, node.func.id)
+                if isinstance(node, ast.Constant):
+                    assert not isinstance(node.value, float), (function.name, node.value)
+                if isinstance(node, ast.Name):
+                    assert node.id not in ("Fraction", "Decimal", "math"), (function.name, node.id)
+
+
+# --- P2 of the review: a gate belongs to one node ------------------------------------------------------------------------------------------------------
+
+def _two_node_pack() -> dict[str, Any]:
+    """The real pack plus a second node that declares an optional closed-list slot of the same name: a gate on the first node must never reach it."""
+    pack: dict[str, Any] = copy.deepcopy(PACK)
+    other = copy.deepcopy(next(n for n in pack["intent_nodes"] if n["node_id"] == "fin.meta.out_of_scope"))
+    other["node_id"] = "fin.other.node"
+    other["slots"] = [{"name": SLOT, "type": "Reference", "required": False, "references": "capability"}]
+    pack["intent_nodes"].append(other)
+    return pack
+
+
+def test_a_gated_slot_name_declared_by_two_nodes_is_refused_at_load() -> None:
+    with pytest.raises(ConfigError, match="more than one node"):
+        _load(_two_node_pack())
+
+
+def test_a_config_built_directly_cannot_apply_one_gate_to_two_nodes_either() -> None:
+    from noema_model.understanding.pipeline import NodeCatalogue
+
+    catalogue = NodeCatalogue.from_pack(_two_node_pack(), out_of_scope_node=OUT_OF_SCOPE)
+    with pytest.raises(ConfigError, match="more than one node"):
+        dataclasses.replace(GATED, catalogue=catalogue)
+
+
+def test_a_gate_on_one_node_never_asks_the_same_named_slot_of_another_node() -> None:
+    """With the pack's own node the gate is asked; the gated names of `gated_slots` are those of the one node it is given."""
+    from noema_model.understanding.pipeline import steps
+
+    catalogue = GATED.catalogue
+    node = catalogue.nodes["fin.payments.exception.investigate"]
+    assert [s.name for s in steps.gated_slots(node, GATED.slot_gates)] == [SLOT]
+    assert steps.gated_slots(catalogue.nodes[OUT_OF_SCOPE], GATED.slot_gates) == ()
