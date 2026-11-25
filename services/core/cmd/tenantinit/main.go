@@ -94,15 +94,18 @@ func sqlState(err error) string {
 	return ""
 }
 
+// say writes one diagnostic line to errw. The exit code and the result line carry the outcome, so a failed write to errw is reported nowhere else (it is the last channel).
+func say(errw io.Writer, line string) { _, _ = fmt.Fprintln(errw, line) }
+
 func runWith(args []string, out, errw io.Writer, dial dialFunc) int {
 	s, ok := parseArgs(args)
 	if !ok {
-		fmt.Fprintln(errw, "tenantinit: "+usage)
+		say(errw, "tenantinit: "+usage)
 		return exitUsage
 	}
 	fail := func(err error) int {
 		code, sentence := failure(err)
-		fmt.Fprintln(errw, "tenantinit: "+sentence)
+		say(errw, "tenantinit: "+sentence)
 		return code
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
@@ -127,11 +130,11 @@ func runWith(args []string, out, errw io.Writer, dial dialFunc) int {
 	}
 	b, err := json.Marshal(c)
 	if err != nil {
-		fmt.Fprintln(errw, "tenantinit: the result could not be written")
+		say(errw, "tenantinit: the result could not be written")
 		return exitFailure
 	}
 	if _, err := fmt.Fprintln(out, string(b)); err != nil {
-		fmt.Fprintln(errw, "tenantinit: the result could not be written")
+		say(errw, "tenantinit: the result could not be written")
 		return exitFailure
 	}
 	return exitDone

@@ -647,7 +647,7 @@ func TestADecisionRecordIsSignedAndVerifiedWithTheGrantKeys(t *testing.T) {
 		"outcome":   func(x *contracts.DecisionRecordV2) { x.Outcome = "REJECT" },
 		"tenant":    func(x *contracts.DecisionRecordV2) { x.TenantId = "ten_other" },
 		"decision":  func(x *contracts.DecisionRecordV2) { x.DecisionId = "dec_other" },
-		"policy":    func(x *contracts.DecisionRecordV2) { x.PolicyVersion = "fin.pol@9.9" },
+		"policy":    func(x *contracts.DecisionRecordV2) { x.PolicyVersion = strp("fin.pol@9.9") },
 		"evaluated": func(x *contracts.DecisionRecordV2) { x.EvaluatedAt = "2030-01-01T00:00:00Z" },
 		"intent":    func(x *contracts.DecisionRecordV2) { x.IntentHash = sha("changed") },
 	}
@@ -721,8 +721,8 @@ func TestARecordMissingABoundFieldOrWithAnEmptyWindowIsNotSigned(t *testing.T) {
 	cases := map[string]func(*contracts.DecisionRecordV2){
 		"no intent_id":             func(r *contracts.DecisionRecordV2) { r.IntentId = "" },
 		"no correlation_id":        func(r *contracts.DecisionRecordV2) { r.CorrelationId = "" },
-		"no policy_id@version":     func(r *contracts.DecisionRecordV2) { r.PolicyVersion = "" },
-		"policy without a version": func(r *contracts.DecisionRecordV2) { r.PolicyVersion = "fin.pol" },
+		"no policy_id@version":     func(r *contracts.DecisionRecordV2) { r.PolicyVersion = strp("") },
+		"policy without a version": func(r *contracts.DecisionRecordV2) { r.PolicyVersion = strp("fin.pol") },
 		"no issued_at":             func(r *contracts.DecisionRecordV2) { r.IssuedAt = "" },
 		"no expires_at":            func(r *contracts.DecisionRecordV2) { r.ExpiresAt = "" },
 		"expires before issued": func(r *contracts.DecisionRecordV2) {
@@ -791,8 +791,8 @@ func TestEveryBoundFieldIsCoveredByTheSignature(t *testing.T) {
 	for name, mutate := range map[string]func(*contracts.DecisionRecordV2){
 		"intent_id":                      func(x *contracts.DecisionRecordV2) { x.IntentId = "int_REPLAY" },
 		"correlation_id":                 func(x *contracts.DecisionRecordV2) { x.CorrelationId = "corr_other1" },
-		"policy_version":                 func(x *contracts.DecisionRecordV2) { x.PolicyVersion = "fin.pol@3.3" },
-		"another policy":                 func(x *contracts.DecisionRecordV2) { x.PolicyVersion = "fin.other@3.2" },
+		"policy_version":                 func(x *contracts.DecisionRecordV2) { x.PolicyVersion = strp("fin.pol@3.3") },
+		"another policy":                 func(x *contracts.DecisionRecordV2) { x.PolicyVersion = strp("fin.other@3.2") },
 		"issued_at":                      func(x *contracts.DecisionRecordV2) { x.IssuedAt = "2026-10-01T09:47:05.000Z" },
 		"expires_at":                     func(x *contracts.DecisionRecordV2) { x.ExpiresAt = "2026-10-01T23:57:04.210Z" },
 		"key_id to the other active key": func(x *contracts.DecisionRecordV2) { x.Sig.KeyId = "k1" },
@@ -929,3 +929,6 @@ func TestAGrantSignedOverBareJCSOrUnderAnotherLabelIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// strp is a pointer to a string: the policy version of a decision record is nullable (A574, A577).
+func strp(s string) *string { return &s }

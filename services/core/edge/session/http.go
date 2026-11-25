@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/telemetry"
 )
 
 // CorrelationHeader carries the correlation ID on every response (PERD 39.1).
@@ -36,6 +37,11 @@ func CorrelationFromContext(ctx context.Context) string {
 	return c
 }
 
+// withPrincipal returns r with p in its context, derived from the request's own context.
+func withPrincipal(r *http.Request, p Principal) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), ctxKey{}, p))
+}
+
 // FromContext returns the authenticated principal of a request that passed Middleware.
 func FromContext(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(ctxKey{}).(Principal)
@@ -53,7 +59,7 @@ func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 				refuseNoCorrelation(w)
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), corrKey{}, corr))
+			r = r.WithContext(telemetry.WithCorrelation(context.WithValue(r.Context(), corrKey{}, corr), corr)) // the same ID rides the telemetry chain: the model client sends it, the bound logger logs it (REC-02)
 			w.Header().Set(CorrelationHeader, corr)
 			authz := r.Header.Get("Authorization")
 			if authz == "" {
@@ -71,7 +77,7 @@ func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 				writeError(w, contracts.ErrorsV2ErrorCodeSESSIONINVALID, "The session is not valid.", corr)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
+			next.ServeHTTP(w, withPrincipal(r, p))
 		})
 	}
 }

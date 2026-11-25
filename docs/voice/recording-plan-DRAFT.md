@@ -22,7 +22,7 @@ Raw audio of a real person's voice is handled as in section 5: only in the bench
 ## 2. Speakers
 
 - **At least 30 distinct speakers, and no speaker above 10% of the sessions.** Balanced by gender and by locale mix across en-NG, pcm, yo, ha and ig.
-- **Adults only (proposed; the age band was not decided on 8 Nov, so the Founders confirm).** Anyone under 18 is not recruited.
+- **Adults only (confirmed by the Founder, 24 Nov 2026; it counts once this change is merged by a non-author Founder).** Anyone under 18 is not recruited.
 - **The Founders recruit.** Payment, if any, is a small fixed amount, the same for everyone.
 - Each speaker's self-described first language and region are recorded as a free label, held apart from the audio and linked only by an opaque speaker reference.
 - Native-speaker testers for the five locales (REQ-VOI-007) are recruited the same way. A tester never reviews a session they spoke in.
@@ -32,7 +32,7 @@ Raw audio of a real person's voice is handled as in section 5: only in the bench
 - Voice subset: a quiet room, then each simulated condition of VOI-17, with levels set from the dB-meter readings below.
 - Field: roadside and market sound levels with a phone dB meter at each session (§45.4 item 2); device model and OS recorded; Airtel 3G with 4G disabled.
 - Server-side timestamps for end of speech and Intent Object admission, with NTP on the logging host (§45.4 item 4).
-- **Bystanders (proposed rule; a Founder decision).** A roadside or market session can capture people who are not part of the study. The facilitator tells passers-by nothing is kept of them and does not record a conversation they join. At annotation any recording in which a bystander is identifiable or intelligible is cut to exclude that speech or deleted, and the deletion is logged. A session whose purpose is lost by the cut is marked "unusable by bystander" and counted as a failed session in the denominator, never dropped.
+- **Bystanders (the rule is confirmed by the Founder, 24 Nov 2026; it counts once this change is merged by a non-author Founder).** A roadside or market session can capture people who are not part of the study. The facilitator tells passers-by nothing is kept of them and does not record a conversation they join. At annotation any recording in which a bystander is identifiable or intelligible is cut to exclude that speech or deleted, and the deletion is logged. A session whose purpose is lost by the cut is marked "unusable by bystander" and counted as a failed session in the denominator, never dropped.
 
 ## 4. Provider processing
 
@@ -60,5 +60,5 @@ Each session carries the script's intended key slots (amount, counterparty, time
 ## 8. What remains
 
 1. The Steward records the F-decisions (noema#363).
-2. The Founders confirm: adults only (section 2), the bystander rule (section 3).
+2. ~~The Founders confirm adults only (section 2) and the bystander rule (section 3).~~ Confirmed on 24 Nov 2026 (the Founder's instruction to Voice); recorded when this change is merged.
 3. The private store and its credential are created and its access list (the two Founders) is recorded. Until then no recording of a real person starts.
