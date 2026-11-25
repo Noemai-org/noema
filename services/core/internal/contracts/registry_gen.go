@@ -266,6 +266,7 @@ var Types = map[string]func() any{
 	"scorecard-view.v1#Tier3":                            func() any { return new(ScorecardViewV1Tier3) },
 	"scorecard-view.v1#TurnsToResolution":                func() any { return new(ScorecardViewV1TurnsToResolution) },
 	"session-limits.v1":                                  func() any { return new(SessionLimitsV1) },
+	"sla-evaluated-payload.v1":                           func() any { return new(SlaEvaluatedPayloadV1) },
 	"sse-event.v1":                                       func() any { return new(SseEventV1) },
 	"sse-event.v1#Answer":                                func() any { return new(SseEventV1Answer) },
 	"sse-event.v1#Clarification":                         func() any { return new(SseEventV1Clarification) },
