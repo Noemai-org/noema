@@ -126,13 +126,14 @@ class RealManifest(Base):
         self.assertTrue(REAL_MANIFEST.is_file(), "packs/fintech/manifest.v1.json does not exist (A333)")
         self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
 
-    def test_it_is_labelled_synthetic_and_lists_exactly_the_four_kinds(self):
+    def test_it_is_labelled_synthetic_and_lists_exactly_the_five_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits")}, LISTED)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing")}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "limits"), LIMITS)  # A544
-        self.assertEqual(len(doc["files"]), 11)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
+        self.assertEqual([f["path"] for f in doc["files"] if f["kind"] == "priority_routing"], ["fintech/routing/priority_routing.v1.json"])  # PCK-09, A644
+        self.assertEqual(len(doc["files"]), 12)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -150,7 +151,7 @@ class RealManifest(Base):
 
     def test_every_json_file_of_a_listed_kind_is_listed(self):
         listed = {f["path"] for f in self.load()["files"]}
-        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context") for p in (PACKS / d).rglob("*.json")}
+        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context", "fintech/routing") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
         self.assertEqual(found, listed)
 
@@ -314,6 +315,47 @@ class UnlistedFile(Base):
             doc["files"].append({"kind": "recon_rules", "path": "fintech/recon_rules/rules.v2.json", "sha256": sha256(root / RULES)})
         self.edit(root, manifest, add)
         self.fails(root, manifest, "exactly one recon_rules file, it lists 2")
+
+
+class ReconRulesFile(Base):
+    """A659 (interim, relayed, not yet committed): the listed rule set is checked against `recon-rule-set.v1` as the manifest is, so a rule set of version 2 with no window cannot be pinned."""
+
+    def reseal(self, root: Path, manifest: Path, expected: str) -> None:
+        mapping = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        mapping["ruleset"] = expected  # the mapping feeds the rule set the manifest expects (PCK-02)
+        write(root / MAPPING, mapping)
+
+        def fix(doc):
+            entry(doc, "recon_rules")["sha256"] = sha256(root / RULES)
+            entry(doc, "evidence_mapping")["sha256"] = sha256(root / MAPPING)
+            doc["expected"]["recon_rule_set_id"] = expected
+        self.edit(root, manifest, fix)
+
+    def test_a_version_2_rule_set_with_no_window_is_refused_even_when_pinned_and_named(self):
+        root, manifest = self.tree()
+        doc = json.loads((root / RULES).read_text(encoding="utf-8"))
+        doc["version"] = 2
+        write(root / RULES, doc)
+        self.reseal(root, manifest, "fin.recon.rules@2")
+        self.fails(root, manifest, "convergence_window_seconds")
+
+    def test_a_version_2_rule_set_with_every_window_is_accepted(self):
+        root, manifest = self.tree()
+        doc = json.loads((root / RULES).read_text(encoding="utf-8"))
+        doc["version"] = 2
+        for e in doc["incompatible"] + doc["single_valued"]:
+            e["convergence_window_seconds"] = 60
+        write(root / RULES, doc)
+        self.reseal(root, manifest, "fin.recon.rules@2")
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_rule_set_that_is_not_a_rule_set_is_refused_even_when_pinned_and_named(self):
+        root, manifest = self.tree()
+        doc = json.loads((root / RULES).read_text(encoding="utf-8"))
+        doc["surprise"] = 1
+        write(root / RULES, doc)
+        self.reseal(root, manifest, "fin.recon.rules@1")
+        self.fails(root, manifest, RULES)
 
 
 class ActionGraphs(Base):
@@ -813,6 +855,9 @@ class IdMatch(Base):
                 root, manifest = self.tree()
                 doc = json.loads((root / rel).read_text(encoding="utf-8"))
                 doc["version"] = doc["version"] + 1
+                if kind == "recon_rules":  # A659: a version 2 rule set declares its windows, so the id comparison stays the only failure
+                    for e in doc["incompatible"] + doc["single_valued"]:
+                        e["convergence_window_seconds"] = 60
                 (root / rel).write_text(json.dumps(doc, indent=2), encoding="utf-8")
                 self.edit(root, manifest, lambda d, k=kind, r=rel: entry(d, k).__setitem__("sha256", sha256(root / r)))
                 problems = self.check(manifest, root)

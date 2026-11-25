@@ -18,6 +18,11 @@
       "type": "string",
       "minLength": 1
     },
+    "tenant_zone": {
+      "description": "A647, A650 (interim; REQ-DATA-002): the tenant time zone as an IANA name, e.g. Africa/Lagos for the synthetic tenant. Optional. Every instant is stored in UTC; this is the zone a tenant-local date or window is read in. packcheck refuses a name the tz database does not know.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$"
+    },
     "intent_nodes": {
       "type": "array",
       "items": {
@@ -41,7 +46,7 @@
     "capabilities": {
       "type": "array",
       "items": {
-        "$ref": "https://contracts.noema.invalid/capability-descriptor.v1.json"
+        "$ref": "https://contracts.noema.invalid/capability-descriptor.v2.json"
       }
     },
     "evidence_sources": {

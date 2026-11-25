@@ -27,7 +27,7 @@ type Params struct {
 }
 
 // ParamsOf reads the limits of a descriptor.
-func ParamsOf(l contracts.CapabilityDescriptorV1Limits) (Params, error) {
+func ParamsOf(l contracts.CapabilityDescriptorV2Limits) (Params, error) {
 	s := l.CircuitBreaker.ErrorRate.String()
 	if !decimalRe.MatchString(s) {
 		return Params{}, fmt.Errorf("%serror_rate %q is not a plain decimal", errPrefix, s)
