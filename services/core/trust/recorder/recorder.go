@@ -391,6 +391,11 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if d.Outcome() == "" {
 		return decide.Basis{}, "", ErrRequest
 	}
+	// A597, A600 (A542): a decline rests on the request it declined. A REJECT whose reason is DECLINED_BY_APPROVER that names none is refused here, before a statement is sent, so no decline
+	// is stored with an empty state; every other REJECT may name none. The decision is known by its own reason codes, never by a flag of the caller.
+	if d.Outcome() == decide.Reject && r.DeclinedRequestID == "" && declinedByApprover(d) {
+		return decide.Basis{}, "", ErrRequest
+	}
 	if d.Outcome() == decide.Clarify {
 		return decide.Basis{}, "", ErrUnsupported
 	}
@@ -529,4 +534,14 @@ func grantIssued(g contracts.DecisionGrantV1, decisionID, confirmationEventID st
 		p["confirmation_event_id"] = confirmationEventID
 	}
 	return p
+}
+
+// declinedByApprover reports whether the decision is a decline of the approver (the reason code DECLINED_BY_APPROVER, SoT 43.2a).
+func declinedByApprover(d decide.Decision) bool {
+	for _, c := range d.Reasons() {
+		if c.String() == "DECLINED_BY_APPROVER" {
+			return true
+		}
+	}
+	return false
 }

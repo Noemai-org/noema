@@ -51,7 +51,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph", "limits", "injection_patterns"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other; `limits` once for each limits file of the pack's limits folder (A544), every one of them; one `injection_patterns` file from manifest version 4, none or one below it (A645, A664)."},
+          "kind": {"enum": ["pack", "evidence_mapping", "recon_rules", "action_graph", "limits", "injection_patterns", "priority_routing"], "description": "One `pack`, one `evidence_mapping` and one `recon_rules` file; `action_graph` once for each path the pack file names in `action_graph_files` (A510), and for no other; `limits` once for each limits file of the pack's limits folder (A544), every one of them; one `injection_patterns` file from manifest version 4, none or one below it (A645, A664); at most one `priority_routing` file (PCK-09, A644)."},
           "path": {
             "type": "string",
             "minLength": 1,

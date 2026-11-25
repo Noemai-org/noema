@@ -21,9 +21,9 @@ import (
 
 var t0 = time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
 
-func limits(rate string, windowS, timeoutMs, perHour int64) contracts.CapabilityDescriptorV1Limits {
-	return contracts.CapabilityDescriptorV1Limits{RatePerPrincipalPerHour: perHour, TimeoutMs: timeoutMs,
-		CircuitBreaker: contracts.CapabilityDescriptorV1LimitsCircuitBreaker{ErrorRate: json.Number(rate), WindowS: windowS}}
+func limits(rate string, windowS, timeoutMs, perHour int64) contracts.CapabilityDescriptorV2Limits {
+	return contracts.CapabilityDescriptorV2Limits{RatePerPrincipalPerHour: perHour, TimeoutMs: timeoutMs,
+		CircuitBreaker: contracts.CapabilityDescriptorV2LimitsCircuitBreaker{ErrorRate: json.Number(rate), WindowS: windowS}}
 }
 
 // The policy numbers are inputs, not constants (AGENT-16); the tests choose their own.
@@ -65,7 +65,7 @@ func TestParamsComeFromTheDescriptorAndBadValuesAreRefused(t *testing.T) {
 	if err != nil || p.Window != time.Minute || p.Timeout != 3*time.Second || p.RatePerPrincipalPerHour != 5 {
 		t.Fatalf("params = %+v, %v", p, err)
 	}
-	for name, l := range map[string]contracts.CapabilityDescriptorV1Limits{
+	for name, l := range map[string]contracts.CapabilityDescriptorV2Limits{
 		"rate zero":        limits("0", 60, 3000, 5),
 		"rate above one":   limits("1.01", 60, 3000, 5),
 		"rate negative":    limits("-0.5", 60, 3000, 5),

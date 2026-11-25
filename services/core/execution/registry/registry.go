@@ -40,7 +40,7 @@ const monetaryWriteClass = "R4"
 
 // Registry is the set of capability descriptors of one pack. It is built once, read-only after that, and safe to share.
 type Registry struct {
-	byID map[string]contracts.CapabilityDescriptorV1
+	byID map[string]contracts.CapabilityDescriptorV2
 	ids  []string
 }
 
@@ -70,11 +70,11 @@ func Load(r io.Reader) (*Registry, error) {
 //   - the set is empty or two descriptors share an ID;
 //   - a descriptor lacks any field (REQ-CAP-001: complete descriptors only);
 //   - a monetary-write descriptor is not marked prohibited (INV-05).
-func New(ds []contracts.CapabilityDescriptorV1) (*Registry, error) {
+func New(ds []contracts.CapabilityDescriptorV2) (*Registry, error) {
 	if len(ds) == 0 {
 		return nil, refuse(CodeIncomplete, "no capability descriptors")
 	}
-	reg := &Registry{byID: make(map[string]contracts.CapabilityDescriptorV1, len(ds))}
+	reg := &Registry{byID: make(map[string]contracts.CapabilityDescriptorV2, len(ds))}
 	for _, d := range ds {
 		id := string(d.CapabilityId)
 		if _, dup := reg.byID[id]; dup {
@@ -82,6 +82,9 @@ func New(ds []contracts.CapabilityDescriptorV1) (*Registry, error) {
 		}
 		if missing := missingField(d); missing != "" {
 			return nil, refuse(CodeIncomplete, "capability %s has no %s", id, missing)
+		}
+		if d.Prohibited && (d.Compensation != nil || d.InverseMapping != nil) {
+			return nil, refuse(CodeSafetyBlock, "capability %s is prohibited and declares a compensation", id)
 		}
 		if strings.HasPrefix(d.RiskClass, monetaryWriteClass) && !d.Prohibited {
 			return nil, refuse(CodeSafetyBlock, "capability %s is a monetary write and is not marked prohibited", id)
@@ -94,8 +97,9 @@ func New(ds []contracts.CapabilityDescriptorV1) (*Registry, error) {
 }
 
 // missingField names the first descriptor field that is absent, or returns "". Every field of the capability descriptor
-// is required of a registered capability, prohibited or not (SoT §43.8).
-func missingField(d contracts.CapabilityDescriptorV1) string {
+// is required of a registered capability, prohibited or not (SoT §43.8), except the compensation: an allowed capability declares one (REQ-CAP-004) and a prohibited
+// capability declares none, because it has no adapter and nothing to recover (A647, BD-08; Load refuses one that does).
+func missingField(d contracts.CapabilityDescriptorV2) string {
 	switch {
 	case d.CapabilityId == "":
 		return "capability_id"
@@ -133,7 +137,7 @@ func missingField(d contracts.CapabilityDescriptorV1) string {
 		return "retry"
 	case d.Recovery == nil:
 		return "recovery"
-	case d.Compensation == nil:
+	case d.Compensation == nil && !d.Prohibited:
 		return "compensation"
 	case d.Audit == nil:
 		return "audit"
