@@ -332,7 +332,12 @@ class Normaliser:
         (twenty thousand five hundred, never five hundred thousand thousand). A word that is not in the lexicon, an order that is not a number, or a joiner that is not between a hundred and its remainder
         makes the whole thing unread: the lexicon never repairs and never takes the nearest number."""
         lex = self._lexicon
-        tokens = [t for t in re.split(r"[\s\-]+", core) if t]
+        tokens: list[str] = []
+        for chunk in core.split():  # a hyphen joins two words ("twenty-five") and is nothing else: a leading, trailing or doubled one (a sign, "-twenty thousand") leaves the amount unread, as "-20k" is
+            parts = chunk.split("-")
+            if len(parts) > 1 and not all(part in lex.numerals or part in lex.multipliers for part in parts):  # between numeral words only, never a currency word or an unknown one
+                return None
+            tokens.extend(parts)
         if tokens and tokens[-1] in lex.currency_words:
             tokens.pop()
         if tokens and tokens[0] in lex.currency_words:

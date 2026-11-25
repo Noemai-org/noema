@@ -221,7 +221,7 @@ def test_a_direction_phrase_is_data_and_a_phrase_that_names_two_values_is_refuse
 
 @pytest.mark.parametrize("surface", [
     "-twenty thousand", "twenty thousand-", "--twenty thousand", "twenty thousand --", "- twenty thousand", "twenty thousand -", "twenty--five thousand", "twenty - five thousand",
-    "twenty -five thousand", "twenty- five thousand", "-", "--", "-twenty", "twenty-", "-twenty-five thousand", "twenty-five-thousand-",
+    "twenty -five thousand", "twenty- five thousand", "-", "--", "-twenty", "twenty-", "-twenty-five thousand", "twenty-five-thousand-", "twenty thousand-naira", "twenty-and-five", "twenty-five thousand-naira",
 ])
 def test_a_sign_or_a_stray_hyphen_is_not_a_separator_so_the_amount_is_unread(surface: str) -> None:
     assert read(f"I sent {surface} to Tunde", surface).amount_minor is None, surface
