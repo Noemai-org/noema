@@ -13,11 +13,11 @@ const runDir = process.env.NOEMA_UI_E2E_RUN_DIR
   : null;
 const tokenDir = process.env.NOEMA_UI_E2E_TOKEN_DIR
   ? resolve(process.cwd(), process.env.NOEMA_UI_E2E_TOKEN_DIR)
-  : null;
+  : resolve(process.cwd(), "../benchmark/out/idp/tokens");
 const maxPollingMs = 60_000; // A654: UI polling ceiling is 60 seconds.
 
-if (!runDir || !tokenDir) {
-  throw new Error("Set NOEMA_UI_E2E_RUN_DIR to the benchmark.runner output and NOEMA_UI_E2E_TOKEN_DIR to the per-principal synthetic token directory");
+if (!runDir) {
+  throw new Error("Set NOEMA_UI_E2E_RUN_DIR to the benchmark.runner output");
 }
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
