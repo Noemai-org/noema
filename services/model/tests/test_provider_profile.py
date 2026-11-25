@@ -139,7 +139,7 @@ def test_a_request_with_no_recording_fails_closed_through_the_selected_transport
     def no_network(*_a: object, **_k: object) -> None:
         raise AssertionError("a socket was opened")
 
-    monkeypatch.setattr(socket, "socket", no_network)
+    monkeypatch.setattr(socket.socket, "connect", no_network)  # as test_replay_transport does: the event loop's own socket pair stays usable
     monkeypatch.setattr(socket, "create_connection", no_network)
     chosen = select_transport({ENV_PROFILE: "test", ENV_REPLAY_FIXTURES: str(fixtures(tmp_path))}, live_factory([]))
     with pytest.raises(ReplayMiss) as miss:

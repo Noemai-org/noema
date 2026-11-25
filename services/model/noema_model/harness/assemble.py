@@ -23,6 +23,7 @@ from noema_model.platform.config import ConfigError, require_env_int
 from noema_model.platform.masking import MaskingLimitsError, load_limits_file
 from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.llm.base import Transport
+from noema_model.providers.llm.profile import select_transport
 from noema_model.providers.llm.transport import UrllibTransport
 
 ENV_CONFIG = "NOEMA_MODEL_HARNESS_CONFIG"
@@ -39,6 +40,23 @@ class Assembly:
 def _refused(reason: str, telemetry: Telemetry) -> Assembly:
     telemetry.event("HARNESS_CONFIG_REJECTED", "service-start", {"reason": reason})
     return Assembly(None, reason)
+
+
+def _selected_transport(environ: Mapping[str, str], telemetry: Telemetry) -> Transport:
+    """The transport for the profile (UND-15, A635): live unless a recorded replay is configured in the bench or test profile; the demo
+    profile and every other refuse a replay, and an unknown profile refuses the start. A refusal is a ConfigError (no harness, a reason)."""
+
+    def live() -> Transport:
+        # The pool size is configuration the service must be given: a missing or invalid one refuses to start (AGENT-16).
+        workers = require_env_int(environ, ENV_LLM_POOL, minimum=1)
+        built = UrllibTransport(pool_size=workers)
+        telemetry.event("TRANSPORT_POOL_CONFIGURED", "service-start", {"transport": "llm", "workers": workers})
+        return built
+
+    chosen = select_transport(environ, live)
+    if chosen.replay:
+        telemetry.event("TRANSPORT_PROFILE_SELECTED", "service-start", {"profile": chosen.profile or "", "transport": "replay"})
+    return chosen.transport
 
 
 def assemble_harness(
@@ -61,10 +79,7 @@ def assemble_harness(
     try:
         config = load_harness_config(json.loads(text))
         if transport is None:
-            # The pool size is configuration the service must be given: a missing or invalid one refuses to start (AGENT-16).
-            workers = require_env_int(environ, ENV_LLM_POOL, minimum=1)
-            transport = UrllibTransport(pool_size=workers)
-            telemetry.event("TRANSPORT_POOL_CONFIGURED", "service-start", {"transport": "llm", "workers": workers})
+            transport = _selected_transport(environ, telemetry)
         providers = build_providers(config, transport)
     except json.JSONDecodeError as exc:
         return _refused(f"harness configuration file: not valid JSON (line {exc.lineno})", telemetry)
