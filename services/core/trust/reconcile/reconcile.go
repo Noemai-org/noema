@@ -31,7 +31,13 @@ func Reconcile(rs *RuleSet, evidence []Evidence, now int64) (Result, error) {
 			env.Entities[entity] = append(env.Entities[entity], r.row)
 		}
 	}
-	for _, c := range contradictions {
+	// The rules see every disagreement as soon as one is outside its window: a rule that guards against a contradiction (a reversal that stands unless "reversal_conflict" holds) must not
+	// give a verdict because the pair it guards against is still inside its window while another pair has expired. Only when every disagreement is inside its window are they all set aside.
+	visible := contradictions
+	if len(contradictions) > 0 {
+		visible = all
+	}
+	for _, c := range visible {
 		env.Entities[entityContradiction] = append(env.Entities[entityContradiction],
 			predicate.Row{"label": predicate.Ref(c.Label), "a": predicate.Ref(c.A), "b": predicate.Ref(c.B)})
 	}
@@ -68,7 +74,7 @@ func Reconcile(rs *RuleSet, evidence []Evidence, now int64) (Result, error) {
 		}
 	}
 	return Result{Classification: matched.classification, RuleID: matched.id, Contributing: contributing,
-		Contradictions: all, ValidUntil: until, Wait: wait}, nil
+		Contradictions: contradictions, InWindow: waiting, ValidUntil: until, Wait: wait}, nil
 }
 
 // splitByWindow separates the disagreements outside any window (including those with no window: fail closed) from those still inside theirs. A

@@ -87,8 +87,12 @@ type Result struct {
 	Classification Classification
 	RuleID         string
 	Contributing   []string
+	// Contradictions is the set that causes the freeze: the disagreements outside their window or with none. It is what a freeze row names, with Contributing as its evidence.
 	Contradictions []Contradiction
-	ValidUntil     int64
+	// InWindow is the disagreements still inside their convergence window, each with its deadline. They freeze nothing, are not in Contradictions and are not in Contributing
+	// unless the whole answer waits (Wait is set).
+	InWindow   []Contradiction
+	ValidUntil int64
 	// Wait is set when every disagreement is still inside its convergence window: the answer waits (no write, no verdict) until Until (REQ-RES-005).
 	Wait *Wait
 }
