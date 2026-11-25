@@ -40,3 +40,14 @@
 - Open questions (Architect): the SLA_EVALUATED payload schema; where the case's current priority lives.
 - Files to read first: `services/core/trust/clocks/routing.go`, `trust/recorder/sla_event.go`.
 - Do not touch: noema#965 (EL's table).
+
+# Session 2026-11-25 · TRU-06 (C1, SR's two findings on noema#977; A694, A660, A700)
+
+## Session summary
+- What changed: (1) `clocks.Prioritise` refuses a phase the routing does not list (`ErrInvalid`, the zero Evaluation) instead of answering NORMAL with no queue (A660: packcheck requires an entry for every SLA phase, so a gap means a table that cannot be trusted; A694). (2) `Writer.AppendSLAEvaluated` re-checks the evaluation before it appends: the owner queue is of the pack's shape, elapsed and remaining are not negative, a raise never ends at the lowest priority, and the times follow the payload schema's conditional rule (a clock not started names no start, deadline or remaining; any other phase names all three). Each is `ErrRequest`, before any write. `reroute` is derived from the queue by `Evaluation.Reroute()`, so it cannot disagree with it.
+- Premises changed, not weakened: the clocks tests that said an unlisted phase is NORMAL now say it is refused (`TestAPhaseWithNoEntryIsRefusedAndNeverDefaultsToNormal`, the rapid property `TestRoutingIsDeterministicAndNeverLowersForAnyInputs`), and the not-started payload test lists its phase in the table.
+- Tests added (REQ-TRU-006, INV-16): the refusal cases in `TestARequestThatIsNotAnEvaluationIsRefusedBeforeAnythingIsWritten` and `TestAnOwnerQueueOutsideThePacksShapeIsRefusedBeforeAnythingIsWritten`. Red `118811db` failed locally on all of them.
+- Not done: no call site. noema#984 (the payload schema) must be on `main` before any call site is added (A700).
+
+## Pre-work for the next agent
+- Exact next step: after #984 merges, the T12 call site reads the generated payload type; EL's table adapter must list every phase (packcheck guarantees it).

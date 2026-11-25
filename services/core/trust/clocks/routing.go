@@ -8,7 +8,7 @@ import (
 // Routing of a clock status (TRU-06; PERD 23.5, A632, A640, A644, interim, relayed, not yet committed).
 //
 // The routing priority derives from the phase through the pack's priority routing member, which the composition root offers through PriorityLookup. Priority may be raised and never
-// lowered (DOWNGRADE_CASE_PRIORITY is prohibited, PERD 23.5). A phase the member does not list is NORMAL with no queue, and an empty queue means no re-route. This code holds no phase
+// lowered (DOWNGRADE_CASE_PRIORITY is prohibited, PERD 23.5). A phase the member does not list is ErrInvalid, never a default (A660: packcheck requires an entry for every phase, so a gap means the table cannot be trusted; A694), and an empty queue means no re-route. This code holds no phase
 // queue, priority table or number of its own (INV-14, AGENT-16); it reads no clock and does no I/O (INV-21).
 
 // Priority is the closed vocabulary of the pack's priority routing: LOW, NORMAL and HIGH, in that order.
@@ -62,7 +62,7 @@ func validPhase(p Phase) bool {
 }
 
 // Prioritise derives the routing of a status. current is the case's priority now, or empty when it has none. The result's priority is the greater of current and the phase's;
-// an unlisted phase is NORMAL with no queue. A nil lookup, a phase that is not one of the four, a priority outside the vocabulary (the case's or the table's) and a queue that is not of
+// an unlisted phase is ErrInvalid (A660, A694). A nil lookup, a phase that is not one of the four, a priority outside the vocabulary (the case's or the table's) and a queue that is not of
 // the pack's shape are ErrInvalid with the zero Evaluation: nothing is guessed (INV-16).
 func Prioritise(st Status, current Priority, table PriorityLookup) (Evaluation, error) {
 	if table == nil {
@@ -76,7 +76,7 @@ func Prioritise(st Status, current Priority, table PriorityLookup) (Evaluation, 
 	}
 	e, listed := table.Lookup(string(st.Phase))
 	if !listed {
-		e = Entry{Priority: PriorityNormal}
+		return Evaluation{}, fmt.Errorf("%w: the routing lists no entry for phase %s", ErrInvalid, st.Phase)
 	}
 	if rank(e.Priority) < 0 {
 		return Evaluation{}, fmt.Errorf("%w: the routing of phase %s names a priority that is not one", ErrInvalid, st.Phase)
