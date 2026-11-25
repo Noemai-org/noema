@@ -17,3 +17,9 @@ Task state: green written; CI to be read. Owner: C2 (A640: C2 keeps the Reconcil
 - Exact next step: C1 maps `Result.Wait` to a WAIT decision with `reevaluate_at = Wait.Until` and the Record event; PCK-05 declares the windows once decided and adds the packcheck rule that a compared pair without a window is reported.
 - Files to read first: `trust/reconcile/reconcile.go` (`splitByWindow`), `freeze.go` (`PermitResult`), `window_test.go`.
 - Do not touch: `trust/intake`, `trust/recorder`.
+
+## Session 2026-11-25 · RES-05 · A659 (interim, relayed)
+- A future-dated `effective_at` means NO WINDOW: the pair is contradictory at once (CONTRADICTORY_STATE, the freeze and the pack's escalation), never a wait, and the instant is never clamped to now: `deadlineOf` returns 0 when either fact is dated after `now` (a fact dated exactly now still opens its window).
+- A waiting answer is now always INSUFFICIENT_EVIDENCE (the fallback), not only when a rule would give a terminal classification: a pending settlement, set against an in-window disagreement, would otherwise give SETTLEMENT_PENDING, which the Trust intake lets go on. The intake never lets INSUFFICIENT_EVIDENCE go on.
+- Callers of `FreezeGate.Permit` and `PermitTarget` (every `.go` in the module): one production caller in the Trust intake (T10, `freezeBlocks`: it takes the sealed classification, so a waiting answer, sealed as INSUFFICIENT_EVIDENCE, is never let on), `cmd/grantdrill` (a synthetic target, nothing reconciled), and the gate itself; all the others are test fixtures that build a permission for a synthetic world. `permit_callers_test.go` walks every non-test file and fails on a new caller: it must use `PermitResult`, which refuses a waiting result.
+- The window member is `convergence_window_seconds`; `rules.v1.json` is not changed here, and #963 (CAP-02, descriptor v2 contracts, per its title and its file list) does not touch it.
