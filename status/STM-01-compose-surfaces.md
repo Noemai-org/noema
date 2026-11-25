@@ -18,3 +18,17 @@ State: red pushed; green held locally for the Engineering Lead (not pushed, no P
 - Open questions (EL): see the PR body, "Safer readings taken".
 - Files to read first: `services/core/cmd/core/compose_surfaces.go`, `compose.go` (`newProcess`).
 - Do not touch: `wire_understanding_compose.go` (EL, #900), `trust/**`, `migrations/`, `contracts/`.
+
+# Session 2026-11-25 · STM-01
+
+## Session summary
+- What changed (PR links): noema#907, branch `feat/STM-01-compose-surfaces`, local commits not yet pushed. A658 (interim, relayed, not yet committed): (1) the recovery pass bound is a stepwise saturating multiply (`satMul`), so an overflow saturates instead of wrapping (Codex P2); `recoverySurface.Stop()` cancels and joins the startup pass, and `processCloser` (the Process's Close) stops the worker, then recovery, then the surfaces and the components, inside one `sync.Once` (Codex P2). (2) The eight events settings have their approved ranges in `positive()` (`eventsBounds`, `wire_events.go`) and three cross-checks in `loadEventsSettings`: POLL below MAX_STREAM, READ not above POLL, PER_PRINCIPAL not above MAX_STREAMS. An out-of-range value is fatal and names the setting only; an absent one stays a named `/readyz` gap; no code default.
+- Double close checked: `main.go` calls `p.Close()` and then the deferred `p.Close()` on a normal exit. It was harmless (every pool closer already ran once) and is now explicitly safe because `Process.Close` is a `sync.Once`. `buildComponentsWith`'s own close function is not once-wrapped, but each of its closers is (the login pools' closer is a `sync.Once`).
+- Fixtures moved to the approved values (resource limits only): `sfEventsEnv`, `allEventsSettings` (poll 2000, read 2000) and the one `NOEMA_EVENTS_POLL_MS` fixture of `compose_surfaces_test.go`.
+- Tests added (REQ-API-001, REQ-VER-004, REQ-OPS-003; INV-12, INV-30, AGENT-16): `compose_surfaces_bound_test.go`, `compose_surfaces_stop_test.go`, `compose_surfaces_ranges_test.go`. Red first, seen failing locally for the missing behaviour. Hand mutants: 8 of 8 killed.
+- Regression cases added: the three files above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL pushes the red commits, reads the red job, then pushes the greens.
+- Files to read first: `compose_surfaces_recovery.go` (`passBound`, `Stop`), `compose_surfaces.go` (`processCloser`), `wire_events.go` (`eventsBounds`).
+- Do not touch: `wire_understanding_compose.go`, `trust/**`, `migrations/`, `contracts/`, `deploy/`.
