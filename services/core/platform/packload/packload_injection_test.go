@@ -1,7 +1,8 @@
 package packload_test
 
 // A645 (interim; EVD-06, PCK-02; REQ-CTX-007, REQ-SEC-007, REQ-OPS-003; INV-14, INV-21; AGENT-13, AGENT-16): the injection-screen patterns are pack data, hash-pinned in the manifest like every other
-// pack file (kind `injection_patterns`, exactly one, with its expected id), and the core serves only verified bytes. Every fault is a real file in a real directory. All packs are SYNTHETIC.
+// pack file (kind `injection_patterns`, with its expected id), and the core serves only verified bytes. A664 (interim): the kind is required from manifest version 4 and optional below it (the A579 pattern);
+// a manifest below the gate that lists none still loads, and its pack then carries no pattern data. Every fault is a real file in a real directory. All packs are SYNTHETIC.
 
 import (
 	"errors"
@@ -83,5 +84,87 @@ func TestAPatternFileThatCarriesAnotherIdThanTheManifestExpectsIsRefused(t *test
 		if !errors.Is(err, packload.ErrID) || len(p.InjectionPatterns) != 0 {
 			t.Errorf("%s: got %v; want ErrID and nothing served", name, err)
 		}
+	}
+}
+
+// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the number the Architect's landing order gives, after #910's version 3).
+const patternsFromVersion = 4
+
+func without(w *world) *world {
+	w.list = w.list[:3]
+	delete(w.exp, "injection_patterns_id")
+	w.seal()
+	return w
+}
+
+func TestAGatedManifestWithoutThePatternsIsRefusedAndAnOlderOneLoadsWithNoPatternData(t *testing.T) {
+	for v := 1; v < patternsFromVersion; v++ {
+		w := newWorld(t)
+		w.version = v
+		p, err := without(w).load()
+		if err != nil {
+			t.Errorf("version %d without the kind: %v; want it to load (below the gate)", v, err)
+		}
+		if len(p.InjectionPatterns) != 0 || p.InjectionPatternsID != "" || len(p.Pack) == 0 {
+			t.Errorf("version %d: patterns %q id %q pack %d bytes; want the pack served with no pattern data at all", v, p.InjectionPatterns, p.InjectionPatternsID, len(p.Pack))
+		}
+	}
+	for _, v := range []int{patternsFromVersion, patternsFromVersion + 1, 99} {
+		w := newWorld(t)
+		w.version = v
+		p, err := without(w).load()
+		if !errors.Is(err, packload.ErrManifest) || len(p.Pack) != 0 {
+			t.Errorf("version %d without the kind: got %v; want ErrManifest and an empty pack (no opt-in)", v, err)
+		}
+	}
+}
+
+func TestAGatedManifestThatListsThePatternsButNamesNoIdOrTheIdWithoutTheFileIsRefusedAtEveryVersion(t *testing.T) {
+	for _, v := range []int{1, patternsFromVersion - 1, patternsFromVersion, patternsFromVersion + 1} {
+		noID := newWorld(t)
+		noID.version = v
+		delete(noID.exp, "injection_patterns_id")
+		noID.seal()
+		if _, err := noID.load(); !errors.Is(err, packload.ErrManifest) {
+			t.Errorf("version %d: a pinned file without its expected id: %v; want ErrManifest", v, err)
+		}
+		noFile := newWorld(t)
+		noFile.version = v
+		noFile.list = noFile.list[:3]
+		noFile.seal()
+		if _, err := noFile.load(); !errors.Is(err, packload.ErrManifest) {
+			t.Errorf("version %d: an expected id without a pinned file: %v; want ErrManifest", v, err)
+		}
+		two := newWorld(t)
+		two.version = v
+		two.write("demo/context/other.json", patternsBody)
+		two.list = append(two.list, entry{kindPatterns, "demo/context/other.json", sum(patternsBody)})
+		two.seal()
+		if _, err := two.load(); !errors.Is(err, packload.ErrManifest) {
+			t.Errorf("version %d: two pinned pattern files: %v; want ErrManifest (none or one below the gate, exactly one from it)", v, err)
+		}
+	}
+}
+
+func TestAGatedManifestWithItsPatternsLoadsThemVerified(t *testing.T) {
+	for _, v := range []int{patternsFromVersion, patternsFromVersion + 3} {
+		w := newWorld(t)
+		w.version = v
+		w.seal()
+		p, err := w.load()
+		if err != nil || string(p.InjectionPatterns) != patternsBody || p.InjectionPatternsID != patternsID {
+			t.Errorf("version %d: %v, patterns %q id %q; want the pinned bytes and the expected id", v, err, p.InjectionPatterns, p.InjectionPatternsID)
+		}
+	}
+}
+
+func TestAnOlderManifestThatDoesNotListThePatternsServesNoUnpinnedPatternFile(t *testing.T) {
+	w := newWorld(t)
+	w.version = patternsFromVersion - 1
+	without(w)
+	// the file is still on disk (newWorld wrote it) but nobody pinned it
+	p, err := w.load()
+	if err != nil || len(p.InjectionPatterns) != 0 || p.InjectionPatternsID != "" {
+		t.Fatalf("got %v, patterns %q id %q; want the pack loaded and no pattern bytes (a file nobody pinned is never served)", err, p.InjectionPatterns, p.InjectionPatternsID)
 	}
 }

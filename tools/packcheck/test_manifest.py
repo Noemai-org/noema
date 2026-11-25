@@ -466,6 +466,73 @@ class InjectionPatterns(Base):
             self.fails(root, manifest, "injection_patterns")
 
 
+class InjectionGate(Base):
+    """A664 (interim; the A579 pattern): the injection patterns are required from manifest version 4 and optional below it. A manifest below the gate that lists none still passes; one from the gate
+    that lists none fails; the id and the file go together at every version; the rule is none or one below the gate and exactly one from it."""
+
+    GATE = 4
+
+    def old_tree(self, version: int, *, keep_file: bool = False):
+        root, manifest = self.tree()
+
+        def drop(d):
+            d["version"] = version
+            d["files"] = [f for f in d["files"] if f["kind"] != "injection_patterns"]
+            del d["expected"]["injection_patterns_id"]
+
+        self.edit(root, manifest, drop)
+        if not keep_file:
+            (root / INJECTION).unlink()
+        return root, manifest
+
+    def test_a_manifest_below_the_gate_that_lists_no_patterns_passes(self):
+        for v in range(1, self.GATE):
+            with self.subTest(v):
+                root, manifest = self.old_tree(v)
+                self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_manifest_below_the_gate_passes_even_with_the_file_on_disk_unlisted(self):
+        # The loader serves only what the manifest pins and does not scan for an unlisted patterns file of an older manifest; packcheck agrees (it is not a pinned kind there).
+        root, manifest = self.old_tree(self.GATE - 1, keep_file=True)
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_manifest_from_the_gate_that_lists_no_patterns_fails_naming_the_version_and_the_rule(self):
+        for v in (self.GATE, self.GATE + 1, 99):
+            with self.subTest(v):
+                root, manifest = self.old_tree(v)
+                self.fails(root, manifest, f"version {v}", "exactly one injection_patterns file", "it lists 0")
+
+    def test_a_manifest_from_the_gate_that_lists_the_file_but_no_expected_id_fails(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: (d.__setitem__("version", self.GATE), d["expected"].pop("injection_patterns_id")))
+        self.fails(root, manifest, "injection_patterns_id")
+
+    def test_a_manifest_from_the_gate_with_the_file_and_its_id_passes(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: d.__setitem__("version", self.GATE))
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_the_id_and_the_file_go_together_at_every_version(self):
+        for v in (1, self.GATE - 1, self.GATE, self.GATE + 1):
+            with self.subTest(v, case="file without id"):
+                root, manifest = self.tree()
+                self.edit(root, manifest, lambda d, v=v: (d.__setitem__("version", v), d["expected"].pop("injection_patterns_id")))
+                self.fails(root, manifest, "injection_patterns_id")
+            with self.subTest(v, case="id without file"):
+                root, manifest = self.old_tree(v)
+                self.edit(root, manifest, lambda d: d["expected"].__setitem__("injection_patterns_id", INJECTION_ID))
+                self.fails(root, manifest, "injection_patterns_id")
+
+    def test_two_pattern_files_fail_at_every_version_naming_the_rule(self):
+        for v in (1, self.GATE - 1, self.GATE):
+            with self.subTest(v):
+                root, manifest = self.tree()
+                (root / "fintech/context/other.json").write_text("{}", encoding="utf-8")
+                self.edit(root, manifest, lambda d, v=v: (d.__setitem__("version", v), d["files"].append({"kind": "injection_patterns", "path": "fintech/context/other.json", "sha256": sha256(root / "fintech/context/other.json")})))
+                self.fails(root, manifest, "injection_patterns file", "it lists 2")
+                self.assertNotIn("at most one", self.messages(self.check(manifest, root)))
+
+
 class IdMatch(Base):
     def test_an_expected_id_that_is_not_the_files_id_fails(self):
         cases = (

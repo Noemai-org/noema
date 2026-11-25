@@ -7,6 +7,8 @@ package injection_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 )
 
 var a645Classes = map[string][]string{
@@ -92,5 +94,22 @@ func TestAHostileValueCostsTheSameWhateverItsLength(t *testing.T) {
 	}
 	if !found {
 		t.Error("a phrase inside the cap of a 16 MiB value must be found")
+	}
+}
+
+// A664 (interim): a pack whose manifest is below the gate carries no pattern data (packload serves none). There is then no Detector at all, never an empty one that screens nothing: every way of
+// having no data is refused by Parse, so a composition cannot build a screen from nothing, and the payload reader (which refuses a read when its screen is missing, A372) stays closed. This is
+// the whole of what the core does without pattern data; it holds no built-in patterns (the patterns are pack data, INV-14, and a built-in minimum would be a decision for the Architect).
+func TestNoPatternDataIsNoDetectorNeverAnEmptyOne(t *testing.T) {
+	for name, data := range map[string]string{
+		"nil":           "",
+		"empty object":  "{}",
+		"no patterns":   `{"pack_id":"fin.ctx.injection_patterns","version":1,"label":"SYNTHETIC","note":"n","patterns":[]}`,
+		"null patterns": `{"pack_id":"fin.ctx.injection_patterns","version":1,"label":"SYNTHETIC","note":"n","patterns":null}`,
+	} {
+		d, err := injection.Parse([]byte(data), expected, limits)
+		if err == nil || d != nil {
+			t.Errorf("%s: got detector %v, error %v; want no detector and an error", name, d, err)
+		}
 	}
 }
