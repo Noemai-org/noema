@@ -1,6 +1,6 @@
 # platform/packload
 
-**What it does.** Loads a pack through its manifest and verifies it before any parser sees a byte. `packload.Load(dir, manifest, maxBytes) (Pack, error)` reads the manifest at `manifest` (relative to `dir`) and each file it lists, and refuses the whole pack when anything differs from what the manifest pins. It returns the bytes of the four files the manifest lists (the pack, the evidence mapping, the reconciliation rules, the injection patterns) and the three ids the manifest expects (`<id>@<version>`); on any refusal it returns nothing.
+**What it does.** Loads a pack through its manifest and verifies it before any parser sees a byte. `packload.Load(dir, manifest, maxBytes) (Pack, error)` reads the manifest at `manifest` (relative to `dir`) and each file it lists, and refuses the whole pack when anything differs from what the manifest pins. It returns the bytes of the files the manifest lists (the pack, the evidence mapping, the reconciliation rules, and the injection patterns when the manifest lists them) and the ids the manifest expects (`<id>@<version>`); on any refusal it returns nothing. A manifest below version 4 that lists no injection patterns loads, and `Pack.InjectionPatterns` and `Pack.InjectionPatternsID` are then empty: the pack carries no pattern data (A664, interim; the A579 pattern).
 
 **REQs and rulings.** REQ-OPS-003 (packs are data, loaded, never imported); INV-14 (no vertical, folder or file name in core: the manifest names them), INV-21; AGENT-13 (fixed error text), AGENT-16 (the size bound has no default). Ruling A333 (the manifest, hash-pinned now, signatures later) and A320 (one mounted directory). Pack data: `packs/schemas/manifest.v1.json` and `tools/packcheck` (`check_manifest`) are the CI side of the same rules; this package is the runtime side.
 
@@ -9,7 +9,7 @@
 | Kind | When |
 |---|---|
 | `ErrConfig` | no directory, a directory that cannot be opened, a bound that is not positive |
-| `ErrManifest` | the manifest is missing, over the bound, not JSON, has an unknown, missing or repeated member, a label other than SYNTHETIC, a version below 1, an expected id off its shape, a digest that is not 64 lower-case hex characters, a path listed twice, an unknown kind, or not exactly one file of each of the four kinds |
+| `ErrManifest` | the manifest is missing, over the bound, not JSON, has an unknown, missing or repeated member, a label other than SYNTHETIC, a version below 1, an expected id off its shape, a digest that is not 64 lower-case hex characters, a path listed twice, an unknown kind, not exactly one file of each of the pack, evidence-mapping and rule-set kinds, two injection-pattern files, an injection-pattern file without its expected id or the id without the file, or (from manifest version 4, no opt-in) no injection-pattern file |
 | `ErrPath` | a path that is not plain: absolute, `..`, `\`, a drive letter, a hidden or empty component, a control character, over 256 characters |
 | `ErrLink` | any component of a path below the directory is a symbolic link, even one that points inside it or at a file with the right digest |
 | `ErrFile` | a listed file is missing, is not a regular file, or is over the bound |

@@ -29,7 +29,7 @@ REAL_MANIFEST = PACKS / "fintech/manifest.v1.json"
 MAPPING = "fintech/evidence_mapping/mapping.v1.json"
 RULES = "fintech/recon_rules/rules.v1.json"
 PACK = "fintech_v1.json"
-INJECTION = "fintech/context/injection_patterns.v1.json"  # A645: the injection-screen patterns are pinned too (exactly one file, with its expected id)
+INJECTION = "fintech/context/injection_patterns.v1.json"  # A645, A664: the injection-screen patterns are pinned too (none or one file below manifest version 4, exactly one from it, always with its expected id)
 LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES, "injection_patterns": INJECTION}
 # A510: the action graphs the pack names (`action_graph_files`) are pinned too, one `action_graph` entry each.
 GRAPHS = ["fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"]
@@ -294,7 +294,8 @@ class UnlistedFile(Base):
             with self.subTest(kind):
                 root, manifest = self.tree()
                 self.edit(root, manifest, lambda d, k=kind: d["files"].remove(entry(d, k)))
-                self.fails(root, manifest, f"exactly one {kind} file, it lists 0")
+                # A664: the patterns kind is optional below manifest version 4, so its file missing while its id is named is a pairing problem (the gate cases are in InjectionGate).
+                self.fails(root, manifest, "names expected.injection_patterns_id but lists no injection_patterns file" if kind == "injection_patterns" else f"exactly one {kind} file, it lists 0")
 
     def test_two_entries_of_one_kind_fail(self):
         root, manifest = self.tree()
@@ -412,7 +413,7 @@ class ActionGraphs(Base):
 
 
 class InjectionPatterns(Base):
-    """A645: the injection-screen patterns are pack data, hash-pinned like every other pack file (kind `injection_patterns`, exactly one entry, with its expected id), so the detector runs only on verified bytes."""
+    """A645: the injection-screen patterns are pack data, hash-pinned like every other pack file (kind `injection_patterns`, with its expected id; exactly one entry from manifest version 4, none or one below it: A664), so the detector runs only on verified bytes."""
 
     def test_the_real_manifest_pins_the_pattern_file_once(self):
         doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
@@ -443,7 +444,8 @@ class InjectionPatterns(Base):
             doc = json.loads(manifest.read_text(encoding="utf-8"))
             entry(doc, "injection_patterns")["kind"] = "recon_rules"
             write(manifest, doc)
-            self.fails(root, manifest, "recon_rules")
+            # A664: with its entry relabelled the manifest names the patterns id and lists no patterns file; that is what is reported (the schema also refuses it).
+            self.fails(root, manifest, "names expected.injection_patterns_id but lists no injection_patterns file")
 
     def test_a_manifest_without_the_expected_pattern_id_fails(self):
         with tempfile.TemporaryDirectory() as d:

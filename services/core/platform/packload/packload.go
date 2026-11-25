@@ -36,7 +36,8 @@ type Pack struct {
 	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
 	ActionGraphs map[string][]byte
 	// InjectionPatterns holds the verified bytes of the injection-screen pattern file the manifest pins (A645), and InjectionPatternsID the id the manifest expects of it. A file that is not pinned
-	// and verified is never here. A551: read-only, derived from the verified bytes, no industry term.
+	// and verified is never here. A manifest below version 4 may list none (A664, interim): then both are empty and the pack carries no pattern data, so no screen can be built from it (the injection
+	// package has no empty Detector). A551: read-only, derived from the verified bytes, no industry term.
 	InjectionPatterns   []byte
 	InjectionPatternsID string
 }
@@ -78,7 +79,10 @@ const (
 	kindRules    = "recon_rules"
 	kindGraph    = "action_graph"
 	kindPatterns = "injection_patterns"
-	kindManifest = "manifest"
+
+	// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the A579 pattern, after the limits files' version 3).
+	patternsFromVersion = 4
+	kindManifest        = "manifest"
 )
 
 var (
@@ -176,11 +180,16 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	if err := checkGraphs(p.Pack, graphs); err != nil {
 		return Pack{}, err
 	}
-	id, ver, _, err := members(bytesOf[kindPatterns], "pack_id", "")
-	if err != nil || id+"@"+ver != *doc.Expected.PatternsID {
-		return Pack{}, refuse(ErrID, kindPatterns)
+	// A664 (interim): a manifest below patternsFromVersion that lists no patterns serves none (nil bytes, empty id); a listed file is checked against its expected id like every other.
+	patternsID := ""
+	if doc.Expected.PatternsID != nil {
+		patternsID = *doc.Expected.PatternsID
+		id, ver, _, err := members(bytesOf[kindPatterns], "pack_id", "")
+		if err != nil || id+"@"+ver != patternsID {
+			return Pack{}, refuse(ErrID, kindPatterns)
+		}
 	}
-	p.InjectionPatterns, p.InjectionPatternsID = bytesOf[kindPatterns], *doc.Expected.PatternsID
+	p.InjectionPatterns, p.InjectionPatternsID = bytesOf[kindPatterns], patternsID
 	p.ActionGraphs = graphs
 	return p, nil
 }
@@ -227,11 +236,15 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		}
 		paths[*f.Path] = true
 	}
-	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 || perKind[kindPatterns] != 1 {
+	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 {
 		return manifestDoc{}, bad
 	}
-	// A645: the injection patterns are listed exactly once, with their expected id.
-	if id := doc.Expected.PatternsID; id == nil || !idRe.MatchString(*id) || len(*id) > maxIDLen {
+	// A645, A664 (interim; the A579 pattern): the injection patterns are listed exactly once from manifest version patternsFromVersion and none or once below it, always together with their expected id
+	// and never one without the other. There is no opt-in for a gated version.
+	if n := perKind[kindPatterns]; n > 1 || (*doc.Version >= patternsFromVersion && n != 1) || (n == 1) != (doc.Expected.PatternsID != nil) {
+		return manifestDoc{}, bad
+	}
+	if id := doc.Expected.PatternsID; id != nil && (!idRe.MatchString(*id) || len(*id) > maxIDLen) {
 		return manifestDoc{}, bad
 	}
 	return doc, nil

@@ -135,6 +135,15 @@ func TestAGatedManifestThatListsThePatternsButNamesNoIdOrTheIdWithoutTheFileIsRe
 		if _, err := noFile.load(); !errors.Is(err, packload.ErrManifest) {
 			t.Errorf("version %d: an expected id without a pinned file: %v; want ErrManifest", v, err)
 		}
+		twoNoID := newWorld(t) // two files and no id: the pairing alone would accept it, the count must not
+		twoNoID.version = v
+		twoNoID.write("demo/context/other.json", patternsBody)
+		twoNoID.list = append(twoNoID.list, entry{kindPatterns, "demo/context/other.json", sum(patternsBody)})
+		delete(twoNoID.exp, "injection_patterns_id")
+		twoNoID.seal()
+		if _, err := twoNoID.load(); !errors.Is(err, packload.ErrManifest) {
+			t.Errorf("version %d: two pinned pattern files and no expected id: %v; want ErrManifest", v, err)
+		}
 		two := newWorld(t)
 		two.version = v
 		two.write("demo/context/other.json", patternsBody)

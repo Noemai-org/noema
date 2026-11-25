@@ -619,11 +619,13 @@ MANIFEST_KINDS = {
     "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
     "recon_rules": ("fintech/recon_rules", "*.json"),
     "action_graph": ("fintech/graph", "*.json"),  # A510
-    "injection_patterns": ("fintech/context", "*.json"),  # A645: at most one, with its expected id
+    "injection_patterns": ("fintech/context", "*.json"),  # A645, A664: exactly one from manifest version 4, none or one below it, always with its expected id
 }
 # The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
-# A645: the injection-screen patterns are pinned too (exactly one file, with `expected.injection_patterns_id`).
-SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules", "injection_patterns")
+# `injection_patterns` is not here: A645 pins the injection-screen patterns too, with `expected.injection_patterns_id`, and A664 (interim, the A579 pattern) makes it required only from manifest
+# version MANIFEST_INJECTION_FROM_VERSION: exactly one file from that version, none or one below it (see `_injection_problems`).
+SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
+MANIFEST_INJECTION_FROM_VERSION = 4  # A664 (interim): the first manifest version that must list the injection patterns
 WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -684,6 +686,32 @@ def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Prob
     return out
 
 
+def _injection_problems(doc) -> list[Problem]:
+    """A664 (interim; the A579 pattern): from manifest version MANIFEST_INJECTION_FROM_VERSION the manifest lists exactly one `injection_patterns` file and names `expected.injection_patterns_id`; below it
+    both may be absent. The file and its id go together at every version, and no manifest lists two files of the kind. A manifest below the gate that lists none carries no pattern data, and the core then
+    builds no screen from the pack (there is no empty Detector). The schema says the same; this names the version and the rule."""
+    if not isinstance(doc, dict):
+        return []
+    version, files, expected = doc.get("version"), doc.get("files"), doc.get("expected")
+    if not isinstance(version, int) or isinstance(version, bool) or not isinstance(files, list):
+        return []  # the schema names these
+    listed = sum(1 for f in files if isinstance(f, dict) and f.get("kind") == "injection_patterns")
+    named = isinstance(expected, dict) and "injection_patterns_id" in expected
+    gated = version >= MANIFEST_INJECTION_FROM_VERSION
+    out: list[Problem] = []
+    if gated and listed != 1:
+        out.append(("manifest", f"a manifest of version {version} must list exactly one injection_patterns file (A664); it lists {listed}"))
+    elif not gated and listed > 1:
+        out.append(("manifest", f"a manifest of version {version} lists none or one injection_patterns file (A664); it lists {listed}"))
+    if listed and not named:
+        out.append(("manifest", "the manifest lists an injection_patterns file but names no expected.injection_patterns_id"))
+    elif named and not listed:
+        out.append(("manifest", "the manifest names expected.injection_patterns_id but lists no injection_patterns file"))
+    elif gated and not named:
+        out.append(("manifest", f"a manifest of version {version} must name expected.injection_patterns_id (A664)"))
+    return out
+
+
 def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
     evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
@@ -702,6 +730,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
         if why:
             out.append(("manifest", f"{_shown(f['path'])} {why}"))
             named.add(("files", str(i), "path"))
+    out += _injection_problems(doc)
     errs = sorted(validate.StrictValidator(validate.load_strict(MANIFEST_SCHEMA)).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
     errs = [e for e in errs if tuple(map(str, e.absolute_path)) not in named]
     if errs or out:
@@ -748,6 +777,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
         base = root / folder
         if not base.is_dir():
             continue
+        if kind == "injection_patterns" and not by_kind[kind] and doc["version"] < MANIFEST_INJECTION_FROM_VERSION:
+            continue  # A664: a manifest below the gate that lists none carries no pattern data; the loader serves nothing it does not pin and does not scan for the kind either
         for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
             if folder == "":
                 dirnames[:] = []  # the pack folder itself: only its own files, not the whole tree
