@@ -29,7 +29,8 @@ REAL_MANIFEST = PACKS / "fintech/manifest.v1.json"
 MAPPING = "fintech/evidence_mapping/mapping.v1.json"
 RULES = "fintech/recon_rules/rules.v1.json"
 PACK = "fintech_v1.json"
-LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES}
+INJECTION = "fintech/context/injection_patterns.v1.json"  # A645, A664: the injection-screen patterns are pinned too (none or one file below manifest version 4, exactly one from it, always with its expected id)
+LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES, "injection_patterns": INJECTION}
 # A510: the action graphs the pack names (`action_graph_files`) are pinned too, one `action_graph` entry each.
 GRAPHS = ["fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"]
 # A544 (interim): the limits files of the pack are pinned too, one `limits` entry each (an additive kind, as A510 added `action_graph`).
@@ -39,7 +40,8 @@ LIMITS = [
     "fintech/limits/session_limits.json",
     "fintech/limits/trust_limits.json",
 ]
-EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1"}
+INJECTION_ID = "fin.ctx.injection_patterns@2"  # the shipped file's own pack_id@version (A664 round 2: the patterns changed, so the version did)
+EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
 
 
 def sha256(path: Path) -> str:
@@ -130,7 +132,7 @@ class RealManifest(Base):
         self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits")}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "limits"), LIMITS)  # A544
-        self.assertEqual(len(doc["files"]), 10)
+        self.assertEqual(len(doc["files"]), 11)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -148,7 +150,7 @@ class RealManifest(Base):
 
     def test_every_json_file_of_a_listed_kind_is_listed(self):
         listed = {f["path"] for f in self.load()["files"]}
-        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits") for p in (PACKS / d).rglob("*.json")}
+        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
         self.assertEqual(found, listed)
 
@@ -301,7 +303,8 @@ class UnlistedFile(Base):
             with self.subTest(kind):
                 root, manifest = self.tree()
                 self.edit(root, manifest, lambda d, k=kind: d["files"].remove(entry(d, k)))
-                self.fails(root, manifest, f"exactly one {kind} file, it lists 0")
+                # A664: the patterns kind is optional below manifest version 4, so its file missing while its id is named is a pairing problem (the gate cases are in InjectionGate).
+                self.fails(root, manifest, "names expected.injection_patterns_id but lists no injection_patterns file" if kind == "injection_patterns" else f"exactly one {kind} file, it lists 0")
 
     def test_two_entries_of_one_kind_fail(self):
         root, manifest = self.tree()
@@ -476,6 +479,161 @@ class Limits(Base):
             (root / rel).unlink()
         self.edit(root, manifest, lambda d: d.__setitem__("files", [f for f in d["files"] if f["kind"] != "limits"]))
         self.assertEqual(self.check(manifest, root), [])
+
+
+
+class InjectionPatterns(Base):
+    """A645: the injection-screen patterns are pack data, hash-pinned like every other pack file (kind `injection_patterns`, with its expected id; exactly one entry from manifest version 4, none or one below it: A664), so the detector runs only on verified bytes."""
+
+    def test_the_real_manifest_pins_the_pattern_file_once(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual([f["path"] for f in doc["files"] if f["kind"] == "injection_patterns"], [INJECTION])
+        self.assertEqual(doc["expected"]["injection_patterns_id"], INJECTION_ID)
+
+    def test_a_second_pattern_file_beside_the_pinned_one_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            manifest = build_root(root)
+            (root / "fintech/context/injection_patterns.v2.json").write_text("{}", encoding="utf-8")
+            self.fails(root, manifest, "injection_patterns.v2.json")
+
+    def test_two_pattern_entries_fail(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            manifest = build_root(root)
+            doc = json.loads(manifest.read_text(encoding="utf-8"))
+            (root / "fintech/context/other.json").write_text("{}", encoding="utf-8")
+            doc["files"].append({"kind": "injection_patterns", "path": "fintech/context/other.json", "sha256": sha256(root / "fintech/context/other.json")})
+            write(manifest, doc)
+            self.fails(root, manifest, "injection_patterns")
+
+    def test_the_pattern_file_listed_under_another_kind_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            manifest = build_root(root)
+            doc = json.loads(manifest.read_text(encoding="utf-8"))
+            entry(doc, "injection_patterns")["kind"] = "recon_rules"
+            write(manifest, doc)
+            # A664: with its entry relabelled the manifest names the patterns id and lists no patterns file; that is what is reported (the schema also refuses it).
+            self.fails(root, manifest, "names expected.injection_patterns_id but lists no injection_patterns file")
+
+    def test_a_manifest_without_the_expected_pattern_id_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            manifest = build_root(root)
+            doc = json.loads(manifest.read_text(encoding="utf-8"))
+            del doc["expected"]["injection_patterns_id"]
+            write(manifest, doc)
+            self.fails(root, manifest, "injection_patterns_id")
+
+    def test_a_pinned_file_that_is_not_the_patterns_document_fails_even_when_the_hash_is_updated(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            manifest = build_root(root)
+            f = root / INJECTION
+            f.write_text('{"pack_id":"fin.ctx.other","version":1,"patterns":[]}', encoding="utf-8")
+            doc = json.loads(manifest.read_text(encoding="utf-8"))
+            entry(doc, "injection_patterns")["sha256"] = sha256(f)
+            write(manifest, doc)
+            self.fails(root, manifest, "injection_patterns")
+
+
+class ShippedPatterns(Base):
+    """A664 round 2 (SR condition 3 and finding 1): the manifest that ships is at or above the gate and pins the patterns, so the gate cannot turn the screen off in production, and the identity it
+    expects is the pattern file's own `pack_id@version`. The Record stores that identity with each detection (not the file's hash), so the patterns changing means the version changes."""
+
+    def test_the_shipped_manifest_is_at_or_above_the_gate_and_pins_the_patterns_file_with_its_digest(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(doc["version"], checks.MANIFEST_INJECTION_FROM_VERSION)
+        pinned = [f for f in doc["files"] if f["kind"] == "injection_patterns"]
+        self.assertEqual([f["path"] for f in pinned], [INJECTION])
+        self.assertEqual(pinned[0]["sha256"], sha256(PACKS / INJECTION))
+        self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
+
+    def test_the_manifests_expected_patterns_id_is_the_files_own_pack_id_and_version(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        body = json.loads((PACKS / INJECTION).read_text(encoding="utf-8"))
+        self.assertEqual(doc["expected"]["injection_patterns_id"], f"{body['pack_id']}@{body['version']}")
+
+    def test_the_patterns_changed_after_version_1_so_the_shipped_version_is_at_least_2(self):
+        body = json.loads((PACKS / INJECTION).read_text(encoding="utf-8"))
+        self.assertGreaterEqual(body["version"], 2, "versioned data is not edited under the same version (A664 round 2)")
+        self.assertEqual(json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))["expected"]["injection_patterns_id"], "fin.ctx.injection_patterns@2")
+
+
+class InjectionGate(Base):
+    """A664 (interim; the A579 pattern): the injection patterns are required from manifest version 4 and optional below it. A manifest below the gate that lists none still passes; one from the gate
+    that lists none fails; the id and the file go together at every version; the rule is none or one below the gate and exactly one from it."""
+
+    GATE = 4
+
+    def old_tree(self, version: int, *, keep_file: bool = False):
+        root, manifest = self.tree()
+
+        def drop(d):
+            d["version"] = version
+            d["files"] = [f for f in d["files"] if f["kind"] != "injection_patterns"]
+            del d["expected"]["injection_patterns_id"]
+
+        self.edit(root, manifest, drop)
+        if not keep_file:
+            (root / INJECTION).unlink()
+        return root, manifest
+
+    def test_a_manifest_below_the_gate_that_lists_no_patterns_passes(self):
+        for v in range(1, self.GATE):
+            with self.subTest(v):
+                root, manifest = self.old_tree(v)
+                self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_manifest_below_the_gate_passes_even_with_the_file_on_disk_unlisted(self):
+        # The loader serves only what the manifest pins and does not scan for an unlisted patterns file of an older manifest; packcheck agrees (it is not a pinned kind there).
+        root, manifest = self.old_tree(self.GATE - 1, keep_file=True)
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_manifest_from_the_gate_that_lists_no_patterns_fails_naming_the_version_and_the_rule(self):
+        for v in (self.GATE, self.GATE + 1, 99):
+            with self.subTest(v):
+                root, manifest = self.old_tree(v)
+                self.fails(root, manifest, f"version {v}", "exactly one injection_patterns file", "it lists 0")
+
+    def test_a_gated_manifest_that_deleted_the_entry_and_left_the_file_on_disk_fails(self):
+        # SR condition 1: the entry (and its id) removed, the file still in the folder; refused at the gate, not read as "no patterns".
+        for v in (self.GATE, self.GATE + 1):
+            with self.subTest(v):
+                root, manifest = self.old_tree(v, keep_file=True)
+                self.assertTrue((root / INJECTION).exists())
+                self.fails(root, manifest, f"version {v}", "exactly one injection_patterns file", "it lists 0")
+
+    def test_a_manifest_from_the_gate_that_lists_the_file_but_no_expected_id_fails(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: (d.__setitem__("version", self.GATE), d["expected"].pop("injection_patterns_id")))
+        self.fails(root, manifest, "injection_patterns_id")
+
+    def test_a_manifest_from_the_gate_with_the_file_and_its_id_passes(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: d.__setitem__("version", self.GATE))
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_the_id_and_the_file_go_together_at_every_version(self):
+        for v in (1, self.GATE - 1, self.GATE, self.GATE + 1):
+            with self.subTest(v, case="file without id"):
+                root, manifest = self.tree()
+                self.edit(root, manifest, lambda d, v=v: (d.__setitem__("version", v), d["expected"].pop("injection_patterns_id")))
+                self.fails(root, manifest, "injection_patterns_id")
+            with self.subTest(v, case="id without file"):
+                root, manifest = self.old_tree(v)
+                self.edit(root, manifest, lambda d: d["expected"].__setitem__("injection_patterns_id", INJECTION_ID))
+                self.fails(root, manifest, "injection_patterns_id")
+
+    def test_two_pattern_files_fail_at_every_version_naming_the_rule(self):
+        for v in (1, self.GATE - 1, self.GATE):
+            with self.subTest(v):
+                root, manifest = self.tree()
+                (root / "fintech/context/other.json").write_text("{}", encoding="utf-8")
+                self.edit(root, manifest, lambda d, v=v: (d.__setitem__("version", v), d["files"].append({"kind": "injection_patterns", "path": "fintech/context/other.json", "sha256": sha256(root / "fintech/context/other.json")})))
+                self.fails(root, manifest, "injection_patterns file", "it lists 2")
+                self.assertNotIn("at most one", self.messages(self.check(manifest, root)))
 
 
 class IdMatch(Base):
