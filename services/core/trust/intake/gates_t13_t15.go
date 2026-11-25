@@ -23,6 +23,7 @@ var (
 	decisionIDRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
 	grantIDRe    = regexp.MustCompile(`\Agrt_[0-9A-Za-z]{2,32}\z`)
 	requestIDRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
+	turnIDRe     = regexp.MustCompile(`\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z`) // the client's request ID of the turn (A581): a lower-case UUID
 	// requirementRe is the contract's ApproverRequirement (enums.v1.json): SELF, MAKER_CHECKER or ROLE:<role>.
 	requirementRe = regexp.MustCompile(`\A(?:SELF|MAKER_CHECKER|ROLE:[a-z][a-z0-9_]*)\z`)
 	// bindingValueRe is the character set a bound value may hold (trust/confirm refuses any other when it hashes the binding); the intake checks it first so that a value the
@@ -498,8 +499,17 @@ func (e *evaluation) recordEscalate(ctx context.Context, d decide.Decision, trac
 		return failed()
 	}
 	a := e.intent
-	rec, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
-		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+	req := RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest}
+	if !d.HasCompleteBasis() {
+		// A663, A581, A590 (interim, relayed): an ESCALATE reached before the evidence and the policy were evaluated is recorded with its basis null, keyed by the turn. A request that names no
+		// well-formed turn cannot be keyed, so nothing is recorded and the evaluation ends in UNKNOWN INTERNAL_ERROR (A578), never an ESCALATE nobody recorded.
+		if !turnIDRe.MatchString(e.req.TurnID) {
+			return failed()
+		}
+		req.TurnID = e.req.TurnID
+	}
+	rec, err := e.svc.Ports.Recorder.Record(ctx, req)
 	if err != nil || !decisionIDRe.MatchString(rec.DecisionID) || len(rec.GrantIDs) != 0 || rec.ConfirmationRequestID != "" {
 		return failed()
 	}
