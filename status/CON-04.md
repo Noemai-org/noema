@@ -23,3 +23,13 @@ None sent or accepted for this task.
 
 ## Pre-work for the next agent
 - Exact next step: schema-valid intent and plan vectors, with the Architect's inputs; then A259's shared masking vector file.
+
+# Session 2026-11-25 · CON-04 (schema-valid intent_hash and plan_hash vectors; A672)
+
+## Task card
+- Task: CON-04 (shared vectors). Ruling: A672 (interim, relayed, not yet committed): shared Go and Python golden vectors for schema-valid `intent_hash` and `plan_hash`, red first, a small `/contracts` fixtures PR, no schema change.
+- REQ: REQ-INT-001, REQ-PLN-002, REQ-API-001. SoT: INV-17 (a grant binds `intent_hash` and `plan_hash`), INV-18 (no hash for a plan that names a prohibited or unregistered capability), INV-21.
+- Allowlist: `contracts/fixtures/golden_vectors.json`, `contracts/fixtures/README.md`, `services/core/internal/vectors/families_test.go`, `tools/contracts/test_schema_valid_hash_vectors.py`, `status/CON-04.md`. No schema, no production code, no tool.
+- Plan: three new families in the existing vector file (it is the one file the gitleaks allowlist already covers): `intent_hash_v3_vectors` (intent-object.v3), `plan_hash_v1_vectors` (plan.v1), `plan_hash_v1_refused_vectors` (plan.v1 with no hash). Red: both tests and the family names land first, with no family in the file, so they fail on "missing or empty". Green: the inputs, the RFC 8785 form and the hashes, all computed by `tools/check_vectors.py` (written from the PERD text, no shared code with Go), then read by Go through the generated types and `planner.HashDocument` over the pack's registry, and by Python through `validate.py`.
+- Faults exercised: a plan with a prohibited capability, an unregistered one and a gap in the step numbers (refused, no hash); a plan with its steps reversed (another hash).
+- Record events asserted: none (no Record write on this path).
