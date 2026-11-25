@@ -64,6 +64,8 @@ type Pack struct {
 	owned map[string]nodeOwnership
 	// writeNodes is each intent node's write_when and slot declarations, as the pack file wrote them, read at load and returned as a copy by WriteWhens.
 	writeNodes map[string]WriteWhen
+	// graphData is each action graph as data, by graph ID, read at load and returned as a copy by ActionGraphData.
+	graphData map[string]GraphData
 	// ref is `<pack id>@<pack version>` as the pack file carries them (Ref).
 	ref string
 }
@@ -108,7 +110,7 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 	if err != nil {
 		return nil, packErr("the capability registry refuses the pack: %v", err)
 	}
-	p := &Pack{raw: raw, reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}, writeNodes: map[string]WriteWhen{}}
+	p := &Pack{raw: raw, reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}, writeNodes: map[string]WriteWhen{}, graphData: map[string]GraphData{}}
 	p.ref = string(doc.PackId) + "@" + string(doc.PackVersion)
 	for _, d := range doc.Capabilities {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
@@ -237,6 +239,7 @@ func (p *Pack) loadGraph(id string, g contracts.ActionGraphV2, rooted map[string
 	if len(writes) > 0 {
 		p.writes[id] = sortedKeys(writes)
 	}
+	p.graphData[id] = readGraphData(g)
 	return nil
 }
 

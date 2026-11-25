@@ -51,7 +51,7 @@ func expectedGraph(g gdGraph) trustpack.GraphData {
 	var out trustpack.GraphData
 	out.Roots = append(out.Roots, g.Roots...)
 	for _, n := range g.Nodes {
-		out.Nodes = append(out.Nodes, trustpack.GraphNode{NodeID: n.ID, Kind: n.Kind, CapabilityID: n.Capability, Preconditions: append([]string(nil), n.Preconditions...)})
+		out.Nodes = append(out.Nodes, trustpack.GraphNode{NodeID: n.ID, Kind: n.Kind, CapabilityID: n.Capability, Preconditions: append([]string{}, n.Preconditions...)})
 	}
 	for _, e := range g.Edges {
 		c := ""

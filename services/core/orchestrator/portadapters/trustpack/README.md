@@ -37,6 +37,10 @@ There is no second port for the remedy (A370). `intake.AdmittedIntent.RequestedC
 4. `Prohibited` capability: `Registered` true. `intake` refuses `!Registered || Prohibited`, so either reading refuses; this one follows REQ-CAP-002 ("registered, rejecting, unreachable").
 5. (A346, **assumed**) An intent whose capability does not root the named graph keeps the A306 rule above: the downstream of its own root, reads included, unioned over graphs; empty for a capability that roots no graph; `ErrCapability` for an unknown or prohibited one. A346 names only the escalation graph, so the fintech investigation graph's reads and the complaint graph's write are authorized as before. If the ruling means "only writes, always", one condition changes. A capability that roots the named graph and another graph gets the named graph's writes only, not the union.
 
+## Action graph data (TRU-14, A551, A684)
+
+`Pack.ActionGraphData(graphID)` gives a graph's roots, nodes (kind, capability, preconditions as text) and edges (condition) as a copy, read at load. An empty ID or a graph the pack does not have is `ErrGraph`; a nil pack is `ErrConfig`. This package does not parse or evaluate the predicates; `portadapters/runnableport` hands the data to `portadapters/runnable`.
+
 ## Tests
 
 ```

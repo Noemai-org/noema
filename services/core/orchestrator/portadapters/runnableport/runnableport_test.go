@@ -375,3 +375,39 @@ func TestPackGraphsGivesThePackGraphAsRunnableData(t *testing.T) {
 		}
 	}
 }
+
+// REQ-AG-001: a graph whose steps have no precondition is runnable whole, root first and in any case sorted, with no error: the answer is the graph's capabilities and nothing else.
+func TestAGraphOfReadsIsRunnableWholeAndWithoutAnError(t *testing.T) {
+	p := loadPack(t)
+	var id string
+	var g trustpack.GraphData
+	for _, gid := range graphIDs(t) {
+		data, err := p.ActionGraphData(gid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writes := false
+		for _, n := range data.Nodes {
+			writes = writes || n.Kind == "WRITE"
+		}
+		if !writes {
+			id, g = gid, data
+			break
+		}
+	}
+	if id == "" {
+		t.Fatal("no graph without a write in the pack")
+	}
+	bare := fixedFacts{scope: predicate.Scope{}, env: predicate.Env{Now: 1000}}
+	a := runnableport.Adapter{Graphs: runnableport.PackGraphs{Pack: p, GraphID: func(string) (string, bool) { return id, true }},
+		Facts: factsFn(func(context.Context, intake.RunnableQuery) (runnable.Facts, error) { return bare, nil })}
+	got, err := a.Runnable(tctx(t), query())
+	var all []string
+	for _, n := range g.Nodes {
+		all = append(all, n.CapabilityID)
+	}
+	sort.Strings(all)
+	if err != nil || !reflect.DeepEqual(got, all) {
+		t.Errorf("Runnable = %v, %v; want every capability of the graph %v and no error", got, err, all)
+	}
+}
