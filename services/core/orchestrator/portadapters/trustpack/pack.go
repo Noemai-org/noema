@@ -64,6 +64,8 @@ type Pack struct {
 	owned map[string]nodeOwnership
 	// writeNodes is each intent node's write_when and slot declarations, as the pack file wrote them, read at load and returned as a copy by WriteWhens.
 	writeNodes map[string]WriteWhen
+	// handoffs is the pack's handoff routes, sorted, read at load and returned as a copy by HandoffRoutes.
+	handoffs []HandoffRoute
 	// ref is `<pack id>@<pack version>` as the pack file carries them (Ref).
 	ref string
 }
@@ -114,6 +116,9 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
 	}
 	if err := p.loadNodes(doc); err != nil {
+		return nil, err
+	}
+	if err := p.loadHandoffs(doc); err != nil {
 		return nil, err
 	}
 	if doc.ActionGraphFiles != nil {

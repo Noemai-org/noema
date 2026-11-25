@@ -9,9 +9,10 @@
 - Record events: none (an adapter that reads pack data).
 
 ## Session summary
-- What changed (PR links): red pushed alone; the PR link is in the PR body.
+- What changed (PR links): noema#985. Red `b4378f53` pushed alone; green adds `Pack.HandoffRoutes()`, `loadHandoffs` (refuses a route naming an unknown node and one reason routed twice for the same node) and `trustpack.Handoffs`. README section added.
 - Why: the composition has no `Handoffs`, so T12's `noRunnable` ends UNKNOWN `errNoHandoff` for every first evaluation of a write that finds nothing runnable, and `/readyz` names `Service.Handoffs`.
-- Tests added (REQ-TRU-004; INV-14, INV-16): `trustpack/handoffs_test.go`.
+- Tests added (REQ-TRU-004; INV-14, INV-16): `trustpack/handoffs_test.go` (12 tests, one rapid property). Four of them fail on the stub (routed, node scope, errors, load refusals, accessor); the property, the exact-match test, the no-route test and the source scan pass on the stub and guard the green. Hand mutants killed: node scope ignored, overlap check removed, unknown node accepted.
+- Regression cases added: the same tests. Debt entries: none. Conflicts raised: none.
 
 ## Pre-work for the next agent
 - Exact next step: EL sets `Service.Handoffs` in the composition from `trustpack.NewHandoffs(pack)` (the gap line `Service.Handoffs` in `cmd/core/wire_decisions.go` then flips to wired).
