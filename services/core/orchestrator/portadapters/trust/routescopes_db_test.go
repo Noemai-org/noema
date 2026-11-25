@@ -148,6 +148,46 @@ func TestRouteScopeWithNoAdmittedIntentIsNoScope(t *testing.T) { // A625, REQ-TR
 	}
 }
 
+// A668 (interim, relayed; INV-03, INV-17, INV-21): the newest snapshot must not predate the admitted intent it would be decided against. A snapshot sealed before the latest intent
+// was admitted is no scope and no grant. The comparison is sealed_at against the intent's created_at, both timestamptz. The safer reading for an exact tie: the snapshot is refused
+// only when strictly older, so an equal instant is allowed (the intent and a snapshot sealed in the same instant leave no evidence that the snapshot came first).
+func TestRouteScopeRefusesASnapshotSealedBeforeTheAdmittedIntent(t *testing.T) { // A668, INV-03, INV-17
+	w := rscNewWorld(t)
+	w.intent(t, evdTenant, 1, evdNow.Add(-5*time.Minute))
+	w.snap(t, evdTenant, "evs_AA01", evdCorr, evdNow.Add(-6*time.Minute))
+	got, err := w.reader(t, evdPools(w.trust)).ScopeFor(evdCtx(t), evdTenant, evdCorr, rscSession)
+	if !errors.Is(err, trustport.ErrNoRouteScope) || got != (trustport.RouteScope{}) {
+		t.Fatalf("got %+v, %v; want ErrNoRouteScope and the zero scope", got, err)
+	}
+}
+
+// The intent compared is the latest version: a newer intent version admitted after the only snapshot makes that snapshot stale.
+func TestRouteScopeComparesTheSnapshotToTheLatestIntentVersion(t *testing.T) { // A668, INV-03
+	w := rscNewWorld(t)
+	w.intent(t, evdTenant, 1, evdNow.Add(-8*time.Minute))
+	w.snap(t, evdTenant, "evs_AA01", evdCorr, evdNow.Add(-6*time.Minute))
+	w.intent(t, evdTenant, 2, evdNow.Add(-5*time.Minute))
+	got, err := w.reader(t, evdPools(w.trust)).ScopeFor(evdCtx(t), evdTenant, evdCorr, rscSession)
+	if !errors.Is(err, trustport.ErrNoRouteScope) || got != (trustport.RouteScope{}) {
+		t.Fatalf("got %+v, %v; want ErrNoRouteScope and the zero scope", got, err)
+	}
+}
+
+func TestRouteScopeAllowsASnapshotSealedAfterOrAtTheAdmittedIntent(t *testing.T) { // A668
+	for name, sealed := range map[string]time.Time{"after the intent": evdNow.Add(-4 * time.Minute), "at the same instant": evdNow.Add(-5 * time.Minute)} {
+		t.Run(name, func(t *testing.T) {
+			w := rscNewWorld(t)
+			w.intent(t, evdTenant, 1, evdNow.Add(-5*time.Minute))
+			w.snap(t, evdTenant, "evs_AA01", evdCorr, sealed)
+			got, err := w.reader(t, evdPools(w.trust)).ScopeFor(evdCtx(t), evdTenant, evdCorr, rscSession)
+			want := trustport.RouteScope{Session: rscSession, IntentRef: "int_0001@1", EvidenceSnapshotID: "evs_AA01"}
+			if err != nil || got != want {
+				t.Fatalf("got %+v, %v; want %+v", got, err, want)
+			}
+		})
+	}
+}
+
 // Another tenant's snapshot and intent are not this tenant's scope. The administrator's pool is not bound by row-level security, so only the query's own tenant clause keeps tenant B's
 // rows from tenant A there; the tenant login is the database's own bound.
 func TestRouteScopeNeverReadsAnotherTenantsSnapshot(t *testing.T) { // A625, REQ-SEC-004
