@@ -27,3 +27,5 @@
 ## Pre-work for the next agent
 - Exact next step: SR reads the workflow step; both Founders approve (A652). EL decides the `REGRESSION_LINK` observation writer.
 - Do not touch: the A156 alternative's behaviour.
+- A667 (24 Nov, after CI at `b30fc492`): the `checks` job failed because the workflow guard's tests run the real script, which now builds the suite, and that job had no jsonschema (ImportError, in the log). Fixed by installing the benchmark's pinned requirements, hash-checked, in the safeguards job before those tests (`.github/workflows/safeguards.yml`), with a test that pins the install and its place. Reproduced first in a clean environment (fails), then with the hash-checked lock installed (51 tests pass). The case-exists meaning is "exists" (approved).
+

@@ -83,6 +83,16 @@ class Shape(unittest.TestCase):
         safeguards = (ROOT / ".github" / "workflows" / "safeguards.yml").read_text(encoding="utf-8")
         self.assertIn("python3 -m unittest tools.ci.test_check_regression_link tools.ci.test_regression_link_workflow", safeguards)
 
+    def test_the_safeguards_job_installs_the_pinned_requirements_before_it_runs_these_tests_a667(self) -> None:
+        """A667: the tests of this file run the real script, which now builds the generated suite, so the `checks` job needs the benchmark's pinned requirements (jsonschema) before them. Hash-checked
+        (seen failing in CI at b30fc492: the suite could not be built, ImportError)."""
+        safeguards = (ROOT / ".github" / "workflows" / "safeguards.yml").read_text(encoding="utf-8")
+        install = "python3 -m pip install --require-hashes -r benchmark/requirements.lock"
+        self.assertIn(install, safeguards)
+        self.assertLess(safeguards.index(install), safeguards.index("python3 -m unittest tools.ci.test_check_regression_link tools.ci.test_regression_link_workflow"))
+        self.assertNotIn("pip install jsonschema", safeguards)
+        self.assertNotRegex(safeguards, r"pip install(?! --require-hashes)(?!.*--require-hashes)[^\n]*jsonschema")
+
     def test_the_names_the_script_reads_are_the_names_the_workflow_sets(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
         t = text()
