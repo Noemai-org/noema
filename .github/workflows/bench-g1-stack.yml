@@ -114,6 +114,9 @@ jobs:
             gen=$?
           fi
           if [ "$MODE" = full ] && [ "$gen" -eq 0 ] && [ "$collector_dead" -eq 0 ]; then
+            # The five IdP flags (--idp-key, --idp-binary, --idp-kid, --idp-audience, --tenant-id) are what `make bench-tokens` wrote to runner-args, host paths mapped to the runner's mount (A517): one source for
+            # the run, the probes and both re-reads. A missing file leaves them empty and the runner refuses for its required flags; nothing falls back to a default.
+            idp_args="$(sed "s#$PWD/benchmark/out#/bench-out#g" benchmark/out/idp/runner-args 2>>benchmark/out/joblog/runner.log)"
             $compose exec -T bench-runner python -m benchmark.runner \
               --suite /bench-out/suite --out /bench-out/run --run-id "$run_id" --commit-sha "$COMMIT" \
               --api-url http://core:8080 \
@@ -121,8 +124,7 @@ jobs:
               --standin-url http://standin:8094 --standin-credential-file /creds/standin/token \
               --proxy-url http://hostility-proxy:8081 --proxy-credential-file /creds/proxy/bench_token \
               --mock-case-log /bench-out/mock-case.log --cost-dir /bench-out/cost --model-writer model-service \
-              --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
-              --tenant-id ten_alpha >> benchmark/out/joblog/runner.log 2>&1
+              $idp_args >> benchmark/out/joblog/runner.log 2>&1
             code=$?
           fi
           # A collector that exited during the run invalidates it: the counters would read an empty or stale file as zero accesses. NOT RUN, never scored.
@@ -179,9 +181,9 @@ jobs:
           mkdir -p benchmark/out/evidence benchmark/out/joblog
           $compose exec -T bench-runner python -m benchmark.runner.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" >> benchmark/out/joblog/evidence.log 2>&1
           echo "fault_plans=$?" >> "$GITHUB_OUTPUT"
+          idp_args="$(sed "s#$PWD/benchmark/out#/bench-out#g" benchmark/out/idp/runner-args 2>>benchmark/out/joblog/evidence.log)"
           $compose exec -T bench-runner python -m benchmark.runner.evidence probes --suite /bench-out/suite --run /bench-out/run \
-            --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
-            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" >> benchmark/out/joblog/evidence.log 2>&1
+            --api-url http://core:8080 $idp_args --other-tenant-id ten_other --out /bench-out/evidence --sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" >> benchmark/out/joblog/evidence.log 2>&1
           echo "probes=$?" >> "$GITHUB_OUTPUT"
       # A476 (docs#213, corrected by A502): the recovery trigger is a restart of the core container. The core runs one recovery sweep at startup (and a ticker repeats it). After the cases finish
       # and the evidence is written, the stack job restarts the core; the re-read phases of BO's `reread` (noema#854) then wait for /readyz 200 and read each case's reconstruction through the audit-only
@@ -332,8 +334,24 @@ jobs:
           printf '%s\n' '^\s*"run_id":\s*"'"$GITHUB_RUN_ID"'",?\s*$' >> "$allow"
           set -- benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/joblog benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
           [ "$MODE" = stack-check ] || set -- "$@" benchmark/out/record-accessed.txt
-          python3 -I tools/ci/g1_leakscan.py --allow "$allow" --workdir "$RUNNER_TEMP/g1-leakscan" "$@" | tee -a benchmark/out/leak-scan.txt
+          # BO's row 12 (noema#875): the scanner writes the stamped inventory of the files it read, relative to benchmark/out; the next step lists the files the upload will hold and compares the two.
+          python3 -I tools/ci/g1_leakscan.py --allow "$allow" --workdir "$RUNNER_TEMP/g1-leakscan" --inventory benchmark/out/scan-inventory.txt --stamp "$GITHUB_SHA $GITHUB_RUN_ID" --root benchmark/out "$@" | tee -a benchmark/out/leak-scan.txt
           echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
+      # BO's package row 12 (noema#875), computed and not attested: the stamped list of the files the artifact holds, one relative path per line, and its comparison with the scanner's own inventory. The two
+      # sets must be the same set: a file uploaded without being scanned, or scanned without being uploaded, is a mismatch and the Result step fails. The list is made from the same paths the upload names
+      # (the scanner reads hidden files, so the upload carries them: include-hidden-files); the two stamped lists, the scan output and the inventory are written by or after the scan, so they travel in a second artifact, not in the scanned one.
+      - id: files
+        name: Stamp the list of the uploaded files and compare it with the scan inventory (row 12)
+        if: always()
+        run: |
+          set +e
+          cd benchmark/out || { echo "files_match=1" >> "$GITHUB_OUTPUT"; exit 0; }
+          {
+            echo "stamp: $GITHUB_SHA $GITHUB_RUN_ID"
+            { find run score evidence service-logs joblog -type f 2>/dev/null; for f in mock-case.log mock-case-collector.err record-accessed.txt summary.md; do [ -f "$f" ] && echo "$f"; done; } | sort
+          } > artifact-files.txt
+          if [ -f scan-inventory.txt ] && [ "$(tail -n +2 scan-inventory.txt | sort)" = "$(tail -n +2 artifact-files.txt | sort)" ]; then echo "files_match=0" >> "$GITHUB_OUTPUT"; else echo "files_match=1" >> "$GITHUB_OUTPUT"; echo "::error::row 12: the uploaded set and the scanned set differ"; fi
           exit 0
       - name: Upload the artifacts (only if the leak scan is clean)
         if: always() && steps.scan.outputs.scan == '0'
@@ -349,7 +367,19 @@ jobs:
             benchmark/out/mock-case.log
             benchmark/out/mock-case-collector.err
             benchmark/out/record-accessed.txt
+            benchmark/out/summary.md
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload the stamped evidence (the scan output, its inventory and the file list)
+        if: always() && steps.scan.outputs.scan == '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bench-g1-stack-evidence-${{ github.run_id }}
+          path: |
             benchmark/out/leak-scan.txt
+            benchmark/out/scan-inventory.txt
+            benchmark/out/artifact-files.txt
           if-no-files-found: warn
           retention-days: 30
       # The run's own output is shown in the job log only now, and only if the scan that covered it was clean: until then the log holds exit codes and ::error:: lines of fixed text.
@@ -390,6 +420,7 @@ jobs:
           RESTART: ${{ steps.restart.outputs.restart }}
           RECOVERY: ${{ steps.recovery.outputs.recovery }}
           REPLAY: ${{ steps.replay.outputs.replay }}
+          FILES_MATCH: ${{ steps.files.outputs.files_match }}
           # Owner: IL (G1 stack workflow, noema#436). A445 allows this interim report; the final composition PR (EL) flips it to "true" and is the only thing that should (A445: reported now, required after it merges).
           # A445: reported now; the final composition PR flips this to "true", and then a stack-check whose core does not answer /readyz 200, or whose netcheck fails, fails.
           READINESS_REQUIRED: "false"
@@ -407,9 +438,11 @@ jobs:
             [ "$CODE" = 0 ] || { echo "::error::stack-check: the stack did not come up (code ${CODE:-missing})."; fail=1; }
             [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::stack-check: a service's log could not be collected."; fail=1; }
             [ "${SCAN:-missing}" = 0 ] || { echo "::error::stack-check: the leak scan (exit ${SCAN:-missing})."; fail=1; }
+            [ "${FILES_MATCH:-missing}" = 0 ] || { echo "::error::stack-check: the uploaded set and the scanned set differ (row 12)."; fail=1; }
             echo "STACK-CHECK only: not evidence for G1."
             exit "$fail"
           fi
+          [ "${FILES_MATCH:-missing}" = 0 ] || { echo "::error::Row 12 not met: the uploaded set and the scanned set differ, or the scan wrote no inventory (files_match=${FILES_MATCH:-missing})."; fail=1; }
           [ "${RESTART:-missing}" = 0 ] || { echo "::error::The core could not be restarted (exit ${RESTART:-missing}): the recovery phase did not run."; fail=1; }
           [ "${RECOVERY:-missing}" = 0 ] || { echo "::error::The after_recovery re-read did not pass (exit ${RECOVERY:-missing}; 3 is NOT RUN, 1 a differing read)."; fail=1; }
           [ "${REPLAY:-missing}" = 0 ] || { echo "::error::The after_replay re-read did not pass (exit ${REPLAY:-missing}; 1 is a read whose bytes differ from the first)."; fail=1; }

@@ -3,6 +3,7 @@ package layer
 import (
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/freshness"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
@@ -81,14 +82,9 @@ func AssignStatus(r Read, s Source, now time.Time) contracts.EnumsV1FactStatus {
 	return contracts.EnumsV1FactStatusKNOWN
 }
 
-// effectiveLimit is the stricter of the source's limit and the profile's (SoT §43.5, INV-23): a profile can only tighten. A source
-// limit that is zero or negative, or a negative profile limit, is no usable limit.
+// effectiveLimit is the stricter of the source's limit and the profile's (SoT 43.5, INV-23): a profile can only tighten. A source limit that is zero or
+// negative, or a negative profile limit, is no usable limit. The rule lives in evidence/freshness (EVD-02), the one place that computes it.
 func effectiveLimit(s Source) (time.Duration, bool) {
-	if s.SourceLimit <= 0 || s.ProfileLimit < 0 {
-		return 0, false
-	}
-	if s.ProfileLimit > 0 && s.ProfileLimit < s.SourceLimit {
-		return s.ProfileLimit, true
-	}
-	return s.SourceLimit, true
+	limit, _, err := freshness.Effective(freshness.Limits{Source: s.SourceLimit, Profile: s.ProfileLimit})
+	return limit, err == nil
 }

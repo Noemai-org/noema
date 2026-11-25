@@ -36,6 +36,7 @@ type world struct {
 	dir  string
 	exp  map[string]string // the manifest's `expected`
 	list []entry           // the manifest's files, in order
+	ver  int               // the manifest's version; 0 means 1
 }
 
 type entry struct{ Kind, Path, Sha string }
@@ -71,7 +72,11 @@ func (w *world) seal() {
 	for _, e := range w.list {
 		files = append(files, map[string]string{"kind": e.Kind, "path": e.Path, "sha256": e.Sha})
 	}
-	doc := map[string]any{"manifest_id": "demo.manifest", "version": 1, "label": "SYNTHETIC", "note": "synthetic", "expected": w.exp, "files": files}
+	ver := w.ver
+	if ver == 0 {
+		ver = 1
+	}
+	doc := map[string]any{"manifest_id": "demo.manifest", "version": ver, "label": "SYNTHETIC", "note": "synthetic", "expected": w.exp, "files": files}
 	b, err := json.Marshal(doc)
 	if err != nil {
 		w.t.Fatal(err)

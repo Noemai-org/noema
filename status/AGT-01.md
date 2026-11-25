@@ -13,6 +13,20 @@ Updated 2026-11-08. Owner: EL+AG in tasks.csv; executed by the Engineering Lead 
 - Optional: repeat the trial with a conflict between code and a requirement, and record it here.
 - Re-point the copies in `docs/templates/` when the docs originals change.
 
+## Session 2026-11-24 · AGT-01 · the template tests run in CI (IL, A637)
+
+### Session summary
+- What changed: a `safeguards.yml` step runs `tools/ci/test_pr_template.py` (6 tests) and the new guard `tools/ci/test_safeguards_agt01.py` (3 tests). Before, nothing in CI ran the template's tests: a change that let an unfilled template pass the trace check would have merged green.
+- Why: AGT-01's done-when needs the template to refuse an unfilled description, and A637 asked for the step.
+- Risks, and how they are contained: CI only; no secret, no network, no provider. The guard fails if the step is removed, gains `|| true` or `continue-on-error`, or stops skipping on a description edit. A mutant with `|| true` fails it.
+- Tests added (REQ-AGT-003, REQ-AGT-002): the three guard tests, red first (two failed before the step existed).
+- Not in this PR: the CONFLICT-block tests of noema#943 (`tools/ci/test_check_pr_conflict.py`) are not on main yet; the step gains that command in a follow-up once #943 merges.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#943 merges, add `&& python3 -I tools/ci/test_check_pr_conflict.py` to the step and one assertion to the guard.
+- Do not touch: the trace check itself (EL's).
+
 # Session 2026-11-24 · AGT-01
 
 ## Session summary

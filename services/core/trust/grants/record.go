@@ -25,11 +25,20 @@ var (
 	ErrRecordIncomplete = errors.New("grants: the decision record lacks a bound field or has an empty window")
 )
 
+// policyVersionBound reports whether the record's policy version is acceptable to sign (A13, A574, A577). It is a valid version for every outcome that rests on a policy, and it is null
+// only for an outcome reached before the policy was evaluated: an ALLOW or a CONFIRM with no policy version is never signed.
+func policyVersionBound(r contracts.DecisionRecordV2) bool {
+	if r.PolicyVersion == nil {
+		return r.Outcome != contracts.EnumsV1DecisionOutcomeALLOW && r.Outcome != contracts.EnumsV1DecisionOutcomeCONFIRM
+	}
+	return shapes["policy"].MatchString(*r.PolicyVersion)
+}
+
 func recordMessage(r contracts.DecisionRecordV2, keyID string) ([]byte, error) {
 	if !strings.HasPrefix(string(r.SchemaVersion), "2.") {
 		return nil, ErrRecordVersion
 	}
-	if r.IntentId == "" || r.CorrelationId == "" || !shapes["policy"].MatchString(r.PolicyVersion) || keyID == "" {
+	if r.IntentId == "" || r.CorrelationId == "" || !policyVersionBound(r) || keyID == "" {
 		return nil, ErrRecordIncomplete
 	}
 	issued, err1 := time.Parse(time.RFC3339, string(r.IssuedAt))
