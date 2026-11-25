@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import unicodedata
+import zoneinfo
 from fractions import Fraction
 from pathlib import Path
 
@@ -187,6 +188,54 @@ def check_capabilities(pack: dict) -> list[Problem]:
     return out
 
 
+def check_compensation(pack: dict) -> list[Problem]:
+    """REQ-CAP-004 (A631, A647): recovery is declared, never improvised. A REVERSIBLE or COMPENSABLE capability declares a compensation; an IRREVERSIBLE one declares ESCALATE_ONLY and
+    nothing else; an INVERSE_CAPABILITY names a capability that is itself registered, not prohibited and not the capability itself; a prohibited capability declares no compensation and
+    has no adapter (BD-08, REQ-CAP-002). The shape (the three values, the mapping that goes with an inverse) is capability-descriptor.v2's."""
+    out: list[Problem] = []
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    for cid, c in caps.items():
+        if c["prohibited"]:
+            if "compensation" in c or "inverse_mapping" in c:
+                out.append(("compensation", f"{cid}: a prohibited capability declares no compensation and has no adapter"))
+            continue
+        declared = c.get("compensation")
+        irreversibility = (c.get("consequence_profile") or {}).get("irreversibility")
+        if declared is None:
+            out.append(("compensation", f"{cid}: a {irreversibility or 'registered'} capability needs a declared compensation"))
+            continue
+        if irreversibility == "IRREVERSIBLE" and declared != "ESCALATE_ONLY":
+            out.append(("compensation", f"{cid}: an IRREVERSIBLE capability declares ESCALATE_ONLY and nothing else (it declares {declared})"))
+        if declared == "INVERSE_CAPABILITY":
+            inverse = (c.get("inverse_mapping") or {}).get("capability_id")
+            if inverse == cid:
+                out.append(("compensation", f"{cid}: the inverse capability is itself"))
+            elif inverse not in caps:
+                out.append(("compensation", f"{cid}: the inverse capability {inverse!r} is not registered in the pack"))
+            elif caps[inverse]["prohibited"]:
+                out.append(("compensation", f"{cid}: the inverse capability {inverse} is prohibited"))
+    return out
+
+
+def check_tenant_zone(pack: dict) -> list[Problem]:
+    """A647, A650 (REQ-DATA-002): `tenant_zone` is an IANA zone name the tz database knows. The synthetic tenant uses Africa/Lagos. Fails closed: with no tz database to ask, a zone is refused."""
+    zone = pack.get("tenant_zone")
+    if zone is None:
+        return []
+    try:
+        zoneinfo.ZoneInfo(zone)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+        return [("tenant_zone", f"tenant_zone {zone!r} is not an IANA zone name the tz database knows")]
+    return []
+
+
+def check_graph_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """A645, A647: an intent node's `action_graph` names a graph the pack declares."""
+    known = {g["graph_id"] for g in graphs.values()}
+    return [("graph_link", f"{n['node_id']}: action_graph {n['action_graph']!r} is not a graph the pack declares")
+            for n in pack["intent_nodes"] if "action_graph" in n and n["action_graph"] not in known]
+
+
 def predicates_of(pack: dict, graphs: dict[str, dict]):
     for o in pack["outcome_definitions"]:
         yield f"{o['outcome_id']}.success_predicate", o["success_predicate"]
@@ -246,6 +295,34 @@ def check_write_when(pack: dict) -> list[Problem]:
         if t != predicate.BOOL:
             out.append(("predicate", f"{where}: must be Boolean, found {t[0]}"))
     return out
+
+
+def check_write_when_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """REQ-TRU-004, REQ-CAP-001 (SR's request on noema#935; INV-01): the Writes rule reads an intent node with no `write_when` as never writing, so the pack data alone decides the
+    direction that draws less scrutiny. A node whose `action_graph` calls an allowed capability that writes (a risk class above R0) therefore carries a `write_when`. A node with no
+    graph, or a graph that only reads, needs none. A graph the pack does not declare is `graph_link`'s to refuse."""
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    by_id = {g["graph_id"]: g for g in graphs.values()}
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        graph = by_id.get(n.get("action_graph"))
+        if graph is None or "write_when" in n:
+            continue
+        writers = sorted({node["capability_id"] for node in graph["nodes"]
+                          if node["capability_id"] in caps and not caps[node["capability_id"]]["prohibited"] and RANK.get(caps[node["capability_id"]]["risk_class"], 0) >= 1})
+        if writers:
+            out.append(("write_when", f"{n['node_id']}: its action graph {graph['graph_id']} calls {', '.join(writers)}, which write, so the node needs a write_when (a node with none is read as never writing)"))
+    return out
+
+
+def check_recon_rules(doc: object) -> list[Problem]:
+    """A659 (interim, relayed, not yet committed; REQ-RES-005): the pack's rules file is a `recon-rule-set.v1` document. From version 2 each compared pair and each single-valued field
+    declares `convergence_window_seconds` (at least 1); version 1 declares none. A message names the place and the rule, never a value of the document. That a window equals the smaller
+    freshness limit of its pair (A641) is not checked here: it needs the evidence mapping's entity-to-source link."""
+    schemas = validate.load_schemas()
+    errs = validate.validator_for("recon-rule-set", schemas, validate.make_registry(schemas)).iter_errors(doc)
+    found = sorted({(("/".join(map(str, e.absolute_path)) or "(root)"), e.message if e.validator == "required" else f"fails {e.validator}") for e in errs})
+    return [("recon_rules", f"{where}: {what}") for where, what in found[:20]]
 
 
 def check_subject_slot(pack: dict) -> list[Problem]:
@@ -823,6 +900,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             out.append(("manifest", f"{rel} carries no usable {id_key} and integer version"))
         elif carried != expected[want_key]:
             out.append(("manifest", f"{rel} carries {carried}, the manifest expects {want_key} {expected[want_key]}"))
+        if kind == "recon_rules":
+            out += [("manifest", f"{rel} is not a valid rule set: {m}") for _, m in check_recon_rules(body)]
         if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
             out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
     return out
@@ -916,7 +995,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
