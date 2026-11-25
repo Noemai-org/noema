@@ -340,9 +340,10 @@ type Fact struct{ Entity, Field, Value string }
 
 // MatrixEntry is one pair of values the rule set declares incompatible. Unless, when set, cancels the pair.
 type MatrixEntry struct {
-	Label  string
-	A, B   Fact
-	Unless *Fact
+	Label         string
+	A, B          Fact
+	Unless        *Fact
+	WindowSeconds int64
 }
 
 // Matrix returns the compatibility matrix in file order, so that tests can assert every entry.
