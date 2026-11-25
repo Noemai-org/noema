@@ -89,6 +89,9 @@ jobs:
       - name: G1 leak scan with a planted canary (noema#436, criterion 8)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_g1_leakscan.py
+      - name: The job-log scan's own allow file (noema#899)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_g1_joblog_allow.py
       - name: Compile-acceptance workflow guard (noema#546)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_bench_live_compile.py
@@ -119,6 +122,9 @@ jobs:
         run: |
           body="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""')"
           PR_BODY="$body" python3 -I tools/ci/check_pr_trace.py
+      - name: PR template and its guard (AGT-01, REQ-AGT-003)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_pr_template.py && python3 -I tools/ci/test_safeguards_agt01.py
       - name: Vendored-copy script tests (the current PERD is resolved, not hardcoded)
         if: github.event.action != 'edited'
         run: python3 -I -m unittest discover -s tools/vendor -p 'test_*.py'

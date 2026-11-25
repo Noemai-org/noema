@@ -16,7 +16,7 @@ from benchmark.bakeoff.budget import BudgetGuard
 from benchmark.compile_acceptance.golden import GOLDEN, Golden
 from benchmark.compile_acceptance.record_only import DEFAULT_PATH, RecordOnlyInput, RecordOnlyRefused, load_inputs
 from benchmark.compile_acceptance.recording import LABEL, Recorder
-from benchmark.compile_acceptance.runner import CompileFailed, RunResult, run_cases, write_run_record
+from benchmark.compile_acceptance.runner import CompileFailed, RunResult, run_cases, write_run_record, write_summary
 
 KEY_VARIABLE = "OPENAI_API_KEY"
 _PACK_REF = re.compile(r"[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+")
@@ -92,10 +92,12 @@ def main(argv: list[str], environ: Mapping[str, str], factory: Factory | None = 
     recorder.model_id = str(backend.pin().get("pinned_model_id", "unpinned"))
     if args.dry_run:
         return _dry(backend, limit, args.prior_spent_micros, inputs)
-    result = asyncio.run(run_cases(GOLDEN, backend.compile_one, guard, recorder, calls=backend.calls, record_only=inputs, record_one=backend.record_one))
+    result = asyncio.run(run_cases(GOLDEN, backend.compile_one, guard, recorder, calls=backend.calls, record_only=inputs, record_one=backend.record_one,
+                                  evidence=getattr(backend, "choice_lines", None)))
     recorder.write_manifest(backend.pin())
     write_run_record(args.out, args.run_id, result, {"hard_stop_micros": limit, "prior_spent_micros": args.prior_spent_micros})
-    lines = [LABEL, *(f"{c.case_id} {c.status}" + (f": {'; '.join(c.problems)}" if c.problems else "") for c in result.cases),
+    write_summary(args.out, result)
+    lines = [LABEL, *(line for c in result.cases for line in (f"{c.case_id} {c.status}" + (f": {'; '.join(c.problems)}" if c.problems else ""), *c.evidence)),
              *record_only_lines(result), f"exit code {result.exit_code}; provider calls {result.calls}; stopped {result.stopped}", f"spent_micros_total={result.spent_micros}"]
     sys.stdout.write("\n".join(lines) + "\n")
     return result.exit_code

@@ -137,8 +137,14 @@ func TestAConfirmWithARequestWritesOneDecisionAndOneConfirmationRequestInOneTran
 		PlanHash: letters(3), PolicyVersion: policyVersion})
 	want := map[string]any{"confirmation_request_id": res.ConfirmationRequestID, "decision_id": string(res.Record.DecisionId), "binding_hash": binding, "principal_id": cfrPrincipal,
 		"intent_hash": letters(0), "capability_id": capability, "target_ref": cfrTarget, "params_hash": letters(1), "evidence_set_hash": letters(2), "plan_hash": letters(3),
-		"policy_version": policyVersion, "approver_requirement": "SELF", "requester_id": cfrPrincipal, "expires_at": "2026-11-06T09:10:00.000Z"}
-	if got := payloadOf(t, cr); !jsonEqual(t, got, want) {
+		"policy_version": policyVersion, "approver_requirement": "SELF", "requester_id": cfrPrincipal}
+	// A552: the expiry is the database's clock plus the TTL, so it is not a value this test can name; confirmrequest_row_test.go asserts that the event carries the row's own expiry.
+	got := payloadOf(t, cr)
+	if _, has := got["expires_at"]; !has {
+		t.Error("CONFIRMATION_REQUESTED carries no expires_at")
+	}
+	delete(got, "expires_at")
+	if !jsonEqual(t, got, want) {
 		t.Errorf("CONFIRMATION_REQUESTED payload %v, want %v", got, want)
 	}
 	if got := payloadOf(t, dm)["confirmation_request_id"]; got != res.ConfirmationRequestID {
@@ -520,8 +526,8 @@ func TestAConfirmationRequestBindsTheCompositeOfEveryPolicyVersionOfTheBasis(t *
 		if _, has := p["policy_set_hash"]; has {
 			t.Errorf("%s: the event carries the interim policy_set_hash member: %v", name, p["policy_set_hash"])
 		}
-		if res.Record.PolicyVersion != "fin.pol@3.1" {
-			t.Errorf("%s: the decision record binds %q, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
+		if res.Record.PolicyVersion == nil || *res.Record.PolicyVersion != "fin.pol@3.1" {
+			t.Errorf("%s: the decision record binds %v, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
 		}
 	}
 }

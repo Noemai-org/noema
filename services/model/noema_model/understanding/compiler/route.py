@@ -7,11 +7,13 @@ import re
 from typing import Any
 
 from fastapi import FastAPI, Request
+from opentelemetry import context as otel_context
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from noema_model.contracts.canonical_input_v2 import CanonicalInputV2
 from noema_model.contracts.errors_v2 import ErrorsV2ErrorBody, ErrorsV2ErrorCode, ErrorsV2ErrorEnvelope
+from noema_model.platform.telemetry.tracecontext import parent_context
 from noema_model.understanding.compiler.service import CompileService, InputInvalid, ProviderUnavailable
 
 ROUTE = "/internal/v1/understanding:compile"
@@ -95,10 +97,16 @@ def register(app: FastAPI) -> None:
             return invalid
         if not str(canonical.get("schema_version", "")).startswith("2."):
             return invalid  # the contract's schema_version is the generic X.Y shape; this route takes canonical-input major 2 and no other
+        parent = parent_context(request.headers)  # REC-02: the core's trace, continued only if it is exactly a W3C traceparent; never an identity
+        token = otel_context.attach(parent) if parent is not None else None
         try:
-            intent_object = await service.run(canonical, pack_ref, open_intent)
+            with request.app.state.telemetry.span("model.compile", corr, {"route": "compile"}):
+                intent_object = await service.run(canonical, pack_ref, open_intent)
         except InputInvalid:
             return invalid
         except ProviderUnavailable:
             return _envelope(502, ErrorsV2ErrorCode.PROVIDER_UNAVAILABLE, "No provider gave a usable answer.", True, corr)
+        finally:
+            if token is not None:
+                otel_context.detach(token)
         return JSONResponse({"intent_object": intent_object, "canonical_input": canonical})

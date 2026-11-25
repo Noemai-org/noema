@@ -19,9 +19,21 @@ class G1StackWorkflow(unittest.TestCase):
 
     # Session tokens (the Founders' order of 14 Nov, after noema#444): the runner issues each principal's token with the Edge's synthetic issuer. The core holds the public key
     # only; the private key and the issuer binary stay under benchmark/out/idp and are never uploaded (Security Reviewer's notes on noema#444).
-    def test_the_runner_gets_the_five_idp_flags_with_the_issuers_paths(self) -> None:
-        for flag in ("--idp-binary /bench-out/idp/synthetic-idp", "--idp-key /bench-out/idp/key/private.pem", "--idp-kid bench-k1", "--idp-audience noema-core", "--tenant-id ten_alpha"):
-            self.assertIn(flag, self.script)
+    def test_the_runner_gets_the_five_idp_flags_from_the_bench_tokens_file_in_every_step_that_issues_a_token(self) -> None:
+        # A517 and A572's order: the five IdP flags (--idp-binary, --idp-key, --idp-kid, --idp-audience, --tenant-id) are the ones `make bench-tokens` wrote to benchmark/out/idp/runner-args, with the
+        # host path mapped to the runner's mount, in the run, the probes and both re-reads: one source, so a change of the key id, the audience or the tenant cannot reach one step and miss another.
+        for step in ("run", "evidence", "recovery", "replay"):
+            body = re.search(r"(?ms)- id: " + step + r"\n(.*?)(?=^      - )", self.text)
+            assert body, step
+            self.assertIn('idp_args="$(sed "s#$PWD/benchmark/out#/bench-out#g" benchmark/out/idp/runner-args', body.group(1), step)
+            self.assertIn("$idp_args", body.group(1), step)
+        for hard_coded in ("--idp-binary /bench-out/idp/synthetic-idp", "--idp-key /bench-out/idp/key/private.pem", "--idp-kid bench-k1", "--idp-audience noema-core"):
+            self.assertNotIn(hard_coded, self.script, "a hard-coded IdP flag")
+        for step in ("run", "evidence"):  # the access check (record-access) takes tenant ids only: it issues no token and is not one of the five
+            body = re.search(r"(?ms)- id: " + step + r"\n(.*?)(?=^      - )", self.text)
+            assert body
+            self.assertNotIn("--tenant-id ten_alpha", body.group(1), step)
+        self.assertIn("--other-tenant-id ten_other", self.script)  # the probes' second tenant is not one of the five
         self.assertNotIn("--tokens-dir", self.script)
 
     def test_the_stack_is_started_by_make_bench_up_which_makes_the_issuer_first(self) -> None:
@@ -71,7 +83,7 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.runner\.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence")
         probes = re.search(r"python -m benchmark\.runner\.evidence probes (.*?)(?=\n\s*echo \"probes=)", self.script, re.S)
         assert probes
-        for flag in ("--api-url http://core:8080", "--tenant-id ten_alpha", "--other-tenant-id ten_other", "--idp-binary", "--idp-key", "--idp-kid", "--idp-audience"):
+        for flag in ("--api-url http://core:8080", "$idp_args", "--other-tenant-id ten_other"):  # the five IdP flags arrive in $idp_args, from runner-args
             self.assertIn(flag, probes.group(1))
 
     def test_the_result_fails_unless_the_run_the_evidence_and_the_scan_are_all_met(self) -> None:
@@ -87,12 +99,13 @@ class G1StackWorkflow(unittest.TestCase):
     def test_the_leak_scan_runs_the_canary_probe_and_covers_every_uploaded_path_and_the_summary(self) -> None:
         scan = re.search(r"(set -- benchmark/out/run .*?)\n\s*echo \"scan=", self.script, re.S)
         assert scan
-        scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", scan.group(1))}
+        paths_only = re.sub(r"--inventory \S+|--root \S+", "", scan.group(1))  # the inventory is the scan's own output and the root a directory: neither is a scanned path
+        scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", paths_only)}
         self.assertIn("benchmark/out/summary.md", scan.group(1))
         self.assertNotIn("$GITHUB_STEP_SUMMARY", scan.group(1), "that variable names a different file in each step (Codex P2 on noema#591)")
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded
-        for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip()):
+        for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip().startswith("benchmark/out/")):
             if path == "benchmark/out/leak-scan.txt":
                 continue  # the scan's own output (file, line, kind, length and fingerprint only: never a value); it cannot be scanned before it exists. BO's package row 8 reads it.
             self.assertIn(path.rstrip("/"), scanned, f"{path} is uploaded but not leak-scanned")
@@ -104,9 +117,9 @@ class G1StackWorkflow(unittest.TestCase):
         assert step
         self.assertRegex(step.group(1), r'(?m)"\$@" \| tee -a benchmark/out/leak-scan\.txt$')
         self.assertIn('echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"', step.group(1))
-        uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
+        uploaded = re.search(r"(?ms)- name: Upload the stamped evidence.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded
-        self.assertIn("benchmark/out/leak-scan.txt", uploaded.group(1))
+        self.assertIn("benchmark/out/leak-scan.txt", uploaded.group(1), "the scan output travels in the stamped-evidence artifact: it is written by the scan, so it is not one of the scanned files (row 12)")
 
     def test_the_evidence_carries_the_dispatch_sha_and_run_id_for_the_package_to_compare(self) -> None:
         # noema#717 (BO's package, relayed by SR): the first line of leak-scan.txt is `stamp: <sha> <run id>`, and the evidence files carry the same two values in a top-level "stamp".
@@ -374,7 +387,8 @@ class G1StackWorkflow(unittest.TestCase):
             in_script = re.search(r'="\$\{(' + variable + r'):-([A-Za-z0-9_.-]+)\}"', script)
             assert in_compose and in_script, setting
             self.assertEqual(in_compose.groups(), in_script.groups(), setting)
-            self.assertRegex(self.script, flag + " " + re.escape(in_script.group(2)) + r"(?=\s|$)")
+            # The workflow no longer carries a copy of the default: its steps read the flags the token script wrote (runner-args), so the two cannot differ.
+            self.assertNotRegex(self.script, flag + " " + re.escape(in_script.group(2)) + r"(?=\s|$)")
 
     def test_the_run_is_scored_by_the_scorer_in_the_runner_container(self) -> None:
         self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.scoring")
@@ -449,7 +463,9 @@ class G1StackWorkflow(unittest.TestCase):
         line = re.search(r"python3 -I tools/ci/g1_leakscan\.py ([^\n]*)", job.group(1))
         assert line
         self.assertIn("--no-digit-rule", line.group(1))
-        self.assertNotIn("--allow", line.group(1), "no allow rule is used for the job log: the digit rule is off, not worked around")
+        # The one allow file the job log may use is its own, with the single Go-download line shape (run 45128374794; test_the_job_log_scan_uses_its_own_allow_file_and_not_the_artifact_one);
+        # the standing allow file of the artifact scans is never used for it.
+        self.assertEqual(re.findall(r"--allow (\S+)", line.group(1)), ["tools/ci/g1_joblog.allow"])
         self.assertEqual(len(re.findall(r"python3 -I tools/ci/g1_leakscan\.py --no-digit-rule", self.text)), 1, "only the job log is scanned without the digit rule")
 
     # A388: Playwright against the running stack, after the stack is up, opt-in until the wiring merges. FE owns the specs.
@@ -529,6 +545,128 @@ class G1StackWorkflow(unittest.TestCase):
         assert result
         self.assertIn("RECORD_ACCESS: ${{ steps.access.outputs.record_access }}", result.group(0))
         self.assertRegex(result.group(0), r'\[ "\$\{RECORD_ACCESS:-missing\}" = 0 \] \|\| \{[^\n]*fail=1')
+
+    # BO's package inputs (row 12, noema#875): the scan's stamped inventory, the stamped list of the uploaded files, and the two compared before the run can pass.
+    def step_run(self, step_id: str) -> str:
+        body = re.search(r"(?ms)- id: " + step_id + r"\n(.*?)(?=^      - )", self.text)
+        assert body, step_id
+        run = re.search(r"(?ms)^        run: \|\n(.*)\Z", body.group(1))
+        assert run, step_id
+        return "\n".join(line[10:] for line in run.group(1).splitlines())
+
+    def test_the_scan_writes_the_stamped_inventory_of_the_files_it_read(self) -> None:
+        scan = self.step_run("scan")
+        self.assertIn('--inventory benchmark/out/scan-inventory.txt --stamp "$GITHUB_SHA $GITHUB_RUN_ID" --root benchmark/out', scan)
+        self.assertIn("tee -a benchmark/out/leak-scan.txt", scan)
+
+    LAYOUT = ("run/results/a.json", "score/scorecard.json", "evidence/negative-probes.json", "service-logs/core.log", "joblog/runner.log", "mock-case.log", "mock-case-collector.err", "summary.md", "record-accessed.txt")
+
+    def run_files_step(self, inventory_names: tuple[str, ...] | None, present: tuple[str, ...] = LAYOUT) -> tuple[subprocess.CompletedProcess[str], Path, str]:
+        script = self.step_run("files")
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        out = tmp / "benchmark" / "out"
+        for name in present:
+            (out / name).parent.mkdir(parents=True, exist_ok=True)
+            (out / name).write_text("x\n", encoding="utf-8")
+        (out / "run" / ".hidden").write_text("x\n", encoding="utf-8")  # the scanner reads a hidden file, so the artifact must carry it (include-hidden-files) and the list must name it
+        if inventory_names is not None:
+            (out / "scan-inventory.txt").write_text("stamp: abc 123\n" + "".join(n + "\n" for n in inventory_names), encoding="utf-8")
+        gh = tmp / "gh_output"
+        r = subprocess.run(["bash", "-c", script], cwd=tmp, capture_output=True, text=True, check=False,
+                           env={"PATH": os.environ["PATH"], "GITHUB_SHA": "abc", "GITHUB_RUN_ID": "123", "GITHUB_OUTPUT": str(gh), "MODE": "full"})
+        return r, out, gh.read_text(encoding="utf-8") if gh.exists() else ""
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_the_artifact_file_list_is_stamped_lists_what_is_uploaded_and_matches_the_inventory(self) -> None:
+        r, out, gh = self.run_files_step(self.LAYOUT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        listed = (out / "artifact-files.txt").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(listed[0], "stamp: abc 123")
+        self.assertEqual(sorted(listed[1:]), sorted(self.LAYOUT + ("run/.hidden",)))
+        self.assertIn("files_match=1", gh, "the inventory in this case lacks the hidden file the scanner would have read")
+        r2, out2, gh2 = self.run_files_step(self.LAYOUT + ("run/.hidden",))
+        self.assertIn("files_match=0", gh2)
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_a_file_scanned_but_not_uploaded_or_uploaded_but_not_scanned_fails_the_match(self) -> None:
+        missing = tuple(n for n in self.LAYOUT if n != "summary.md")
+        self.assertIn("files_match=1", self.run_files_step(missing)[2], "uploaded but not scanned")
+        self.assertIn("files_match=1", self.run_files_step(self.LAYOUT + ("run/results/ghost.json",))[2], "scanned but not uploaded")
+        self.assertIn("files_match=1", self.run_files_step(None)[2], "no inventory at all is not a match")
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_a_stack_check_has_no_access_file_and_still_matches(self) -> None:
+        without = tuple(n for n in self.LAYOUT if n != "record-accessed.txt")
+        r, _, gh = self.run_files_step(without + ("run/.hidden",), present=without)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("files_match=0", gh)
+
+    def test_the_artifact_holds_exactly_the_scanned_files_and_the_three_stamped_outputs_go_in_a_second_one(self) -> None:
+        uploads = re.findall(r"(?ms)- name: Upload (?:the artifacts|the stamped evidence)[^\n]*\n(.*?)(?=^      - |\Z)", self.text)
+        assert len(uploads) == 2, len(uploads)
+        scanned, stamped = uploads
+        for text in uploads:
+            self.assertIn("if: always() && steps.scan.outputs.scan == '0'", text)
+        self.assertIn("name: bench-g1-stack-${{ github.run_id }}\n", scanned)
+        self.assertIn("include-hidden-files: true", scanned, "the scanner reads hidden files, so they must be uploaded or the two sets differ")
+        self.assertIn("benchmark/out/summary.md", scanned, "the summary is scanned, so it is uploaded: the two sets are the same set (row 12)")
+        for out_of_scan in ("leak-scan.txt", "scan-inventory.txt", "artifact-files.txt"):
+            self.assertNotIn(out_of_scan, scanned, f"{out_of_scan} is written by or after the scan: it cannot be in the scanned artifact")
+            self.assertIn("benchmark/out/" + out_of_scan, stamped)
+        self.assertIn("name: bench-g1-stack-evidence-${{ github.run_id }}", stamped)
+        self.assertEqual(len(re.findall(r"benchmark/out/\S+", stamped.split("path: |", 1)[1].split("if-no-files-found", 1)[0])), 3)
+
+    def test_the_result_fails_unless_the_two_sets_match(self) -> None:
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        self.assertIn("FILES_MATCH: ${{ steps.files.outputs.files_match }}", result.group(0))
+        self.assertIn('[ "${FILES_MATCH:-missing}" = 0 ]', result.group(0))
+
+    def test_the_summary_step_succeeds_in_stack_check_mode_where_no_run_files_exist(self) -> None:
+        # Found by the first stack-check run on main (23 Nov): the last line of the Summary group was `[ -f score/scorecard.json ] && {...}`, which exits 1 when the file is absent, and a stack-check
+        # run has none, so the step failed a healthy stack. The step is run here, as written, in an empty output directory.
+        step = re.search(r"(?ms)- name: Summary\n.*?        run: \|\n(.*?)(?=^      # |^      - name:)", self.text)
+        assert step, "no Summary step"
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "benchmark", "out").mkdir(parents=True)
+            env = {"PATH": os.environ.get("PATH", ""), "MODE": "stack-check", "CODE": "0", "RUN_ID": "g1-stack-ghtest", "READYZ": "503", "NETCHECK": "0"}
+            r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("STACK-CHECK", Path(tmp, "benchmark", "out", "summary.md").read_text(encoding="utf-8"))
+
+    def test_the_stack_check_keeps_the_readyz_answer_that_names_every_missing_component(self) -> None:
+        # /readyz is 503 until every component is built and names each one that is not (names only, never a value: services/core/cmd/core/compose.go). The status alone told nobody what was missing,
+        # so the first line is the status and the rest is the body, capped, in the run output that is shown only after a clean leak scan.
+        block = re.search(r'(?s)if \[ "\$MODE" = stack-check \]; then(.*?)\n          else\n', self.script)
+        assert block
+        self.assertIn("print(r.status)", block.group(1))
+        self.assertRegex(block.group(1), r"r\.read\(\d+\)")
+        self.assertIn('readyz="$(head -n 1 benchmark/out/joblog/readyz.log)"', block.group(1))
+
+    def test_the_job_log_scan_shows_why_the_log_could_not_be_read(self) -> None:
+        # The first two stack-check runs ended with "the job log could not be read" after 60 s and no reason: the read's stderr went to /dev/null. gh prints an HTTP status line and no log text
+        # on a failure, so it is kept in a file and shown when the read fails.
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        read = re.search(r"gh api [^\n]*actions/jobs/\$id/logs\"[^\n]*", job.group(1))
+        assert read, "the log read was not found"
+        self.assertNotIn("2>/dev/null", read.group(0))
+        # The reason the first three runs could not read the log (run 45127413024): gh refuses to print a response with terminal escape sequences, and a job log has them. The scanner must see them.
+        self.assertIn("--allow-escape-sequences", read.group(0))
+        self.assertIn("joblog-read.err", job.group(1))
+        self.assertRegex(job.group(1), r"head -c \d+ \"?\$RUNNER_TEMP/joblog-read\.err")
+
+    def test_the_job_log_scan_uses_its_own_allow_file_and_not_the_artifact_one(self) -> None:
+        # Run 45128374794: the first scan that could read the log failed on a Go pseudo-version in a `go: downloading` line (a false card number). Only that line shape is allowed, in a file of its own,
+        # so the artifact scans keep the standing allow file and the job-log scan keeps every other rule.
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py[^\n]*g1-stack\.log\"", job.group(1))
+        assert scan
+        self.assertIn("--allow tools/ci/g1_joblog.allow", scan.group(0))
+        self.assertNotIn("g1_leakscan.allow", scan.group(0))
 
 
 if __name__ == "__main__":

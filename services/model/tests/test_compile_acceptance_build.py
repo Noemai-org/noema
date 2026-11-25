@@ -125,6 +125,7 @@ def test_a_call_refused_by_a_really_full_pool_is_recorded_as_pool_refused_not_as
             doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
             assert (doc["status"], doc["failure"], doc["failure_class"], doc["error"], doc["reply"]) == (None, "POOL_REFUSED", "POOL_REFUSED", None, None)
             assert t.calls == 1
+            assert doc["cost_micros"] == 0 and guard.spent_micros == 0 and doc["projected_micros"] > 0  # A618: nothing was sent, so nothing is charged
             for path in (tmp_path / "out").rglob("*"):
                 if path.is_file():
                     assert KEY not in path.read_text()
@@ -133,6 +134,51 @@ def test_a_call_refused_by_a_really_full_pool_is_recorded_as_pool_refused_not_as
             await holder
             inner._pool.close()  # noqa: SLF001
             restore()
+
+    run(go())
+
+
+def _one_refused_call(tmp_path: Path, raises: ProviderError) -> tuple[BudgetGuard, dict[str, Any]]:
+    holder: dict[str, Any] = {}
+
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-A"
+        t = transport(Wire(raises=raises), guard, rec)
+        with pytest.raises(ProviderError):
+            await t.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        holder["guard"] = guard
+        holder["doc"] = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+
+    run(go())
+    return holder["guard"], holder["doc"]
+
+
+def test_a_call_the_pool_refused_locally_with_nothing_sent_is_charged_zero(tmp_path: Path) -> None:
+    """A618 (interim ruling): charge 0 only when `local` is True and nothing was sent. The projection is still recorded (what the call would have cost), the charge is 0, and the guard's spend does not move."""
+    guard, doc = _one_refused_call(tmp_path, ProviderError(ProviderFailure.UNAVAILABLE, local=True))
+    assert doc["failure"] == "POOL_REFUSED" and doc["projected_micros"] > 0
+    assert doc["cost_micros"] == 0 and guard.spent_micros == 0
+
+
+def test_a_failure_that_may_have_sent_something_is_charged_its_projection(tmp_path: Path) -> None:
+    """A618: doubt charges. A non-local UNAVAILABLE, a timeout, a rate limit, a malformed reply and a local flag on any other kind all keep the projection."""
+    for i, err in enumerate((ProviderError(ProviderFailure.UNAVAILABLE), ProviderError(ProviderFailure.TIMEOUT), ProviderError(ProviderFailure.RATE_LIMITED, 429),
+                             ProviderError(ProviderFailure.MALFORMED, 200), ProviderError(ProviderFailure.TIMEOUT, local=True), ProviderError(ProviderFailure.REJECTED, local=True))):
+        guard, doc = _one_refused_call(tmp_path / str(i), err)
+        assert doc["projected_micros"] > 0 and doc["cost_micros"] == doc["projected_micros"] and guard.spent_micros == doc["projected_micros"], err.kind
+
+
+def test_a_pool_refused_call_does_not_use_up_the_budget_of_the_calls_after_it(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-A"
+        refused = transport(Wire(raises=ProviderError(ProviderFailure.UNAVAILABLE, local=True)), guard, rec)
+        with pytest.raises(ProviderError):
+            await refused.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        ok = transport(Wire(), guard, rec)
+        await ok.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        assert guard.spent_micros == 1_000 * 100_000 // 1_000_000 + 2_000 * 500_000 // 1_000_000  # only the reported usage of the call that was sent
 
     run(go())
 
@@ -278,3 +324,68 @@ def test_a_record_only_input_goes_through_the_real_pipeline_with_its_world_rows_
         assert any("Where is the" in b for b in sent)  # the utterance of the fixture's canonical input is what the pipeline sends
 
     run(go())
+
+
+# --- run #6 (noema#338; A532): the failure names its class, and the lexicon pin covers every file the pack names ----------------------------------------
+
+class _RefusingService:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def run(self, canonical: Mapping[str, Any], pack_ref: str, open_intent: Any) -> Mapping[str, Any]:
+        raise self.error
+
+
+def _backend_that_raises(error: Exception, tmp_path: Path) -> Any:
+    from benchmark.compile_acceptance.build import LiveBackend, _Candidates  # type: ignore[import-not-found,unused-ignore]
+    guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+    return LiveBackend(_RefusingService(error), "fin@1.0.0", _Candidates(), DryTransport(**RATES), rec, {}, True)
+
+
+def test_a_compile_that_was_refused_as_invalid_input_names_the_closed_reason_and_nothing_else(tmp_path: Path) -> None:
+    from noema_model.understanding.compiler.service import InputInvalid, ProviderUnavailable, ScreenNotRun
+    from noema_model.understanding.pipeline import InputInvalidReason
+    for reason in InputInvalidReason:
+        with pytest.raises(CompileFailed) as caught:
+            run(_backend_that_raises(InputInvalid(reason), tmp_path).compile_one(GOLDEN[1]))
+        assert str(caught.value) == f"the compile service gave no usable proposal (InputInvalid:{reason.value})"
+    with pytest.raises(CompileFailed) as unavailable:
+        run(_backend_that_raises(ProviderUnavailable(), tmp_path).compile_one(GOLDEN[1]))
+    assert str(unavailable.value) == "the compile service gave no usable proposal (ProviderUnavailable)"
+    with pytest.raises(CompileFailed) as screen:
+        run(_backend_that_raises(ScreenNotRun(("UTTERANCE",)), tmp_path).compile_one(GOLDEN[1]))
+    assert str(screen.value) == "the compile service gave no usable proposal (ScreenNotRun)"
+
+
+def test_the_lexicon_pin_is_the_digest_of_every_lexicon_the_pack_names_not_of_the_english_file_alone(tmp_path: Path) -> None:
+    import hashlib
+    from noema_model.understanding.compiler.lexicon import load_pack_lexicons
+    from benchmark.compile_acceptance.build import LEXICON_DIR, PACK_FILE  # type: ignore[import-not-found,unused-ignore]
+    guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+    pin = build_backend(True, {}, guard, rec, args()).pin()
+    merged = load_pack_lexicons(json.loads(PACK_FILE.read_text(encoding="utf-8")), LEXICON_DIR)
+    english = hashlib.sha256((LEXICON_DIR / "fin.lex.en_ng.json").read_bytes()).hexdigest()
+    assert pin["lexicon_sha256"] == merged.digest != english
+
+
+# --- run #7 (noema#338; A602): the choices of each example reach the log -----------------------------------------------------------------------------
+
+def test_the_compiler_the_backend_builds_hands_its_choices_to_the_backend_and_the_backend_prints_them_by_case(tmp_path: Path) -> None:
+    from noema_model.understanding.compiler.compiler import SlotChoice
+    from benchmark.compile_acceptance.golden import canonical_input  # type: ignore[import-not-found,unused-ignore]
+    backend = build_backend(True, ENV, BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), args())
+    sink = backend._service._compiler._diagnostics
+    assert sink is not None  # the wiring: without it no run could print a choice
+    with pytest.raises(CompileFailed):
+        run(backend.compile_one(GOLDEN[1]))  # dry: nothing is sent; the example's correlation id is now known to the backend
+    choice = SlotChoice("requested_remedy", None, {"none_or_other": 0.31, "fin.cap.lookup_transaction": 0.5}, None)
+    sink(canonical_input(GOLDEN[1])["correlation_id"], (choice,))
+    assert backend.choice_lines(GOLDEN[1].case_id) == ["CHOICE G-B slot=requested_remedy chosen=none_or_other top5=fin.cap.lookup_transaction:0.5000,none_or_other:0.3100 threshold=n/a"]
+    assert backend.choice_lines("G-A") == [] and backend.choice_lines("nope") == []
+
+
+def test_a_choice_for_a_correlation_id_no_example_used_is_dropped_not_filed_under_another_case(tmp_path: Path) -> None:
+    from noema_model.understanding.compiler.compiler import SlotChoice
+    backend = build_backend(True, ENV, BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), args())
+    backend._service._compiler._diagnostics("corr_unknown", (SlotChoice("requested_remedy", None, {"none_or_other": 1.0}, None),))
+    assert all(backend.choice_lines(g.case_id) == [] for g in GOLDEN)

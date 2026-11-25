@@ -48,18 +48,28 @@ cp "$work/secrets/core_trust_ed25519_seed_1" "$work/seed.first"
 cmp -s "$work/seed.first" "$work/secrets/core_trust_ed25519_seed_1" || fail "a second run replaced the core-trust seed"
 # The core's other key files (A506): the orchestrator's and the gateway's signing seeds and the input hash key, each 64 lower-case hexadecimal characters (the form the loaders read), mode 600 (a
 # one-shot step sets 0400 and the core's owner), all different from each other and from the other keys, written under umask 077, and kept on a second run.
-for f in core_workflows_ed25519_seed_1 core_edge_ed25519_seed_1 input_hash_key; do
+for f in core_workflows_ed25519_seed_1 core_edge_ed25519_seed_1 input_hash_key core_execution_ed25519_seed_1 core_outcome_ed25519_seed_1; do
   [ -s "$work/secrets/$f" ] || fail "secrets/$f was not made"
   printf '%s' "$(cat "$work/secrets/$f")" | grep -Eq '^[0-9a-f]{64}$' || fail "secrets/$f is not 64 lower-case hexadecimal characters"
   [ "$(stat -c %a "$work/secrets/$f")" = "600" ] || fail "secrets/$f is not mode 600"
   grep -q "umask 077; python3 -c .*$f" "$here/secrets_local.sh" || fail "secrets/$f is not written under umask 077"
   cp "$work/secrets/$f" "$work/$f.first"
 done
-[ "$(cat "$work"/secrets/core_workflows_ed25519_seed_1 "$work"/secrets/core_edge_ed25519_seed_1 "$work"/secrets/input_hash_key "$work"/secrets/core_trust_ed25519_seed_1 "$work"/secrets/grant_hmac_key_a | sort -u | wc -l)" = "5" ] || fail "two of the core's keys are the same"
+[ "$(cat "$work"/secrets/core_workflows_ed25519_seed_1 "$work"/secrets/core_edge_ed25519_seed_1 "$work"/secrets/input_hash_key "$work"/secrets/core_trust_ed25519_seed_1 "$work"/secrets/grant_hmac_key_a "$work"/secrets/core_execution_ed25519_seed_1 "$work"/secrets/core_outcome_ed25519_seed_1 | sort -u | wc -l)" = "7" ] || fail "two of the core's keys are the same"
 ( cd "$work" && sh secrets_local.sh >/dev/null )
-for f in core_workflows_ed25519_seed_1 core_edge_ed25519_seed_1 input_hash_key; do
+for f in core_workflows_ed25519_seed_1 core_edge_ed25519_seed_1 input_hash_key core_execution_ed25519_seed_1 core_outcome_ed25519_seed_1; do
   cmp -s "$work/$f.first" "$work/secrets/$f" || fail "a second run replaced secrets/$f"
 done
+# The migration password's private copy (A536): migrate and tenants-provision hold it, run as the host user that made it, and read it as a regular file of that user at mode 0400 (cmd/migrate refuses
+# anything else); postgres keeps reading the mode-644 original. The copy is the same value, made again whenever the original changes, and never printed.
+[ -s "$work/secrets/migrator_password_file" ] || fail "secrets/migrator_password_file was not made"
+[ "$(stat -c %a "$work/secrets/migrator_password_file")" = "400" ] || fail "secrets/migrator_password_file is not mode 400"
+cmp -s "$work/secrets/noema_migrator_password" "$work/secrets/migrator_password_file" || fail "the private copy differs from the migration password"
+[ "$(wc -l < "$work/secrets/migrator_password_file")" = "1" ] || fail "the private copy is not one line"
+printf '%s\n' "synthetic-rotated-migrator-password-0123456789" > "$work/secrets/noema_migrator_password"
+( cd "$work" && sh secrets_local.sh >/dev/null ) || fail "the second run failed"
+cmp -s "$work/secrets/noema_migrator_password" "$work/secrets/migrator_password_file" || fail "the private copy was not made again after the original changed"
+[ "$(stat -c %a "$work/secrets/migrator_password_file")" = "400" ] || fail "the private copy is not mode 400 after a second run"
 # The mTLS material for the core and the model service (noema#555) is made too, kept on a second run, and leaves no CA key behind.
 for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key; do
   [ -s "$work/secrets/tls/$f" ] || fail "secrets/tls/$f was not made"

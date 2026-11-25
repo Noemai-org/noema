@@ -1,0 +1,27 @@
+{
+  "en-NG": {
+    "language": "en",
+    "accent": "yoruba",
+    "gender": "female"
+  },
+  "pcm": {
+    "language": "pcm",
+    "accent": "pidgin",
+    "gender": "female"
+  },
+  "yo": {
+    "language": "yo",
+    "accent": "yoruba",
+    "gender": "female"
+  },
+  "ha": {
+    "language": "ha",
+    "accent": "hausa",
+    "gender": "female"
+  },
+  "ig": {
+    "language": "ig",
+    "accent": "igbo",
+    "gender": "female"
+  }
+}

@@ -10,8 +10,10 @@ No clock and no randomness are read here: the lexicon's reference instant is the
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from typing import Any, Protocol
 
 from noema_model.harness import Harness
@@ -20,6 +22,7 @@ from noema_model.understanding.compiler.lexicon import Lexicon, Normaliser
 from noema_model.understanding.compiler.service import InputInvalid, ProviderUnavailable, ScreenNotRun
 from noema_model.understanding.pipeline import (
     CandidateSource,
+    InputInvalidReason,
     Outcome,
     PipelineConfig,
     PipelineInput,
@@ -31,6 +34,20 @@ from noema_model.understanding.pipeline.run import GATE_INPUT_INVALID, GATE_TENA
 
 _PACK_REF = re.compile(r"[a-z][a-z0-9]*@[0-9]+\.[0-9]+\.[0-9]+")
 _CANDIDATE_SET_VERSION = 1  # a new compile reads a new candidate set (the first version); a re-read is a later turn's concern
+
+
+@dataclass(frozen=True, slots=True)
+class SlotChoice:
+    """What the model chose for one closed-vocabulary slot of a turn, for the benchmark's job log (UND-17, A602): the slot, the option it chose (None: it chose none_or_other), the probability of every option
+    the question offered (the abstention included) and the threshold applied to the choice (None: none is applied to a choice today). Option ids and numbers only: never a word of the request (AGENT-13)."""
+
+    slot: str
+    chosen: str | None
+    probabilities: Mapping[str, float]
+    threshold: Fraction | None
+
+
+DiagnosticsSink = Callable[[str, tuple[SlotChoice, ...]], None]  # (correlation id, the turn's choices); internal, never part of the route's answer
 
 
 class TenantScopeMismatch(Exception):
@@ -53,7 +70,7 @@ def _no_pre_gate_errors(proposal: Proposal, normalised: NormalisedSlots) -> tupl
 class PipelineCompiler:
     """Build once per process, from configuration: the pipeline configuration of each pack it holds (by `<vertical>@<x.y.z>`), the lexicon, the harness, the candidate source and the minter."""
 
-    def __init__(self, packs: Mapping[str, PipelineConfig], lexicon: Lexicon, harness: Harness, source: CandidateSource, minter: Minter) -> None:
+    def __init__(self, packs: Mapping[str, PipelineConfig], lexicon: Lexicon, harness: Harness, source: CandidateSource, minter: Minter, diagnostics: DiagnosticsSink | None = None) -> None:
         if not packs:
             raise ValueError("the compiler needs at least one pack")
         for ref in packs:
@@ -64,15 +81,16 @@ class PipelineCompiler:
         self._harness = harness
         self._source = source
         self._minter = minter
+        self._diagnostics = diagnostics  # internal and optional: the benchmark's job log reads the choices of a turn here; the proposal and the route's answer do not change with it (UND-17, A602)
 
     async def compile(self, canonical_input: Mapping[str, Any], pack_ref: str, open_intent: Mapping[str, Any] | None) -> bytes:
         """`open_intent` is not read: it is unvalidated input and no turn of the first slice continues an earlier intent (README, precondition 3)."""
         config = self._packs.get(pack_ref)
         if config is None:
-            raise InputInvalid
+            raise InputInvalid(InputInvalidReason.UNKNOWN_PACK)
         if canonical_input.get("channel") != "text":
             # A voice request needs the low-confidence rule for a key slot, which is a founder decision (AGENT-16); it is not invented here.
-            raise InputInvalid
+            raise InputInvalid(InputInvalidReason.NOT_TEXT_CHANNEL)
         now = _instant(canonical_input.get("received_at"))
         inp = PipelineInput(
             correlation_id=str(canonical_input["correlation_id"]),
@@ -87,26 +105,35 @@ class PipelineCompiler:
             candidate_set_version=_CANDIDATE_SET_VERSION,
         )
         result = await run_pipeline(inp, config, self._harness, self._source, Normaliser(self._lexicon, now).normalise, _no_pre_gate_errors)
+        if self._diagnostics is not None and result.proposal is not None:
+            self._diagnostics(inp.correlation_id, _choices(result.proposal))
         if result.outcome is Outcome.REJECTED_AT_GATE:
             if GATE_TENANT_SCOPE in result.gate_errors:
                 raise TenantScopeMismatch
             if GATE_INPUT_INVALID in result.gate_errors:
-                raise InputInvalid
+                if result.input_invalid is None:
+                    raise ValueError("a turn refused as invalid input names its reason")  # a bug, never a guess at a class
+                raise InputInvalid(result.input_invalid)
             if result.screen_not_run:
                 raise ScreenNotRun(tuple(stage.value for stage in result.screen_not_run))  # A437: internal class; to every caller still a ProviderUnavailable
             raise ProviderUnavailable  # a provider, the schema of its reply or the Evidence API failed: a rejection, never a guess (REQ-INT-002)
         return assemble(canonical_input, result, config.catalogue, pack_ref, self._minter.identifiers(canonical_input))
 
 
+def _choices(proposal: Proposal) -> tuple[SlotChoice, ...]:
+    """The closed-vocabulary choices of a turn, in slot order. No threshold is applied to a choice (`asserted` applies the pack's threshold to a yes/no answer only), so none is named."""
+    return tuple(SlotChoice(slot, chosen, dict(proposal.probabilities.get(slot, {})), None) for slot, chosen in sorted(proposal.reference_slots.items()))
+
+
 def _instant(value: Any) -> datetime:
     if not isinstance(value, str):
-        raise InputInvalid
+        raise InputInvalid(InputInvalidReason.BAD_RECEIVED_AT)
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as err:
-        raise InputInvalid from err
+        raise InputInvalid(InputInvalidReason.BAD_RECEIVED_AT) from err
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise InputInvalid
+        raise InputInvalid(InputInvalidReason.BAD_RECEIVED_AT)
     return parsed
 
 

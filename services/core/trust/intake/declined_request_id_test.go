@@ -51,7 +51,7 @@ func TestAnAllowAndAConfirmLeaveDeclinedRequestIDEmpty(t *testing.T) {
 }
 
 // A470, REQ-TRU-009, INV-25: a REJECT DECLINED_BY_APPROVER names the request that was declined, so the writer can store the decision with the request it rests on; the answer's own
-// RequestID is that request. An answer that names no request leaves it empty (the field is optional).
+// RequestID is that request.
 func TestADeclinedRejectNamesTheDeclinedRequest(t *testing.T) {
 	f := newFake13()
 	f.conf = Confirmation{Status: ConfirmationDeclined, RequestID: "cfr_synth0001"}
@@ -64,13 +64,19 @@ func TestADeclinedRejectNamesTheDeclinedRequest(t *testing.T) {
 		t.Errorf("the REJECT was recorded with DeclinedRequestID %q, want the declined request cfr_synth0001", got)
 	}
 
-	none := newFake13()
-	none.conf = Confirmation{Status: ConfirmationDeclined}
-	none.rec = RecordResult{DecisionID: "dec_synth0002"}
-	if res = run13(t, newEval13(t, none)); res.Decision.Outcome() != decide.Reject {
-		t.Fatalf("outcome %s, want REJECT", res.Decision.Outcome())
-	}
-	if got := declinedRequestIDOf(t, rec0(t, none)); got != "" {
-		t.Errorf("a decline that names no request was recorded with DeclinedRequestID %q, want empty", got)
+}
+
+// A542 (interim, relayed, not yet committed), REQ-TRU-009, INV-03: a Declined answer must name the request it rests on, and the name has the shape of a confirmation request id,
+// like the Given answer's. An answer with none, or a malformed one, is not an answer: UNKNOWN at T13 (as the Given path does), and nothing is recorded or planned.
+func TestADeclinedAnswerWithoutAWellFormedRequestIDIsUnknownAndNotRecorded(t *testing.T) {
+	for _, bad := range []string{"", "x", "cfr_", "cfr_a", "dec_synth0001", "cfr_synth 0001", "cfr_synth0001\n", "CFR_synth0001"} {
+		f := newFake13()
+		f.conf = Confirmation{Status: ConfirmationDeclined, RequestID: bad}
+		f.rec = RecordResult{DecisionID: "dec_synth0002"}
+		res := run13(t, newEval13(t, f))
+		wantUnknown(t, "declined with request id "+bad, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		if f.called("Recorder.Record") != 0 || f.called("Planner.Plan") != 0 {
+			t.Errorf("%q: the recorder or the planner was called: %v", bad, f.calls)
+		}
 	}
 }
