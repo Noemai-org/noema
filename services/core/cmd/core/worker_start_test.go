@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator"
@@ -179,5 +180,20 @@ func TestAStarterNeedsAClientAndTheWorkerConfiguration(t *testing.T) {
 	}
 	if _, err := NewEscalationStarter(&escStartRecorder{}, &WorkerConfig{ActivityTimeout: time.Second}); err == nil {
 		t.Error("no task queue: want an error")
+	}
+}
+
+// AGENT-08, INV-30 (A539; the user's go-ahead of 25 Nov, interim, not yet committed; C1 and SR note 1 on noema#945): a repeat start after the first run has closed must not run the case again.
+// The start asks the server to reject a duplicate of a closed run, so the SDK returns the run that exists and no second EscalateCase begins; a retry needs a new grant, not a new run.
+func TestTheStartRejectsADuplicateOfAClosedRunSoTheCaseIsNeverRunTwice(t *testing.T) {
+	rec := &escStartRecorder{}
+	if _, err := newEscStarter(t, rec).Start(escStartCtx(t), escStartReq()); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("the client was called %d times, want once", len(rec.calls))
+	}
+	if got := rec.calls[0].opts.WorkflowIDReusePolicy; got != enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE {
+		t.Errorf("the workflow id reuse policy is %v, want REJECT_DUPLICATE", got)
 	}
 }
