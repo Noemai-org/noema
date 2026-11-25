@@ -590,3 +590,13 @@ def test_a_repeated_option_in_a_gate_reply_is_refused_with_the_same_reason_at_th
     with pytest.raises(HarnessRejection) as caught:
         run(harness.decide(DecideRequest(DecisionTask.ENUMERATED_SLOT, {"utterance": "check it"}, (GateQuestion(GATE, SLOT_GATE_V1),), None, "corr_test")))
     assert caught.value.reason is Reason.OUTPUT_MISMATCH
+
+
+def test_two_gate_answers_in_one_reply_are_each_checked_for_a_repeat_on_their_own() -> None:
+    """A repeat is a repeat WITHIN one answer: a "yes" in the first gate's answer is not a repeat of the "yes" in the second's (a pack may gate more than one slot)."""
+    one = '{"question_id":"gate_one","selected":"yes","probabilities":' + _entries(("yes", "0.95"), ("no", "0.05")) + "}"
+    two = '{"question_id":"gate_two","selected":"yes","probabilities":' + _entries(("yes", "0.91"), ("no", "0.09")) + "}"
+    harness, _, _ = stack([], llm_steps=[reply(None, version="model-gpt-2026-01-01", raw='{"answers":[' + one + "," + two + "]}")], route=("gpt",))
+    asked = (GateQuestion("gate_one", SLOT_GATE_V1), GateQuestion("gate_two", SLOT_GATE_V1))
+    result = run(harness.decide(DecideRequest(DecisionTask.ENUMERATED_SLOT, {"utterance": "check it"}, asked, None, "corr_test")))
+    assert result.answers == (GateAnswer("gate_one", True, RawNumber("0.95")), GateAnswer("gate_two", True, RawNumber("0.91")))

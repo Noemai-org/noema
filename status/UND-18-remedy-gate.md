@@ -18,3 +18,20 @@
 - A649: the gate's probability is read from the raw JSON number token. `harness/rawjson.py` decodes with `RawNumber`/`NonNumber` and makes no float; `GateQuestion`/`GateAnswer` carry the token; `probability_bp` accepts only a `RawNumber` holding a plain decimal in [0, 1]. A missing, null, quoted, boolean, signed, NaN, Infinity or exponent-form probability abstains for that slot; invalid JSON still refuses the reply (ProviderUnavailable). A set with a gate is never sent to a decision provider (its reply is parsed to numbers at the vendor envelope), so it goes to the LLM route.
 - P2: a gated slot name declared by more than one node is refused (packcheck, the loader and `PipelineConfig`).
 - Next step: A602 reads `proposal.probabilities["requested_remedy_gate"] == {"yes_bp": n}` (present only when the token was a plain decimal).
+
+# Session 2026-11-25 · UND-18 (C2), EL's repeated-option finding
+
+## Session summary
+- What changed (PR links): noema#932. EL's review (CHANGES NEEDED, important): in `_decode_decision` a gate answer with two `yes` entries let the last one win, so `yes 0.10` then `yes 0.95` gave the token `0.95` (9500 bp, at or above 9000) and asserted the slot. Reproduced first (16 red cases, CI `model` job 139291465833, read whole). Fix: a repeated option in a gate answer (`yes` or `no`) refuses the WHOLE reply with `HarnessRejection(Reason.OUTPUT_MISMATCH)`, the rejection `_answers` gives for a repeated option on the ordinary path (INV-02: whole-reply, strict, no repair). Chosen over "the slot abstains" because the ordinary path refuses the reply, a reply that contradicts itself is not a reply to read, and it needs no new rule; it fails closed (the compile reports a refused reply, never a slot).
+- Why: a false assertion is the harmful error; contradictory input must fail closed.
+- Risks, and how they are contained: a reply with a repeated option used to be accepted and now refuses the whole decide call (the same as a repeated option on any other question); nothing that was a plain, single-entry reply changes. The A649 behaviour is untouched (9e-1, quoted, null, missing, signed, NaN and Infinity abstain for the slot only; invalid JSON still refuses the reply): the tests of that table pass unchanged.
+- Tests added (REQ-INT-005, REQ-AMB-002, INV-02): `test_remedy_gate.py`: 14 repeated-option cases, a `no` selection with a repeated yes, the harness-level reason, a repeat on a non-gate question (unchanged), the single-yes controls, two gate answers in one reply.
+- Regression cases added: the same tests (the EL scenario is the first parametrised case).
+- Debt entries: none. Conflicts raised: none.
+- Nit: the docstring of `_decode_decision` now says the `no` entry's `p` is not validated (only the option name; only `yes` is read).
+
+## Pre-work for the next agent
+- Exact next step: SR and Codex re-read the final head; A602 and A604 wait on this merge as before.
+- Open questions (owner): the threshold value (Founder), and `pack.v1` gains an optional member without a version bump (Founders, see the PR body).
+- Files to read first: `services/model/noema_model/harness/rawjson.py`, `harness/core.py` (`_decode_decision`, `_answers`, `_native_request`), `understanding/pipeline/steps.py` (`probability_bp`).
+- Do not touch: the goldens, the inputs, the threshold (9000), the recordings.

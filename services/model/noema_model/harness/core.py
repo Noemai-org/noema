@@ -123,7 +123,10 @@ class _DecodedDecision(_WireDecision):
 def _decode_decision(text: str, questions: tuple[Question, ...]) -> _DecodedDecision:
     """The decision reply, decoded so that the probability of a GATE question keeps the text it was written in (A649). Everything else is checked exactly as before: the JSON must be valid with no repeated key
     (ValueError otherwise), and every other answer goes through the strict wire model, so a non-gate probability that is not a finite number in [0, 1] refuses the whole reply. For a gate question the reply
-    may carry a missing, null, quoted, boolean, signed, non-finite or exponent-form probability, or none at all: that is returned as no token (None) or the token itself, and the caller's rule judges it."""
+    may carry a missing, null, quoted, boolean, signed, non-finite or exponent-form probability, or none at all: that is returned as no token (None) or the token itself, and the caller's rule judges it.
+    A gate answer that repeats an option (two "yes" entries, or two "no") contradicts itself, so the WHOLE reply is refused with the reason the ordinary path gives for a repeated option (`_answers`,
+    OUTPUT_MISMATCH): no entry is picked from it, whatever the repeated entries hold (INV-02: whole-reply, strict, no repair). Only the option NAME of an entry is checked and only the "yes" entry's `p` is read:
+    the "no" entry's `p` is not validated at all, so a reader must not assume the yes/no pair was."""
     raw = loads_lossless(text)
     if not isinstance(raw, dict) or set(raw) != {"answers"} or not isinstance(raw["answers"], list):
         raise ValueError("not a decision reply")
@@ -139,9 +142,13 @@ def _decode_decision(text: str, questions: tuple[Question, ...]) -> _DecodedDeci
                 raise ValueError("a malformed gate answer")
             tokens[qid] = None
             options = entry.get("probabilities")
+            seen: set[str] = set()
             for item in options if isinstance(options, list) else []:
                 if not isinstance(item, dict) or set(item) - {"option", "p"} or item.get("option") not in ("yes", "no"):
                     raise ValueError("a malformed probability entry")
+                if item["option"] in seen:
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)  # a repeated option: the ordinary path refuses it too (`_answers`), and no entry may win
+                seen.add(item["option"])
                 if item["option"] == "yes":
                     value = item.get("p")
                     tokens[qid] = value if isinstance(value, RawNumber) else None
