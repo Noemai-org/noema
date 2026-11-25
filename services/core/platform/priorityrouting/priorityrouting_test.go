@@ -1,7 +1,7 @@
 package priorityrouting_test
 
 // PCK-09 (ruling A644, interim, relayed, not yet committed; A640; A616; A551; INV-14, INV-21; REQ-CAP-001): the pack's priority routing member maps each SLA phase to a priority and an
-// owner queue. A phase with no entry is NORMAL. A priority outside HIGH|NORMAL|LOW and an empty owner queue are refused. The accessor is read only and hands out copies. All values SYNTHETIC.
+// owner queue. A phase with no entry gives the zero Entry and false (A660: no silent NORMAL). A priority outside HIGH|NORMAL|LOW and an empty owner queue are refused. The accessor is read only and hands out copies. All values SYNTHETIC.
 
 import (
 	"encoding/json"
@@ -62,18 +62,18 @@ func TestAPhaseWithAnEntryReturnsItsPriorityAndQueue(t *testing.T) {
 	}
 }
 
-// A644: a phase with no entry is NORMAL, with no queue, and the answer says it was not listed.
-func TestAPhaseWithNoEntryIsNormal(t *testing.T) {
+// A660: a phase with no entry is not routed. Lookup is fail-closed: the zero Entry (no priority, no queue) and false, never a silent NORMAL.
+func TestAPhaseWithNoEntryIsNotRouted(t *testing.T) {
 	tab := mustParse(t, good)
 	for _, name := range []string{"NOT_STARTED", "", "breached", " BREACHED", "BREACHED ", "UNKNOWN_PHASE"} {
 		got, ok := tab.Lookup(name)
-		if ok || got.Priority != priorityrouting.Normal || got.OwnerQueue != "" {
-			t.Errorf("%q: got %+v, %v; want NORMAL, no queue, false", name, got, ok)
+		if ok || got != (priorityrouting.Entry{}) {
+			t.Errorf("%q: got %+v, %v; want the zero Entry, false", name, got, ok)
 		}
 	}
 	var none *priorityrouting.Table
-	if got, ok := none.Lookup("BREACHED"); ok || got.Priority != priorityrouting.Normal {
-		t.Errorf("a nil table: got %+v, %v; want NORMAL, false", got, ok)
+	if got, ok := none.Lookup("BREACHED"); ok || got != (priorityrouting.Entry{}) {
+		t.Errorf("a nil table: got %+v, %v; want the zero Entry, false", got, ok)
 	}
 }
 

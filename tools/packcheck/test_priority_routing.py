@@ -7,6 +7,7 @@ breaks one thing. All data SYNTHETIC.
 """
 import copy
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ import test_manifest as tm  # noqa: E402
 
 PRIO = "fintech/routing/priority_routing.v1.json"
 PACKS = tm.PACKS
+CLOCKS_GO = Path(__file__).resolve().parents[2] / "services/core/trust/clocks/clocks.go"
 
 
 def real() -> dict:
@@ -57,6 +59,25 @@ class CommittedMember(Tree):
     def test_a_good_tree_with_the_member_passes(self):
         root, manifest = self.member_tree()
         self.assertEqual(self.check(manifest, root), [])
+
+
+class Vocabulary(Tree):
+    """A660 (interim, relayed, not yet committed; EL's reading pending Architect confirmation): the phase vocabulary is the clock statuses. The pack's sla_phase list
+    must equal the `Phase` constants of trust/clocks, so it cannot drift from the clocks."""
+
+    def test_the_packs_sla_phase_list_is_exactly_the_clock_statuses(self):
+        src = CLOCKS_GO.read_text(encoding="utf-8")
+        statuses = re.findall(r'^\s*[A-Za-z]+\s+Phase\s*=\s*"([A-Z_]+)"\s*$', src, re.M)
+        self.assertEqual(len(statuses), 4, statuses)
+        pack = json.loads((PACKS / "fintech_v1.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(pack["predicate_variables"]["sla_phase"]["values"]), sorted(statuses))
+
+    def test_a_pack_phase_with_no_entry_fails(self):
+        for phase in ("NOT_STARTED", "RUNNING", "AT_RISK", "BREACHED"):
+            with self.subTest(phase):
+                root, manifest = self.member_tree()
+                self.change(root, manifest, lambda d: d["phases"].pop(phase))
+                self.fails(root, manifest, "priority_routing", "no entry", phase)
 
 
 class BadMember(Tree):
