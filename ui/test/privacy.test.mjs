@@ -13,6 +13,21 @@ test("REQ-UI-001: refuses a visible digit run longer than four", () => {
   assert.notDeepEqual(scanVisibleText("１２\u200b３/４:５"), []);
 });
 
+test("REQ-UI-001: the scanner catches every Unicode separator rejected by the shared customer-answer digit pattern", async () => {
+  const schema = JSON.parse(await readFile(new URL("../../contracts/schemas/customer-answer.v1.json", import.meta.url), "utf8"));
+  const contract = new RegExp(schema.properties.found.items.pattern, "u");
+  for (let codePoint = 0; codePoint <= 0x10ffff; codePoint++) {
+    if (codePoint >= 0xd800 && codePoint <= 0xdfff) continue;
+    const sample = `1${String.fromCodePoint(codePoint)}2345`;
+    const expected = !contract.test(sample);
+    if (expected) assert.ok(scanVisibleText(sample).includes("digit-run"), `digit-run missed at U+${codePoint.toString(16).toUpperCase()}`);
+  }
+  for (const sample of ["1234", "1234,5", "1234x5"]) {
+    assert.equal(contract.test(sample), true);
+    assert.ok(!scanVisibleText(sample).includes("digit-run"));
+  }
+});
+
 test("REQ-UI-001: every shared invalid digit fixture is detected", async () => {
   const directory = new URL("../../contracts/fixtures/invalid/customer-answer/", import.meta.url);
   const files = (await readdir(directory)).filter((name) => name.endsWith("_in_found.json"));
