@@ -234,14 +234,17 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		}
 	}
 	now := w.Clock.Now().UTC()
+	// The Writer records a decision that evaluated its basis (A578: an early outcome is not written here yet), so the three members are set; they are pointers because decision-record.v2 lets
+	// an early outcome hold null (A574, A577).
+	snapshotID, freshEvidence := contracts.CommonV1SnapshotId(basis.EvidenceSnapshotID), freshness(basis)
 	rec := contracts.DecisionRecordV2{
 		SchemaVersion: schemaV, TenantId: contracts.CommonV1TenantId(r.TenantID), CorrelationId: contracts.CommonV1CorrelationId(r.CorrelationID),
 		DecisionId: contracts.CommonV1DecisionId(decisionID), IntentId: contracts.CommonV1IntentId(r.IntentID), IntentHash: r.IntentHash,
 		Outcome: contracts.EnumsV1DecisionOutcome(d.Outcome()), ReasonCodes: reasonCodes(d),
 		Authority: contracts.DecisionRecordV2Authority{Technical: contracts.EnumsV1AuthorityResult(d.Authority().Technical), Policy: contracts.EnumsV1AuthorityResult(d.Authority().Policy),
 			Business: contracts.EnumsV1AuthorityResult(d.Authority().Business)},
-		EvidenceSnapshotId: contracts.CommonV1SnapshotId(basis.EvidenceSnapshotID), PolicyVersion: policy, PackVersion: basis.PackVersion,
-		EvidenceFreshness: freshness(basis), EvaluatedAt: stamp(time.Unix(basis.EvaluatedAt, 0)), IssuedAt: stamp(now), ExpiresAt: stamp(now.Add(w.RecordLifetime)),
+		EvidenceSnapshotId: &snapshotID, PolicyVersion: &policy, PackVersion: basis.PackVersion,
+		EvidenceFreshness: &freshEvidence, EvaluatedAt: stamp(time.Unix(basis.EvaluatedAt, 0)), IssuedAt: stamp(now), ExpiresAt: stamp(now.Add(w.RecordLifetime)),
 	}
 	if r.DispositionDecisionID != "" {
 		rec.DispositionDecisionId = contracts.Opt[contracts.CommonV1DecisionId]{Set: true, Value: contracts.CommonV1DecisionId(r.DispositionDecisionID)}

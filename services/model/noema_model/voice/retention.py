@@ -1,12 +1,12 @@
 """The study store checks: the bucket scan and the retention timer (VOI-05, REQ-VOI-004, AGENT-13, AGENT-16).
 
-The recording plan (docs/voice/recording-plan-DRAFT.md section 5, noema#201; a draft until the Founder signs it) proves "no audio without consent" with a consent register and a
-scan of the bucket: every study object carries a `consent_ref` that is in the register, and the count of objects without one is zero. It deletes audio a set time after analysis
+The recording plan (docs/voice/recording-plan-DRAFT.md section 5, noema#201; a draft until the Founder signs it) proves "no audio without a registered speaker" with a speaker register and a
+scan of the bucket: every study object carries a `speaker_ref` that is in the register, and the count of objects without one is zero. It deletes audio a set time after analysis
 and a set time after a withdrawal. This module holds no audio and reads no bucket: the caller lists the objects and passes them in. Nothing here deletes anything; it says what must
 be deleted and when, and the Founders (who alone can read the bucket) act on it.
 
 The two durations are the Founders' decisions and are not yet in a committed record (AGENTS section 2, item 3), so they are required arguments and have no default (AGENT-16).
-Every record is checked by type as well as by value: a bad record is a listed violation, never a crash and never a pass. A consent that is withdrawn, absent from the register or
+Every record is checked by type as well as by value: a bad record is a listed violation, never a crash and never a pass. A speaker that is withdrawn, absent from the register or
 malformed fails closed.
 """
 
@@ -14,15 +14,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from noema_model.voice.study import ConsentRecord
+from noema_model.voice.study import SpeakerRecord
 
 
 @dataclass(frozen=True, slots=True)
 class StudyObject:
-    """One object of the study bucket, as the caller lists it. The key and the consent ref are not printed in a traceback (AGENT-13)."""
+    """One object of the study bucket, as the caller lists it. The key and the speaker ref are not printed in a traceback (AGENT-13)."""
 
     object_key: str = field(repr=False)
-    consent_ref: str | None = field(repr=False)
+    speaker_ref: str | None = field(repr=False)
     analysed_at: datetime | None = None
     withdrawn_at: datetime | None = None
     deleted_at: datetime | None = None  # set once the deletion is logged
@@ -32,7 +32,7 @@ class StudyObject:
 class ScanReport:
     ok: bool
     n_objects: int
-    n_without_consent: int
+    n_without_speaker_ref: int
     violations: tuple[tuple[str, str], ...]  # (object_key or "#<position>", what is wrong and what to do), every one of them
 
 
@@ -57,8 +57,8 @@ def _deleted(value: object) -> bool:
     return value is not None and _valid_marker(value)
 
 
-def scan_objects(objects: Sequence[StudyObject], register: Mapping[str, ConsentRecord]) -> ScanReport:
-    """The bucket scan: an object without a consent ref, with one that is not in the register, or whose consent was withdrawn and which is not deleted, is a violation."""
+def scan_objects(objects: Sequence[StudyObject], register: Mapping[str, SpeakerRecord]) -> ScanReport:
+    """The bucket scan: an object without a speaker ref, with one that is not in the register, or whose speaker was withdrawn and which is not deleted, is a violation."""
     violations: list[tuple[str, str]] = []
     n_without = 0
     for position, o in enumerate(objects):
@@ -70,17 +70,17 @@ def scan_objects(objects: Sequence[StudyObject], register: Mapping[str, ConsentR
             violations.append((label, "deleted_at malformed: treat the object as not deleted"))
         if _blank(o.object_key):
             violations.append((label, "object_key blank or not text"))
-        if _blank(o.consent_ref):
+        if _blank(o.speaker_ref):
             n_without += 1
-            violations.append((label, "no consent_ref: delete the object and log it"))
-        elif (ref := str(o.consent_ref)) not in register:
-            violations.append((label, "consent_ref not in the register: delete the object and log it"))
+            violations.append((label, "no speaker_ref: delete the object and log it"))
+        elif (ref := str(o.speaker_ref)) not in register:
+            violations.append((label, "speaker_ref not in the register: delete the object and log it"))
         else:
             record = register[ref]
-            if not isinstance(record, ConsentRecord) or record.consent_ref != ref or type(record.withdrawn) is not bool:
-                violations.append((label, "consent record malformed: treat as no consent"))
+            if not isinstance(record, SpeakerRecord) or record.speaker_ref != ref or type(record.withdrawn) is not bool:
+                violations.append((label, "speaker record malformed: treat as no speaker"))
             elif record.withdrawn and not _deleted(o.deleted_at):
-                violations.append((label, "consent withdrawn: the object must be deleted"))
+                violations.append((label, "speaker withdrawn: the object must be deleted"))
     return ScanReport(not violations, len(objects), n_without, tuple(violations))
 
 

@@ -76,44 +76,68 @@
       "additionalProperties": false
     },
     "evidence_snapshot_id": {
-      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SnapshotId"
+      "description": "A574/A577: a required key. The sealed context snapshot the decision rests on; null for an outcome reached before the evidence was evaluated (REJECT, CLARIFY, WAIT, ESCALATE, UNKNOWN), never for ALLOW or CONFIRM.",
+      "oneOf": [
+        {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SnapshotId"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "policy_version": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+      "description": "A574/A577: a required key. The policy version the decision rests on; null for an outcome reached before the policy was evaluated (REJECT, CLARIFY, WAIT, ESCALATE, UNKNOWN), never for ALLOW or CONFIRM.",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "pack_version": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
     },
     "evidence_freshness": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "source": {
-            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
-          },
-          "age_seconds": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "effective_limit_seconds": {
-            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
-          },
-          "limit_set_by": {
-            "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/LimitSetBy"
+      "description": "A574/A577: a required key. The freshness of the evidence the decision rests on; null for an outcome reached before the evidence was evaluated (REJECT, CLARIFY, WAIT, ESCALATE, UNKNOWN), never for ALLOW or CONFIRM.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+              },
+              "age_seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "effective_limit_seconds": {
+                "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+              },
+              "limit_set_by": {
+                "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/LimitSetBy"
+              }
+            },
+            "required": [
+              "source",
+              "age_seconds",
+              "effective_limit_seconds",
+              "limit_set_by"
+            ],
+            "additionalProperties": false
           }
         },
-        "required": [
-          "source",
-          "age_seconds",
-          "effective_limit_seconds",
-          "limit_set_by"
-        ],
-        "additionalProperties": false
-      }
+        {
+          "type": "null"
+        }
+      ]
     },
     "clarification": {
       "$ref": "https://contracts.noema.invalid/clarification.v1.json"
@@ -243,6 +267,37 @@
               "business": {
                 "const": "PASS"
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "ALLOW",
+              "CONFIRM"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence_snapshot_id": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "policy_version": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "evidence_freshness": {
+            "not": {
+              "type": "null"
             }
           }
         }
