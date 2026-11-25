@@ -24,8 +24,8 @@ const (
 	ConfirmationPending
 	// ConfirmationGiven: the profile asks for one and a valid ACCEPT resolved to a fresh evaluation (confirm.Proceed, INV-25), whose event the Confirmation names.
 	ConfirmationGiven
-	// ConfirmationDeclined: the profile asks for one and the approver declined it. In this version T13 does not decide on it: like any status it does not know, it ends the
-	// evaluation in UNKNOWN. SoT 43.2a step 4 makes a decline REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only: awaiting the Architect.
+	// ConfirmationDeclined: the profile asks for one and the approver declined it. T13 ends the evaluation in REJECT DECLINED_BY_APPROVER, recorded with the declined request's ID
+	// (A542, A557; SoT 43.2a step 4). A Declined answer with no well-formed RequestID, or one that carries a NewRequest, is not an answer: UNKNOWN, with no Record and no plan.
 	ConfirmationDeclined
 )
 
@@ -185,7 +185,7 @@ type RecordResult struct {
 //
 // The port is documented for every outcome (A456, A470): the decision ID comes back for every recorded outcome. A plan hash and steps are required only for ALLOW; a non-ALLOW with no
 // steps and no plan hash is recorded as it is, and a grant on a non-ALLOW is refused before any transaction. A REJECT, CONFIRM or UNKNOWN never carries a grant. A REJECT DECLINED_BY_APPROVER
-// may name the declined request in DeclinedRequestID.
+// must name the declined request in DeclinedRequestID (a cfr_ ID); every other decision carries none (A542, A597).
 type Recorder interface {
 	Record(ctx context.Context, r RecordRequest) (RecordResult, error)
 }

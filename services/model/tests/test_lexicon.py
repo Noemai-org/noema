@@ -116,9 +116,9 @@ def test_the_amount_carries_the_lexicons_currency_and_is_not_uncertain() -> None
     assert result.currency == "NGN" and result.amount_uncertain is False
 
 
-@pytest.mark.parametrize("surface", ["sharp-sharp", "twenty thousand", "a lot", "", "k", "20k30", "20 dollars", "-20k", "20k k", "0x20", "2e3", "1,23,456"])
+@pytest.mark.parametrize("surface", ["sharp-sharp", "a lot", "", "k", "20k30", "20 dollars", "-20k", "20k k", "0x20", "2e3", "1,23,456"])
 def test_what_has_no_readable_amount_is_left_unread_not_guessed(surface: str) -> None:
-    # "twenty thousand" is UND-06's numeral table; v0 reads digits only, and says so by reading nothing.
+    # "twenty thousand" is read since UND-06 slice 1 (A634): see test_lexicon_numerals.py. What is left here has no readable amount.
     assert amount_of(surface, text=f"I sent {surface} to Tunde") is None
 
 
