@@ -8,8 +8,8 @@ from .suite import LoadedCase, Suite
 Json = dict[str, Any]
 
 
-def reasons_for(lc: LoadedCase) -> set[str]:
-    reasons = {f"event: {e['event'] if e['event'].startswith('needs_fault:') else e['event'].split(':')[0]}" for e in lc.case["events_timeline"] if not driven(e["event"])}
+def reasons_for(lc: LoadedCase, *, webhooks: bool = False) -> set[str]:
+    reasons = {f"event: {e['event'] if e['event'].startswith('needs_fault:') else e['event'].split(':')[0]}" for e in lc.case["events_timeline"] if not driven(e["event"], webhooks=webhooks)}
     for text in split_plan(lc.case, lc.plan).unsupported:
         target_operation, _, _ = text.partition(":")
         reasons.add(f"fault: {target_operation.split('.')[0]} {target_operation.split(' ')[-1]}")

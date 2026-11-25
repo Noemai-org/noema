@@ -67,3 +67,18 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval. The reader waits for noema#711, the delta file and the read-only key.
 - Do not touch: the row shape defaults (assumed until the delta file adopts them).
 
+
+# Session 2026-11-25 · BEN-03 · A667: the timeline drivers for two webhooks and a resume
+
+## Session summary
+- What changed: `benchmark/runner/drivers.py`, `env.py` (a `WebhookSender` port and `RunEnv.webhooks`), `run.py`, `support.py`, the runner README, and `test_event_drivers.py` (15 tests).
+- Driven now: `session_resume:same_channel` (the principal's token is asked for again and the later turns go to the same conversation with it; no clock move: offsets order events and are not waited for, as before) and `webhook:settlement_updated` and `webhook:reversal_posted` (only when the environment has a `WebhookSender`; each is delivered once, in timeline order, after the first input has settled). Every other kind still makes the case an ERROR (`EVENT_KIND_UNSUPPORTED`) and Noema is not called. A sender failure is `WEBHOOK_DELIVERY_FAILED` (the class of the failure, never its text). An event at the start of the timeline, where only a kill switch and a clock advance are driven, was silently dropped before; it is now `EVENT_AT_START_UNSUPPORTED`, refused before any side effect. None of the 320 generated cases has one.
+- **No transport is built, on purpose.** The environment has no interface that delivers a webhook to the core: the relay accepts only Tushe's signed deliveries (its signing secret and Tushe's payload shape are not shown to the runner), and mock-case's control API has reset, fault plan and clock only. Inventing a control endpoint or a payload would be a Tushe behaviour that has not been shown (AGENTS §14). So the runner has the driver and the port, and no sender: a webhook case stays an ERROR until the environment owner supplies one.
+- Effect on the suite (`python -m benchmark.runner --support`): 145 of 320 can run (143 before): the two resume cases (`BEN-SESS-0001`, `BEN-SESS-0007`; they are J8's cases). The 15 webhook cases stay blocked by faults and events no driver has (`DELAYED_REVERSAL` 8, `DELAYED_SETTLEMENT` 4, `LATE_EVENT` 3, `watch_deadline` 3, `process_restart` 2, `listener_down` 1), even with a sender.
+- Risks, and how they are contained: a resume that obtains the same cached token (the IdP provider reuses a token within its life) exercises "the same principal returns to the same conversation", not "a new session"; the test pins what is shown. The change makes no case more lenient: the only new passes are cases whose events are now driven.
+- Tests added (REQ-BEN-002, AGENT-12, A667): 15, seen failing first (5 failures, 6 errors). Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the environment owner (IL, EL) defines how a webhook reaches the core in the benchmark world and supplies a `WebhookSender`; the runner then needs one flag to build it.
+- Open questions (Architect): (1) the interface: a control endpoint on mock-case, or a signed delivery to the relay (then the runner holds the signing secret: SR); (2) whether a resume should bring the simulated clock to its offset (this build does not).
+- Do not touch: the held-out set and the oracle (INV-22).
