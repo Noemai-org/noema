@@ -7,13 +7,16 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/Noemai-org/noema/services/core/internal/predicate"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust/intakesources"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile/mapping"
 )
 
 // leExpected reads the pack and the mapping files independently: an entity is a list entity when a row of the mapping names it with `rows_from`; its source is the descriptor's.
@@ -180,5 +183,60 @@ func TestThePoliciesGapNamesTheListEntitiesOnlyWhenTheyAreMissing(t *testing.T) 
 	w, err = wireTrustInputs(none)
 	if err != nil || !has(w) {
 		t.Errorf("with no mapping: reasons %v, %v; want the list entities named", w.Reasons["Policies"], err)
+	}
+}
+
+// leFailingMapper answers the probe of one entity with an error that says nothing about whether it is a list (not ErrNoSuchList, not ErrIncomplete); every other entity goes to the real mapping.
+type leFailingMapper struct {
+	inner  intakesources.ListMapper
+	entity string
+	err    error
+}
+
+func (f leFailingMapper) ListRows(source, entity string, payload map[string]any) ([]predicate.Row, error) {
+	if entity == f.entity {
+		return nil, f.err
+	}
+	return f.inner.ListRows(source, entity, payload)
+}
+
+// STM-01 (SR note 1 and C1 on noema#956; INV-16, INV-19, AGENT-13): only ErrNoSuchList says "not a list", and ErrIncomplete is what a real list answers to a probe with no payload. Any
+// other error from ListRows is a mapping that cannot be read: the derivation fails with fixed text (no cause text, no entity), never a list that quietly keeps or drops the entity.
+func TestAnUnexpectedListRowsErrorFailsTheDerivationWithFixedText(t *testing.T) {
+	v := tiVerified(t)
+	_, m := tiParts(t, v)
+	want := leExpected(t)
+	var entity string
+	for e := range want {
+		entity = e
+		break
+	}
+	for name, cause := range map[string]error{"shape": mapping.ErrListShape, "other": errors.New("leak-canary-cause")} {
+		got, err := listEntitiesFromDescriptors(v.Pack, leFailingMapper{inner: m, entity: entity, err: cause})
+		if err == nil || got != nil {
+			t.Errorf("%s: got %v, %v; want an error and no map", name, got, err)
+			continue
+		}
+		if strings.Contains(err.Error(), "leak-canary-cause") || strings.Contains(err.Error(), entity) {
+			t.Errorf("%s: the error %q carries the cause or the entity", name, err)
+		}
+	}
+}
+
+// A mapping that does not list the entity (ErrNoSuchList) still drops it, and one that lists it but is probed with no payload (ErrIncomplete) still keeps it.
+func TestNoSuchListDropsAndIncompleteKeepsTheEntity(t *testing.T) {
+	v := tiVerified(t)
+	_, m := tiParts(t, v)
+	want := leExpected(t)
+	for e := range want {
+		got, err := listEntitiesFromDescriptors(v.Pack, leFailingMapper{inner: m, entity: e, err: mapping.ErrNoSuchList})
+		if _, kept := got[e]; err != nil || kept || len(got) != len(want)-1 {
+			t.Errorf("%s with ErrNoSuchList: got %v, %v; want it dropped", e, got, err)
+		}
+		got, err = listEntitiesFromDescriptors(v.Pack, leFailingMapper{inner: m, entity: e, err: mapping.ErrIncomplete})
+		if _, kept := got[e]; err != nil || !kept || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s with ErrIncomplete: got %v, %v; want %v", e, got, err, want)
+		}
+		break
 	}
 }
