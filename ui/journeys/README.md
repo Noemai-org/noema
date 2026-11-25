@@ -9,27 +9,26 @@ The benchmark runner drives each generated case through the public API and recor
 1. Merge BO's BEN-23 manifest PR #962 and EL's events-route composition PR #907. The manifest path is `benchmark/journeys/j1-j8.v1.json`.
 2. Materialise the exact generated suite named by that manifest:
    `python -m benchmark.generator generate --seed 20261020 --out benchmark/out/suite`.
-3. IL supplies a short-lived synthetic customer token file for each of the 19 distinct `principal_id` values in the manifest, under one token directory. The existing bench issuer writes one file per principal (mode 0400) at `benchmark/out/idp/tokens/<principal_id>`. To derive the exact principal list without hand-copying it:
+3. Issue the 19 short-lived synthetic customer tokens from the manifest using the A683 target in #983. Run this after the bench stack is up and immediately before the browser checks; each token expires after 900 seconds (15 minutes). The target reads the manifest itself and writes one mode-0400 file per principal into the private `$(BENCH_OUT)/idp/tokens` directory (default: `benchmark/out/idp/tokens`); do not hand-build the principal list or copy tokens elsewhere.
 
    ```sh
-   export BENCH_PRINCIPALS="$(python - <<'PY'
-   import json
-   with open("benchmark/journeys/j1-j8.v1.json", encoding="utf-8") as f:
-       manifest = json.load(f)
-   print(" ".join(sorted({f"{case['principal_id']}:{case['roles'][0]}" for journey in manifest["journeys"] for case in journey["cases"]})))
-   PY
-   )"
-   : "${BENCH_TOKEN_TTL:?set an approved short-lived TTL; the issuer caps it at 15m}"
+   : "${BENCH_TENANT:?set the approved bench tenant}"
+   make bench-journey-tokens \
+     BENCH_TENANT="$BENCH_TENANT" \
+     BENCH_MAX_BODY_BYTES=32768 \
+     BENCH_TOKEN_TTL=900s
    ```
 
-   The existing `make bench-tokens` target consumes these variables. Do not use one principal's token for another case; preserve the matching synthetic issuer key and core public-key configuration.
+   `BENCH_TOKEN_TTL` is passed as a Go duration, so `900s` is the required representation of 900 seconds. The issuer keeps token files in the private directory (mode 0700); private signing material remains separate and protected.
 4. Run the manifest's case IDs through the existing `benchmark.runner` on the bench network with the approved API, mock-case, stand-in and proxy credentials. Preserve its output directory; the UI tests consume `correlations.json` and `results/<case_id>.json`. The runner's required fixture loader and evidence sources must be present; a NOT_RUN/ERROR result is not a passing journey.
 5. Start the real-core bench Compose profile with this test-only overlay. Pass `BENCH_COMPOSE` as a Make command-line assignment (not an environment variable; the Makefile's ordinary assignment overrides environment values):
 
    ```sh
-   : "${BENCH_MAX_BODY_BYTES:?set the approved bench body limit}"
    : "${BENCH_TENANT:?set the approved bench tenant}"
-   make bench-up BENCH_TENANT="$BENCH_TENANT" BENCH_COMPOSE='docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml -f ui/browser-stack/compose.real-core.yml --profile bench'
+   make bench-up \
+     BENCH_TENANT="$BENCH_TENANT" \
+     BENCH_MAX_BODY_BYTES=32768 \
+     BENCH_COMPOSE='docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml -f ui/browser-stack/compose.real-core.yml --profile bench'
    ```
 
    The overlay proxies same-origin `/v1/` from the UI container to `core:8080` over the existing `edge_net`; it does not publish core or add a network. SSE buffering is disabled.
