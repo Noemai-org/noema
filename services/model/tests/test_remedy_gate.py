@@ -472,3 +472,121 @@ def test_a_gate_on_one_node_never_asks_the_same_named_slot_of_another_node() -> 
     node = catalogue.nodes["fin.payments.exception.investigate"]
     assert [s.name for s in steps.gated_slots(node, GATED.slot_gates)] == [SLOT]
     assert steps.gated_slots(catalogue.nodes[OUT_OF_SCOPE], GATED.slot_gates) == ()
+
+
+# --- the review's finding (EL, #932): a gate answer that repeats an option contradicts itself, so the whole reply is refused (INV-02, A649) --------------------
+# The ordinary path refuses a repeated option (`_answers`: OUTPUT_MISMATCH). The gate's decoder read the list itself and let the LAST "yes" win, so a reply that said 0.10 and then 0.95 asserted the slot.
+
+
+def _entries(*pairs: tuple[str, str]) -> str:
+    """The text of a `probabilities` array: each pair is an option and the exact text of its `p`."""
+    return "[" + ",".join(f'{{"option":"{option}","p":{text}}}' for option, text in pairs) + "]"
+
+
+class RawProbabilitiesModel(ScriptedModel):
+    """Answers like ScriptedModel, but writes the gate answer's `probabilities` member as the exact text given, which json.dumps of a dict could never produce (an option twice)."""
+
+    probabilities_text: str = '[{"option":"yes","p":0.95},{"option":"no","p":0.05}]'
+
+    async def complete(self, request: Any) -> Any:
+        response = await super().complete(request)
+        if request.schema_name != "harness_decide" or GATE not in request.user:
+            return response
+        document = json.loads(response.output_json)
+        next(a for a in document["answers"] if a["question_id"] == GATE)["probabilities"] = "@@PROBS@@"
+        return dataclasses.replace(response, output_json=json.dumps(document).replace('"@@PROBS@@"', self.probabilities_text))
+
+
+def probs_model(entries: str, *, gate: bool = True) -> RawProbabilitiesModel:
+    model = RawProbabilitiesModel(answers={**G_A, GATE: gate, SLOT: LOOKUP}, mentions=GOOD_MENTIONS, probability=0.95)
+    model.probabilities_text = entries
+    return model
+
+
+REPEATED_OPTION = {
+    "the EL scenario: yes 0.10 then yes 0.95 (the last one used to win)": _entries(("yes", "0.10"), ("yes", "0.95"), ("no", "0.05")),
+    "two yes, the high one first": _entries(("yes", "0.95"), ("yes", "0.10"), ("no", "0.05")),
+    "two yes with the no entry between them": _entries(("yes", "0.10"), ("no", "0.05"), ("yes", "0.95")),
+    "two yes after the no entry": _entries(("no", "0.05"), ("yes", "0.10"), ("yes", "0.95")),
+    "two yes before the no entry": _entries(("yes", "0.95"), ("yes", "0.95"), ("no", "0.05")),
+    "three yes": _entries(("yes", "0.10"), ("yes", "0.20"), ("yes", "0.95"), ("no", "0.05")),
+    "two no after the yes": _entries(("yes", "0.95"), ("no", "0.05"), ("no", "0.50")),
+    "two no before the yes": _entries(("no", "0.05"), ("no", "0.50"), ("yes", "0.95")),
+    "two no around the yes": _entries(("no", "0.05"), ("yes", "0.95"), ("no", "0.50")),
+    "two yes, the second quoted": _entries(("yes", "0.95"), ("yes", '"0.95"'), ("no", "0.05")),
+    "two yes, the second null": _entries(("yes", "0.95"), ("yes", "null"), ("no", "0.05")),
+    "two yes, the second NaN": _entries(("yes", "0.95"), ("yes", "NaN"), ("no", "0.05")),
+    "two yes, the first malformed": _entries(("yes", '"0.95"'), ("yes", "0.95"), ("no", "0.05")),
+    "two yes, the second with an exponent": _entries(("yes", "0.95"), ("yes", "9e-1"), ("no", "0.05")),
+}
+
+
+@pytest.mark.parametrize("entries", list(REPEATED_OPTION.values()), ids=list(REPEATED_OPTION))
+def test_a_gate_answer_that_repeats_an_option_refuses_the_whole_reply_and_asserts_nothing(entries: str) -> None:
+    """INV-02: whole-reply, strict, no repair. A reply that contradicts itself is not read: no token is chosen from it, so the slot cannot be asserted (the compile reports it as any refused reply)."""
+    model = probs_model(entries)
+    result = piped(model)
+    assert result.outcome.name == "REJECTED_AT_GATE", entries
+    assert result.proposal is None, entries
+    assert not any(SLOT in call for call in decide_calls(model)), entries  # and no pick was asked
+
+
+def test_a_gate_answer_that_says_no_and_repeats_yes_is_refused_too() -> None:
+    """The repeat is refused whatever the answer selects: the ordinary path does not look at the selection first either."""
+    result = piped(probs_model(REPEATED_OPTION["the EL scenario: yes 0.10 then yes 0.95 (the last one used to win)"], gate=False))
+    assert result.outcome.name == "REJECTED_AT_GATE"
+
+
+@pytest.mark.parametrize(("entries", "expected"), [
+    (_entries(("yes", "0.90"), ("no", "0.10")), LOOKUP),  # exactly the threshold passes
+    (_entries(("no", "0.05"), ("yes", "0.95")), LOOKUP),  # the no entry first is not a repeat
+    (_entries(("yes", "0.95")), LOOKUP),  # the no entry is not required, only the yes is read
+    (_entries(("no", "0.50"), ("yes", "0.89999")), None),  # below the threshold abstains, as before
+])
+def test_a_gate_answer_with_each_option_once_is_read_as_before(entries: str, expected: str | None) -> None:
+    """The control: a single yes entry, in either order, asserts at the threshold and abstains below it."""
+    result = piped(probs_model(entries))
+    assert result.outcome.name == "PROPOSED" and remedy(result) == expected, entries
+
+
+def test_a_repeated_option_on_a_question_that_is_not_a_gate_is_refused_as_before() -> None:
+    """Only the gate's decoder changed: a repeated option on any other question of a decide call still refuses that call's reply, the ordinary path."""
+    class RepeatsOnAnotherQuestion(ScriptedModel):
+        repeated = 0
+
+        async def complete(self, request: Any) -> Any:
+            response = await super().complete(request)
+            if request.schema_name != "harness_decide":
+                return response
+            document = json.loads(response.output_json)
+            others = [a for a in document["answers"] if a["question_id"] != GATE]
+            if not others:
+                return response
+            others[0]["probabilities"] = [*others[0]["probabilities"], others[0]["probabilities"][0]]
+            self.repeated += 1
+            return dataclasses.replace(response, output_json=json.dumps(document))
+
+    model = RepeatsOnAnotherQuestion(answers={**G_A, GATE: True, SLOT: LOOKUP}, mentions=GOOD_MENTIONS, probability=0.95)
+    result = piped(model)
+    assert model.repeated >= 1  # the double did repeat an option on a question that is not a gate
+    assert result.outcome.name == "REJECTED_AT_GATE"
+
+
+def test_the_ordinary_path_refuses_a_repeated_option_with_the_same_reason() -> None:
+    """The reason a gate answer's repeat must share (OUTPUT_MISMATCH), pinned on a question that is not a gate."""
+    from tests.test_openai_decisions import FLAG, decide
+
+    twice = reply({"answers": [{"question_id": "multiple_intents", "selected": "yes", "probabilities": [{"option": "yes", "p": 0.1}, {"option": "yes", "p": 0.95}, {"option": "no", "p": 0.05}]}]}, version="model-gpt-2026-01-01")
+    harness, _, _ = stack([], llm_steps=[twice], route=("gpt",))
+    with pytest.raises(HarnessRejection) as caught:
+        decide(harness, FLAG)
+    assert caught.value.reason is Reason.OUTPUT_MISMATCH
+
+
+def test_a_repeated_option_in_a_gate_reply_is_refused_with_the_same_reason_at_the_harness() -> None:
+    """The harness itself, not only the pipeline: the same reason as the ordinary path, and no answer is returned."""
+    twice = reply({"answers": [{"question_id": GATE, "selected": "yes", "probabilities": []}]}, version="model-gpt-2026-01-01", raw='{"answers":[{"question_id":"requested_remedy_gate","selected":"yes","probabilities":' + _entries(("yes", "0.10"), ("yes", "0.95"), ("no", "0.05")) + "}]}")
+    harness, _, _ = stack([], llm_steps=[twice], route=("gpt",))
+    with pytest.raises(HarnessRejection) as caught:
+        run(harness.decide(DecideRequest(DecisionTask.ENUMERATED_SLOT, {"utterance": "check it"}, (GateQuestion(GATE, SLOT_GATE_V1),), None, "corr_test")))
+    assert caught.value.reason is Reason.OUTPUT_MISMATCH
