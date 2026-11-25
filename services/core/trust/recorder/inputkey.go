@@ -40,7 +40,7 @@ func (w *Writer) lookup(ctx context.Context, tx pgx.Tx, k inputKey, state string
 	var outcome string
 	var sameVersions bool
 	err = tx.QueryRow(ctx, `SELECT json::text, outcome, policy_versions_json = $6::jsonb FROM decision_record
-		WHERE tenant_id = $1 AND (json ->> 'intent_id') = $2 AND intent_hash = $3 AND (json ->> 'evidence_snapshot_id') = $4 AND (json ->> 'policy_version') = $5
+		WHERE tenant_id = $1 AND (json ->> 'intent_id') = $2 AND intent_hash = $3 AND COALESCE(json ->> 'evidence_snapshot_id', '') = $4 AND COALESCE(json ->> 'policy_version', '') = $5
 		AND COALESCE(confirmation_request_id, '') = $7`,
 		k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, string(versions), state).Scan(&raw, &outcome, &sameVersions)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -199,7 +199,7 @@ func resolveState(ctx context.Context, tx pgx.Tx, r Request) (string, error) {
 func (w *Writer) otherState(ctx context.Context, tx pgx.Tx, k inputKey, outcome decide.Outcome, state string) error {
 	var n int
 	err := tx.QueryRow(ctx, `SELECT count(*) FROM decision_record
-		WHERE tenant_id = $1 AND (json ->> 'intent_id') = $2 AND intent_hash = $3 AND (json ->> 'evidence_snapshot_id') = $4 AND (json ->> 'policy_version') = $5
+		WHERE tenant_id = $1 AND (json ->> 'intent_id') = $2 AND intent_hash = $3 AND COALESCE(json ->> 'evidence_snapshot_id', '') = $4 AND COALESCE(json ->> 'policy_version', '') = $5
 		AND outcome = $6 AND COALESCE(confirmation_request_id, '') <> $7`, k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, string(outcome), state).Scan(&n)
 	if err != nil {
 		return fmt.Errorf("%sread the decisions of the input: %w", errPrefix, err)
