@@ -198,3 +198,29 @@ func TestWritePortsNameEachPartStillMissing(t *testing.T) {
 		t.Error("the write ports hold another Executor than the side's")
 	}
 }
+
+type callRecorder struct{ calls *[]string }
+
+func (c callRecorder) Execute(_ context.Context, s orchestrator.Session, grantID string) (orchestrator.Receipt, error) {
+	*c.calls = append(*c.calls, s.TenantID+"/"+grantID)
+	return orchestrator.Receipt{GrantID: grantID, Class: orchestrator.ReceiptApplied}, nil
+}
+
+// Added with the green, not seen red: the router calls the Executor of the session's own tenant and no other.
+func TestTheRouterCallsOnlyTheExecutorOfTheSessionsTenant(t *testing.T) { // INV-12, INV-03
+	var a, b []string
+	x := &tenantExecutor{byTenant: map[string]orchestrator.Executor{"ten_aa": callRecorder{&a}, "ten_bb": callRecorder{&b}}}
+	if _, err := x.Execute(t.Context(), orchestrator.Session{TenantID: "ten_bb", PrincipalID: "usr_1"}, "grt_0001"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a) != 0 || len(b) != 1 || b[0] != "ten_bb/grt_0001" {
+		t.Fatalf("tenant A saw %v, tenant B saw %v; want only B to be called", a, b)
+	}
+	if _, err := x.Execute(t.Context(), orchestrator.Session{TenantID: "ten_cc", PrincipalID: "usr_1"}, "grt_0002"); !errors.Is(err, ErrNoExecutionForTenant) || len(a)+len(b) != 1 {
+		t.Fatalf("an unknown tenant: err %v, calls %v %v; want ErrNoExecutionForTenant and no call", err, a, b)
+	}
+	var nilX *tenantExecutor
+	if _, err := nilX.Execute(t.Context(), orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_1"}, "grt_0003"); !errors.Is(err, ErrNoExecutionForTenant) {
+		t.Fatalf("a nil router: %v", err)
+	}
+}
