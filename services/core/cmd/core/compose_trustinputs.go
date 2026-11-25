@@ -60,6 +60,7 @@ type trustInputsIn struct {
 
 // trustInputs is what the builder made. A nil port is a gap, named in Gaps by its TrustAdapters field name, in the order of that struct.
 type trustInputs struct {
+	Writes    intake.Writes
 	Ownership intake.Ownership
 	Evidence  intake.Evidence
 	Policies  intake.Policies
@@ -128,6 +129,9 @@ func (l txLogins) TxFor(tenantID string) (trustport.SnapshotTx, error) {
 func buildTrustInputs(in trustInputsIn) (trustInputs, error) {
 	var out trustInputs
 	var err error
+	if out.Writes, err = buildWritesInput(in); err != nil {
+		return trustInputs{}, err
+	}
 	if out.Ownership, err = buildOwnershipInput(in); err != nil {
 		return trustInputs{}, err
 	}
@@ -148,6 +152,9 @@ func buildTrustInputs(in trustInputsIn) (trustInputs, error) {
 
 // fill sets the adapters that were built and leaves every other field of a as it was.
 func (t trustInputs) fill(a TrustAdapters) TrustAdapters {
+	if t.Writes != nil {
+		a.Writes = t.Writes
+	}
 	if t.Ownership != nil {
 		a.Ownership = t.Ownership
 	}
