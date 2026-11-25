@@ -7,7 +7,6 @@ import (
 	"io"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -82,7 +81,6 @@ var (
 	lowerSnakeRe       = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 	assertedByRe       = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`) // the contract's asserted_by pattern since ruling A163: the POC's own provider is noema-poc-idp
 	intentIDRe         = regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`)
-	intentRefRe        = regexp.MustCompile(`^(int_[0-9A-Za-z]{2,32})@([0-9]+)$`)
 	correlationRe      = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
 	timestampRe        = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$`)
 	localeRe           = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
@@ -119,6 +117,8 @@ func (s Session) valid() bool {
 type Node struct {
 	Slots    map[string]string // slot name to slot type (Resource, Quantity, Party, TimeRef or Reference)
 	Outcomes map[string]bool   // the node's outcome definition ids
+	// SubjectSlot names the Resource slot of the node that is the subject of its intents (A520: declared by the pack, never by the core); empty when the node declares none.
+	SubjectSlot string
 }
 
 // PackView is the loaded pack as the gate needs it. The caller adapts the pack it loaded; the gate reads no file.
@@ -246,23 +246,14 @@ func (g *Gate) check(o *contracts.IntentObjectV3, correlationID string, r *reaso
 	case version == 1 && o.Supersedes != nil:
 		r.add(ReasonSupersedes)
 	case version > 1:
-		m := (*string)(nil)
-		if o.Supersedes != nil {
-			s := string(*o.Supersedes)
-			m = &s
-		}
-		if m == nil {
+		// The supersedes link is read by the one parser of the form (CON-08, ruling A337): a reference the contract cannot hold, a version with a leading zero such as `@007`
+		// included, is refused with the version it names.
+		if o.Supersedes == nil {
 			r.add(ReasonSupersedes)
 			break
 		}
-		sm := intentRefRe.FindStringSubmatch(*m)
-		prev, perr := strconv.ParseInt(func() string {
-			if len(sm) == 3 {
-				return sm[2]
-			}
-			return "x"
-		}(), 10, 64)
-		if sm == nil || sm[1] != string(o.IntentId) || perr != nil || prev != version-1 {
+		prevID, prev, perr := contracts.ParseIntentRef(string(*o.Supersedes))
+		if perr != nil || prevID != string(o.IntentId) || int64(prev) != version-1 {
 			r.add(ReasonSupersedes)
 		}
 	}

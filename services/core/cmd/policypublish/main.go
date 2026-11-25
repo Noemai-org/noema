@@ -122,10 +122,13 @@ func failure(err error) (code int, reason, sentence string) {
 	return exitCannot, "", "the publication could not be completed"
 }
 
+// say writes one diagnostic line to errw. The exit code and the result line carry the outcome, so a failed write to errw is reported nowhere else (it is the last channel).
+func say(errw io.Writer, line string) { _, _ = fmt.Fprintln(errw, line) }
+
 func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 	s, ok := parseArgs(args)
 	if !ok {
-		fmt.Fprintln(errw, "policypublish: "+usage)
+		say(errw, "policypublish: "+usage)
 		return exitCannot
 	}
 	line := logLine{Service: "policypublish", Power: "trust", Event: "policy_publish", TenantID: s.tenant}
@@ -144,15 +147,15 @@ func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 			if code == exitCannot {
 				line.Result = "error"
 			}
-			fmt.Fprintln(errw, "policypublish: "+sentence+suffix(line.SQLState))
+			say(errw, "policypublish: "+sentence+suffix(line.SQLState))
 		}
 		b, merr := json.Marshal(line)
 		if merr != nil {
-			fmt.Fprintln(errw, "policypublish: the result could not be written")
+			say(errw, "policypublish: the result could not be written")
 			return exitCannot
 		}
 		if _, werr := fmt.Fprintln(out, string(b)); werr != nil && code == exitDone {
-			fmt.Fprintln(errw, "policypublish: the result could not be written")
+			say(errw, "policypublish: the result could not be written")
 			return exitCannot
 		}
 		return code
@@ -173,7 +176,7 @@ func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 	if err != nil {
 		return finish(exitCannot, err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()                                                              // the publication is already committed or refused; a close error changes neither
 	ring, err := signing.LoadRing(signerIdentity, s.keyDir, signing.Options{MaxActive: s.keyMaxActive}) // its errors never repeat a key's contents; none is printed
 	if err != nil {
 		return finish(exitCannot, errors.New("the signing keys cannot be loaded"))

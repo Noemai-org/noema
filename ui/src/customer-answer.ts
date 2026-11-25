@@ -17,7 +17,6 @@ export function CustomerAnswer({ answer: input }: { answer: unknown }) {
     ...answer.not_known.map((item, i) => h("p", { key: i }, item.what, " ", item.why)),
     h("h2", null, "What I did"),
     h("p", null, answer.done.summary),
-    answer.done.verified ? h("span", null, "Verified") : null,
     ...answer.advice.do_not.map((item, i) => h("p", { key: `not-${i}` }, item)),
     ...answer.advice.do.map((item, i) => h("p", { key: `do-${i}` }, item)),
     h("h2", null, "What happens next"),

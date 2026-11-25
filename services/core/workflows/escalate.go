@@ -39,6 +39,9 @@ type EscalateInput struct {
 	CorrelationID string
 	CreateGrantID string
 	PlannedQueue  string
+	// DispositionDecisionID is the ESCALATE disposition decision this case follows, as the Recorder returned it when the escalation was recorded (A534, A539; REQ-TRU-010). Plain data:
+	// the workflow only hands it to the route grant request. Optional: when it is absent the route issuer re-reads it from the Record by correlation (recovery, INV-30).
+	DispositionDecisionID string
 	// ActivityTimeout bounds one activity; it must exceed the dispatch timeout of the capability descriptor.
 	ActivityTimeout time.Duration
 }
@@ -78,6 +81,8 @@ type RouteGrantRequest struct {
 	VersionToken    string
 	PlannedQueue    string
 	CreateReceiptID string
+	// DispositionDecisionID is the workflow input's, passed through unchanged; empty when the input had none.
+	DispositionDecisionID string
 }
 
 // EscalateResult is the workflow's report. It is a convenience: the authoritative state is in Postgres (INV-30).
@@ -115,7 +120,7 @@ func EscalateCase(ctx workflow.Context, in EscalateInput) (EscalateResult, error
 
 	var routeGrant string
 	req := RouteGrantRequest{TenantID: in.TenantID, CorrelationID: in.CorrelationID, CaseID: view.CaseID, VersionToken: view.VersionToken,
-		PlannedQueue: in.PlannedQueue, CreateReceiptID: create.ReceiptID}
+		PlannedQueue: in.PlannedQueue, CreateReceiptID: create.ReceiptID, DispositionDecisionID: in.DispositionDecisionID}
 	if err := workflow.ExecuteActivity(writeOptions(ctx, in.ActivityTimeout), "IssueRouteGrant", req).Get(ctx, &routeGrant); err != nil {
 		return stopped(res, ReasonRouteGrantRefused), nil
 	}

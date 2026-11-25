@@ -165,3 +165,7 @@ func internalError(intentVersion int) Decision {
 		intentVersion: intentVersion,
 	}
 }
+
+// InternalError is the UNKNOWN INTERNAL_ERROR decision that every failure of the evaluation ends in (INV-16), for a caller that must turn what it has into the same answer when a write it owes
+// the result cannot be made (the Record of an ESCALATE, A534). No authority layer was evaluated.
+func InternalError(intentVersion int) Decision { return internalError(intentVersion) }

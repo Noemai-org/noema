@@ -274,5 +274,6 @@ var Types = map[string]func() any{
 	"sse-event.v1#Error":                                 func() any { return new(SseEventV1Error) },
 	"sse-event.v1#Progress":                              func() any { return new(SseEventV1Progress) },
 	"trust-limits.v1":                                    func() any { return new(TrustLimitsV1) },
+	"trust-limits.v2":                                    func() any { return new(TrustLimitsV2) },
 	"trust-profile.v1":                                   func() any { return new(TrustProfileV1) },
 }

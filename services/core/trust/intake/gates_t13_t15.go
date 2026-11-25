@@ -57,9 +57,8 @@ func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
 
 // t13: the trust profile's approver confirmation. Not required: continue. Required and resolved (a valid ACCEPT that the confirmation store turned into this fresh evaluation,
 // INV-25): continue, and the grant will follow its event. Required and not resolved (Pending): the CONFIRM, recorded before it is returned (EC-E16), with the confirmation request
-// created in the same Record call when none is open. Any other answer is not an answer: that includes Declined, which ends in UNKNOWN like a status Trust does not know. The order
-// is that Declined becomes REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only, and trust/decide refuses any other outcome from T13: that is a
-// stop condition awaiting the Architect (status/TRU-07-confirm-t13.md), and UNKNOWN is the safer reading meanwhile.
+// created in the same Record call when none is open. Declined is the REJECT DECLINED_BY_APPROVER (t13Declined: recorded first, with no
+// steps and no grant, naming the request it rests on, A542); any other answer is not an answer and ends in UNKNOWN like a status Trust does not know.
 func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
@@ -97,7 +96,7 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 // was answered; it never carries a new one), nothing is planned, and no grant exists for a refusal (INV-03). If the Recorder fails, nothing else happens and the evaluation ends in
 // UNKNOWN, never in a REJECT the caller could take as recorded.
 func (e *evaluation) t13Declined(ctx context.Context, c Confirmation) decide.StepResult {
-	if c.NewRequest != nil || c.RequestID != "" && !requestIDRe.MatchString(c.RequestID) {
+	if c.NewRequest != nil || !requestIDRe.MatchString(c.RequestID) { // A542: a decline names the request it rests on, as the Given answer does
 		return decide.FailStep(errAnswer)
 	}
 	reason, err := decide.Core("DECLINED_BY_APPROVER")
@@ -433,7 +432,8 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	}
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
 		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
-		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash, ConfirmationBindingEvidenceHash: bindingEvidence})
+		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash, ConfirmationBindingEvidenceHash: bindingEvidence,
+		DispositionDecisionID: e.recordedDisposition(steps)})
 	if err != nil {
 		return decide.FailStep(err)
 	}
@@ -449,4 +449,60 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	}
 	e.late.recorded = RecordResult{DecisionID: res.DecisionID, GrantIDs: append([]string(nil), res.GrantIDs...)}
 	return decide.Stop(d)
+}
+
+// recordedDisposition is the disposition the Decision Record names (A562, REQ-TRU-010): the one the continuation follows, and only when a step of the decision is in the pack's escalation plan.
+// A read, a step outside the set, or a service with no escalation set names none (fail closed).
+func (e *evaluation) recordedDisposition(steps []RecordStep) string {
+	d := e.disposition()
+	if d == "" || e.svc.Escalation == nil {
+		return ""
+	}
+	for _, s := range steps {
+		if e.svc.Escalation.Contains(s.CapabilityID) {
+			return d
+		}
+	}
+	return ""
+}
+
+// disposition is the ESCALATE decision a continuation follows, as the caller named it (A534); empty for a first evaluation and for a continuation that names none.
+func (e *evaluation) disposition() string {
+	if e.step == nil {
+		return ""
+	}
+	return e.step.disposition
+}
+
+// recordEscalate records the ESCALATE that the evaluation has ACCEPTED, through the Recorder, before it is returned (A534, interim, relayed; EC-E16, INV-25): the decision with the evaluated
+// basis, no step, no plan, no confirmation request, no grant. It runs in run, after EvaluateBound, so the decision is the one that is returned: an ESCALATE that Evaluate turned into UNKNOWN
+// (the step may not end in ESCALATE, the context ended, the intent version differs) never reaches it, and the Record holds nothing for it (Codex and C2 on noema#903). When the Record fails,
+// when the context has ended since, or when the Recorder answers what a decision with no step cannot be (no or malformed decision ID, a grant, a request), the result is UNKNOWN
+// INTERNAL_ERROR, never an ESCALATE nobody recorded. The decision ID of the record is the result's.
+func (e *evaluation) recordEscalate(ctx context.Context, d decide.Decision, trace []decide.TraceEntry) (decide.Decision, []decide.TraceEntry) {
+	failed := func() (decide.Decision, []decide.TraceEntry) {
+		if n := len(trace); n > 0 {
+			trace[n-1].Result = decide.StepFailed
+		}
+		return decide.InternalError(e.version), trace
+	}
+	if e.intent == nil || ctx.Err() != nil {
+		return failed()
+	}
+	d, err := e.withBasis(d)
+	if err != nil {
+		return failed()
+	}
+	digest, err := e.bb.Digest()
+	if err != nil {
+		return failed()
+	}
+	a := e.intent
+	rec, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+	if err != nil || !decisionIDRe.MatchString(rec.DecisionID) || len(rec.GrantIDs) != 0 || rec.ConfirmationRequestID != "" {
+		return failed()
+	}
+	e.late.recorded = RecordResult{DecisionID: rec.DecisionID}
+	return d, trace
 }

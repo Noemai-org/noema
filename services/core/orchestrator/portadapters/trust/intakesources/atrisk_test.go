@@ -21,9 +21,9 @@ import (
 
 const limitsPath = "../../../../../../packs/fintech/limits/trust_limits.json"
 
-// limitsDoc is a SYNTHETIC trust-limits.v1 document for pack fin with the given at-risk value.
+// limitsDoc is a SYNTHETIC trust-limits.v2 document for pack fin with the given at-risk value.
 func limitsDoc(atRisk int) string {
-	return fmt.Sprintf(`{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":%d}`, atRisk)
+	return fmt.Sprintf(`{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","ambiguity_absolute_floor_bp":7000,"clock_at_risk_remaining_bp":%d,"confirmation_ttl_ceiling_ms":600000}`, atRisk)
 }
 
 func loadLimits(t *testing.T, doc string) (trustlimits.Limits, error) {

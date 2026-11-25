@@ -458,6 +458,162 @@ class GraphParams(unittest.TestCase):
         self.assertNotIn("params", next(n for g in graphs.values() for n in g["nodes"] if n["capability_id"] == "fin.cap.log_complaint_reference"))
 
 
+class TrustRouting(unittest.TestCase):
+    """A544 (interim; REQ-RES-002, REQ-TRU-006, PERD v1.23 sections 23.1, 23.3, 23.5): the routing members of the pack's trust-limits document (the escalation reason of a
+    classification, the capabilities a freeze allows, the reason of a clock phase, the entity a clock's anchor event is read from) name only what the pack itself declares. No value is
+    invented (AGENT-16): the values the PERD states are in the file, every other one is absent, and absent means no route, which is UNKNOWN, and nothing allowed under a freeze."""
+
+    LIMITS = PACKS / "fintech/limits/trust_limits.json"
+
+    def setUp(self):
+        self.pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        self.limits = json.loads(self.LIMITS.read_text())
+
+    def run_check(self, mutate=None):
+        limits = copy.deepcopy(self.limits)
+        if mutate:
+            mutate(limits)
+        fn = getattr(checks, "check_trust_routing", None)
+        if fn is None:
+            self.fail("tools/packcheck/checks.py has no check_trust_routing(pack, limits) (A544)")
+        return fn(self.pack, limits)
+
+    def fails(self, mutate, fragment):
+        problems = self.run_check(mutate)
+        self.assertTrue(problems, "expected a trust_routing problem, got none")
+        self.assertTrue(all(c == "trust_routing" for c, _ in problems), problems)
+        self.assertIn(fragment, " | ".join(m for _, m in problems))
+
+    def test_the_real_limits_pass_and_the_real_run_covers_them(self):
+        self.assertEqual(self.run_check(), [])
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json"), [])
+
+    def test_the_limits_document_is_trust_limits_v2_and_a_v1_document_is_refused(self):
+        """A596 (interim): trust-limits is v2 and there is no compatibility path: the pack's file says 2.0 and packcheck refuses a v1 file."""
+        self.assertEqual(self.limits["schema_version"], "2.0")
+        self.fails(lambda d: d.__setitem__("schema_version", "1.0"), "schema_version")
+        self.fails(lambda d: d.pop("schema_version"), "schema_version")
+
+    def test_the_freeze_allows_exactly_the_three_capabilities_the_perd_names(self):
+        """REQ-RES-002 [ADOPTED DEC-2026-10-17]: CREATE_ESCALATION_CASE, RECORD_INVESTIGATION_EVIDENCE and ROUTE_TO_INTERNAL_OWNER, and no other."""
+        self.assertEqual(sorted(self.limits["allowed_under_freeze"]), ["fin.cap.create_escalation_case", "fin.cap.record_investigation_evidence", "fin.cap.route_to_internal_owner"])
+
+    def test_only_the_two_classifications_the_perd_routes_have_an_escalation_reason(self):
+        """PERD 23.3 T10: ESCALATE on contradiction or unknown outcome, per pack mapping (the examples of 23.1 are the two catalogue codes)."""
+        got = {r["classification"]: r["reason_code"] for r in self.limits["escalation_reasons"]}
+        self.assertEqual(got, {"CONTRADICTORY_STATE": "fin.reason.contradictory_state", "EXECUTION_OUTCOME_UNKNOWN": "fin.reason.execution_outcome_unknown"})
+
+    def test_no_clock_phase_is_routed_because_the_perd_does_not_say_which(self):
+        """PERD 23.5 gives the phases and 23.3 says T12 'may escalate per policy'; no phase is named as an escalation. A phase not routed routes nowhere (OPEN, safest default)."""
+        self.assertNotIn("phase_routes", self.limits)
+
+    def test_the_anchor_is_the_one_the_pack_clock_declares(self):
+        """A438 (interim): the clock anchor is complaint_ref.effective_at. The event is the one the pack's clock names."""
+        self.assertEqual(self.limits["anchor_entities"], [{"event": "complaint_logged", "entity": "complaint_ref", "field": "effective_at"}])
+        self.assertEqual({c["anchor_event"] for c in self.pack["clocks"]}, {"complaint_logged"})
+
+    def test_an_escalation_reason_outside_the_catalogue_fails(self):
+        self.fails(lambda l: l["escalation_reasons"][0].__setitem__("reason_code", "fin.reason.made_up"), "made_up")
+
+    def test_an_escalation_reason_the_pack_produces_for_a_clock_fails(self):
+        self.fails(lambda l: l["escalation_reasons"][0].__setitem__("reason_code", "fin.reason.sla_breached"), "STATE_MAPPING")
+
+    def test_a_classification_routed_twice_fails(self):
+        self.fails(lambda l: l["escalation_reasons"].append(dict(l["escalation_reasons"][0])), "twice")
+
+    def test_a_freeze_capability_the_pack_does_not_declare_fails(self):
+        self.fails(lambda l: l["allowed_under_freeze"].append("fin.cap.made_up"), "made_up")
+
+    def test_a_prohibited_capability_allowed_under_a_freeze_fails(self):
+        self.fails(lambda l: l["allowed_under_freeze"].append("fin.cap.transfer_funds"), "prohibited")
+
+    def test_a_phase_route_must_be_a_clock_mapping_reason_and_a_phase_routed_once(self):
+        self.fails(lambda l: l.__setitem__("phase_routes", [{"phase": "BREACHED", "reason_code": "fin.reason.contradictory_state"}]), "CLOCK_MAPPING")
+        self.fails(lambda l: l.__setitem__("phase_routes", [{"phase": "BREACHED", "reason_code": "fin.reason.sla_breached"}] * 2), "twice")
+
+    def test_an_anchor_event_no_pack_clock_names_fails(self):
+        self.fails(lambda l: l["anchor_entities"][0].__setitem__("event", "case_opened"), "case_opened")
+
+    def test_an_anchor_entity_the_pack_has_no_descriptor_for_fails(self):
+        self.fails(lambda l: l["anchor_entities"][0].__setitem__("entity", "made_up"), "made_up")
+
+    def test_the_confirmation_ttl_ceiling_is_the_perd_ten_minutes(self):
+        """A561 (interim; PERD v1.23 section 67, the provisional defaults, row 'Grants and confirmations': 'confirmation TTL 10 min', adopted DEC-2026-10-17, OD-P-31): 600000 ms."""
+        self.assertEqual(self.limits["confirmation_ttl_ceiling_ms"], 600000)
+        self.assertEqual(self.run_check(), [])
+
+    def test_an_anchor_field_the_entity_does_not_declare_fails(self):
+        """A575 (interim): `anchor_entities[].field` must be a field the entity's evidence descriptor declares."""
+        self.fails(lambda l: l["anchor_entities"][0].__setitem__("field", "made_up_field"), "made_up_field")
+
+    def test_an_anchor_field_that_is_not_a_timestamp_fails(self):
+        """A575 (interim): the field a clock's anchor is read from is a Timestamp; `epoch` of complaint_ref is an Integer, `subject` a Reference."""
+        for field in ("epoch", "subject"):
+            with self.subTest(field):
+                self.fails(lambda l, f=field: l["anchor_entities"][0].__setitem__("field", f), "Timestamp")
+
+    def test_the_real_anchor_field_is_a_declared_timestamp(self):
+        entity = next(d for d in self.pack["evidence_descriptors"] if d["entity"] == self.limits["anchor_entities"][0]["entity"])
+        self.assertEqual(entity["fields"][self.limits["anchor_entities"][0]["field"]]["type"], "Timestamp")
+
+    def test_a_document_of_another_pack_fails(self):
+        self.fails(lambda l: l.__setitem__("pack_id", "xyz"), "pack_id")
+
+class ShippedLimitsSchema(unittest.TestCase):
+    """A609 (interim; AGENT-15, AGENT-16): packcheck validates the SHIPPED limits file (packs/fintech/limits/trust_limits.json) against the trust-limits.v2 JSON Schema itself, not
+    only against the hand-written routing rules. A file missing the ceiling, a v1-shaped file and a file with an unknown member each make packcheck fail."""
+
+    LIMITS = PACKS / "fintech/limits/trust_limits.json"
+
+    def setUp(self):
+        self.limits = json.loads(self.LIMITS.read_text())
+
+    def schema_problems(self, mutate=None):
+        doc = copy.deepcopy(self.limits)
+        if mutate:
+            mutate(doc)
+        fn = getattr(checks, "check_limits_schema", None)
+        if fn is None:
+            self.fail("tools/packcheck/checks.py has no check_limits_schema(limits) (A609)")
+        return fn(doc)
+
+    def run_on_copy(self, mutate):
+        """The whole packcheck run on a copy of the real packs folder whose limits file is mutated (the end-to-end proof)."""
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            dst = Path(tmp) / "packs"
+            shutil.copytree(PACKS, dst)
+            f = dst / "fintech/limits/trust_limits.json"
+            doc = json.loads(f.read_text())
+            mutate(doc)
+            f.write_text(json.dumps(doc))
+            return checks.run(dst / "fintech_v1.json")
+
+    def test_the_shipped_file_is_valid_against_the_v2_schema(self):
+        self.assertEqual(self.schema_problems(), [])
+
+    def test_a_file_missing_the_ceiling_fails(self):
+        problems = self.schema_problems(lambda d: d.pop("confirmation_ttl_ceiling_ms"))
+        self.assertTrue(problems)
+        self.assertIn("confirmation_ttl_ceiling_ms", " | ".join(m for _, m in problems))
+        self.assertTrue(self.run_on_copy(lambda d: d.pop("confirmation_ttl_ceiling_ms")), "checks.run accepted a limits file without the ceiling")
+
+    def test_a_v1_shaped_file_fails(self):
+        def v1(d):
+            d["schema_version"] = "1.0"
+            d.pop("confirmation_ttl_ceiling_ms")
+        self.assertTrue(self.schema_problems(v1))
+        self.assertTrue(self.run_on_copy(v1), "checks.run accepted a v1-shaped limits file")
+
+    def test_a_file_with_an_unknown_member_fails(self):
+        self.assertTrue(self.schema_problems(lambda d: d.__setitem__("an_unknown_member", 1)))
+        self.assertTrue(self.run_on_copy(lambda d: d.__setitem__("an_unknown_member", 1)), "checks.run accepted a limits file with an unknown member")
+
+    def test_the_schema_is_the_v2_json_schema_not_a_hand_written_rule(self):
+        """A value the JSON Schema bounds (the ceiling above 600000) fails through the schema even though no hand-written packcheck rule names it."""
+        self.assertTrue(self.schema_problems(lambda d: d.__setitem__("confirmation_ttl_ceiling_ms", 600001)))
+
+
 class CandidateLabels(unittest.TestCase):
     """A555 (interim, relayed, not yet committed; REQ-AMB-004, REQ-AMB-003). The disambiguation block of a node that searches candidates carries the pack's question key for OPTIONS mode, the
     OPTIONS label template and the fixed order of askable attributes with a label template each. A template names only the candidate attributes a label may show (never an id or a

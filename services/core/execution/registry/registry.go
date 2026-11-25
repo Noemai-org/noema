@@ -157,6 +157,16 @@ func (r *Registry) Callable(id string) (Callable, error) {
 	return Callable{id: id}, nil
 }
 
+// RatePerPrincipalPerHour is the descriptor's limits.rate_per_principal_per_hour of an allowed capability (REQ-TRU-012). declared is false for an ID that is not an allowed
+// capability or whose descriptor declares no positive limit: such a capability is not rate limited.
+func (r *Registry) RatePerPrincipalPerHour(id string) (limit int, declared bool) {
+	d, ok := r.byID[id]
+	if !ok || d.Prohibited || d.Limits == nil || d.Limits.RatePerPrincipalPerHour <= 0 {
+		return 0, false
+	}
+	return int(d.Limits.RatePerPrincipalPerHour), true
+}
+
 // Registered reports whether id is an allowed (registered, not prohibited) capability.
 func (r *Registry) Registered(id string) bool {
 	d, ok := r.byID[id]

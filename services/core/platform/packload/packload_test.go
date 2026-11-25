@@ -30,12 +30,20 @@ const (
 	rulesBody = `{"ruleset_id":"demo.rules","version":1}`
 )
 
+// A645: the injection patterns are the fourth pinned file of every pack.
+const (
+	patternsRel  = "demo/context/injection_patterns.v1.json"
+	patternsBody = `{"pack_id":"demo.ctx.injection_patterns","version":1,"label":"SYNTHETIC","note":"n","patterns":[]}`
+	patternsID   = "demo.ctx.injection_patterns@1"
+)
+
 // world is one pack directory and the manifest that pins it.
 type world struct {
 	t    *testing.T
 	dir  string
 	exp  map[string]string // the manifest's `expected`
 	list []entry           // the manifest's files, in order
+	ver  int               // the manifest's version; 0 means 1
 }
 
 type entry struct{ Kind, Path, Sha string }
@@ -44,11 +52,12 @@ func sum(b string) string { s := sha256.Sum256([]byte(b)); return hex.EncodeToSt
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
-	w := &world{t: t, dir: t.TempDir(), exp: map[string]string{"evidence_mapping_id": "demo.map.v1@1", "recon_rule_set_id": "demo.rules@1"}}
+	w := &world{t: t, dir: t.TempDir(), exp: map[string]string{"evidence_mapping_id": "demo.map.v1@1", "recon_rule_set_id": "demo.rules@1", "injection_patterns_id": patternsID}}
 	w.write(packRel, packBody)
 	w.write(mapRel, mapBody)
 	w.write(rulesRel, rulesBody)
-	w.list = []entry{{"pack", packRel, sum(packBody)}, {"evidence_mapping", mapRel, sum(mapBody)}, {"recon_rules", rulesRel, sum(rulesBody)}}
+	w.write(patternsRel, patternsBody)
+	w.list = []entry{{"pack", packRel, sum(packBody)}, {"evidence_mapping", mapRel, sum(mapBody)}, {"recon_rules", rulesRel, sum(rulesBody)}, {"injection_patterns", patternsRel, sum(patternsBody)}}
 	w.seal()
 	return w
 }
@@ -71,7 +80,11 @@ func (w *world) seal() {
 	for _, e := range w.list {
 		files = append(files, map[string]string{"kind": e.Kind, "path": e.Path, "sha256": e.Sha})
 	}
-	doc := map[string]any{"manifest_id": "demo.manifest", "version": 1, "label": "SYNTHETIC", "note": "synthetic", "expected": w.exp, "files": files}
+	ver := w.ver
+	if ver == 0 {
+		ver = 1
+	}
+	doc := map[string]any{"manifest_id": "demo.manifest", "version": ver, "label": "SYNTHETIC", "note": "synthetic", "expected": w.exp, "files": files}
 	b, err := json.Marshal(doc)
 	if err != nil {
 		w.t.Fatal(err)
@@ -366,7 +379,7 @@ func TestAManifestThatIsNotExactlyItsShapeIsRefused(t *testing.T) {
 		"a zero version":  func(w *world) string { return strings.Replace(good(w), `"version":1`, `"version":0`, 1) },
 		"no label":        func(w *world) string { return strings.Replace(good(w), `"label":"SYNTHETIC",`, ``, 1) },
 		"no expected": func(w *world) string {
-			return strings.Replace(good(w), `"expected":{"evidence_mapping_id":"demo.map.v1@1","recon_rule_set_id":"demo.rules@1"},`, ``, 1)
+			return strings.Replace(good(w), `"expected":{"evidence_mapping_id":"demo.map.v1@1","injection_patterns_id":"demo.ctx.injection_patterns@1","recon_rule_set_id":"demo.rules@1"},`, ``, 1)
 		},
 		"no files":                           func(w *world) string { return strings.Replace(good(w), `"files":[`, `"files":[],"x":[`, 1) },
 		"an expected id off its shape":       func(w *world) string { return strings.Replace(good(w), `demo.map.v1@1`, `Demo.map.v1@1`, 1) },
@@ -438,8 +451,11 @@ func TestAnyNamesLoadBecauseTheManifestNamesThem(t *testing.T) {
 	put("zz_v7.json", pk)
 	put("zz/maps/m.json", mp)
 	put("zz/rules/r.json", rs)
-	manifest := fmt.Sprintf(`{"manifest_id":"zz.manifest","version":2,"label":"SYNTHETIC","expected":{"evidence_mapping_id":"zz.m@4","recon_rule_set_id":"zz.r@9"},"files":[`+
-		`{"kind":"recon_rules","path":"zz/rules/r.json","sha256":%q},{"kind":"pack","path":"zz_v7.json","sha256":%q},{"kind":"evidence_mapping","path":"zz/maps/m.json","sha256":%q}]}`, sum(rs), sum(pk), sum(mp))
+	ip := `{"pack_id":"zz.inj","version":3}`
+	put("zz/ctx/i.json", ip)
+	manifest := fmt.Sprintf(`{"manifest_id":"zz.manifest","version":2,"label":"SYNTHETIC","expected":{"evidence_mapping_id":"zz.m@4","recon_rule_set_id":"zz.r@9","injection_patterns_id":"zz.inj@3"},"files":[`+
+		`{"kind":"recon_rules","path":"zz/rules/r.json","sha256":%q},{"kind":"pack","path":"zz_v7.json","sha256":%q},{"kind":"evidence_mapping","path":"zz/maps/m.json","sha256":%q},`+
+		`{"kind":"injection_patterns","path":"zz/ctx/i.json","sha256":%q}]}`, sum(rs), sum(pk), sum(mp), sum(ip))
 	put("zz/m.json", manifest)
 	p, err := packload.Load(dir, "zz/m.json", bound)
 	if err != nil || string(p.Pack) != pk || string(p.EvidenceMapping) != mp || string(p.ReconRules) != rs || p.EvidenceMappingID != "zz.m@4" || p.ReconRuleSetID != "zz.r@9" {

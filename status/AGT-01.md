@@ -12,3 +12,41 @@ Updated 2026-11-08. Owner: EL+AG in tasks.csv; executed by the Engineering Lead 
 ## Pre-work for the next agent
 - Optional: repeat the trial with a conflict between code and a requirement, and record it here.
 - Re-point the copies in `docs/templates/` when the docs originals change.
+
+## Session 2026-11-24 · AGT-01 · the template tests run in CI (IL, A637)
+
+### Session summary
+- What changed: a `safeguards.yml` step runs `tools/ci/test_pr_template.py` (6 tests) and the new guard `tools/ci/test_safeguards_agt01.py` (3 tests). Before, nothing in CI ran the template's tests: a change that let an unfilled template pass the trace check would have merged green.
+- Why: AGT-01's done-when needs the template to refuse an unfilled description, and A637 asked for the step.
+- Risks, and how they are contained: CI only; no secret, no network, no provider. The guard fails if the step is removed, gains `|| true` or `continue-on-error`, or stops skipping on a description edit. A mutant with `|| true` fails it.
+- Tests added (REQ-AGT-003, REQ-AGT-002): the three guard tests, red first (two failed before the step existed).
+- Not in this PR: the CONFLICT-block tests of noema#943 (`tools/ci/test_check_pr_conflict.py`) are not on main yet; the step gains that command in a follow-up once #943 merges.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#943 merges, add `&& python3 -I tools/ci/test_check_pr_conflict.py` to the step and one assertion to the guard.
+- Do not touch: the trace check itself (EL's).
+
+# Session 2026-11-24 · AGT-01
+
+## Session summary
+- What changed (PR links): `tools/ci/check_pr_trace.py` now refuses a PR body that starts a `CONFLICT DETECTED` block (a line of exactly that text; a `## ` heading and prose are not markers) with any of the six fields of PERD REQ-AGT-003 missing, empty or still the template placeholder. New `tools/ci/test_check_pr_conflict.py` (15 tests), a canary `tools/ci/canaries/pr_trace_conflict_without_fields/` run by `run_canaries.py`, and a row in `tools/ci/README.md`. PR: not opened yet (red pushed alone; EL pushes the green).
+- Why: the Done-when is "a trial agent task that hits a planted conflict stops and files the block instead of guessing". The 8 Nov trial above covers the agent's stop. What was missing is a mechanical check that a filed block is complete. "Both code repositories" is the plan's wording from before DEC-2026-10-13; there is one code repository, `noema`, and the template and the check are in it.
+- Risks, and how they are contained: a body that copies the template's unfilled CONFLICT block now fails the trace check (intended: the template says to leave the section out when there is no conflict). `tools/ci` is a protected path (both Founders). A body that has a conflict and no marker is not caught; no mechanical check can.
+- Tests added (REQ, INV, US or EC IDs): REQ-AGT-003, AGENT-27, AGENT-26 (`test_check_pr_conflict.py`); canary in `run_canaries.py`. 8 hand mutants, 8 killed (2 first survived, tests added).
+- Regression cases added: the canary.
+- Debt entries: `test_check_pr_conflict.py` and the existing `test_pr_template.py` are not run in CI (neither is in `safeguards.yml`). Wiring them is a `.github` change.
+- Conflicts raised: none.
+
+## For the Founders (a `.github` path, not edited here)
+1. `safeguards.yml`: add a step `python3 -I tools/ci/test_pr_template.py && python3 -I tools/ci/test_check_pr_conflict.py` (needs a task-card path, a Founder and SR).
+2. `.github/pull_request_template.md` already carries the trace IDs, the plan (files "inside the card's allowlist", tests written first, faults exercised, Record events asserted) and the CONFLICT block. Optional addition under `## Plan`, one line so the module allowlist is a named field, not only a parenthesis:
+   `- Module allowlist (from the task card): <paths>`
+   And under `## CONFLICT DETECTED`, one sentence: `Leave the fenced block out, or fill every field: an unfilled block fails the pr-trace check.`
+3. The trial: the 8 Nov run in the section above is the founder-run exercise; a repeat with a code-versus-requirement conflict is still open. This PR adds no agent trial.
+
+## Pre-work for the next agent
+- Exact next step: after the PR merges, EL or a Founder runs a second trial (code against requirement) and records it here.
+- Open questions (owner): whether the check should also require the words "blast radius" in Proposed alternatives (the REQ text says "each with blast radius"; not required here, safer to not over-constrain; Founders).
+- Files to read first: `tools/ci/check_pr_trace.py`, `tools/ci/test_check_pr_conflict.py`.
+- Do not touch: `.github/` without a task-card path, a Founder and SR.

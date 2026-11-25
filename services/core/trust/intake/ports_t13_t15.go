@@ -24,8 +24,8 @@ const (
 	ConfirmationPending
 	// ConfirmationGiven: the profile asks for one and a valid ACCEPT resolved to a fresh evaluation (confirm.Proceed, INV-25), whose event the Confirmation names.
 	ConfirmationGiven
-	// ConfirmationDeclined: the profile asks for one and the approver declined it. In this version T13 does not decide on it: like any status it does not know, it ends the
-	// evaluation in UNKNOWN. SoT 43.2a step 4 makes a decline REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only: awaiting the Architect.
+	// ConfirmationDeclined: the profile asks for one and the approver declined it. T13 ends the evaluation in REJECT DECLINED_BY_APPROVER, recorded with the declined request's ID
+	// (A542, A557; SoT 43.2a step 4). A Declined answer with no well-formed RequestID, or one that carries a NewRequest, is not an answer: UNKNOWN, with no Record and no plan.
 	ConfirmationDeclined
 )
 
@@ -141,8 +141,8 @@ type RecordRequest struct {
 	// recompute the binding of that confirmation. It is NOT the grant's evidence_set_hash (the snapshot's set hash, which the adapter takes from the snapshot): the grant never carries
 	// it. Empty for an ALLOW that follows no confirmation and for every other decision.
 	ConfirmationBindingEvidenceHash string
-	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on (A470); optional, and empty for every other decision. The Recorder's writer
-	// shape-checks it and refuses any other outcome that names one.
+	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on (A470, A542): required and well formed for that reject (the intake and the Recorder's
+	// adapter refuse an empty or malformed one) and empty for every other decision. The Recorder's writer shape-checks it and refuses any other outcome that names one.
 	DeclinedRequestID string
 	// DispositionDecisionID is the ESCALATE disposition (a decision with no step and no grant, recorded first through the Recorder) that an escalation action decision links (A503;
 	// PERD 23.1, REQ-TRU-010); optional, and empty for every decision this intake records itself: the escalation path records the disposition and passes its ID. The Recorder's writer
@@ -185,7 +185,7 @@ type RecordResult struct {
 //
 // The port is documented for every outcome (A456, A470): the decision ID comes back for every recorded outcome. A plan hash and steps are required only for ALLOW; a non-ALLOW with no
 // steps and no plan hash is recorded as it is, and a grant on a non-ALLOW is refused before any transaction. A REJECT, CONFIRM or UNKNOWN never carries a grant. A REJECT DECLINED_BY_APPROVER
-// may name the declined request in DeclinedRequestID.
+// must name the declined request in DeclinedRequestID (a cfr_ ID); every other decision carries none (A542, A597).
 type Recorder interface {
 	Record(ctx context.Context, r RecordRequest) (RecordResult, error)
 }

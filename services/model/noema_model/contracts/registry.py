@@ -77,6 +77,7 @@ from . import (
     session_limits_v1,
     sse_event_v1,
     trust_limits_v1,
+    trust_limits_v2,
     trust_profile_v1,
 )
 
@@ -351,5 +352,6 @@ TYPES: dict[str, Any] = {
     "sse-event.v1#Error": sse_event_v1.SseEventV1Error,
     "sse-event.v1#Progress": sse_event_v1.SseEventV1Progress,
     "trust-limits.v1": trust_limits_v1.TrustLimitsV1,
+    "trust-limits.v2": trust_limits_v2.TrustLimitsV2,
     "trust-profile.v1": trust_profile_v1.TrustProfileV1,
 }
