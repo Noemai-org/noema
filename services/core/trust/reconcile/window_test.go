@@ -213,3 +213,87 @@ func TestRES05NoVerdictInsideTheWindowEvenIfARuleWouldGiveOne(t *testing.T) {
 		t.Fatalf("at the deadline want CONTRADICTORY_STATE, got %s wait=%+v", after.Classification, after.Wait)
 	}
 }
+
+// A659 (interim, relayed): a fact dated in the future has NO WINDOW: the disagreement is a contradiction at once (the freeze and the escalation of the pack's routing), never a wait, and the
+// instant is never clamped to now (a deadline computed from a future instant, or from a clamped one, would let a forward-dated fact buy time).
+func TestA659AFutureDatedFactHasNoWindow(t *testing.T) {
+	rs := ruleSetWith(t, pairLabel, win(syntheticWs))
+	const now = int64(5000)
+	for name, future := range map[string]int64{"one second ahead": now + 1, "a large amount ahead": now + 10*365*24*3600} {
+		for _, which := range []string{"switch", "credit"} {
+			ev := pair()
+			ev[0].EffectiveAt, ev[1].EffectiveAt = now-5, now-5 // the normal fact would keep a 600 s window open
+			if which == "switch" {
+				ev[0].EffectiveAt = future
+			} else {
+				ev[1].EffectiveAt = future
+			}
+			res, err := reconcile.Reconcile(rs, ev, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Classification != reconcile.ContradictoryState || res.Wait != nil || res.Waiting() || !res.Frozen() {
+				t.Errorf("%s (%s future): want CONTRADICTORY_STATE and no wait, got %s wait=%+v", name, which, res.Classification, res.Wait)
+			}
+			for _, c := range res.Contradictions {
+				if c.Deadline != 0 {
+					t.Errorf("%s (%s future): a deadline %d was computed for a future-dated pair (never clamp, never count from a future instant)", name, which, c.Deadline)
+				}
+			}
+			gate := reconcile.NewFreezeGate([]string{"cap.escalate"})
+			if p, err := gate.PermitResult(res, "cap.other", "txn_a"); err != reconcile.ErrFrozen || p.Valid() {
+				t.Errorf("%s (%s future): a write must be refused as frozen, got %v valid=%v", name, which, err, p.Valid())
+			}
+		}
+	}
+}
+
+// The edge of "future": a fact dated exactly now, or one second ago, is not future-dated and opens its window as before.
+func TestA659AFactDatedNowOrEarlierStillOpensItsWindow(t *testing.T) {
+	rs := ruleSetWith(t, pairLabel, win(syntheticWs))
+	const now = int64(5000)
+	for name, at := range map[string]int64{"exactly now": now, "one second ago": now - 1} {
+		ev := pair()
+		ev[0].EffectiveAt, ev[1].EffectiveAt = at, now-5
+		if at == now-1 {
+			ev[1].EffectiveAt = at
+		}
+		res, err := reconcile.Reconcile(rs, ev, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Wait == nil || res.Wait.Until != min64(ev[0].EffectiveAt, ev[1].EffectiveAt)+syntheticWs {
+			t.Errorf("%s: want a wait until the earlier fact plus the window, got %+v", name, res.Wait)
+		}
+	}
+}
+
+func min64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// A waiting answer is always INSUFFICIENT_EVIDENCE (the fallback), whatever the rest of the evidence would say: with the disagreement set aside a pending settlement would give
+// SETTLEMENT_PENDING, a classification the Trust intake lets go on; it must not come out of a window.
+func TestA659AWaitingAnswerIsAlwaysInsufficientEvidence(t *testing.T) {
+	rs := ruleSetWith(t, "switch_successful_credit_not_credited", win(syntheticWs))
+	ev := []reconcile.Evidence{
+		{ID: "ev_switch", Source: "fin.src.switch", Entity: "switch", Status: reconcile.Known, EffectiveAt: switchAt, ExpiresAt: 99999, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("SUCCESSFUL")}},
+		{ID: "ev_credit", Source: "fin.src.ledger", Entity: "credit", Status: reconcile.Known, EffectiveAt: creditAt, ExpiresAt: 99999, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("NOT_CREDITED"), "terminal": predicate.Bool(false)}},
+		{ID: "ev_settlement", Source: "fin.src.ledger", Entity: "settlement", Status: reconcile.Known, EffectiveAt: creditAt, ExpiresAt: 99999, Required: false,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("PENDING"), "expected_by": predicate.Time(deadline + 1000)}},
+	}
+	for _, now := range []int64{creditAt, deadline - 1} {
+		res, err := reconcile.Reconcile(rs, ev, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Wait == nil || res.Classification != reconcile.InsufficientEvidence {
+			t.Errorf("now=%d: want a wait and INSUFFICIENT_EVIDENCE, got %s wait=%+v", now, res.Classification, res.Wait)
+		}
+	}
+}
