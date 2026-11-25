@@ -32,10 +32,13 @@ type scopeStub struct {
 	s   trustport.RouteScope
 	err error
 	got []string
+	// sessions are the sessions the decider handed to ScopeFor, in order.
+	sessions []intake.Session
 }
 
-func (s *scopeStub) ScopeFor(_ context.Context, tenantID, correlationID string) (trustport.RouteScope, error) {
+func (s *scopeStub) ScopeFor(_ context.Context, tenantID, correlationID string, session intake.Session) (trustport.RouteScope, error) {
 	s.got = append(s.got, tenantID+"/"+correlationID)
+	s.sessions = append(s.sessions, session)
 	return s.s, s.err
 }
 

@@ -6,6 +6,7 @@ toolchain go1.24.7
 
 require (
 	github.com/jackc/pgx/v5 v5.7.6
+	go.temporal.io/api v1.53.0
 	go.temporal.io/sdk v1.37.0
 	pgregory.net/rapid v1.3.0
 )
@@ -26,7 +27,6 @@ require (
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
-	go.temporal.io/api v1.53.0 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/edge"
+	"github.com/Noemai-org/noema/services/core/edge/events"
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
@@ -56,6 +57,8 @@ type Components struct {
 	TrustUnbuilt []string
 	// Confirmations is the confirmation route's ports (POST /v1/confirmations/{confirmation_request_id}, A341, noema#754); the route is mounted only with it.
 	Confirmations *confirmationRouteConfig
+	// Events is the events route (GET /v1/conversations/{conversation_ref}/events, EDG-02); the route is mounted only with it.
+	Events *events.Handler
 	// Understanding is what buildUnderstanding made, for the later Trust and Evidence wiring (RuleSet, Mapping, PackRef, SealTimeout). It is not a component: Ports.Interpreter is the one
 	// /readyz names. Zero while the Interpreter is not built.
 	Understanding UnderstandingParts
@@ -95,6 +98,9 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 			cfg.Logger = c.AccessLog // the one redacted process logger (redactedLog); a route with its own logger keeps it
 		}
 		routes = append(routes, confirmationRoute(cfg))
+	}
+	if c.Events != nil {
+		routes = append(routes, edge.Route{Pattern: events.Route, Roles: rolesCustomer, Handler: c.Events})
 	}
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
@@ -148,6 +154,7 @@ func missing(c Components, api http.Handler) []string {
 		{"record logins", recordLoginsPresent(c)},
 		{"input gateway", c.Gateway != nil},
 		{"confirmation route", c.Confirmations != nil},
+		{"events route", c.Events != nil},
 	}
 	var names []string
 	for _, p := range parts {
@@ -374,6 +381,8 @@ type composeDeps struct {
 	Pack PackSource
 	// WireTrust builds the Trust inputs and the decisions over the pack and the shared Trust logins (compose_trust_wiring.go). Nil means the composition builds none of them.
 	WireTrust func(trustWiringIn) (trustWired, error)
+	// Surfaces are the parts the surfaces lane takes from other tasks (compose_surfaces.go); the zero value names each as a gap.
+	Surfaces SurfaceSeams
 }
 
 // productionDeps is the real build: the grant keys through keyfiles.Load (INV-29) and the Temporal dial of worker_dial.go. The intake adapters other tasks build, and the worker's
@@ -530,6 +539,7 @@ type Process struct {
 	API         http.Handler
 	Handler     http.Handler
 	Worker      *RunningWorker
+	Surfaces    *Surfaces
 	Close       func()
 }
 
@@ -577,22 +587,30 @@ func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSourc
 	if err != nil {
 		return p, err
 	}
+	c, surf, closeSurfaces, err := buildSurfaces(ctx, env, clk, ids, c, d.Surfaces, logger)
+	if err != nil {
+		closeSurfaces()
+		closeComponents()
+		return p, err
+	}
 	rw, err := buildComposedWorker(ctx, env, d)
 	if err != nil {
+		closeSurfaces()
 		closeComponents()
 		return p, err
 	}
 	api, err := buildAPI(c, env, clk, ids)
 	if err != nil {
 		rw.Stop()
+		closeSurfaces()
 		closeComponents()
 		return p, err
 	}
-	p.Components, p.Trust, p.Worker, p.API = c, parts, rw, api
-	p.Handler = newMux(processReadinessGap(c, api, rw, workerMissing(env)), api)
-	p.Close = func() {
-		rw.Stop()
-		closeComponents()
+	p.Components, p.Trust, p.Worker, p.API, p.Surfaces = c, parts, rw, api, surf
+	p.Handler = newMux(withSurfaceReadiness(processReadinessGap(c, api, rw, workerMissing(env)), surf), api)
+	p.Close = processCloser(rw, surf.Recovery, closeSurfaces, closeComponents)
+	if surf.Recovery != nil {
+		surf.Recovery.Start(ctx)
 	}
 	return p, nil
 }
