@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Annotated, TypeAlias
 from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
-from .capability_descriptor_v1 import CapabilityDescriptorV1
+from .capability_descriptor_v2 import CapabilityDescriptorV2
 from .clock_v1 import ClockV1
 from .common_v1 import CommonV1PackId, CommonV1SchemaVersion, CommonV1Semver, CommonV1Vertical
 from .enums_v1 import EnumsV1CoreReasonCode
@@ -116,10 +116,11 @@ class PackV1(ContractModel):
     pack_id: CommonV1Vertical
     pack_version: CommonV1Semver
     name: Annotated[str, StringConstraints(min_length=1)]
+    tenant_zone: Annotated[str, StringConstraints(pattern='\\A[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*\\Z')] | None = Field(default=None)
     intent_nodes: Annotated[list[IntentNodeV1], Field(min_length=1)]
     trust_profiles: Annotated[list[TrustProfileV1], Field(min_length=1)]
     outcome_definitions: list[OutcomeDefinitionV1]
-    capabilities: list[CapabilityDescriptorV1]
+    capabilities: list[CapabilityDescriptorV2]
     evidence_sources: list[EvidenceSourceV1]
     policy: PackV1Policy
     clocks: list[ClockV1]

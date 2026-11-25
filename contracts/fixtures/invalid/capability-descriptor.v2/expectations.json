@@ -1,0 +1,9 @@
+{
+  "inverse_without_mapping.json": "required",
+  "mapping_without_inverse.json": "not",
+  "lower_case_compensation.json": "enum",
+  "not_applicable_compensation.json": "enum",
+  "empty_parameter_mapping.json": "minProperties",
+  "mapping_extra_member.json": "additionalProperties",
+  "mapping_capability_not_an_id.json": "pattern"
+}

@@ -266,10 +266,11 @@ type PackV1 struct {
 	PackId              CommonV1Vertical                          `json:"pack_id"`
 	PackVersion         CommonV1Semver                            `json:"pack_version"`
 	Name                string                                    `json:"name"`
+	TenantZone          *string                                   `json:"tenant_zone,omitempty"`
 	IntentNodes         []IntentNodeV1                            `json:"intent_nodes"`
 	TrustProfiles       []TrustProfileV1                          `json:"trust_profiles"`
 	OutcomeDefinitions  []OutcomeDefinitionV1                     `json:"outcome_definitions"`
-	Capabilities        []CapabilityDescriptorV1                  `json:"capabilities"`
+	Capabilities        []CapabilityDescriptorV2                  `json:"capabilities"`
 	EvidenceSources     []EvidenceSourceV1                        `json:"evidence_sources"`
 	Policy              PackV1Policy                              `json:"policy"`
 	Clocks              []ClockV1                                 `json:"clocks"`
@@ -283,7 +284,7 @@ type PackV1 struct {
 	Understanding       *PackV1Understanding                      `json:"understanding,omitempty"`
 }
 
-var PackV1Shape = objectShape{name: "PackV1", props: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, required: []string{"schema_version", "pack_id", "pack_version", "name", "intent_nodes", "trust_profiles", "outcome_definitions", "capabilities", "evidence_sources", "policy", "clocks", "reason_catalogue"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, closed: true}
+var PackV1Shape = objectShape{name: "PackV1", props: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, required: []string{"schema_version", "pack_id", "pack_version", "name", "intent_nodes", "trust_profiles", "outcome_definitions", "capabilities", "evidence_sources", "policy", "clocks", "reason_catalogue"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, closed: true}
 
 func (t *PackV1) UnmarshalJSON(b []byte) error {
 	raw, err := PackV1Shape.check(b)
@@ -313,7 +314,7 @@ func (t PackV1) MarshalJSON() ([]byte, error) {
 		a.OutcomeDefinitions = []OutcomeDefinitionV1{}
 	}
 	if a.Capabilities == nil {
-		a.Capabilities = []CapabilityDescriptorV1{}
+		a.Capabilities = []CapabilityDescriptorV2{}
 	}
 	if a.EvidenceSources == nil {
 		a.EvidenceSources = []EvidenceSourceV1{}

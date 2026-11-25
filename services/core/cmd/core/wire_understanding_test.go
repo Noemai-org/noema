@@ -45,7 +45,9 @@ import (
 const undManifestRel = "fintech/manifest.v1.json"
 
 var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json",
-	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"} // A510: the three action graphs are pinned by the manifest too
+	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json",
+	"fintech/limits/execution_limits.json", "fintech/limits/masking_limits.json", "fintech/limits/session_limits.json", "fintech/limits/trust_limits.json",
+	"fintech/context/injection_patterns.v1.json", "fintech/routing/priority_routing.v1.json"} // A510: the three action graphs, (A544) the four limits files and (A645) the injection patterns are pinned by the manifest too; PCK-09 (A644): so is the priority routing member
 
 // copyPack copies the real pack and its manifest into a fresh directory, so that a test can break one file of it.
 func copyPack(t *testing.T) string {
@@ -426,7 +428,7 @@ func TestTheMappingBuiltFromTheRealPackServesTheCaseSystemsLists(t *testing.T) {
 func TestAPackFileChangedAfterTheManifestStopsStartup(t *testing.T) {
 	m := newModelStub(t)
 	rec := undFakeRecorder(t, "ten_aa")
-	for _, rel := range []string{"fintech_v1.json", "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json"} {
+	for _, rel := range []string{"fintech_v1.json", "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json", "fintech/context/injection_patterns.v1.json"} {
 		dir := copyPack(t)
 		appendTo(t, filepath.Join(dir, filepath.FromSlash(rel)), "\n")
 		p, err := buildUnd(t, undSettings(dir, m), rec)
