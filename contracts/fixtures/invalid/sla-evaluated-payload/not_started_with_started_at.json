@@ -1,0 +1,10 @@
+{
+  "clock_id": "fin.clock.complaint_resolution",
+  "label": "SYNTHETIC",
+  "phase": "NOT_STARTED",
+  "started_at": 1790000000,
+  "elapsed": 0,
+  "priority": "NORMAL",
+  "priority_raised": false,
+  "reroute": false
+}
