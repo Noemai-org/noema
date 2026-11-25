@@ -33,6 +33,8 @@ var (
 	ErrIntent = errors.New("trustpack: the admitted intent is not usable")
 	// ErrCapability is returned by Authorized for a capability the registry does not know or that is prohibited: such a capability roots no authorization.
 	ErrCapability = errors.New("trustpack: the capability cannot root an authorization")
+	// ErrGraph is returned by ActionGraphData for an empty graph ID or a graph the pack does not have.
+	ErrGraph = errors.New("trustpack: the pack has no such action graph")
 	// ErrEscalationGraph is returned by EscalationSetFromPack for a graph that is missing from the pack or that has no WRITE node.
 	ErrEscalationGraph = errors.New("trustpack: the escalation graph is missing or has no write node")
 )
