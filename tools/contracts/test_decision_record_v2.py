@@ -40,7 +40,9 @@ class DecisionRecordV2(unittest.TestCase):
     def test_every_valid_v1_fixture_has_a_v2_twin_that_validates(self):
         v1 = {p.name for p in (FIXTURES / "valid" / "decision-record").glob("*.json")}
         v2 = {p.name for p in (FIXTURES / "valid" / "decision-record.v2").glob("*.json")}
-        self.assertEqual(v1, v2)
+        # A577: a record with a null basis (an early outcome) exists only in version 2; version 1 requires the basis of every outcome
+        v2_only = {n for n in v2 if n.endswith("_early_null_basis.json")}
+        self.assertEqual(v1, v2 - v2_only)
         for name in sorted(v2):
             doc = json.loads((FIXTURES / "valid" / "decision-record.v2" / name).read_text())
             self.assertTrue(doc["schema_version"].startswith("2."), name)

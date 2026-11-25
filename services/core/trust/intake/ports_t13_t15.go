@@ -141,8 +141,8 @@ type RecordRequest struct {
 	// recompute the binding of that confirmation. It is NOT the grant's evidence_set_hash (the snapshot's set hash, which the adapter takes from the snapshot): the grant never carries
 	// it. Empty for an ALLOW that follows no confirmation and for every other decision.
 	ConfirmationBindingEvidenceHash string
-	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on (A470); optional, and empty for every other decision. The Recorder's writer
-	// shape-checks it and refuses any other outcome that names one.
+	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on (A470, A542): required and well formed for that reject (the intake and the Recorder's
+	// adapter refuse an empty or malformed one) and empty for every other decision. The Recorder's writer shape-checks it and refuses any other outcome that names one.
 	DeclinedRequestID string
 	// DispositionDecisionID is the ESCALATE disposition (a decision with no step and no grant, recorded first through the Recorder) that an escalation action decision links (A503;
 	// PERD 23.1, REQ-TRU-010); optional, and empty for every decision this intake records itself: the escalation path records the disposition and passes its ID. The Recorder's writer

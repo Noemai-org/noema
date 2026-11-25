@@ -57,9 +57,8 @@ func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
 
 // t13: the trust profile's approver confirmation. Not required: continue. Required and resolved (a valid ACCEPT that the confirmation store turned into this fresh evaluation,
 // INV-25): continue, and the grant will follow its event. Required and not resolved (Pending): the CONFIRM, recorded before it is returned (EC-E16), with the confirmation request
-// created in the same Record call when none is open. Any other answer is not an answer: that includes Declined, which ends in UNKNOWN like a status Trust does not know. The order
-// is that Declined becomes REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only, and trust/decide refuses any other outcome from T13: that is a
-// stop condition awaiting the Architect (status/TRU-07-confirm-t13.md), and UNKNOWN is the safer reading meanwhile.
+// created in the same Record call when none is open. Declined is the REJECT DECLINED_BY_APPROVER (t13Declined: recorded first, with no
+// steps and no grant, naming the request it rests on, A542); any other answer is not an answer and ends in UNKNOWN like a status Trust does not know.
 func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
@@ -97,7 +96,7 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 // was answered; it never carries a new one), nothing is planned, and no grant exists for a refusal (INV-03). If the Recorder fails, nothing else happens and the evaluation ends in
 // UNKNOWN, never in a REJECT the caller could take as recorded.
 func (e *evaluation) t13Declined(ctx context.Context, c Confirmation) decide.StepResult {
-	if c.NewRequest != nil || c.RequestID != "" && !requestIDRe.MatchString(c.RequestID) {
+	if c.NewRequest != nil || !requestIDRe.MatchString(c.RequestID) { // A542: a decline names the request it rests on, as the Given answer does
 		return decide.FailStep(errAnswer)
 	}
 	reason, err := decide.Core("DECLINED_BY_APPROVER")

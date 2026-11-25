@@ -39,10 +39,10 @@ FIVE = ("en-NG", "pcm", "yo", "ha", "ig")
 
 
 def session(i: int, elapsed: int | None = 1500, locale: str = "pcm", correct: bool | None = True,
-            consent: str | None = "c-1") -> FieldSession:
+            speaker: str | None = "c-1") -> FieldSession:
     eos = 10_000 * i
     return FieldSession(f"s{i}", locale, eos if elapsed is not None else None,
-                        eos + elapsed if elapsed is not None else None, correct, consent)
+                        eos + elapsed if elapsed is not None else None, correct, speaker)
 
 
 def run_gate(sessions: list[FieldSession], **over: Any) -> FieldAnalysis:
@@ -153,15 +153,15 @@ def test_every_failing_reason_is_listed_not_only_the_first() -> None:
 # ---- refusals ------------------------------------------------------------------------------------------------------------
 
 
-def test_a_session_with_no_consent_reference_is_refused() -> None:
+def test_a_session_with_no_speaker_reference_is_refused() -> None:
     with pytest.raises(ValueError):
-        run_gate([session(0, consent=None)])
+        run_gate([session(0, speaker=None)])
 
 
 @pytest.mark.parametrize("blank", ["", "   ", "\t"])
-def test_an_empty_consent_or_session_reference_is_refused(blank: str) -> None:
+def test_an_empty_speaker_or_session_reference_is_refused(blank: str) -> None:
     with pytest.raises(ValueError):
-        run_gate([session(0, consent=blank)])
+        run_gate([session(0, speaker=blank)])
     with pytest.raises(ValueError):
         run_gate([FieldSession(blank, "pcm", 0, 1000, True, "c")])
 
