@@ -455,7 +455,7 @@
     {
       "name": "unicode_string",
       "payload_json": "{\"s\":\"caf\\u00e9 \\u65e5\\u672c\\u8a9e \\ud83d\\ude00 \\u0007 \\\"q\\\" \\\\ /\",\"\\ud83d\\ude00\":1,\"\\uffff\":2}",
-      "input_bytes_utf8": "{\"s\":\"café 日本語 😀 \\u0007 \\\"q\\\" \\\\ /\",\"😀\":1,\"￿\":2}",
+      "input_bytes_utf8": "{\"s\":\"caf\u00e9 \u65e5\u672c\u8a9e \ud83d\ude00 \\u0007 \\\"q\\\" \\\\ /\",\"\ud83d\ude00\":1,\"\uffff\":2}",
       "input_bytes_hex": "7b2273223a22636166c3a920e697a5e69cace8aa9e20f09f9880205c7530303037205c22715c22205c5c202f222c22f09f9880223a312c22efbfbf223a327d",
       "expected_hash": "sha256:26745c0f9b993c20e9c8ad47f04467664537c7f48e9f630a060dcfb9c1677928",
       "computed_by": "node v22 tools/payload_hash_independent.js (RFC 8785 from ECMAScript JSON.stringify and UTF-16 member order); sha256sum of input_bytes_hex agrees",
@@ -707,6 +707,370 @@
           }
         }
       ]
+    }
+  ],
+  "intent_hash_v3_vectors": [
+    {
+      "name": "sot_example_version_1_unresolved_subject",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "int_01J9X3",
+        "version": 1,
+        "supersedes": null,
+        "tenant_id": "ten_demo",
+        "correlation_id": "corr_4c21f9",
+        "created_at": "2026-10-01T09:47:03Z",
+        "principal": {
+          "principal_id": "usr_88213",
+          "principal_type": "end_user",
+          "authn_ref": "ses_7a1b",
+          "asserted_by": "enterprise_idp"
+        },
+        "source": {
+          "mode": "MODE_1",
+          "channel": "voice",
+          "locale_detected": [
+            "en-NG",
+            "pcm"
+          ],
+          "asr_confidence": 9100,
+          "raw_ref": "rec_raw_01J9X3"
+        },
+        "pack": {
+          "pack_id": "fin",
+          "pack_version": "1.0.0"
+        },
+        "intent_node": "fin.payments.exception.investigate",
+        "slots": {
+          "subject_resource": {
+            "type": "Resource",
+            "status": "UNRESOLVED",
+            "candidates_ref": null
+          },
+          "amount": {
+            "type": "Quantity",
+            "value": 2000000,
+            "unit": "NGN",
+            "confidence": 9700
+          },
+          "counterparty": {
+            "type": "Party",
+            "surface_form": "Tunde",
+            "confidence": 9900
+          },
+          "when": {
+            "type": "TimeRef",
+            "surface_form": "this morning",
+            "window": [
+              "2026-10-01T05:00:00Z",
+              "2026-10-01T09:00:00Z"
+            ]
+          }
+        },
+        "ambiguity_flags": [
+          "COUNTERPARTY_MULTIPLE_MATCH"
+        ],
+        "desired_outcome_refs": [
+          "fin.outcome.exception.status_explained"
+        ],
+        "status": "VALIDATED",
+        "sig": {
+          "key_id": "und-2026-10",
+          "value": "c2lnbmF0dXJl"
+        }
+      },
+      "expected_jcs": "{\"ambiguity_flags\":[\"COUNTERPARTY_MULTIPLE_MATCH\"],\"correlation_id\":\"corr_4c21f9\",\"created_at\":\"2026-10-01T09:47:03Z\",\"desired_outcome_refs\":[\"fin.outcome.exception.status_explained\"],\"intent_id\":\"int_01J9X3\",\"intent_node\":\"fin.payments.exception.investigate\",\"pack\":{\"pack_id\":\"fin\",\"pack_version\":\"1.0.0\"},\"principal\":{\"asserted_by\":\"enterprise_idp\",\"authn_ref\":\"ses_7a1b\",\"principal_id\":\"usr_88213\",\"principal_type\":\"end_user\"},\"schema_version\":\"3.0\",\"sig\":{\"key_id\":\"und-2026-10\",\"value\":\"c2lnbmF0dXJl\"},\"slots\":{\"amount\":{\"confidence\":9700,\"type\":\"Quantity\",\"unit\":\"NGN\",\"value\":2000000},\"counterparty\":{\"confidence\":9900,\"surface_form\":\"Tunde\",\"type\":\"Party\"},\"subject_resource\":{\"candidates_ref\":null,\"status\":\"UNRESOLVED\",\"type\":\"Resource\"},\"when\":{\"surface_form\":\"this morning\",\"type\":\"TimeRef\",\"window\":[\"2026-10-01T05:00:00Z\",\"2026-10-01T09:00:00Z\"]}},\"source\":{\"asr_confidence\":9100,\"channel\":\"voice\",\"locale_detected\":[\"en-NG\",\"pcm\"],\"mode\":\"MODE_1\",\"raw_ref\":\"rec_raw_01J9X3\"},\"status\":\"VALIDATED\",\"supersedes\":null,\"tenant_id\":\"ten_demo\",\"version\":1}",
+      "expected_intent_hash": "sha256:10a521c17ed4e7d1770031bb33491dc7f3c7897fceeda7d3b08dd65cb6013f1c"
+    },
+    {
+      "name": "version_2_resolved_subject_supersedes_1",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "int_01J9X3",
+        "version": 2,
+        "supersedes": "int_01J9X3@1",
+        "tenant_id": "ten_demo",
+        "correlation_id": "corr_4c21f9",
+        "created_at": "2026-10-01T09:47:03Z",
+        "principal": {
+          "principal_id": "usr_88213",
+          "principal_type": "end_user",
+          "authn_ref": "ses_7a1b",
+          "asserted_by": "enterprise_idp"
+        },
+        "source": {
+          "mode": "MODE_1",
+          "channel": "voice",
+          "locale_detected": [
+            "en-NG",
+            "pcm"
+          ],
+          "asr_confidence": 9100,
+          "raw_ref": "rec_raw_01J9X3"
+        },
+        "pack": {
+          "pack_id": "fin",
+          "pack_version": "1.0.0"
+        },
+        "intent_node": "fin.payments.exception.investigate",
+        "slots": {
+          "subject_resource": {
+            "type": "Resource",
+            "status": "RESOLVED",
+            "resolved_ref": "fin.transaction:TX88213",
+            "confidence": 9800
+          },
+          "amount": {
+            "type": "Quantity",
+            "value": 2000000,
+            "unit": "NGN",
+            "confidence": 9700
+          },
+          "counterparty": {
+            "type": "Party",
+            "surface_form": "Tunde",
+            "confidence": 9900
+          },
+          "when": {
+            "type": "TimeRef",
+            "surface_form": "this morning",
+            "window": [
+              "2026-10-01T05:00:00Z",
+              "2026-10-01T09:00:00Z"
+            ]
+          }
+        },
+        "ambiguity_flags": [],
+        "desired_outcome_refs": [
+          "fin.outcome.exception.status_explained"
+        ],
+        "status": "VALIDATED",
+        "sig": {
+          "key_id": "und-2026-10",
+          "value": "c2lnbmF0dXJl"
+        }
+      },
+      "expected_jcs": "{\"ambiguity_flags\":[],\"correlation_id\":\"corr_4c21f9\",\"created_at\":\"2026-10-01T09:47:03Z\",\"desired_outcome_refs\":[\"fin.outcome.exception.status_explained\"],\"intent_id\":\"int_01J9X3\",\"intent_node\":\"fin.payments.exception.investigate\",\"pack\":{\"pack_id\":\"fin\",\"pack_version\":\"1.0.0\"},\"principal\":{\"asserted_by\":\"enterprise_idp\",\"authn_ref\":\"ses_7a1b\",\"principal_id\":\"usr_88213\",\"principal_type\":\"end_user\"},\"schema_version\":\"3.0\",\"sig\":{\"key_id\":\"und-2026-10\",\"value\":\"c2lnbmF0dXJl\"},\"slots\":{\"amount\":{\"confidence\":9700,\"type\":\"Quantity\",\"unit\":\"NGN\",\"value\":2000000},\"counterparty\":{\"confidence\":9900,\"surface_form\":\"Tunde\",\"type\":\"Party\"},\"subject_resource\":{\"confidence\":9800,\"resolved_ref\":\"fin.transaction:TX88213\",\"status\":\"RESOLVED\",\"type\":\"Resource\"},\"when\":{\"surface_form\":\"this morning\",\"type\":\"TimeRef\",\"window\":[\"2026-10-01T05:00:00Z\",\"2026-10-01T09:00:00Z\"]}},\"source\":{\"asr_confidence\":9100,\"channel\":\"voice\",\"locale_detected\":[\"en-NG\",\"pcm\"],\"mode\":\"MODE_1\",\"raw_ref\":\"rec_raw_01J9X3\"},\"status\":\"VALIDATED\",\"supersedes\":\"int_01J9X3@1\",\"tenant_id\":\"ten_demo\",\"version\":2}",
+      "expected_intent_hash": "sha256:c3da0d711c308ac7abafe30c3c363c9cd0eee7113c0d59017e5746238cb778a2"
+    },
+    {
+      "name": "unicode_and_escaped_surface_form",
+      "input": {
+        "schema_version": "3.0",
+        "intent_id": "int_01J9X3",
+        "version": 2,
+        "supersedes": "int_01J9X3@1",
+        "tenant_id": "ten_demo",
+        "correlation_id": "corr_4c21f9",
+        "created_at": "2026-10-01T09:47:03Z",
+        "principal": {
+          "principal_id": "usr_88213",
+          "principal_type": "end_user",
+          "authn_ref": "ses_7a1b",
+          "asserted_by": "enterprise_idp"
+        },
+        "source": {
+          "mode": "MODE_1",
+          "channel": "voice",
+          "locale_detected": [
+            "en-NG",
+            "pcm"
+          ],
+          "asr_confidence": 9100,
+          "raw_ref": "rec_raw_01J9X3"
+        },
+        "pack": {
+          "pack_id": "fin",
+          "pack_version": "1.0.0"
+        },
+        "intent_node": "fin.payments.exception.investigate",
+        "slots": {
+          "subject_resource": {
+            "type": "Resource",
+            "status": "RESOLVED",
+            "resolved_ref": "fin.transaction:TX88213",
+            "confidence": 9800
+          },
+          "amount": {
+            "type": "Quantity",
+            "value": 2000000,
+            "unit": "NGN",
+            "confidence": 9700
+          },
+          "counterparty": {
+            "type": "Party",
+            "surface_form": "S\u1eb9\u0301d\u00e9 \ud83d\ude80 \"Tunde\" \\ <b>&</b>",
+            "confidence": 9900
+          },
+          "when": {
+            "type": "TimeRef",
+            "surface_form": "this morning",
+            "window": [
+              "2026-10-01T05:00:00Z",
+              "2026-10-01T09:00:00Z"
+            ]
+          }
+        },
+        "ambiguity_flags": [],
+        "desired_outcome_refs": [
+          "fin.outcome.exception.status_explained"
+        ],
+        "status": "VALIDATED",
+        "sig": {
+          "key_id": "und-2026-10",
+          "value": "c2lnbmF0dXJl"
+        }
+      },
+      "expected_jcs": "{\"ambiguity_flags\":[],\"correlation_id\":\"corr_4c21f9\",\"created_at\":\"2026-10-01T09:47:03Z\",\"desired_outcome_refs\":[\"fin.outcome.exception.status_explained\"],\"intent_id\":\"int_01J9X3\",\"intent_node\":\"fin.payments.exception.investigate\",\"pack\":{\"pack_id\":\"fin\",\"pack_version\":\"1.0.0\"},\"principal\":{\"asserted_by\":\"enterprise_idp\",\"authn_ref\":\"ses_7a1b\",\"principal_id\":\"usr_88213\",\"principal_type\":\"end_user\"},\"schema_version\":\"3.0\",\"sig\":{\"key_id\":\"und-2026-10\",\"value\":\"c2lnbmF0dXJl\"},\"slots\":{\"amount\":{\"confidence\":9700,\"type\":\"Quantity\",\"unit\":\"NGN\",\"value\":2000000},\"counterparty\":{\"confidence\":9900,\"surface_form\":\"S\u1eb9\u0301d\u00e9 \ud83d\ude80 \\\"Tunde\\\" \\\\ <b>&</b>\",\"type\":\"Party\"},\"subject_resource\":{\"confidence\":9800,\"resolved_ref\":\"fin.transaction:TX88213\",\"status\":\"RESOLVED\",\"type\":\"Resource\"},\"when\":{\"surface_form\":\"this morning\",\"type\":\"TimeRef\",\"window\":[\"2026-10-01T05:00:00Z\",\"2026-10-01T09:00:00Z\"]}},\"source\":{\"asr_confidence\":9100,\"channel\":\"voice\",\"locale_detected\":[\"en-NG\",\"pcm\"],\"mode\":\"MODE_1\",\"raw_ref\":\"rec_raw_01J9X3\"},\"status\":\"VALIDATED\",\"supersedes\":\"int_01J9X3@1\",\"tenant_id\":\"ten_demo\",\"version\":2}",
+      "expected_intent_hash": "sha256:df19f157f41da1ce572d41ca33ec600e14f8a4c9521cc336143476cd9b690cc1"
+    }
+  ],
+  "plan_hash_v1_vectors": [
+    {
+      "name": "one_read_step",
+      "input": {
+        "schema_version": "1.0",
+        "graph_version": "1.0.0",
+        "intent_node": "fin.payments.exception.investigate",
+        "steps": [
+          {
+            "step": 0,
+            "node_id": "fin.node.lookup_transaction",
+            "capability_id": "fin.cap.lookup_transaction",
+            "params": {
+              "transaction_ref": "fin.transaction:TX88213"
+            },
+            "preconditions": [],
+            "expected_postconditions": []
+          }
+        ]
+      },
+      "expected_jcs": "{\"graph_version\":\"1.0.0\",\"intent_node\":\"fin.payments.exception.investigate\",\"schema_version\":\"1.0\",\"steps\":[{\"capability_id\":\"fin.cap.lookup_transaction\",\"expected_postconditions\":[],\"node_id\":\"fin.node.lookup_transaction\",\"params\":{\"transaction_ref\":\"fin.transaction:TX88213\"},\"preconditions\":[],\"step\":0}]}",
+      "expected_plan_hash": "sha256:4025ed7d6a4e1da308e5af02dee33d6f3c62fdbbe4c0668d582719ad95012030"
+    },
+    {
+      "name": "read_then_write_then_evidence_with_every_param_type",
+      "input": {
+        "schema_version": "1.0",
+        "graph_version": "1.0.0",
+        "intent_node": "fin.payments.exception.investigate",
+        "steps": [
+          {
+            "step": 0,
+            "node_id": "fin.node.lookup_transaction",
+            "capability_id": "fin.cap.lookup_transaction",
+            "params": {
+              "transaction_ref": "fin.transaction:TX88213"
+            },
+            "preconditions": [],
+            "expected_postconditions": []
+          },
+          {
+            "step": 1,
+            "node_id": "fin.node.create_escalation_case",
+            "capability_id": "fin.cap.create_escalation_case",
+            "params": {
+              "transaction_ref": "fin.transaction:TX88213",
+              "reason_code": "PAYMENT_STATUS_QUERY",
+              "attempt": 1,
+              "urgent": false,
+              "note": null
+            },
+            "preconditions": [
+              "subject_resource.status == 'RESOLVED'"
+            ],
+            "expected_postconditions": [
+              "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED'])"
+            ]
+          },
+          {
+            "step": 2,
+            "node_id": "fin.node.record_investigation_evidence",
+            "capability_id": "fin.cap.record_investigation_evidence",
+            "params": {
+              "case_id": "case_synth_0001"
+            },
+            "preconditions": [
+              "evidence_packet_hash != null"
+            ],
+            "expected_postconditions": []
+          }
+        ]
+      },
+      "expected_jcs": "{\"graph_version\":\"1.0.0\",\"intent_node\":\"fin.payments.exception.investigate\",\"schema_version\":\"1.0\",\"steps\":[{\"capability_id\":\"fin.cap.lookup_transaction\",\"expected_postconditions\":[],\"node_id\":\"fin.node.lookup_transaction\",\"params\":{\"transaction_ref\":\"fin.transaction:TX88213\"},\"preconditions\":[],\"step\":0},{\"capability_id\":\"fin.cap.create_escalation_case\",\"expected_postconditions\":[\"exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED'])\"],\"node_id\":\"fin.node.create_escalation_case\",\"params\":{\"attempt\":1,\"note\":null,\"reason_code\":\"PAYMENT_STATUS_QUERY\",\"transaction_ref\":\"fin.transaction:TX88213\",\"urgent\":false},\"preconditions\":[\"subject_resource.status == 'RESOLVED'\"],\"step\":1},{\"capability_id\":\"fin.cap.record_investigation_evidence\",\"expected_postconditions\":[],\"node_id\":\"fin.node.record_investigation_evidence\",\"params\":{\"case_id\":\"case_synth_0001\"},\"preconditions\":[\"evidence_packet_hash != null\"],\"step\":2}]}",
+      "expected_plan_hash": "sha256:5758aaacec20575ebbf2bd02e8a56d83ca8fbefa3bf5d8921a1b48bc76a6c359"
+    }
+  ],
+  "plan_hash_v1_refused_vectors": [
+    {
+      "name": "prohibited_capability",
+      "input": {
+        "schema_version": "1.0",
+        "graph_version": "1.0.0",
+        "intent_node": "fin.payments.exception.investigate",
+        "steps": [
+          {
+            "step": 0,
+            "node_id": "fin.node.transfer",
+            "capability_id": "fin.cap.transfer_funds",
+            "params": {},
+            "preconditions": [],
+            "expected_postconditions": []
+          }
+        ]
+      },
+      "expected_refusal": "prohibited_capability",
+      "expected_jcs": "{\"graph_version\":\"1.0.0\",\"intent_node\":\"fin.payments.exception.investigate\",\"schema_version\":\"1.0\",\"steps\":[{\"capability_id\":\"fin.cap.transfer_funds\",\"expected_postconditions\":[],\"node_id\":\"fin.node.transfer\",\"params\":{},\"preconditions\":[],\"step\":0}]}"
+    },
+    {
+      "name": "unregistered_capability",
+      "input": {
+        "schema_version": "1.0",
+        "graph_version": "1.0.0",
+        "intent_node": "fin.payments.exception.investigate",
+        "steps": [
+          {
+            "step": 0,
+            "node_id": "fin.node.other",
+            "capability_id": "fin.cap.not_in_the_pack",
+            "params": {},
+            "preconditions": [],
+            "expected_postconditions": []
+          }
+        ]
+      },
+      "expected_refusal": "unregistered_capability",
+      "expected_jcs": "{\"graph_version\":\"1.0.0\",\"intent_node\":\"fin.payments.exception.investigate\",\"schema_version\":\"1.0\",\"steps\":[{\"capability_id\":\"fin.cap.not_in_the_pack\",\"expected_postconditions\":[],\"node_id\":\"fin.node.other\",\"params\":{},\"preconditions\":[],\"step\":0}]}"
+    },
+    {
+      "name": "gap_in_the_step_numbers",
+      "input": {
+        "schema_version": "1.0",
+        "graph_version": "1.0.0",
+        "intent_node": "fin.payments.exception.investigate",
+        "steps": [
+          {
+            "step": 0,
+            "node_id": "fin.node.lookup_transaction",
+            "capability_id": "fin.cap.lookup_transaction",
+            "params": {
+              "transaction_ref": "fin.transaction:TX88213"
+            },
+            "preconditions": [],
+            "expected_postconditions": []
+          },
+          {
+            "step": 2,
+            "node_id": "fin.node.lookup_account",
+            "capability_id": "fin.cap.lookup_account",
+            "params": {},
+            "preconditions": [],
+            "expected_postconditions": []
+          }
+        ]
+      },
+      "expected_refusal": "step_numbering",
+      "expected_jcs": "{\"graph_version\":\"1.0.0\",\"intent_node\":\"fin.payments.exception.investigate\",\"schema_version\":\"1.0\",\"steps\":[{\"capability_id\":\"fin.cap.lookup_transaction\",\"expected_postconditions\":[],\"node_id\":\"fin.node.lookup_transaction\",\"params\":{\"transaction_ref\":\"fin.transaction:TX88213\"},\"preconditions\":[],\"step\":0},{\"capability_id\":\"fin.cap.lookup_account\",\"expected_postconditions\":[],\"node_id\":\"fin.node.lookup_account\",\"params\":{},\"preconditions\":[],\"step\":2}]}"
     }
   ]
 }
