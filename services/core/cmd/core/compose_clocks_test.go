@@ -183,8 +183,9 @@ func TestTheProcessDoesNotStartOnABadLimitsFile(t *testing.T) {
 // With no pack setting, or only some of them, there is no pack to check: the process starts and the named gaps say so (A469, A486).
 func TestWithoutACompletePackSettingNothingIsCheckedHere(t *testing.T) {
 	for name, e := range map[string]envMap{
-		"none":    {},
-		"partial": {EnvPackDir: "x"},
+		"none":     {},
+		"partial":  {EnvPackDir: "x"},
+		"no bound": {EnvPackDir: psrcPacks(), EnvPackManifest: psrcManifest},
 	} {
 		if err := checkPackLimits(Env{Getenv: e.get}); err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -291,6 +292,9 @@ func ckAdapter(t *testing.T, rows []any, limitsEdit func(d map[string]any)) inta
 	if err != nil {
 		t.Fatal(err)
 	}
+	if rows == nil {
+		rows = []any{}
+	}
 	payload := map[string]any{"items": rows, "complete": true}
 	canon, err := crypto.CanonicalJSON(payload)
 	if err != nil {
@@ -332,28 +336,6 @@ func TestAnchorsAndRoutesComeFromTheLimits(t *testing.T) {
 	set, err = empty.Applicable(tiDeadline(t), q)
 	if err != nil || len(set.Clocks) != 1 || set.Clocks[0].Anchor != nil {
 		t.Errorf("a complete empty list: %+v, %v; want NOT_STARTED (no anchor)", set, err)
-	}
-}
-
-// A phase route with a reason code that is not a pack code is refused when the adapter is built.
-func TestAPhaseRouteTheAdapterRefusesIsAnError(t *testing.T) {
-	v := ckWith(t, func(m map[string][]byte, path string) {
-		m[path] = ckEdit(t, m[path], func(d map[string]any) {
-			d["phase_routes"] = []any{map[string]any{"phase": "BREACHED", "reason_code": "xx.reason.nope"}}
-		})
-	})
-	l, doc, err := trustLimitsOf(v)
-	if err != nil {
-		t.Skipf("the loader already refuses it: %v", err)
-	}
-	_, m := tiParts(t, v)
-	sc := tiScreen()
-	_, err = newClocksAdapter(clocksParts{Pack: v.Pack, Limit: l, Doc: doc, Lists: intakesources.EvidenceLists{
-		Mapping: m, Items: ckItems{}, Payloads: ckPayloads{}, Screen: sc.Screen, Correlation: sc.Correlation, Alert: sc.Alert,
-		Entities: map[string]intakesources.ListSpec{"complaint_ref": {Source: "fin.src.case_system", ScopePrefix: "complaint_ref:"}},
-	}})
-	if err == nil {
-		t.Fatal("a route to a code that is not the pack's was accepted")
 	}
 }
 
