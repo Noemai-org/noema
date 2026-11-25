@@ -388,6 +388,13 @@ func TestWhatTheGatewayRefusesWritesNothingAndStartsNothing(t *testing.T) {
 			t.Errorf("%s: err %v, want ErrNoIdentity", name, err)
 		}
 	}
+	for _, iss := range []string{"Noema", "1idp", "-idp", "idp idp", "idp.idp", "idp:x", "idp\n"} { // A584: a malformed verified issuer is no identity (an empty one is refused at Start)
+		id := identity(tenantA, "usr_88213")
+		id.AssertedBy = iss
+		if _, err := g.Accept(ctx(t), id, body(reqID, "hi")); !errors.Is(err, inputgateway.ErrNoIdentity) {
+			t.Errorf("issuer %q: err %v, want ErrNoIdentity", iss, err)
+		}
+	}
 	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), bytes.Repeat([]byte(" "), 64<<10+1)); !errors.Is(err, inputgateway.ErrInvalidInput) {
 		t.Errorf("an oversize body: err %v", err)
 	}

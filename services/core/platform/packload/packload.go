@@ -133,7 +133,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	if err != nil {
 		return Pack{}, refuse(ErrConfig, "")
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }() // read-only handle: nothing is flushed, so a close error cannot change what was read
 	raw, err := readPlain(root, manifest, maxBytes, ErrManifest, kindManifest)
 	if err != nil {
 		return Pack{}, err
@@ -294,7 +294,7 @@ func readPlain(root *os.Root, rel string, maxBytes int64, notUsable error, kind 
 	if err != nil {
 		return nil, refuse(notUsable, kind)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only handle, as above
 	fi, err := f.Stat()
 	if err != nil || !fi.Mode().IsRegular() {
 		return nil, refuse(notUsable, kind)
@@ -332,7 +332,7 @@ func scan(root *os.Root, dir, prefix, kind string, listed map[string]bool, of fu
 		return refuse(ErrFile, kind)
 	}
 	entries, err := d.ReadDir(-1)
-	d.Close()
+	_ = d.Close() // read-only directory handle; the ReadDir error below is the one that counts
 	if err != nil {
 		return refuse(ErrFile, kind)
 	}

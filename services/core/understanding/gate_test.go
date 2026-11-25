@@ -209,6 +209,10 @@ func TestWhatTheGateRefusesAndWhy(t *testing.T) {
 		{"version 2 that supersedes nothing", func(m map[string]any) { m["version"] = 2 }, understanding.ReasonSupersedes},
 		{"version 3 that supersedes version 1", func(m map[string]any) { m["version"] = 3; m["supersedes"] = "int_01J9X3@1" }, understanding.ReasonSupersedes},
 		{"supersedes another intent", func(m map[string]any) { m["version"] = 2; m["supersedes"] = "int_other@1" }, understanding.ReasonSupersedes},
+		// CON-08 (A337): the supersedes link is read by contracts.ParseIntentRef, which refuses a version with a leading zero, a form the contract's IntentRef cannot hold.
+		{"supersedes a version written @01", func(m map[string]any) { m["version"] = 2; m["supersedes"] = "int_01J9X3@01" }, understanding.ReasonSupersedes},
+		{"supersedes a version written @007", func(m map[string]any) { m["version"] = 8; m["supersedes"] = "int_01J9X3@007" }, understanding.ReasonSupersedes},
+		{"supersedes a version above the form's bound", func(m map[string]any) { m["version"] = 1000000001; m["supersedes"] = "int_01J9X3@1000000000" }, understanding.ReasonSupersedes},
 		{"created_at without Z", func(m map[string]any) { m["created_at"] = "2026-10-01T09:47:03+01:00" }, understanding.ReasonCreatedAt},
 		{"created_at that is not a date", func(m map[string]any) { m["created_at"] = "2026-13-45T25:61:61Z" }, understanding.ReasonCreatedAt},
 		{"another correlation id", func(m map[string]any) { m["correlation_id"] = "corr_other" }, understanding.ReasonCorrelation},

@@ -1,7 +1,7 @@
-"""VOI-06, REQ-VOI-004, REQ-VOI-005: the study records of the voice subset (consent register, annotations) are checked before any session counts.
+"""VOI-06, REQ-VOI-004, REQ-VOI-005: the study records of the voice subset (speaker register, annotations) are checked before any session counts.
 
-Plan: docs/voice/recording-plan-DRAFT.md (sections 5 and 6, still a draft until the Founder signs it): no recording without a consent in the register, a withdrawn
-consent leaves no session behind, every session has two annotators and a locale, a disagreement is settled by a native-speaker tester, failed and unusable sessions stay in the
+Plan: docs/voice/recording-plan-DRAFT.md (sections 5 and 6, still a draft until the Founder signs it): no recording without a speaker in the register, a withdrawn
+speaker leaves no session behind, every session has two annotators and a locale, a disagreement is settled by a native-speaker tester, failed and unusable sessions stay in the
 denominator. This module holds records, never audio (AGENT-13). All data in these tests is SYNTHETIC (AGENT-25).
 """
 
@@ -11,7 +11,7 @@ from noema_model.voice.study import (
     MIN_SUBSET_SESSIONS,
     SLOTS,
     AnnotatedSession,
-    ConsentRecord,
+    SpeakerRecord,
     Resolution,
     check_session,
     subset_report,
@@ -19,12 +19,12 @@ from noema_model.voice.study import (
 
 LOCALES = ("en-NG", "pcm", "yo", "ha", "ig")
 READING = {"amount": "10000", "counterparty": "Ada Test", "time": "yesterday"}
-REGISTER = {f"c-{i}": ConsentRecord(f"c-{i}") for i in range(200)}
+REGISTER = {f"c-{i}": SpeakerRecord(f"c-{i}") for i in range(200)}
 
 
 def session(i: int = 0, **over: object) -> AnnotatedSession:
     fields: dict[str, object] = dict(
-        session_ref=f"s-{i}", consent_ref=f"c-{i}", locale=LOCALES[i % 5], script_id="script-1", intended=dict(READING),
+        session_ref=f"s-{i}", speaker_ref=f"c-{i}", locale=LOCALES[i % 5], script_id="script-1", intended=dict(READING),
         annotator_a="ann-1", reading_a=dict(READING), annotator_b="ann-2", reading_b=dict(READING), resolution=None, unusable_by_bystander=False)
     fields.update(over)
     return AnnotatedSession(**fields)  # type: ignore[arg-type]
@@ -35,17 +35,17 @@ def test_a_complete_session_has_no_problem() -> None:
 
 
 @pytest.mark.parametrize("ref", ["", "   ", "\t\n"])
-def test_a_blank_consent_ref_is_refused(ref: str) -> None:
-    assert "consent_ref blank" in check_session(session(consent_ref=ref), REGISTER)
+def test_a_blank_speaker_ref_is_refused(ref: str) -> None:
+    assert "speaker_ref blank" in check_session(session(speaker_ref=ref), REGISTER)
 
 
-def test_a_consent_ref_missing_from_the_register_is_refused() -> None:
-    assert "consent_ref not in the register" in check_session(session(consent_ref="c-unknown"), REGISTER)
+def test_a_speaker_ref_missing_from_the_register_is_refused() -> None:
+    assert "speaker_ref not in the register" in check_session(session(speaker_ref="c-unknown"), REGISTER)
 
 
-def test_a_withdrawn_consent_leaves_no_session_behind() -> None:
-    register = {**REGISTER, "c-0": ConsentRecord("c-0", withdrawn=True)}
-    assert "consent withdrawn: the recording and its copies must be deleted" in check_session(session(), register)
+def test_a_withdrawn_speaker_leaves_no_session_behind() -> None:
+    register = {**REGISTER, "c-0": SpeakerRecord("c-0", withdrawn=True)}
+    assert "speaker withdrawn: the recording and its copies must be deleted" in check_session(session(), register)
 
 
 @pytest.mark.parametrize("locale", ["", "EN-NG", "en_NG", "fr", "pidgin", "PCM"])
@@ -112,12 +112,12 @@ def test_the_minimum_cannot_be_weakened_below_the_plan() -> None:
         subset_report(good_subset(), REGISTER, min_sessions=0)
 
 
-def test_one_session_without_consent_makes_the_whole_subset_not_ready_and_is_named() -> None:
+def test_one_session_without_speaker_ref_makes_the_whole_subset_not_ready_and_is_named() -> None:
     sessions = good_subset()
-    sessions[7] = session(7, consent_ref="")
+    sessions[7] = session(7, speaker_ref="")
     report = subset_report(sessions, REGISTER, min_sessions=MIN_SUBSET_SESSIONS)
     assert not report.ready and "sessions with a problem" in report.reasons
-    assert report.problems == (("s-7", "consent_ref blank"),)
+    assert report.problems == (("s-7", "speaker_ref blank"),)
 
 
 def test_an_unusable_by_bystander_session_stays_in_the_denominator_and_is_counted() -> None:
@@ -134,17 +134,17 @@ def test_a_duplicate_session_ref_is_a_problem_not_a_second_session() -> None:
     assert not report.ready and ("s-8", "duplicate session_ref") in report.problems
 
 
-def test_a_consent_shared_by_two_sessions_is_allowed_one_speaker_may_record_many() -> None:
+def test_a_speaker_shared_by_two_sessions_is_allowed_one_speaker_may_record_many() -> None:
     sessions = good_subset()
-    sessions[1] = session(1, consent_ref="c-0")
+    sessions[1] = session(1, speaker_ref="c-0")
     assert subset_report(sessions, REGISTER, min_sessions=MIN_SUBSET_SESSIONS).ready
 
 
 def test_every_problem_of_every_session_is_listed_not_only_the_first() -> None:
     sessions = good_subset()
-    sessions[2] = session(2, consent_ref="c-unknown", locale="fr")
+    sessions[2] = session(2, speaker_ref="c-unknown", locale="fr")
     report = subset_report(sessions, REGISTER, min_sessions=MIN_SUBSET_SESSIONS)
-    assert {code for ref, code in report.problems if ref == "s-2"} == {"consent_ref not in the register", "locale not one of the five"}
+    assert {code for ref, code in report.problems if ref == "s-2"} == {"speaker_ref not in the register", "locale not one of the five"}
 
 
 def test_an_empty_register_makes_every_session_a_problem() -> None:
@@ -183,7 +183,7 @@ def test_a_value_of_the_wrong_type_is_a_problem_not_a_crash(locale: object) -> N
     assert report.n == 50 and report.n_other_locale == 1  # counted, never dropped
 
 
-@pytest.mark.parametrize("field_name", ["session_ref", "consent_ref"])
+@pytest.mark.parametrize("field_name", ["session_ref", "speaker_ref"])
 @pytest.mark.parametrize("value", [["x"], None, 7])
 def test_a_reference_of_the_wrong_type_is_a_problem_not_a_crash(field_name: str, value: object) -> None:
     sessions = good_subset()
@@ -199,21 +199,21 @@ def test_a_resolution_that_is_not_a_resolution_is_a_problem_not_a_crash(resoluti
 
 
 @pytest.mark.parametrize("record", [None, "c-0", 3, object()])
-def test_a_register_entry_that_is_not_a_consent_record_is_a_problem_not_a_crash(record: object) -> None:
+def test_a_register_entry_that_is_not_a_speaker_record_is_a_problem_not_a_crash(record: object) -> None:
     register = {**REGISTER, "c-0": record}
-    assert "consent record malformed" in check_session(session(), register)  # type: ignore[arg-type]
+    assert "speaker record malformed" in check_session(session(), register)  # type: ignore[arg-type]
 
 
-def test_a_register_entry_filed_under_another_consent_ref_is_refused() -> None:
-    register = {**REGISTER, "c-0": ConsentRecord("c-other")}
-    assert "consent record malformed" in check_session(session(), register)
+def test_a_register_entry_filed_under_another_speaker_ref_is_refused() -> None:
+    register = {**REGISTER, "c-0": SpeakerRecord("c-other")}
+    assert "speaker record malformed" in check_session(session(), register)
 
 
 @pytest.mark.parametrize("withdrawn", [None, 0, 1, "no", "", [], "False"])
 def test_a_withdrawn_flag_that_is_not_a_bool_fails_closed(withdrawn: object) -> None:
     """P2: `withdrawn=None` or `0` used to count as not withdrawn, which fails open."""
-    register = {**REGISTER, "c-0": ConsentRecord("c-0", withdrawn=withdrawn)}  # type: ignore[arg-type]
-    assert "consent record malformed" in check_session(session(), register)
+    register = {**REGISTER, "c-0": SpeakerRecord("c-0", withdrawn=withdrawn)}  # type: ignore[arg-type]
+    assert "speaker record malformed" in check_session(session(), register)
 
 
 @pytest.mark.parametrize("flag", [None, 0, 1, "no", "yes", []])
@@ -246,7 +246,7 @@ def test_a_slot_value_that_is_not_text_is_refused(value: object) -> None:
 
 def test_every_bad_session_is_listed_not_only_the_first() -> None:
     sessions = good_subset()
-    sessions[3] = session(3, consent_ref="")
+    sessions[3] = session(3, speaker_ref="")
     sessions[9] = session(9, locale="fr")
     refs = {ref for ref, _ in subset_report(sessions, REGISTER, min_sessions=MIN_SUBSET_SESSIONS).problems}
     assert refs == {"s-3", "s-9"}
