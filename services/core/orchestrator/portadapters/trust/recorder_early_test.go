@@ -57,7 +57,7 @@ func TestA663AnEarlyEscalateReachesTheWriterWithTheTurnAndThePrincipalAndNoFacts
 	if f.calls != 0 {
 		t.Errorf("the facts were asked %d times; an incomplete basis has no snapshot and no policy to take them from", f.calls)
 	}
-	if len(w.got) != 1 || w.got[0].TurnID != recTurn || w.got[0].PrincipalID != r.PrincipalID || len(w.got[0].Steps) != 0 || w.got[0].PolicyID != "" {
+	if len(w.got) != 1 || w.got[0].TurnID != recTurn || w.got[0].TurnPrincipalID != r.PrincipalID || len(w.got[0].Steps) != 0 || w.got[0].PolicyID != "" {
 		t.Fatalf("writer got %+v", w.got)
 	}
 	if tx.commits != 1 || tx.rollbacks != 0 {

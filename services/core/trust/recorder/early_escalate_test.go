@@ -16,6 +16,7 @@ import (
 	"pgregory.net/rapid"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/recorder"
 )
@@ -56,7 +57,7 @@ func earlyRequest(t *testing.T, turn, principal string) recorder.Request {
 	t.Helper()
 	d, b := earlyEscalate(t, "NOT_AUTHORIZED", "fin.pack@1.0.0")
 	r := request(t, d, b)
-	r.TurnID, r.PrincipalID = turn, principal
+	r.TurnID, r.TurnPrincipalID = turn, principal
 	return r
 }
 
@@ -87,6 +88,16 @@ func TestAnEarlyEscalateIsRecordedWithTheBasisNullAndNoGrant(t *testing.T) { // 
 	}
 	if got := w.events(t); len(got) != 1 || !strings.HasPrefix(got[0], "DECISION_MADE:") {
 		t.Errorf("events %v, want one DECISION_MADE", got)
+	}
+	// INV-12: the turn's principal is a key member, never the Record actor.
+	rows, err := chain.ReadChain(ctx(t), w.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range rows {
+		if e.Actor != "core-trust" || e.WrittenBy != "core-trust" {
+			t.Errorf("%s: actor %q written_by %q, want both core-trust", e.EventType, e.Actor, e.WrittenBy)
+		}
 	}
 }
 
@@ -139,13 +150,13 @@ func TestARequestOfTheSameTurnThatContradictsTheStoredDecisionIsAConflict(t *tes
 		"another reason": func(t *testing.T) recorder.Request {
 			d, b := earlyEscalate(t, "NO_RUNNABLE_CAPABILITY", "fin.pack@1.0.0")
 			r := request(t, d, b)
-			r.TurnID, r.PrincipalID = turnA, principalA
+			r.TurnID, r.TurnPrincipalID = turnA, principalA
 			return r
 		},
 		"another pack version": func(t *testing.T) recorder.Request {
 			d, b := earlyEscalate(t, "NOT_AUTHORIZED", "fin.pack@1.0.1")
 			r := request(t, d, b)
-			r.TurnID, r.PrincipalID = turnA, principalA
+			r.TurnID, r.TurnPrincipalID = turnA, principalA
 			return r
 		},
 	} {
@@ -170,9 +181,9 @@ func TestAnEarlyEscalateTheKeyDoesNotCoverIsRefusedAndWritesNothing(t *testing.T
 		"an upper-case turn":       func(r *recorder.Request) { r.TurnID = strings.ToUpper(turnA) },
 		"a turn with a newline":    func(r *recorder.Request) { r.TurnID += "\n" },
 		"a short turn":             func(r *recorder.Request) { r.TurnID = turnA[:30] },
-		"no principal":             func(r *recorder.Request) { r.PrincipalID = "" },
-		"a malformed principal":    func(r *recorder.Request) { r.PrincipalID = "88213" },
-		"a principal with newline": func(r *recorder.Request) { r.PrincipalID += "\n" },
+		"no principal":             func(r *recorder.Request) { r.TurnPrincipalID = "" },
+		"a malformed principal":    func(r *recorder.Request) { r.TurnPrincipalID = "88213" },
+		"a principal with newline": func(r *recorder.Request) { r.TurnPrincipalID += "\n" },
 		"a step":                   func(r *recorder.Request) { r.Steps = append(r.Steps, step(t)) },
 		"a confirmation request": func(r *recorder.Request) {
 			r.ConfirmationRequest = &recorder.NewConfirmationRequest{PrincipalID: principalA}
@@ -218,7 +229,7 @@ func TestOnlyAnEscalateTakesTheEarlyFormAndACompleteBasisNamesNoTurn(t *testing.
 			}
 		}
 		r := request(t, d, b)
-		r.TurnID, r.PrincipalID = turnA, principalA
+		r.TurnID, r.TurnPrincipalID = turnA, principalA
 		if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrNoEvaluatedBasis) {
 			t.Errorf("%s with an incomplete basis and a turn: err %v, want ErrNoEvaluatedBasis", o, err)
 		}
@@ -227,12 +238,12 @@ func TestOnlyAnEscalateTakesTheEarlyFormAndACompleteBasisNamesNoTurn(t *testing.
 	w := newWorld(t)
 	b := evaluated(t)
 	r := request(t, decision(t, decide.Escalate, b), b)
-	r.TurnID, r.PrincipalID = turnA, principalA
+	r.TurnID, r.TurnPrincipalID = turnA, principalA
 	if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrRequest) {
 		t.Errorf("an ESCALATE with a complete basis that names a turn: err %v, want ErrRequest", err)
 	}
 	w.nothingRemains(t, "a complete basis naming a turn")
-	r.TurnID, r.PrincipalID = "", ""
+	r.TurnID, r.TurnPrincipalID = "", ""
 	if res, err := w.write(t, r, true); err != nil || res.Record.EvidenceSnapshotId == nil {
 		t.Errorf("an ESCALATE with a complete basis and no turn: %v, snapshot %v; want it recorded as before", err, res.Record.EvidenceSnapshotId)
 	}

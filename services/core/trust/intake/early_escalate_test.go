@@ -13,14 +13,14 @@ import (
 
 const turnSynth = "0b8f3c1e-5d2a-4e7b-9c41-6a1d2f3e4b50"
 
-// escalatedEarly is an evaluation whose T2 ends in ESCALATE over a builder that has read no evidence and no policy.
+// escalatedEarly is an evaluation whose T9 ends in ESCALATE over a builder that has read no evidence and no policy.
 func escalatedEarly(t *testing.T, f *f13, turn string) Result {
 	t.Helper()
 	ev := newEval13(t, f)
 	ev.bb = freshBuilder(t, false, false)
 	ev.req.TurnID = turn
 	steps := ev.lateSteps()
-	steps[decide.T2Session-1] = func(context.Context) decide.StepResult {
+	steps[decide.T9Evidence-1] = func(context.Context) decide.StepResult {
 		r, err := ev.resolved()
 		if err != nil {
 			return decide.FailStep(err)
