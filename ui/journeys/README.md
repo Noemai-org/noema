@@ -34,11 +34,11 @@ The benchmark runner drives each generated case through the public API and recor
 
    The overlay proxies same-origin `/v1/` from the UI container to `core:8080` over the existing `edge_net`; it does not publish core or add a network. SSE buffering is disabled.
 
-## A654 settings
+## A658-approved settings
 
 - UI polling interval: 2,000 ms.
 - UI polling and initial-POST ceiling: 60,000 ms.
-- EL's #907 body names all eight required `NOEMA_EVENTS_*` settings and their proposed ranges: `POLL_MS` 2,000–60,000; `MAX_STREAM_MS` 60,000–900,000; `WRITE_TIMEOUT_MS` 1,000–30,000; `READ_TIMEOUT_MS` 500–10,000; `MAX_EVENT_BYTES` 1,024–1,048,576; `MAX_STREAMS` 1–1,000; `MAX_STREAMS_PER_PRINCIPAL` 1–10 and no greater than `MAX_STREAMS`; `MAX_BATCH` 1–500. The #907 body explicitly labels the per-setting ranges and cross-checks as proposals for Architect approval; no value is invented here. The core refuses missing/invalid settings and `/readyz` must be ready.
+- The eight required `NOEMA_EVENTS_*` settings and their approved bounds are: `POLL_MS` 2,000–60,000; `MAX_STREAM_MS` 60,000–900,000; `WRITE_TIMEOUT_MS` 1,000–30,000; `READ_TIMEOUT_MS` 500–10,000; `MAX_EVENT_BYTES` 1,024–1,048,576; `MAX_STREAMS` 1–1,000; `MAX_STREAMS_PER_PRINCIPAL` 1–10 and no greater than `MAX_STREAMS`; `MAX_BATCH` 1–500. The approved cross-checks are fail-closed: `POLL_MS` below `MAX_STREAM_MS`; `READ_TIMEOUT_MS` not above `POLL_MS`. All eight settings are required; the core refuses missing/invalid settings and `/readyz` must be ready.
 
 ## Run
 
