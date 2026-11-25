@@ -665,6 +665,8 @@ def check(cfg, profile):
             bad.append(f"{profile}: {name} carries the Intron key as an environment variable; it comes only from a file mount (A249)")
         if name != "model" and ("INTRON_API_KEY_FILE" in env_names or any("intron" in m.lower() for m in mounts)):
             bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
+        if name == "model" and str((svc.get("environment") or {}).get("NOEMA_MODEL_PROVIDER_PROFILE", "")) != "live":
+            bad.append(f"{profile}: the model must set NOEMA_MODEL_PROVIDER_PROFILE to \"live\" in every profile; absent refuses the start and replay is chosen only by a later ruling, never by this file (A679, A695)")
         if name == "model":
             # A377 to A379: the key file is mounted in the bench profile only, read-only, as one bind of one file at one path, and the variable and the mount come together or not at all.
             key_env = str((svc.get("environment") or {}).get("INTRON_API_KEY_FILE", ""))
@@ -786,6 +788,10 @@ def self_test(configs):
         "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
         "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
+        "the model loses the provider profile": ("dev", lambda c: c["services"]["model"]["environment"].pop("NOEMA_MODEL_PROVIDER_PROFILE")),
+        "the ci model's provider profile is replay": ("ci", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": "replay"})),
+        "the demo model's provider profile is empty": ("demo", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": ""})),
+        "the bench model's provider profile is upper case": ("bench", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": "LIVE"})),
         "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
         "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
         "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
