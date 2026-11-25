@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -574,4 +576,127 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// A689 (the Founder's order, 1): an amount range of min 0 and max 0 can match no candidate (a candidate's amount is above zero), so it is answered empty and complete WITHOUT calling the source.
+// A range with min 0 and max 1, or min 1 and max 1, can match, and the source is called (the counting double sees one call).
+func TestAZeroAmountRangeIsAnEmptyAnswerWithoutCallingTheSource(t *testing.T) {
+	rng := func(lo, hi int64) contracts.CandidatesRequestV1 {
+		req := request()
+		req.Filters.AmountRange = &contracts.CandidatesRequestV1AmountRange{MinMinor: contracts.MoneyV1MinorAmount(lo), MaxMinor: contracts.MoneyV1MinorAmount(hi), Currency: "NGN"}
+		return req
+	}
+	s := world()
+	resp, err := reader(t, s).Read(context.Background(), rng(0, 0))
+	if err != nil || resp.Candidates == nil || len(resp.Candidates) != 0 || resp.TenantId != tTenant || resp.CorrelationId != tCorr || string(resp.SchemaVersion) != "2.0" {
+		t.Fatalf("resp = %+v, err = %v; want the empty, complete answer", resp, err)
+	}
+	if len(s.got) != 0 {
+		t.Fatalf("the source was called %d times for a range of 0 to 0; want none", len(s.got))
+	}
+	for name, req := range map[string]contracts.CandidatesRequestV1{"0 to 1": rng(0, 1), "1 to 1": rng(1, 1), "0 to 100": rng(0, 100)} {
+		c := world()
+		if _, err := reader(t, c).Read(context.Background(), req); err != nil || len(c.got) != 1 {
+			t.Errorf("%s: err = %v, source calls = %d; want one call", name, err, len(c.got))
+		}
+	}
+	// A request that is refused for another reason is still refused first, never answered empty.
+	bad := rng(0, 0)
+	bad.PrincipalRef = "someone"
+	if _, err := reader(t, world()).Read(context.Background(), bad); !errors.Is(err, candidates_api.ErrRequest) {
+		t.Errorf("a bad principal with a zero range: %v; want ErrRequest", err)
+	}
+}
+
+// moneyMaximum is read from the contract itself (contracts/schemas/money.v1.json, MinorAmount.maximum), not written here: the bound the reader enforces is that one.
+func moneyMaximum(t *testing.T) int64 {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "schemas", "money.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Defs struct {
+			MinorAmount struct {
+				Maximum int64 `json:"maximum"`
+			} `json:"MinorAmount"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil || doc.Defs.MinorAmount.Maximum < 1 {
+		t.Fatalf("money.v1 MinorAmount.maximum: %v %d", err, doc.Defs.MinorAmount.Maximum)
+	}
+	return doc.Defs.MinorAmount.Maximum
+}
+
+// A689 (2): the currency and the amount of every candidate are checked with the generated money.v1 types. The POC's currency set is the generated enum (NGN; the type is read in the test, not guessed),
+// so USD, EUR and a lower-case code are refused; the amount is an integer minor amount within the contract's bound (2^53-1): the bound passes, one more is refused, and a negative, zero or non-integer
+// amount is refused. A refusal is the whole answer with the existing fixed text, which carries no row and no name.
+func TestACurrencyOrAmountOffTheGeneratedMoneyTypeRefusesTheWholeAnswer(t *testing.T) {
+	max := moneyMaximum(t)
+	if max != 9007199254740991 {
+		t.Logf("money.v1 MinorAmount.maximum is %d, not 2^53-1: following the contract", max)
+	}
+	var cur contracts.MoneyV1CurrencyCode
+	if err := json.Unmarshal([]byte(`"NGN"`), &cur); err != nil || cur != contracts.MoneyV1CurrencyCodeNGN {
+		t.Fatalf("the generated currency set does not hold NGN: %v", err)
+	}
+	for _, code := range []string{"USD", "EUR", "GBP", "ngn", "NG", "NGNN", ""} {
+		if err := json.Unmarshal([]byte(`"`+code+`"`), &cur); err == nil && code != "NGN" {
+			t.Fatalf("the generated currency type accepts %q: the test's premise is wrong", code)
+		}
+		s := world()
+		s.rows[tTenant+"|"+tPrincipal][0].Currency = code
+		resp, err := reader(t, s).Read(context.Background(), request())
+		if !errors.Is(err, candidates_api.ErrMalformed) || len(resp.Candidates) != 0 {
+			t.Errorf("currency %q: err = %v, candidates = %d; want ErrMalformed and nothing", code, err, len(resp.Candidates))
+		}
+		if err != nil && strings.Contains(err.Error(), code+"|") {
+			t.Errorf("currency %q: the error carries a value: %q", code, err.Error())
+		}
+	}
+	for name, c := range map[string]struct {
+		amount int64
+		ok     bool
+	}{
+		"the contract's maximum": {max, true}, "one above the maximum": {max + 1, false}, "far above": {max * 2, false},
+		"one": {1, true}, "zero": {0, false}, "minus one": {-1, false}, "the smallest int64": {-1 << 63, false},
+	} {
+		s := world()
+		s.rows[tTenant+"|"+tPrincipal][0].AmountMinor = c.amount
+		resp, err := reader(t, s).Read(context.Background(), request())
+		if c.ok && (err != nil || len(resp.Candidates) != 3) {
+			t.Errorf("%s (%d): err = %v, candidates = %d; want it accepted", name, c.amount, err, len(resp.Candidates))
+		}
+		if !c.ok && (!errors.Is(err, candidates_api.ErrMalformed) || len(resp.Candidates) != 0) {
+			t.Errorf("%s (%d): err = %v, candidates = %d; want ErrMalformed and nothing", name, c.amount, err, len(resp.Candidates))
+		}
+		if err != nil && strings.Contains(err.Error(), "Tunde") {
+			t.Errorf("%s: the error carries a name: %q", name, err.Error())
+		}
+	}
+}
+
+// A689 (2), the wire forms: the reader decodes a candidate's money through the generated type, so what that type refuses on the wire is refused here too. This pins what the generated type does with a
+// non-integer, an exponent, a string and a null amount, and with a currency off its enum, so a change to the generator that stopped refusing them shows up here.
+func TestTheGeneratedMoneyTypeRefusesTheNonIntegerAndOffEnumWireForms(t *testing.T) {
+	for name, wire := range map[string]string{
+		"a decimal amount":   `{"amount_minor":1.5,"currency":"NGN"}`,
+		"a decimal zero":     `{"amount_minor":2000000.0,"currency":"NGN"}`,
+		"an exponent":        `{"amount_minor":2e6,"currency":"NGN"}`,
+		"a string amount":    `{"amount_minor":"100","currency":"NGN"}`,
+		"a null amount":      `{"amount_minor":null,"currency":"NGN"}`,
+		"USD":                `{"amount_minor":100,"currency":"USD"}`,
+		"an extra member":    `{"amount_minor":100,"currency":"NGN","name":"Tunde"}`,
+		"a missing amount":   `{"currency":"NGN"}`,
+		"a missing currency": `{"amount_minor":100}`,
+	} {
+		var m contracts.MoneyV1Money
+		if err := json.Unmarshal([]byte(wire), &m); err == nil {
+			t.Errorf("%s: the generated money type accepted %s", name, wire)
+		}
+	}
+	var ok contracts.MoneyV1Money
+	if err := json.Unmarshal([]byte(`{"amount_minor":100,"currency":"NGN"}`), &ok); err != nil || ok.AmountMinor != 100 || ok.Currency != contracts.MoneyV1CurrencyCodeNGN {
+		t.Fatalf("the generated money type refuses a good value: %v", err)
+	}
 }
