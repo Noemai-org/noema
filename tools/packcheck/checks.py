@@ -297,6 +297,34 @@ def check_write_when(pack: dict) -> list[Problem]:
     return out
 
 
+def check_write_when_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """REQ-TRU-004, REQ-CAP-001 (SR's request on noema#935; INV-01): the Writes rule reads an intent node with no `write_when` as never writing, so the pack data alone decides the
+    direction that draws less scrutiny. A node whose `action_graph` calls an allowed capability that writes (a risk class above R0) therefore carries a `write_when`. A node with no
+    graph, or a graph that only reads, needs none. A graph the pack does not declare is `graph_link`'s to refuse."""
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    by_id = {g["graph_id"]: g for g in graphs.values()}
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        graph = by_id.get(n.get("action_graph"))
+        if graph is None or "write_when" in n:
+            continue
+        writers = sorted({node["capability_id"] for node in graph["nodes"]
+                          if node["capability_id"] in caps and not caps[node["capability_id"]]["prohibited"] and RANK.get(caps[node["capability_id"]]["risk_class"], 0) >= 1})
+        if writers:
+            out.append(("write_when", f"{n['node_id']}: its action graph {graph['graph_id']} calls {', '.join(writers)}, which write, so the node needs a write_when (a node with none is read as never writing)"))
+    return out
+
+
+def check_recon_rules(doc: object) -> list[Problem]:
+    """A659 (interim, relayed, not yet committed; REQ-RES-005): the pack's rules file is a `recon-rule-set.v1` document. From version 2 each compared pair and each single-valued field
+    declares `convergence_window_seconds` (at least 1); version 1 declares none. A message names the place and the rule, never a value of the document. That a window equals the smaller
+    freshness limit of its pair (A641) is not checked here: it needs the evidence mapping's entity-to-source link."""
+    schemas = validate.load_schemas()
+    errs = validate.validator_for("recon-rule-set", schemas, validate.make_registry(schemas)).iter_errors(doc)
+    found = sorted({(("/".join(map(str, e.absolute_path)) or "(root)"), e.message if e.validator == "required" else f"fails {e.validator}") for e in errs})
+    return [("recon_rules", f"{where}: {what}") for where, what in found[:20]]
+
+
 def check_subject_slot(pack: dict) -> list[Problem]:
     """A520 (interim; DEBT-54): an intent node's optional `subject_slot` names a Resource slot of the SAME node, the slot whose resolved reference is the subject of the intent (the
     core reads the name from the pack, INV-14). A node with no such slot declares none."""
@@ -826,6 +854,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             out.append(("manifest", f"{rel} carries no usable {id_key} and integer version"))
         elif carried != expected[want_key]:
             out.append(("manifest", f"{rel} carries {carried}, the manifest expects {want_key} {expected[want_key]}"))
+        if kind == "recon_rules":
+            out += [("manifest", f"{rel} is not a valid rule set: {m}") for _, m in check_recon_rules(body)]
         if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
             out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
     return out
@@ -851,7 +881,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)

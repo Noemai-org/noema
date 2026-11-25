@@ -14,6 +14,7 @@ Every schema in `contracts/schemas/` has exactly one row, and every row names an
 | `outcome-definition.v1.json` | §15.3, §43.7 | §29 | REQ-VER-001, REQ-VER-002 | |
 | `capability-descriptor.v1.json` | §43.8 | §25 | REQ-CAP-001, REQ-CAP-002 | Prohibited capabilities carry no executable fields |
 | `capability-descriptor.v2.json` | §43.8 | §25 | REQ-CAP-001, REQ-CAP-002, REQ-CAP-004 | Compensation is NONE_REQUIRED, INVERSE_CAPABILITY or ESCALATE_ONLY; an inverse names its capability and parameter mapping (A631, A647) |
+| `recon-rule-set.v1.json` | §22 | §22.3 | REQ-RES-001, REQ-RES-005 | The pack's reconciliation rule set; from rule-set version 2 each compared pair and single-valued field declares `convergence_window_seconds` (A659) |
 | `evidence-source.v1.json` | §15.5, §43.5 | §21.4 | REQ-CTX-001, REQ-CTX-003 | |
 | `policy-rule.v1.json` | §15.3 | §23.4 | REQ-TRU-001 | |
 | `policy-version.v1.json` | §15.3, INV-26 | §23.4 | REQ-TRU-001 | |

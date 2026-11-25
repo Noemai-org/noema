@@ -308,8 +308,13 @@ class ReconRulesFile(Base):
     """A659 (interim, relayed, not yet committed): the listed rule set is checked against `recon-rule-set.v1` as the manifest is, so a rule set of version 2 with no window cannot be pinned."""
 
     def reseal(self, root: Path, manifest: Path, expected: str) -> None:
+        mapping = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        mapping["ruleset"] = expected  # the mapping feeds the rule set the manifest expects (PCK-02)
+        write(root / MAPPING, mapping)
+
         def fix(doc):
             entry(doc, "recon_rules")["sha256"] = sha256(root / RULES)
+            entry(doc, "evidence_mapping")["sha256"] = sha256(root / MAPPING)
             doc["expected"]["recon_rule_set_id"] = expected
         self.edit(root, manifest, fix)
 
@@ -482,6 +487,9 @@ class IdMatch(Base):
                 root, manifest = self.tree()
                 doc = json.loads((root / rel).read_text(encoding="utf-8"))
                 doc["version"] = doc["version"] + 1
+                if kind == "recon_rules":  # A659: a version 2 rule set declares its windows, so the id comparison stays the only failure
+                    for e in doc["incompatible"] + doc["single_valued"]:
+                        e["convergence_window_seconds"] = 60
                 (root / rel).write_text(json.dumps(doc, indent=2), encoding="utf-8")
                 self.edit(root, manifest, lambda d, k=kind, r=rel: entry(d, k).__setitem__("sha256", sha256(root / r)))
                 problems = self.check(manifest, root)
