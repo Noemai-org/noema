@@ -455,7 +455,7 @@
     {
       "name": "unicode_string",
       "payload_json": "{\"s\":\"caf\\u00e9 \\u65e5\\u672c\\u8a9e \\ud83d\\ude00 \\u0007 \\\"q\\\" \\\\ /\",\"\\ud83d\\ude00\":1,\"\\uffff\":2}",
-      "input_bytes_utf8": "{\"s\":\"caf\u00e9 \u65e5\u672c\u8a9e \ud83d\ude00 \\u0007 \\\"q\\\" \\\\ /\",\"\ud83d\ude00\":1,\"\uffff\":2}",
+      "input_bytes_utf8": "{\"s\":\"café 日本語 😀 \\u0007 \\\"q\\\" \\\\ /\",\"😀\":1,\"￿\":2}",
       "input_bytes_hex": "7b2273223a22636166c3a920e697a5e69cace8aa9e20f09f9880205c7530303037205c22715c22205c5c202f222c22f09f9880223a312c22efbfbf223a327d",
       "expected_hash": "sha256:26745c0f9b993c20e9c8ad47f04467664537c7f48e9f630a060dcfb9c1677928",
       "computed_by": "node v22 tools/payload_hash_independent.js (RFC 8785 from ECMAScript JSON.stringify and UTF-16 member order); sha256sum of input_bytes_hex agrees",
