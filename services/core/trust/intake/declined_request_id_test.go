@@ -1,7 +1,7 @@
 package intake
 
-// TRU-12 (A470): the RecordRequest carries an optional DeclinedRequestID, so a REJECT DECLINED_BY_APPROVER can name the declined confirmation request (cfr_...) the Recorder's writer
-// shape-checks (trust/recorder, Request.DeclinedRequestID). Optional means every decision this version of the intake records leaves it empty. REQ-TRU-002, REQ-TRU-009, INV-25, EC-E16.
+// TRU-12 (A470, A542, A597): the RecordRequest carries a DeclinedRequestID, so a REJECT DECLINED_BY_APPROVER names the declined confirmation request (cfr_...) the Recorder's writer
+// shape-checks (trust/recorder, Request.DeclinedRequestID). It is required for exactly that REJECT and empty for every other decision, so the zero RecordRequest has it empty. REQ-TRU-002, REQ-TRU-009, INV-25, EC-E16.
 
 import (
 	"reflect"
@@ -22,7 +22,7 @@ func declinedRequestIDOf(t *testing.T, r RecordRequest) string {
 	return f.String()
 }
 
-// The field is optional: the zero RecordRequest has it empty, and its type is the Recorder writer's (a string).
+// The zero RecordRequest has the field empty (it is set only for a REJECT DECLINED_BY_APPROVER, A542), and its type is the Recorder writer's (a string).
 func TestRecordRequestHasAnOptionalDeclinedRequestID(t *testing.T) {
 	if got := declinedRequestIDOf(t, RecordRequest{}); got != "" {
 		t.Errorf("the zero RecordRequest has DeclinedRequestID %q, want empty", got)
