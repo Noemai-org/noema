@@ -61,6 +61,22 @@
     "execution_state": {
       "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ExecutionState"
     },
+    "step_params": {
+      "description": "A692 (interim, relayed; OD-P-119). The params of the executed plan step that the outcome definition's PLAN_PARAM bindings name, and only those: the Outcome request builder reads a PLAN_PARAM variable from here, under the receipt's own signature. Absent when the definition has no PLAN_PARAM binding; never empty. Keys are slot names and values are what a plan step param may hold. Which params appear is the definition's, which the schema cannot see; Execution keeps to it.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+      },
+      "additionalProperties": {
+        "type": [
+          "string",
+          "integer",
+          "boolean",
+          "null"
+        ]
+      }
+    },
     "sig": {
       "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Sig"
     }
