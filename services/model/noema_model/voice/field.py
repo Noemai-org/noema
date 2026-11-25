@@ -23,7 +23,7 @@ A latency claim passes only if the upper 95% bound of the P95 is at or below the
 if the lower bound of its exact interval is at or above its floor (the F5 lower floor, 80%); the rate floor (90%) also stays.
 `notes` says how many sessions had no usable latency.
 
-Records hold references and times only: no audio and no transcript (AGENT-13). A session with no consent reference is refused,
+Records hold references and times only: no audio and no transcript (AGENT-13). A session with no speaker reference is refused,
 since its audio could not be stored (REQ-VOI-004).
 """
 
@@ -67,7 +67,7 @@ class FieldSession:
     eos_server_ms: int | None  # server timestamp of end of speech
     admitted_server_ms: int | None  # server timestamp of Intent Object admitted in core
     correct: bool | None  # against the script annotation; None when not annotated
-    consent_ref: str | None
+    speaker_ref: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,8 +183,8 @@ def measure(sessions: Sequence[FieldSession], *, required_locales: Sequence[str]
         raise ValueError("required locales must be a non-empty list without repeats")
     if not sessions:
         raise ValueError("no sessions")
-    if any(_blank(session.consent_ref) for session in sessions):
-        raise ValueError("a session without a consent reference cannot be stored or counted")
+    if any(_blank(session.speaker_ref) for session in sessions):
+        raise ValueError("a session without a speaker reference cannot be stored or counted")
     if any(_blank(session.session_ref) for session in sessions):
         raise ValueError("a session without a reference cannot be counted")
     refs = [session.session_ref for session in sessions]

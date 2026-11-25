@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 4878c3618c85dfb93884e1b815c519a4344a16b9. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 1a257a2f5f4e6772f01ba332955188553c2f4e87. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -376,6 +376,8 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 6. CONFLICT blocks, if any.
 
 **Reviews.** Review gates are set by tier (A143, plan §4). **Tier 1** (trust, execution, outcome, record, migrations, identity): Codex READY + SR READY + one independent role review (EL, C1 or C2, not the author) + CI + one Founder approval. **Tier 2** (contracts, packs, benchmark, voice, docs): Codex where A14 applies + one independent reviewer READY (SR counts) + CI + one Founder approval; `.github` and `deploy` still need SR. An agent's report is not acceptance (plan §4.1).
+
+**Review standing (A656, A657, A669, A670; Interim, in force when `DEC-2026-11-25-architect-rulings-a657-a667` merges).** While Codex is out of usage, SR's READY at the same head stands in for Codex on every Tier 1 pull request (A480, A541). An independent role read (EL, C1 or C2, not the author) applies to **migrations only** (A463). **Re-read rule (A669):** a push after READY keeps the READY only if one of these holds: every changed file is `*.md` or under `status/`; or the only changed lines in code files are comments with no directive (no `//go:build`, `// +build`, `//go:embed`, `//go:generate`, `//nolint`, `# type:`, `# noqa`, `# pragma`, `#!` or similar) and the rest of the file is byte-identical. The pusher states in the push comment which case applies. A merge-main commit voids no earlier read (A468) unless its conflict resolution changed code. Anything else is a code push and needs a fresh READY at the new head; green CI at the head is required in every case. **End marker (A670):** the Steward records the day Codex returns to usage; from that day the Tier 1 text above applies again unamended (Codex, or SR standing in, plus SR READY at the same head). Key and identity paths stay SR paths regardless (A541). The older Tier text above and in plan §4 and §13.1 reads with this paragraph; plan v1.29 restates it (A671).
 
 **Approval and merge.** One approval from a Founder who did not author or drive the pull request is enough to merge any pull request in `docs` or `noema`, whatever paths it changes (A111, [DEC-2026-11-09-one-founder-approval](docs/decisions/DEC-2026-11-09-one-founder-approval.md)). The other gates above and in plan §13.1 are unchanged.
 
