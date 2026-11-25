@@ -96,3 +96,22 @@ State (2026-11-19): the loader, the labels and the lookup of the recordings are 
 - Exact next step: the A604 gate fix against SYNTHETIC boundary replies once #932 has merged (recordings regenerated at the merged head); reduce the next passing run for the G1 fixtures.
 - Files to read first: `providers/llm/profile.py`, `tests/test_provider_profile.py`.
 - Do not touch: the committed fixture files.
+
+
+# Session 2026-11-25 (second) · UND-15 · rework for A679 (the provider profile name and values)
+
+## Session summary
+- What changed (PR: noema#972; supersedes the section above where they differ): A679 (DEC-2026-11-25-architect-rulings-a673-a684) names the setting `NOEMA_MODEL_PROVIDER_PROFILE` with the values `live` and `replay`; absent refuses the start; the demo profile refuses `replay`. `providers/llm/profile.py` now requires it (absent, empty, padded, upper-case or any other value refuses), `live` builds the live transport, `replay` serves the recorded set. `NOEMA_PROFILE` stays the environment profile and identifies `demo`. `NOEMA_MODEL_REPLAY_FIXTURES_DIR` keeps its name (A679 does not rename it).
+- Behaviour change: a harness configuration with no provider profile no longer starts (it did start live before). Four existing model tests that assemble a live harness now name `live`.
+- Ambiguities, taken the safer way (not decided here): A679 is silent on `dev` and `ci` (replay stays refused there, as before); on `live` with a fixtures directory also set (refused as a contradiction); and on where "absent refuses" is checked (where the transport is chosen, so a service with no harness configuration is not ready, as before).
+- Tests: 57 in `test_provider_profile.py` (REQ-INT-002, REQ-TST-004, AGENT-12, AGENT-16, INV-29); the whole model suite passes.
+- Hand mutants on the new logic: 12 run, 12 killed (absent defaults to live, absent defaults to replay, unknown provider value accepted, case-insensitive match, demo allowed, dev and ci allowed, live with fixtures accepted, replay also builds a live transport, unknown environment profile accepted, replay with no environment profile accepted, unreadable fixtures fall back to live, the provider value in the refusal text).
+- Debt entries: none. Conflicts raised: none.
+
+## Silences
+1. No compose, deploy or CI file sets `NOEMA_MODEL_HARNESS_CONFIG` today, so no deployed model reaches the transport choice; the day one does, `NOEMA_MODEL_PROVIDER_PROFILE` must be set with it. Those files are outside this card's allowlist and are listed in the PR.
+
+## Pre-work for the next agent
+- Exact next step: whoever mounts the harness configuration in compose adds `NOEMA_MODEL_PROVIDER_PROFILE` (`live`, or `replay` with `NOEMA_PROFILE: bench` and the fixtures directory in the bench model) in the same change; then the A604 gate fix once #932 has merged.
+- Files to read first: `providers/llm/profile.py`, `tests/test_provider_profile.py`.
+- Do not touch: the committed fixture files.

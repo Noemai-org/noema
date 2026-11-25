@@ -43,8 +43,8 @@ def _refused(reason: str, telemetry: Telemetry) -> Assembly:
 
 
 def _selected_transport(environ: Mapping[str, str], telemetry: Telemetry) -> Transport:
-    """The transport for the profile (UND-15, A635): live unless a recorded replay is configured in the bench or test profile; the demo
-    profile and every other refuse a replay, and an unknown profile refuses the start. A refusal is a ConfigError (no harness, a reason)."""
+    """The transport for the provider profile (UND-15, A635, A679): `NOEMA_MODEL_PROVIDER_PROFILE` is `live` or `replay`; absent or any other
+    value refuses the start, and a replay is allowed only in the bench and test profiles. A refusal is a ConfigError (no harness, a reason)."""
 
     def live() -> Transport:
         # The pool size is configuration the service must be given: a missing or invalid one refuses to start (AGENT-16).
