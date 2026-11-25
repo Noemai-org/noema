@@ -125,6 +125,7 @@ def test_a_call_refused_by_a_really_full_pool_is_recorded_as_pool_refused_not_as
             doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
             assert (doc["status"], doc["failure"], doc["failure_class"], doc["error"], doc["reply"]) == (None, "POOL_REFUSED", "POOL_REFUSED", None, None)
             assert t.calls == 1
+            assert doc["cost_micros"] == 0 and guard.spent_micros == 0 and doc["projected_micros"] > 0  # A618: nothing was sent, so nothing is charged
             for path in (tmp_path / "out").rglob("*"):
                 if path.is_file():
                     assert KEY not in path.read_text()
@@ -133,6 +134,51 @@ def test_a_call_refused_by_a_really_full_pool_is_recorded_as_pool_refused_not_as
             await holder
             inner._pool.close()  # noqa: SLF001
             restore()
+
+    run(go())
+
+
+def _one_refused_call(tmp_path: Path, raises: ProviderError) -> tuple[BudgetGuard, dict[str, Any]]:
+    holder: dict[str, Any] = {}
+
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-A"
+        t = transport(Wire(raises=raises), guard, rec)
+        with pytest.raises(ProviderError):
+            await t.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        holder["guard"] = guard
+        holder["doc"] = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+
+    run(go())
+    return holder["guard"], holder["doc"]
+
+
+def test_a_call_the_pool_refused_locally_with_nothing_sent_is_charged_zero(tmp_path: Path) -> None:
+    """A618 (interim ruling): charge 0 only when `local` is True and nothing was sent. The projection is still recorded (what the call would have cost), the charge is 0, and the guard's spend does not move."""
+    guard, doc = _one_refused_call(tmp_path, ProviderError(ProviderFailure.UNAVAILABLE, local=True))
+    assert doc["failure"] == "POOL_REFUSED" and doc["projected_micros"] > 0
+    assert doc["cost_micros"] == 0 and guard.spent_micros == 0
+
+
+def test_a_failure_that_may_have_sent_something_is_charged_its_projection(tmp_path: Path) -> None:
+    """A618: doubt charges. A non-local UNAVAILABLE, a timeout, a rate limit, a malformed reply and a local flag on any other kind all keep the projection."""
+    for i, err in enumerate((ProviderError(ProviderFailure.UNAVAILABLE), ProviderError(ProviderFailure.TIMEOUT), ProviderError(ProviderFailure.RATE_LIMITED, 429),
+                             ProviderError(ProviderFailure.MALFORMED, 200), ProviderError(ProviderFailure.TIMEOUT, local=True), ProviderError(ProviderFailure.REJECTED, local=True))):
+        guard, doc = _one_refused_call(tmp_path / str(i), err)
+        assert doc["projected_micros"] > 0 and doc["cost_micros"] == doc["projected_micros"] and guard.spent_micros == doc["projected_micros"], err.kind
+
+
+def test_a_pool_refused_call_does_not_use_up_the_budget_of_the_calls_after_it(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-A"
+        refused = transport(Wire(raises=ProviderError(ProviderFailure.UNAVAILABLE, local=True)), guard, rec)
+        with pytest.raises(ProviderError):
+            await refused.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        ok = transport(Wire(), guard, rec)
+        await ok.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        assert guard.spent_micros == 1_000 * 100_000 // 1_000_000 + 2_000 * 500_000 // 1_000_000  # only the reported usage of the call that was sent
 
     run(go())
 

@@ -68,10 +68,14 @@ class RecordingTransport:
         try:
             reply = await self._inner.post(url, headers, body, timeout_s, max_bytes)
         except errors.ProviderError as err:
-            self._guard.settle(None, projected)
-            # A372: a refusal that came from this service's own full pool (`local`: nothing was sent) is its own label, not a provider outage. Accounting is unchanged (open question in the PR).
+            # A372: a refusal that came from this service's own full pool (`local`: nothing was sent) is its own label, not a provider outage.
+            # A618: it is charged 0, and only it. The transport sets `local` only for that pool refusal (`UNAVAILABLE`, raised before the call is handed to a worker); any other failure may have
+            # sent something, so it keeps its projection, and so does a `local` flag on any other kind (doubt charges).
+            sent_nothing = err.local is True and err.kind is errors.ProviderFailure.UNAVAILABLE
+            charge = 0 if sent_nothing else projected
+            self._guard.settle(charge, projected)
             label = "POOL_REFUSED" if err.local else err.kind.name
-            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=label, projected_micros=projected, cost_micros=projected)
+            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=label, projected_micros=projected, cost_micros=charge)
             self.calls += 1
             raise
         actual = _usage_micros(reply.body, self._in, self._out)
