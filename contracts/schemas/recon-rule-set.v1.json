@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/recon-rule-set.v1.json",
+  "title": "Reconciliation rule set",
+  "description": "The pack's reconciliation rule set (PERD 22.3, REQ-RES-001, REQ-RES-005), as pack data the Reconciler compiles at load. The shape is the loader's, member for member (trust/reconcile ParseRuleSet refuses an unknown member). A659 (interim, relayed, not yet committed; amends A641 and A647): the declared window of a compared fact pair is `convergence_window_seconds`, on each `incompatible` pair and each `single_valued` field, and the rule set moves to version 2. From version 2 the member is required on every such entry and is a whole number of seconds of at least 1; in version 1 it is not allowed, because a version 1 rule set allows no lag (fail closed) and the loader of a version 1 file does not read it. The value is pack data and never loosened without a benchmark run (REQ-RES-005, AGENT-16). That it equals the smaller freshness limit of the pair (A641) is packcheck's check, not this schema's, because the limit lives in the pack's evidence descriptors and the evidence mapping, not in this file. SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "ruleset_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*$"
+    },
+    "version": {
+      "description": "The rule set's own version. 2 and later carry convergence_window_seconds (A659).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "label": {
+      "type": "string",
+      "enum": [
+        "SYNTHETIC",
+        "VALIDATED"
+      ]
+    },
+    "entities": {
+      "description": "Entity name to its fields. The loader adds the standard fields (status, source, evidence_id, effective_at, required) to every entity and refuses a clash.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": {
+          "$ref": "#/$defs/FieldSpec"
+        }
+      }
+    },
+    "incompatible": {
+      "description": "The compatibility matrix: two facts that cannot both hold. Labels are unique (the loader checks).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IncompatiblePair"
+      }
+    },
+    "single_valued": {
+      "description": "Fields on which two sources must agree.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SingleValued"
+      }
+    },
+    "derived": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Derived"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Rule"
+      }
+    },
+    "fallback": {
+      "description": "The rule that applies when none does: INSUFFICIENT_EVIDENCE and no condition (REQ-RES-001).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RuleId"
+        },
+        "classification": {
+          "const": "INSUFFICIENT_EVIDENCE"
+        },
+        "uses": {
+          "type": "array",
+          "maxItems": 0
+        }
+      },
+      "required": [
+        "id",
+        "classification",
+        "uses"
+      ],
+      "additionalProperties": false
+    },
+    "certainty": {
+      "description": "The tier of each of the twelve classifications; a classification missing here is an error of the loader.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/TransactionClassification"
+      },
+      "minProperties": 12,
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "pending_markers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PendingMarker"
+      }
+    }
+  },
+  "required": [
+    "ruleset_id",
+    "version",
+    "label",
+    "entities",
+    "incompatible",
+    "single_valued",
+    "derived",
+    "rules",
+    "fallback",
+    "certainty",
+    "pending_markers"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "version": {
+        "const": 1
+      }
+    },
+    "required": [
+      "version"
+    ]
+  },
+  "then": {
+    "properties": {
+      "incompatible": {
+        "items": {
+          "not": {
+            "required": [
+              "convergence_window_seconds"
+            ]
+          }
+        }
+      },
+      "single_valued": {
+        "items": {
+          "not": {
+            "required": [
+              "convergence_window_seconds"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "incompatible": {
+        "items": {
+          "required": [
+            "convergence_window_seconds"
+          ]
+        }
+      },
+      "single_valued": {
+        "items": {
+          "required": [
+            "convergence_window_seconds"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "RuleId": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,31}$"
+    },
+    "Name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "FieldSpec": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "Boolean",
+            "String",
+            "Integer",
+            "Timestamp",
+            "Duration",
+            "Reference",
+            "Enum"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          }
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "type": {
+            "const": "Enum"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "required": [
+          "values"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "values"
+          ]
+        }
+      }
+    },
+    "FactRef": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "$ref": "#/$defs/Name"
+        },
+        "field": {
+          "$ref": "#/$defs/Name"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "entity",
+        "field"
+      ],
+      "additionalProperties": false
+    },
+    "ConvergenceWindowSeconds": {
+      "description": "The declared window of a compared fact pair, in whole seconds (REQ-RES-005, A659): inside it a disagreement waits. At least 1: a window of zero is the absence of the member, which is a version 1 rule set.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "IncompatiblePair": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "$ref": "#/$defs/Name"
+        },
+        "a": {
+          "$ref": "#/$defs/FactRef"
+        },
+        "b": {
+          "$ref": "#/$defs/FactRef"
+        },
+        "unless": {
+          "$ref": "#/$defs/FactRef"
+        },
+        "convergence_window_seconds": {
+          "$ref": "#/$defs/ConvergenceWindowSeconds"
+        }
+      },
+      "required": [
+        "label",
+        "a",
+        "b"
+      ],
+      "additionalProperties": false
+    },
+    "SingleValued": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "$ref": "#/$defs/Name"
+        },
+        "field": {
+          "$ref": "#/$defs/Name"
+        },
+        "convergence_window_seconds": {
+          "$ref": "#/$defs/ConvergenceWindowSeconds"
+        }
+      },
+      "required": [
+        "entity",
+        "field"
+      ],
+      "additionalProperties": false
+    },
+    "Derived": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "const": "duplicate"
+        },
+        "entity": {
+          "$ref": "#/$defs/Name"
+        },
+        "require": {
+          "$ref": "#/$defs/FactRef"
+        },
+        "same": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Name"
+          }
+        },
+        "time_field": {
+          "$ref": "#/$defs/Name"
+        },
+        "within_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "entity",
+        "require",
+        "same",
+        "time_field",
+        "within_seconds"
+      ],
+      "additionalProperties": false
+    },
+    "Rule": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RuleId"
+        },
+        "classification": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/TransactionClassification"
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uses": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Name"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "classification",
+        "condition",
+        "uses"
+      ],
+      "additionalProperties": false
+    },
+    "PendingMarker": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "$ref": "#/$defs/Name"
+        },
+        "field": {
+          "$ref": "#/$defs/Name"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          }
+        }
+      },
+      "required": [
+        "entity",
+        "field",
+        "values"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

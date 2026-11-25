@@ -199,7 +199,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -269,7 +269,7 @@
         "VERIFY_BY_IDEMPOTENCY_KEY",
         "ESCALATE"
       ],
-      "compensation": "none_required",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "DECISION_MADE",
         "GRANT_SPENT",
