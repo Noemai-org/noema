@@ -19,8 +19,8 @@ import (
 //   - the kill switch is trustport.NewKillSwitch over the per-tenant trust_rw logins (no tenant is served by another's login, INV-12), the pack's own reference and the bound
 //     NOEMA_TRUST_DB_TIMEOUT_MS (no default).
 //
-// Fail closed. A part that is absent is a gap, never a default rule: no pack, a pack that is no usable Pack, a pack none of whose nodes carries a write_when (a rule built over it
-// would answer "no write" for everything, which is not the pack's classification), no served tenant, or no login. A part that is present and invalid is an error with fixed text:
+// Fail closed. A part that is absent is a gap, never a default rule: no pack, a pack that is no usable Pack or holds no intent node, no served tenant, or no login. A pack none of
+// whose nodes carries a write_when is not a gap: it answers "no write" for every node it holds (A693, A543, interim, relayed, not yet committed). A part that is present and invalid is an error with fixed text:
 // a write_when that does not compile over its node's slots (the whole rule is refused, never a rule without that node), or a bound that is not positive. No error carries a
 // predicate, a slot, a tenant or a path (AGENT-13).
 func buildWritesInput(in trustInputsIn) (intake.Writes, error) {
@@ -34,7 +34,7 @@ func buildWritesInput(in trustInputsIn) (intake.Writes, error) {
 	if err != nil {
 		return nil, inputsFail("the pack's write_when data cannot be read", err)
 	}
-	if !anyWriteWhen(whens) {
+	if len(whens) == 0 {
 		return nil, nil
 	}
 	rule, err := trustport.NewPackWriteRule(whens)
@@ -53,14 +53,4 @@ func buildWritesInput(in trustInputsIn) (intake.Writes, error) {
 		return nil, inputsFail("the Writes adapter cannot be built", err)
 	}
 	return w, nil
-}
-
-// anyWriteWhen says whether the pack carries a write_when for at least one node.
-func anyWriteWhen(whens map[string]trustpack.WriteWhen) bool {
-	for _, w := range whens {
-		if w.Predicate != "" {
-			return true
-		}
-	}
-	return false
 }
