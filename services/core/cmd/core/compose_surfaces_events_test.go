@@ -14,8 +14,8 @@ import (
 var sfEventsOrder = []string{EnvEventsPollMS, EnvEventsMaxStreamMS, EnvEventsWriteTimeoutMS, EnvEventsReadTimeoutMS, EnvEventsMaxEventBytes, EnvEventsMaxStreams, EnvEventsMaxStreamsPerPrincipal, EnvEventsMaxBatch}
 
 func sfEventsEnv() envMap {
-	return envMap{EnvEventsPollMS: "1000", EnvEventsMaxStreamMS: "60000", EnvEventsWriteTimeoutMS: "5000", EnvEventsReadTimeoutMS: "2000", EnvEventsMaxEventBytes: "65536",
-		EnvEventsMaxStreams: "100", EnvEventsMaxStreamsPerPrincipal: "2", EnvEventsMaxBatch: "50"}
+	return envMap{EnvEventsPollMS: "2000", EnvEventsMaxStreamMS: "300000", EnvEventsWriteTimeoutMS: "5000", EnvEventsReadTimeoutMS: "2000", EnvEventsMaxEventBytes: "65536",
+		EnvEventsMaxStreams: "100", EnvEventsMaxStreamsPerPrincipal: "3", EnvEventsMaxBatch: "100"}
 }
 
 func sfClock() clock.Clock { return clock.NewManual(time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC)) }
@@ -58,7 +58,7 @@ func TestAnAbsentEventsSettingIsANamedGap(t *testing.T) {
 
 // Every absent setting is named, in the one order, not only the first.
 func TestEveryAbsentEventsSettingIsNamedInOrder(t *testing.T) {
-	h, gaps, err := buildEventsSurface(osEnv(envMap{EnvEventsPollMS: "1000"}), sfClock(), &failingDBs{})
+	h, gaps, err := buildEventsSurface(osEnv(envMap{EnvEventsPollMS: "2000"}), sfClock(), &failingDBs{})
 	var want []string
 	for _, n := range sfEventsOrder[1:] {
 		want = append(want, "events route: "+n+" missing")
@@ -87,11 +87,12 @@ func TestAnInvalidEventsSettingIsFatalAndNamesItNotItsValue(t *testing.T) {
 	}
 }
 
-// The per-principal cap above the global one is a configuration error, not a gap: the handler refuses it (and the error names no value).
+// The per-principal cap above the global one is a configuration error, not a gap: it names the per-principal setting and no value (A658).
 func TestAPerPrincipalCapAboveTheGlobalCapIsFatal(t *testing.T) {
 	e := sfEventsEnv()
-	e[EnvEventsMaxStreamsPerPrincipal] = "101"
-	if h, _, err := buildEventsSurface(osEnv(e), sfClock(), &failingDBs{}); h != nil || err == nil || strings.Contains(err.Error(), "101") {
-		t.Fatalf("handler %v, error %v; want a fatal error without the value", h, err)
+	e[EnvEventsMaxStreams] = "2"
+	e[EnvEventsMaxStreamsPerPrincipal] = "3"
+	if h, _, err := buildEventsSurface(osEnv(e), sfClock(), &failingDBs{}); h != nil || err == nil || !strings.Contains(err.Error(), EnvEventsMaxStreamsPerPrincipal) {
+		t.Fatalf("handler %v, error %v; want a fatal error naming %s", h, err, EnvEventsMaxStreamsPerPrincipal)
 	}
 }

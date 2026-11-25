@@ -151,7 +151,7 @@ func TestTheProcessNamesTheSurfaceGapsInReadyz(t *testing.T) {
 	e[edge.EnvTenants] = "ten_aa"
 	dir, _ := dsnDir(t, map[string]string{"ten_aa": synthDSN("record_read_aa")})
 	e[EnvRecordReadDSNDir] = dir
-	e[EnvEventsPollMS] = "1000"
+	e[EnvEventsPollMS] = "2000"
 	e[recovery.EnvIdleMS] = "240000"
 	var sink strings.Builder
 	p, err := mcProcess(t, e, composeDeps{}, &sink)
