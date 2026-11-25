@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -49,6 +50,9 @@ var (
 
 	errNoSeam = errors.New("cmd/core: the Input Gateway needs the orchestrator seam: set " + EnvInvestigationWorkers + ", " + EnvInvestigationQueue + ", " + EnvInvestigationRunTimeoutMS + " and " + EnvInvestigationStartTimeoutMS)
 )
+
+// startIssuerRe is the contract's asserted_by pattern (intent-object.v2, ruling A163), the same as the store's and migration 0039's.
+var startIssuerRe = regexp.MustCompile(`\A[a-z][a-z0-9_-]*\z`)
 
 // turnRunner is the run of one investigation: orchestrator.WriteRunner (a read takes its read arrows; an allowed write walks the write path).
 type turnRunner interface {
@@ -142,7 +146,6 @@ type turnStarter struct {
 	stores startStores
 	runner turnRunner
 	failed func(investigationID string, err error)
-	base   context.Context
 
 	mu       sync.Mutex
 	closed   bool
@@ -160,31 +163,32 @@ func newTurnStarter(ctx context.Context, cfg startConfig, stores startStores, ru
 	case cfg.Workers < 1 || cfg.Queue < 1 || cfg.Run <= 0 || cfg.Start <= 0:
 		return nil, errors.New("cmd/core: the investigation starter needs its four settings")
 	}
-	s := &turnStarter{cfg: cfg, stores: stores, runner: runner, failed: failed, base: context.WithoutCancel(ctx), queue: make(chan startJob, cfg.Queue), inflight: map[string]struct{}{}}
+	s := &turnStarter{cfg: cfg, stores: stores, runner: runner, failed: failed, queue: make(chan startJob, cfg.Queue), inflight: map[string]struct{}{}}
+	base := context.WithoutCancel(ctx)
 	for i := 0; i < cfg.Workers; i++ {
 		s.wg.Add(1)
-		go s.work()
+		go s.work(base)
 	}
 	return s, nil
 }
 
-func (s *turnStarter) work() {
+func (s *turnStarter) work(base context.Context) {
 	defer s.wg.Done()
 	for j := range s.queue {
-		s.run(j)
+		s.run(base, j)
 		s.mu.Lock()
 		delete(s.inflight, j.key)
 		s.mu.Unlock()
 	}
 }
 
-func (s *turnStarter) run(j startJob) {
+func (s *turnStarter) run(base context.Context, j startJob) {
 	defer func() {
 		if recover() != nil {
 			s.failed(j.turn.InvestigationID, errors.New("cmd/core: the investigation run panicked")) // the value is not kept: it can hold request data
 		}
 	}()
-	ctx, cancel := context.WithTimeout(s.base, s.cfg.Run)
+	ctx, cancel := context.WithTimeout(base, s.cfg.Run)
 	defer cancel()
 	if _, err := s.runner.RunWrite(ctx, j.session, j.turn); err != nil {
 		s.failed(j.turn.InvestigationID, err)
@@ -203,6 +207,10 @@ func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrStartTurn, err)
 	}
+	if !startIssuerRe.MatchString(t.AssertedBy) {
+		// A584, A592, INV-12: a session without a verified issuer, or one off the contract's asserted_by pattern, is not a session: fail closed before the store is asked.
+		return fmt.Errorf("%w: the session has no valid verified issuer", ErrStartTurn)
+	}
 	if s.isClosed() {
 		return ErrStartClosed
 	}
@@ -214,8 +222,8 @@ func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
 	if !ok {
 		return fmt.Errorf("%w: the customer role has no principal type", ErrStartTurn)
 	}
-	// A514, INV-12: the session carries the verified reference and the principal type of the edge's mapping; AssertedBy stays empty (the verified issuer is not stored here).
-	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.PrincipalID, Role: string(session.RoleCustomer), AuthnRef: t.SessionID, PrincipalType: principalType}
+	// A514 (amended), INV-12: the session carries the verified reference, the principal type of the edge's mapping and the verified issuer of the authenticated session.
+	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.PrincipalID, Role: string(session.RoleCustomer), AuthnRef: t.SessionID, PrincipalType: principalType, AssertedBy: t.AssertedBy}
 	// t.SessionID is the authenticated session's reference, put on the identity by the edge's session middleware (gatewayIdentity): the store writes it with the role as the investigation's
 	// recorded session (A441, INV-12). It is never read from the request body.
 	sctx, cancel := context.WithTimeout(ctx, s.cfg.Start)

@@ -526,8 +526,8 @@ func TestAConfirmationRequestBindsTheCompositeOfEveryPolicyVersionOfTheBasis(t *
 		if _, has := p["policy_set_hash"]; has {
 			t.Errorf("%s: the event carries the interim policy_set_hash member: %v", name, p["policy_set_hash"])
 		}
-		if res.Record.PolicyVersion != "fin.pol@3.1" {
-			t.Errorf("%s: the decision record binds %q, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
+		if res.Record.PolicyVersion == nil || *res.Record.PolicyVersion != "fin.pol@3.1" {
+			t.Errorf("%s: the decision record binds %v, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
 		}
 	}
 }
