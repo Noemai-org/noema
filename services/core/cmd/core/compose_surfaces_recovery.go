@@ -53,10 +53,13 @@ type recoverySurface struct {
 	bound   time.Duration
 	log     *slog.Logger
 
-	once  sync.Once
-	done  chan struct{}
-	ok    atomic.Bool
-	fatal chan error
+	once    sync.Once
+	mu      sync.Mutex // guards cancel and started
+	cancel  context.CancelFunc
+	started bool
+	done    chan struct{}
+	ok      atomic.Bool
+	fatal   chan error
 }
 
 // buildRecoverySurface builds recovery. A setting that is given and invalid is an error that names it (an idle age that does not exceed the run timeout names both, A477). With none
@@ -127,16 +130,52 @@ func buildRecoverySurface(env Env, c Components, seams SurfaceSeams, rec *orches
 // passBound is how long the startup pass may take: every tenant, at most a batch of runs each, each run bounded by the run timeout (A477). It is derived from the settings, not a number of
 // its own (AGENT-16), and saturates rather than overflow.
 func passBound(tenants int, cfg recovery.Config) time.Duration {
-	ms := int64(tenants) * int64(cfg.Batch) * cfg.RunTimeoutMS
-	if ms > math.MaxInt64/int64(time.Millisecond) {
-		return time.Duration(math.MaxInt64)
-	}
-	return time.Duration(ms) * time.Millisecond
+	ms := satMul(satMul(int64(tenants), int64(cfg.Batch)), cfg.RunTimeoutMS)
+	ms = satMul(ms, int64(time.Millisecond))
+	return time.Duration(ms)
 }
 
-// Start runs the startup pass once, in the background. A second call does nothing.
+// satMul multiplies two non-negative numbers and saturates at the largest int64 instead of wrapping. A negative term is a configuration that cannot be valid: it saturates too, so a bound
+// is never small by mistake.
+func satMul(a, b int64) int64 {
+	if a < 0 || b < 0 {
+		return math.MaxInt64
+	}
+	if a == 0 || b == 0 {
+		return 0
+	}
+	if a > math.MaxInt64/b {
+		return math.MaxInt64
+	}
+	return a * b
+}
+
+// Start runs the startup pass once, in the background, on a context of its own that Stop cancels. A second call does nothing.
 func (r *recoverySurface) Start(ctx context.Context) {
-	r.once.Do(func() { go r.run(ctx) })
+	r.once.Do(func() {
+		cctx, cancel := context.WithCancel(ctx)
+		r.mu.Lock()
+		r.cancel = cancel
+		r.started = true
+		r.mu.Unlock()
+		go r.run(cctx)
+	})
+}
+
+// Stop cancels the startup pass and waits until it has ended, so no pool closes under it (A658). The cancel is a normal shutdown, not a fatal error. It is safe on a nil surface, on one
+// that never started, after the pass has ended, and more than once.
+func (r *recoverySurface) Stop() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	cancel, started := r.cancel, r.started
+	r.mu.Unlock()
+	if !started {
+		return
+	}
+	cancel()
+	<-r.done
 }
 
 func (r *recoverySurface) run(ctx context.Context) {
@@ -189,6 +228,3 @@ func (r *recoverySurface) Ready() (bool, string) {
 
 // Fatal delivers the error of a startup pass that could not read its list: the process then exits non-zero (A442).
 func (r *recoverySurface) Fatal() <-chan error { return r.fatal }
-
-// Stop cancels the startup pass and waits for it to end. A stub for the red commit: it does nothing yet.
-func (r *recoverySurface) Stop() {}

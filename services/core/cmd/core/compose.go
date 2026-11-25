@@ -567,11 +567,7 @@ func newProcess(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSourc
 	}
 	p.Components, p.Trust, p.Worker, p.API, p.Surfaces = c, parts, rw, api, surf
 	p.Handler = newMux(withSurfaceReadiness(processReadinessGap(c, api, rw, workerMissing(env)), surf), api)
-	p.Close = func() {
-		rw.Stop()
-		closeSurfaces()
-		closeComponents()
-	}
+	p.Close = processCloser(rw, surf.Recovery, closeSurfaces, closeComponents)
 	if surf.Recovery != nil {
 		surf.Recovery.Start(ctx)
 	}

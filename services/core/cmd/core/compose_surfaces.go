@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	explainerport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/explainer"
@@ -129,10 +130,16 @@ func hasGapOf(gaps []string, part string) bool {
 	return false
 }
 
-// processCloser is the Close of the Process. A stub for the red commit: it runs the two closers each time it is called and stops nothing.
+// processCloser is the Close of the Process: it stops the worker, then recovery (cancelled and joined before any pool closes, A658), then closes the surfaces and the components (their
+// pools). It runs once however often it is called, and it is safe with no worker and no recovery.
 func processCloser(rw *RunningWorker, rec *recoverySurface, closeSurfaces, closeComponents func()) func() {
+	var once sync.Once
 	return func() {
-		closeSurfaces()
-		closeComponents()
+		once.Do(func() {
+			rw.Stop()
+			rec.Stop()
+			closeSurfaces()
+			closeComponents()
+		})
 	}
 }
