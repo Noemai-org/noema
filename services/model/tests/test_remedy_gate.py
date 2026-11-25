@@ -542,6 +542,8 @@ def test_a_gate_answer_that_says_no_and_repeats_yes_is_refused_too() -> None:
     (_entries(("no", "0.05"), ("yes", "0.95")), LOOKUP),  # the no entry first is not a repeat
     (_entries(("yes", "0.95")), LOOKUP),  # the no entry is not required, only the yes is read
     (_entries(("no", "0.50"), ("yes", "0.89999")), None),  # below the threshold abstains, as before
+    ("[]", None),  # an empty list of probabilities is no token: the slot abstains and the reply is not refused
+    (_entries(("no", "0.05")), None),  # a single no and no yes is no token: the slot abstains
 ])
 def test_a_gate_answer_with_each_option_once_is_read_as_before(entries: str, expected: str | None) -> None:
     """The control: a single yes entry, in either order, asserts at the threshold and abstains below it."""
