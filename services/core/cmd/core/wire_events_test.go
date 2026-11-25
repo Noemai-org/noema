@@ -212,7 +212,7 @@ func (noDBs) For(string) (reconstruct.TxBeginner, error) {
 func eventsEnv(m envMap) Env { return Env{Getenv: m.get} }
 
 func allEventsSettings() envMap {
-	return envMap{EnvEventsPollMS: "1000", EnvEventsMaxStreamMS: "60000", EnvEventsWriteTimeoutMS: "5000", EnvEventsReadTimeoutMS: "3000", EnvEventsMaxEventBytes: "4096",
+	return envMap{EnvEventsPollMS: "2000", EnvEventsMaxStreamMS: "60000", EnvEventsWriteTimeoutMS: "5000", EnvEventsReadTimeoutMS: "2000", EnvEventsMaxEventBytes: "4096",
 		EnvEventsMaxStreams: "8", EnvEventsMaxStreamsPerPrincipal: "2", EnvEventsMaxBatch: "32"}
 }
 

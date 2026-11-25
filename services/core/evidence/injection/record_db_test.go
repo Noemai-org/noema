@@ -141,7 +141,7 @@ func TestDBAFindingIsAppendedAsASecurityEventWithNamesOnly(t *testing.T) {
 		e.ObjectRef != "evr_synthetic01" || e.Corr != "corr_synthetic01" || e.Body["tenant_id"] != tenantA {
 		t.Errorf("event %+v", e)
 	}
-	want := map[string]any{"pack": "fin.ctx.injection_patterns@1", "truncated_fields": []any{}, "findings": []any{map[string]any{"field": "narration", "pattern_id": "fin.inj.override_instructions"}}}
+	want := map[string]any{"pack": shipped, "truncated_fields": []any{}, "findings": []any{map[string]any{"field": "narration", "pattern_id": "fin.inj.override_instructions"}}}
 	if !reflect.DeepEqual(e.Payload, want) {
 		t.Errorf("payload %v, want only names and ids %v", e.Payload, want)
 	}
