@@ -288,6 +288,15 @@ func (p *Pack) rootsGraph(capabilityID, graphID string) bool {
 
 func (p *Pack) usable() bool { return p != nil && p.reg != nil }
 
+// RatePerPrincipalPerHour is the rate limit the capability's descriptor declares (REQ-TRU-012), for the Rates adapter. A pack that is not loaded, an unknown or a prohibited
+// capability and a descriptor with no limit all answer declared=false.
+func (p *Pack) RatePerPrincipalPerHour(id string) (limit int, declared bool) {
+	if !p.usable() {
+		return 0, false
+	}
+	return p.reg.RatePerPrincipalPerHour(id)
+}
+
 // capability is the registry's answer for an ID: whether it is registered at all (an allowed capability or a prohibited one: a prohibited capability is registered, REQ-CAP-002) and
 // whether it is prohibited. IDs match exactly, no case folding and no trimming.
 func (p *Pack) capability(id string) (known, prohibited bool) {
