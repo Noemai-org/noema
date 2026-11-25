@@ -13,7 +13,7 @@ Date: 2026-11-18 · Owner: Core Engineer 2 (C2) · Task: TRU-04 (closest row; br
 | `Intents` | the stored intent, as the adapter's tenant | `intentstore.Reader` |
 | `Reader` | the candidates read, in the contract's types | not built: `evidence/candidates_api` is empty (`doc.go` only); the orchestrator area may not import `adapters` |
 | `Ranker` | one score per candidate, basis points | not built: the ranking of REQ-AMB-003 is Python, in the model service |
-| `Labeller` | `Display` and the askable attributes, from the pack's templates | not built: the pack has no attribute order, options key or label templates |
+| `Labeller` | `Display` and the askable attributes, from the pack's templates | not built (EL's); the pack now declares the options key, the display template and the attribute order on the investigate node (A555, noema#916) |
 | `Nodes` | the pack's data by intent node: slot names, resource kind, raw bound, tolerances, `intake.Disambiguation` (floor in basis points) | the composition fills it from the pack |
 
 Until `Reader`, `Ranker` and `Labeller` exist the adapter cannot be wired into `cmd/core`.

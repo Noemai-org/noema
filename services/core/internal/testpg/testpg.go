@@ -390,13 +390,26 @@ const (
 	FixtureIssuedAt      = "2026-11-07T09:00:00.000Z"
 	FixtureRecordExpires = "2099-01-01T00:00:00.000Z"
 	// BoundFieldsSQL is a jsonb expression holding the fields of a Decision Record that the database requires (intent_id, correlation_id, policy_version,
-	// intent_hash, issued_at, expires_at, and the three authority layers at PASS, which an ALLOW needs). Append it to a document with ||.
+	// intent_hash, issued_at, expires_at, the evidence snapshot and its freshness (A577: required keys, non-null for an ALLOW or a CONFIRM), and the three authority layers at PASS, which an ALLOW needs). Append it to a document with ||.
 	BoundFieldsSQL = `jsonb_build_object('intent_id', 'int_synth01', 'correlation_id', 'corr_synth01', 'policy_version', '` + FixturePolicyVersion +
 		`', 'intent_hash', '` + FixtureIntentHash + `', 'issued_at', '` + FixtureIssuedAt + `', 'expires_at', '` + FixtureRecordExpires + `',
+		'evidence_snapshot_id', 'evs_' || replace(gen_random_uuid()::text, '-', ''), 'evidence_freshness', '[]'::jsonb,
 		'authority', jsonb_build_object('technical', 'PASS', 'policy', 'PASS', 'business', 'PASS'))`
 	// GrantBoundSQL is the same for a grant document: it agrees with BoundFieldsSQL and expires before it.
 	GrantBoundSQL = `jsonb_build_object('intent_hash', '` + FixtureIntentHash + `', 'policy_version', '` + FixturePolicyVersion + `', 'expires_at', '2026-11-07T10:00:00.000Z')`
 )
+
+// snapshotSuffix is the decision ID with everything but letters and digits removed, so that each synthetic decision names its own context snapshot: the input tuple of a decision is unique
+// (A186, migration 0034), and the fixtures write several decisions for one intent.
+func snapshotSuffix(decisionID string) string {
+	var b strings.Builder
+	for _, r := range decisionID {
+		if r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
 
 // DecisionDocJSON returns a bound-complete, SYNTHETIC Decision Record document for a decision that a stored grant refers to. The grant's own intent hash,
 // policy version and correlation ID are carried so that the grant agrees with its record (ruling of 8 Nov 2026 on noema#329); the record lives longer than any
@@ -405,7 +418,7 @@ func DecisionDocJSON(decisionID, tenant, intentHash, policyVersion, correlation 
 	doc := map[string]any{
 		"decision_id": decisionID, "tenant_id": tenant, "outcome": "ALLOW", "sig": map[string]string{"key_id": "k1", "value": "aa"},
 		"intent_id": "int_synth01", "correlation_id": correlation, "policy_version": policyVersion, "intent_hash": intentHash,
-		"issued_at": FixtureIssuedAt, "expires_at": FixtureRecordExpires,
+		"issued_at": FixtureIssuedAt, "expires_at": FixtureRecordExpires, "evidence_snapshot_id": "evs_" + snapshotSuffix(decisionID), "evidence_freshness": []string{},
 		"authority": map[string]string{"technical": "PASS", "policy": "PASS", "business": "PASS"},
 	}
 	raw, err := json.Marshal(doc)

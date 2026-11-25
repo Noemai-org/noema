@@ -65,12 +65,15 @@ func TestTheGatewayIdentityIsTheVerifiedSessionsAndNothingElse(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	var got struct{ TenantID, PrincipalID, PrincipalKind, SessionID string }
+	var got struct{ TenantID, PrincipalID, PrincipalKind, SessionID, AssertedBy string }
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.TenantID != edgetest.Tenant || got.PrincipalID != "prn_1" || got.PrincipalKind != "customer" {
 		t.Errorf("identity %+v, want the token's tenant, subject and the customer kind", got)
+	}
+	if got.AssertedBy != session.Issuer { // A584: the verified issuer of the session, never a request value
+		t.Errorf("issuer %q, want the session's verified issuer %q", got.AssertedBy, session.Issuer)
 	}
 	if !strings.HasPrefix(got.SessionID, "ses_") || strings.Contains(auth, got.SessionID) || len(got.SessionID) != 36 {
 		t.Errorf("session reference %q: want the session's AuthnRef (ses_ and 32 hex characters), never part of the token", got.SessionID)
@@ -104,15 +107,23 @@ func TestNoIdentityIsTakenFromTheBodyOrTheHeaders(t *testing.T) {
 	if rec := post(h, auth, `{"request_id":"3f2a9c1e-5b7d-4e8f-9a1c-2d4b6e8f0a1b","text":"x","tenant_id":"tnt_other"}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("a body naming a tenant: status %d, want 400", rec.Code)
 	}
+	for _, f := range []string{"asserted_by", "assertedBy", "AssertedBy", "issuer", "iss"} { // A584: a body can never name the verified issuer: refused, or ignored; never read
+		rec := post(h, auth, `{"request_id":"3f2a9c1e-5b7d-4e8f-9a1c-2d4b6e8f0a1b","text":"x","`+f+`":"forged-idp"}`)
+		if rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), "forged-idp") {
+			t.Errorf("a body naming %s reached the identity: %s", f, rec.Body.String())
+		}
+	}
 	req := httptest.NewRequest(http.MethodPost, "/v1/conversations", strings.NewReader(`{"request_id":"3f2a9c1e-5b7d-4e8f-9a1c-2d4b6e8f0a1b","text":"x"}`))
 	req.Header.Set("Authorization", auth)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-Id", "tnt_other")
 	req.Header.Set("X-Principal-Id", "prn_2")
+	req.Header.Set("X-Asserted-By", "forged-idp")
+	req.URL.RawQuery = "asserted_by=forged-idp"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	var got struct{ TenantID, PrincipalID string }
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.TenantID != edgetest.Tenant || got.PrincipalID != "prn_1" {
+	var got struct{ TenantID, PrincipalID, AssertedBy string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.TenantID != edgetest.Tenant || got.PrincipalID != "prn_1" || got.AssertedBy != session.Issuer {
 		t.Errorf("status %d, body %s: the headers changed the identity", rec.Code, rec.Body.String())
 	}
 }

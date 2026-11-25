@@ -15,7 +15,7 @@ OUT = os.environ.get("TRUST_DSN_OUT", "/out")
 EMITTERS = os.environ.get("TRUST_DSN_EMITTERS", "/run/emitter_logins")
 # A506 (interim, from the code): the core loads four DSN directories, one file per tenant named by the tenant id. TRUST_DSN_JOBS is "<group>:<directory> ..."; without it there is one job, the
 # Trust login into TRUST_DSN_OUT. The first three groups use the shared tenant login password; `edge` is the per-login emitter secret of the core-edge login.
-GROUPS = ("trust_rw", "orchestrator_rw", "record_read", "edge")
+GROUPS = ("trust_rw", "orchestrator_rw", "record_read", "edge", "execution_rw", "outcome_rw")
 WRITTEN: list[str] = []  # every file made by any job: a failure removes all of them, so no half-written set is left
 HOST, PORT, DATABASE = "postgres", "5432", "noema"
 TENANT = re.compile(r"^ten_[0-9A-Za-z]{2,32}$")  # the core's tenantFileRe, and provision-tenants.sh's rule

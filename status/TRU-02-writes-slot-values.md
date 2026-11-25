@@ -1,0 +1,10 @@
+# Session 2026-11-23 12:55 WAT · TRU-02 (C1, ruling A543: the Writes port takes the resolved slot values)
+
+## Session summary
+- What changed (PR links): tests first (RED), then GREEN in this PR. A543 (`DEC-2026-11-23-architect-rulings-a542-a553`, interim): the Writes port takes the resolved slot values, `MayWrite(ctx, intent-with-slot-values)`; C1 changes the port in `trust/intake`, EL's adapter follows. (1) `intake.AdmittedIntent.Slots` (name to the canonical text of the RESOLVED value; an absent, unresolved or ambiguous slot has no entry, which a pack predicate reads as null); the intake hands the intent to `Writes.NeedsWrite` exactly as T1 read it. (2) The adapter's rule, `trustport.WriteRule.MayWrite`, takes the context and the intent with its slot values instead of the node alone, so the node's `write_when` (for example `question_type == 'ESCALATION_REQUEST' or requested_remedy != null`) is evaluated over what the stored intent says.
+- What this does not do: the Intents adapter that fills `Slots` from the stored document, and the `write_when` rule over the pack's predicate evaluator (`internal/predicate`), are EL's (A543: "EL's adapter follows"). Until they land, `Slots` is empty and the rule has no values.
+- Tests added (REQ-TRU-002, REQ-NFR-002; INV-14): `trust/intake/writes_slots_test.go` (T3 hands the Writes port the intent with its slot values, and one with none as it is; this passes at the scaffold, which carries the field, and pins the hand-over), `orchestrator/portadapters/trust/writes_test.go` (`TestNeedsWriteGivesTheRuleTheIntentWithItsResolvedSlotValues`, red at the scaffold, which passed the rule the node alone).
+
+## Pre-work for the next agent
+- Exact next step: EL fills `AdmittedIntent.Slots` in the Intents adapter and writes the `WriteRule` over `write_when` with `internal/predicate` (an unresolved slot is null).
+- Files to read first: `trust/intake/ports.go` (`AdmittedIntent`), `orchestrator/portadapters/trust/writes.go`, `services/core/internal/predicate`.

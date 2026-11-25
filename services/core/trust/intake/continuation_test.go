@@ -240,14 +240,15 @@ func (e *evaluation) stepSteps() decide.Steps {
 func TestContinuationOfAStepWhoseDispatchBudgetIsSpentEscalatesAndIsNotGranted(t *testing.T) {
 	f, p, r := stepFake()
 	f.dispatch = DispatchCount{Used: 1, Limit: 1}
+	f.rec = RecordResult{DecisionID: "dec_synth0004"} // an ESCALATE is recorded with no step and no grant (A534)
 	ev := stepEval13(t, f, p, r, capRoute)
 	ev.svc.Ports.Clocks = p.fake
 	res := ev.run(tctx(t), ev.stepSteps())
 	if res.Decision.Outcome() != decide.Escalate || !reflect.DeepEqual(codes13(res.Decision), []string{"DISPATCH_BUDGET_EXHAUSTED"}) || lastTrace(res).Step != decide.T12Clocks {
 		t.Fatalf("%s %v, trace %v; want ESCALATE DISPATCH_BUDGET_EXHAUSTED at T12", res.Decision.Outcome(), codes13(res.Decision), res.Trace)
 	}
-	if f.called("Recorder.Record") != 0 || res.DecisionID != "" || len(res.GrantIDs) != 0 {
-		t.Errorf("something was recorded after a spent budget: %v %q %v", f.calls, res.DecisionID, res.GrantIDs)
+	if len(f.recReqs) != 1 || len(f.recReqs[0].Steps) != 0 || f.called("Planner.Plan") != 0 || res.DecisionID != "dec_synth0004" || len(res.GrantIDs) != 0 {
+		t.Errorf("after a spent budget: %v %q %v; want the ESCALATE recorded once with no step, no plan asked, no grant", f.calls, res.DecisionID, res.GrantIDs)
 	}
 	if len(f.dispatchKey) != 1 || f.dispatchKey[0].CapabilityID != capRoute || f.dispatchKey[0].TargetRef != tTarget {
 		t.Errorf("the ledger was asked %+v, want the step's capability on the intent's target, once", f.dispatchKey)

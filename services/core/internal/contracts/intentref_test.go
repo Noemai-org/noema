@@ -137,3 +137,41 @@ func TestTheRecordsTypedIDCheckExemptsEveryReferenceTheParserAcceptsAndNothingIt
 		}
 	}
 }
+
+// CON-08 (A337, REQ-API-001): no second parser of the intent reference exists. No production Go file under services/core, other than intentref.go, holds a regular expression that
+// reads the whole form (the `int_` ID class, an at sign and a version): a consumer calls contracts.ParseIntentRef. A pattern for the ID alone is not a parser of the form and is not
+// refused here. Generated files and tests are not production code.
+func TestNoSecondParserOfTheIntentReferenceExists(t *testing.T) {
+	root := filepath.Join("..", "..")
+	form := regexp.MustCompile("int_\\[[^\n]*@")
+	var offenders []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == "testdata" || name == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_gen.go") || path == filepath.Join(root, "internal", "contracts", "intentref.go") {
+			return nil
+		}
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if form.Match(raw) {
+			offenders = append(offenders, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(offenders) > 0 {
+		t.Errorf("a second parser of the intent reference in %v; call contracts.ParseIntentRef", offenders)
+	}
+}

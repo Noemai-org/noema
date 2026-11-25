@@ -151,6 +151,7 @@ func TestT11AGraphCapabilityDeniedByPolicyWhileTheRootIsPermittedIsNotAllowed(t 
 	} {
 		f := newFake13()
 		planFor(f)
+		f.rec = RecordResult{DecisionID: "dec_synth0005"} // an ESCALATE is recorded, with no grant (A534); no other outcome here is
 		p := &capPolicy{by: map[string]PolicyEvaluation{capCase: verdict("root", policy.Permit), capRoute: c.graph}}
 		ev := policyEval13(t, f, p)
 		res := ev.run(tctx(t), ev.policySteps())
@@ -160,8 +161,12 @@ func TestT11AGraphCapabilityDeniedByPolicyWhileTheRootIsPermittedIsNotAllowed(t 
 		if lastTrace(res).Step != decide.T11Policy || lastTrace(res).Result != decide.StepTerminal {
 			t.Errorf("%s: trace %v, want it to end at T11 TERMINAL", c.name, res.Trace)
 		}
-		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 || res.DecisionID != "" || len(res.GrantIDs) != 0 {
-			t.Errorf("%s: the plan was asked or something was recorded: %v %q %v", c.name, f.calls, res.DecisionID, res.GrantIDs)
+		wantRecords, wantID := 0, ""
+		if c.outcome == decide.Escalate {
+			wantRecords, wantID = 1, "dec_synth0005"
+		}
+		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != wantRecords || res.DecisionID != wantID || len(res.GrantIDs) != 0 {
+			t.Errorf("%s: the plan was asked or something else was recorded: %v %q %v; want %d Record call(s) and ID %q", c.name, f.calls, res.DecisionID, res.GrantIDs, wantRecords, wantID)
 		}
 	}
 }
