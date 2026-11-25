@@ -128,3 +128,11 @@ func hasGapOf(gaps []string, part string) bool {
 	}
 	return false
 }
+
+// processCloser is the Close of the Process. A stub for the red commit: it runs the two closers each time it is called and stops nothing.
+func processCloser(rw *RunningWorker, rec *recoverySurface, closeSurfaces, closeComponents func()) func() {
+	return func() {
+		closeSurfaces()
+		closeComponents()
+	}
+}

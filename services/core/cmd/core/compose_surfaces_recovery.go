@@ -189,3 +189,6 @@ func (r *recoverySurface) Ready() (bool, string) {
 
 // Fatal delivers the error of a startup pass that could not read its list: the process then exits non-zero (A442).
 func (r *recoverySurface) Fatal() <-chan error { return r.fatal }
+
+// Stop cancels the startup pass and waits for it to end. A stub for the red commit: it does nothing yet.
+func (r *recoverySurface) Stop() {}
