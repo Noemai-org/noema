@@ -29,6 +29,10 @@ var packPath = filepath.Join("..", "..", "..", "..", "packs", "fintech", "contex
 // expected is the identity and version the caller (the composition, from the pack manifest) expects of the file: a swapped file is refused.
 const expected = "fin.ctx.injection_patterns@1"
 
+// shipped is the identity and version of the pack file that ships (A664 round 2, SR finding 1): the patterns changed, so the version did (2). `expected` stays the identity of the small synthetic documents
+// some tests build, which are version 1 on purpose.
+const shipped = "fin.ctx.injection_patterns@2"
+
 // limits are what the composition reads from configuration; the tests pick their own. MaxFieldRunes 256 is the REQ-CTX-007 cap [REC].
 var limits = injection.Limits{MaxBytes: 1 << 20, MaxDepth: 8, MaxPatterns: 64, MaxPatternLen: 1024, MaxFieldRunes: 256}
 
@@ -43,7 +47,7 @@ func realFile(t testing.TB) []byte {
 
 func detector(t testing.TB) *injection.Detector {
 	t.Helper()
-	d, err := injection.Parse(realFile(t), expected, limits)
+	d, err := injection.Parse(realFile(t), shipped, limits)
 	if err != nil {
 		t.Fatalf("the real pack file must load: %v", err)
 	}
@@ -54,7 +58,7 @@ func withCap(t testing.TB, runes int) *injection.Detector {
 	t.Helper()
 	l := limits
 	l.MaxFieldRunes = runes
-	d, err := injection.Parse(realFile(t), expected, l)
+	d, err := injection.Parse(realFile(t), shipped, l)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +85,8 @@ func TestTheRealPackFileLoadsAndIsLabelledSynthetic(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Label != "SYNTHETIC" || doc.PackID != "fin.ctx.injection_patterns" || doc.Version != 1 || strings.TrimSpace(doc.Note) == "" {
-		t.Errorf("header = %q %q %d, want SYNTHETIC, fin.ctx.injection_patterns, 1 and a note", doc.Label, doc.PackID, doc.Version)
+	if doc.Label != "SYNTHETIC" || doc.PackID != "fin.ctx.injection_patterns" || doc.Version != 2 || strings.TrimSpace(doc.Note) == "" {
+		t.Errorf("header = %q %q %d, want SYNTHETIC, fin.ctx.injection_patterns, 2 and a note", doc.Label, doc.PackID, doc.Version)
 	}
 	if len(doc.Patterns) < 6 {
 		t.Errorf("%d patterns: the pack covers override, role marker, new instructions, tool call, URL, secret reveal and authority claim", len(doc.Patterns))
@@ -93,8 +97,8 @@ func TestTheRealPackFileLoadsAndIsLabelledSynthetic(t *testing.T) {
 		}
 	}
 	d := detector(t)
-	if d.ID() != expected {
-		t.Errorf("ID = %q, want %q", d.ID(), expected)
+	if d.ID() != shipped {
+		t.Errorf("ID = %q, want %q", d.ID(), shipped)
 	}
 	ids := d.PatternIDs()
 	if len(ids) != len(doc.Patterns) {
@@ -545,7 +549,7 @@ func TestTheDetectorIsTotalAndLeavesItsInputAlone(t *testing.T) {
 func TestAnUnflaggedFieldAddsNothingToTheResult(t *testing.T) {
 	d := detector(t)
 	res := d.Scan(map[string]string{"narration": "Rent November"})
-	if res.Pack != expected || len(res.Findings) != 0 || len(res.TruncatedFields) != 0 {
+	if res.Pack != shipped || len(res.Findings) != 0 || len(res.TruncatedFields) != 0 {
 		t.Errorf("result = %+v, want the pack id and nothing else", res)
 	}
 }
@@ -746,7 +750,7 @@ func TestAScreenWithAFindingRecordsOneEventWithNamesOnly(t *testing.T) {
 	if c.subject != subject || !reflect.DeepEqual(c.result, res) || !reflect.DeepEqual(res, d.Scan(fields)) {
 		t.Errorf("the recorder was given %+v, the caller got %+v", c, res)
 	}
-	if c.result.Pack != expected || len(c.result.Findings) != 2 {
+	if c.result.Pack != shipped || len(c.result.Findings) != 2 {
 		t.Errorf("recorded result = %+v", c.result)
 	}
 	if text := fmt.Sprintf("%+v", c); strings.Contains(text, marker) || strings.Contains(text, "evil.example") {

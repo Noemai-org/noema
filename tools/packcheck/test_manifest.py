@@ -538,6 +538,29 @@ class InjectionPatterns(Base):
             self.fails(root, manifest, "injection_patterns")
 
 
+class ShippedPatterns(Base):
+    """A664 round 2 (SR condition 3 and finding 1): the manifest that ships is at or above the gate and pins the patterns, so the gate cannot turn the screen off in production, and the identity it
+    expects is the pattern file's own `pack_id@version`. The Record stores that identity with each detection (not the file's hash), so the patterns changing means the version changes."""
+
+    def test_the_shipped_manifest_is_at_or_above_the_gate_and_pins_the_patterns_file_with_its_digest(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(doc["version"], checks.MANIFEST_INJECTION_FROM_VERSION)
+        pinned = [f for f in doc["files"] if f["kind"] == "injection_patterns"]
+        self.assertEqual([f["path"] for f in pinned], [INJECTION])
+        self.assertEqual(pinned[0]["sha256"], sha256(PACKS / INJECTION))
+        self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
+
+    def test_the_manifests_expected_patterns_id_is_the_files_own_pack_id_and_version(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        body = json.loads((PACKS / INJECTION).read_text(encoding="utf-8"))
+        self.assertEqual(doc["expected"]["injection_patterns_id"], f"{body['pack_id']}@{body['version']}")
+
+    def test_the_patterns_changed_after_version_1_so_the_shipped_version_is_at_least_2(self):
+        body = json.loads((PACKS / INJECTION).read_text(encoding="utf-8"))
+        self.assertGreaterEqual(body["version"], 2, "versioned data is not edited under the same version (A664 round 2)")
+        self.assertEqual(json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))["expected"]["injection_patterns_id"], "fin.ctx.injection_patterns@2")
+
+
 class InjectionGate(Base):
     """A664 (interim; the A579 pattern): the injection patterns are required from manifest version 4 and optional below it. A manifest below the gate that lists none still passes; one from the gate
     that lists none fails; the id and the file go together at every version; the rule is none or one below the gate and exactly one from it."""
@@ -572,6 +595,14 @@ class InjectionGate(Base):
         for v in (self.GATE, self.GATE + 1, 99):
             with self.subTest(v):
                 root, manifest = self.old_tree(v)
+                self.fails(root, manifest, f"version {v}", "exactly one injection_patterns file", "it lists 0")
+
+    def test_a_gated_manifest_that_deleted_the_entry_and_left_the_file_on_disk_fails(self):
+        # SR condition 1: the entry (and its id) removed, the file still in the folder; refused at the gate, not read as "no patterns".
+        for v in (self.GATE, self.GATE + 1):
+            with self.subTest(v):
+                root, manifest = self.old_tree(v, keep_file=True)
+                self.assertTrue((root / INJECTION).exists())
                 self.fails(root, manifest, f"version {v}", "exactly one injection_patterns file", "it lists 0")
 
     def test_a_manifest_from_the_gate_that_lists_the_file_but_no_expected_id_fails(self):
