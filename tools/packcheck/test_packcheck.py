@@ -713,3 +713,128 @@ class TenantZoneAndGraphLink(unittest.TestCase):
         base, _ = real()
         next(n for n in base["intent_nodes"] if n["node_id"] == "fin.payments.exception.investigate")["action_graph"] = "fin.graph.not_there"
         self.assertTrue(any("fin.graph.not_there" in m for _, m in self.problems(base)), self.problems(base))
+
+
+class WriteWhenLink(unittest.TestCase):
+    """SR's request on noema#935 (REQ-TRU-004, REQ-CAP-001; INV-01): the Writes rule reads a node with no `write_when` as never writing, so the pack data alone decides the less
+    scrutinised direction. Packcheck therefore ties the two: an intent node whose `action_graph` holds a call to an allowed capability that writes (a risk class above R0) must carry a
+    `write_when`. A node with no graph, or a graph that only reads, needs none. All data is SYNTHETIC."""
+
+    NODE = "fin.payments.exception.investigate"
+
+    def problems(self, base, graphs):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "write_when"]
+
+    def test_the_real_pack_ties_its_writing_node_to_a_write_when(self):
+        base, graphs = real()
+        self.assertEqual(self.problems(base, graphs), [])
+
+    def test_a_node_whose_graph_writes_and_has_no_write_when_is_refused(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)
+        self.assertIn("write_when", node)
+        del node["write_when"]
+        found = self.problems(base, graphs)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn(self.NODE, found[0])
+        self.assertIn("fin.graph.escalate", found[0])
+        self.assertIn("fin.cap.create_escalation_case", found[0])
+
+    def test_the_message_names_no_value_beyond_the_ids(self):
+        base, graphs = real()
+        del next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)["write_when"]
+        for message in self.problems(base, graphs):
+            self.assertNotIn("{", message)
+
+    def test_a_node_whose_graph_only_reads_needs_no_write_when(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)
+        del node["write_when"]
+        node["action_graph"] = "fin.graph.investigate"
+        self.assertEqual(self.problems(base, graphs), [])
+
+    def test_a_node_with_no_graph_needs_no_write_when(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == "fin.meta.out_of_scope")
+        self.assertNotIn("action_graph", node)
+        self.assertNotIn("write_when", node)
+        self.assertEqual(self.problems(base, graphs), [])
+
+    def test_an_internal_capability_is_not_a_write(self):
+        base, graphs = real()
+        caps = {c["capability_id"]: c for c in base["capabilities"]}
+        self.assertEqual(caps["fin.cap.reconcile_transaction_state"]["risk_class"], "R0_internal")
+        self.assertEqual(caps["fin.cap.record_investigation_evidence"]["risk_class"], "R1_append_only")
+
+    def test_a_graph_the_pack_does_not_declare_is_the_graph_links_to_refuse_not_this_checks(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)
+        del node["write_when"]
+        node["action_graph"] = "fin.graph.not_there"
+        self.assertEqual(self.problems(base, graphs), [])
+        self.assertTrue(any(c == "graph_link" for c, _ in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs)))
+
+
+def rules_file(version=1, window=None):
+    """The real rule set, as version 1 (no window) or as version 2 with one window on every compared pair and single-valued field (a test value, not a ruling)."""
+    doc = json.loads((PACKS / "fintech/recon_rules/rules.v1.json").read_text())
+    doc["version"] = version
+    if window is not None:
+        for entry in doc["incompatible"] + doc["single_valued"]:
+            entry["convergence_window_seconds"] = window
+    return doc
+
+
+class ReconRuleSet(unittest.TestCase):
+    """A659 (interim, relayed, not yet committed; REQ-RES-005; AGENT-15): the pack's rules file is checked against `recon-rule-set.v1`. From version 2 every compared pair and every
+    single-valued field declares `convergence_window_seconds` (at least 1); version 1 declares none. That a window equals the smaller freshness limit of its pair (A641) is not
+    checked here: it needs the evidence mapping's entity-to-source link, which is the rule set's data change (PCK-05)."""
+
+    def problems(self, doc):
+        fn = getattr(checks, "check_recon_rules", None)
+        self.assertIsNotNone(fn, "tools/packcheck/checks.py has no check_recon_rules(doc) (A659)")
+        return fn(doc)
+
+    def test_the_real_rule_set_is_a_valid_version_1(self):
+        self.assertEqual(self.problems(rules_file()), [])
+
+    def test_a_version_2_rule_set_with_every_window_is_valid(self):
+        self.assertEqual(self.problems(rules_file(2, 60)), [])
+
+    def test_every_compared_pair_and_every_single_valued_field_needs_its_window_in_version_2(self):
+        for section in ("incompatible", "single_valued"):
+            for i in range(len(rules_file()[section])):
+                doc = rules_file(2, 60)
+                del doc[section][i]["convergence_window_seconds"]
+                found = self.problems(doc)
+                self.assertTrue(found and all(c == "recon_rules" for c, _ in found), (section, i, found))
+                self.assertIn("convergence_window_seconds", " ".join(m for _, m in found))
+
+    def test_a_window_is_a_whole_number_of_seconds_of_at_least_one(self):
+        for bad in (0, -1, 1.5, "60", None, True, [60]):
+            doc = rules_file(2, 60)
+            doc["incompatible"][0]["convergence_window_seconds"] = bad
+            self.assertTrue(self.problems(doc), repr(bad))
+
+    def test_version_1_declares_no_window(self):
+        doc = rules_file(1)
+        doc["incompatible"][0]["convergence_window_seconds"] = 60
+        self.assertTrue(self.problems(doc))
+
+    def test_the_old_member_name_and_any_unknown_member_are_refused(self):
+        doc = rules_file(2, 60)
+        doc["incompatible"][0]["window_seconds"] = 60
+        self.assertTrue(self.problems(doc))
+        doc = rules_file(2, 60)
+        doc["window_seconds"] = 60
+        self.assertTrue(self.problems(doc))
+
+    def test_a_document_that_is_not_a_rule_set_is_refused_not_raised(self):
+        for bad in ([], "x", 3, None):
+            self.assertTrue(self.problems(bad), repr(bad))
+
+    def test_the_messages_name_the_place_and_never_a_value(self):
+        doc = rules_file(2, 60)
+        doc["incompatible"][0]["convergence_window_seconds"] = "SECRET-LOOKING-VALUE"
+        for _, message in self.problems(doc):
+            self.assertNotIn("SECRET-LOOKING-VALUE", message)

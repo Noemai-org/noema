@@ -304,6 +304,42 @@ class UnlistedFile(Base):
         self.fails(root, manifest, "exactly one recon_rules file, it lists 2")
 
 
+class ReconRulesFile(Base):
+    """A659 (interim, relayed, not yet committed): the listed rule set is checked against `recon-rule-set.v1` as the manifest is, so a rule set of version 2 with no window cannot be pinned."""
+
+    def reseal(self, root: Path, manifest: Path, expected: str) -> None:
+        def fix(doc):
+            entry(doc, "recon_rules")["sha256"] = sha256(root / RULES)
+            doc["expected"]["recon_rule_set_id"] = expected
+        self.edit(root, manifest, fix)
+
+    def test_a_version_2_rule_set_with_no_window_is_refused_even_when_pinned_and_named(self):
+        root, manifest = self.tree()
+        doc = json.loads((root / RULES).read_text(encoding="utf-8"))
+        doc["version"] = 2
+        write(root / RULES, doc)
+        self.reseal(root, manifest, "fin.recon.rules@2")
+        self.fails(root, manifest, "convergence_window_seconds")
+
+    def test_a_version_2_rule_set_with_every_window_is_accepted(self):
+        root, manifest = self.tree()
+        doc = json.loads((root / RULES).read_text(encoding="utf-8"))
+        doc["version"] = 2
+        for e in doc["incompatible"] + doc["single_valued"]:
+            e["convergence_window_seconds"] = 60
+        write(root / RULES, doc)
+        self.reseal(root, manifest, "fin.recon.rules@2")
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_rule_set_that_is_not_a_rule_set_is_refused_even_when_pinned_and_named(self):
+        root, manifest = self.tree()
+        doc = json.loads((root / RULES).read_text(encoding="utf-8"))
+        doc["surprise"] = 1
+        write(root / RULES, doc)
+        self.reseal(root, manifest, "fin.recon.rules@1")
+        self.fails(root, manifest, RULES)
+
+
 class ActionGraphs(Base):
     """A510: every action graph the pack names is pinned as an `action_graph` entry and verified, and no other graph is: nothing unverified is ever served."""
 
