@@ -46,7 +46,6 @@ From the repository root, materialise and run the BEN-23 cases using the existin
 ```sh
 NOEMA_UI_URL=http://127.0.0.1:8082 \
 NOEMA_UI_E2E_RUN_DIR=../benchmark/out/ui-j1-j8-run \
-NOEMA_UI_E2E_TOKEN_DIR=../benchmark/out/idp/tokens \
 npm run test:stack
 ```
 
