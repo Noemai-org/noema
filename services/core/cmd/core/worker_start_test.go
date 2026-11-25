@@ -95,7 +95,7 @@ func TestTheEscalationStartsWithTheDispositionAsInputUnderTheSessionsTenant(t *t
 }
 
 // AGENT-08, INV-30: one workflow id per tenant and correlation, the same every time (a second start finds the first), and none shared by two tenants or two correlations. The start
-// does not ask the server to fail on a duplicate: the SDK then returns the run that exists.
+// does not make a second run while the first is open: the SDK then returns the run that exists. A duplicate of a closed run is rejected too (see the test below).
 func TestTheWorkflowIDIsOnePerTenantAndCorrelation(t *testing.T) {
 	rec := &escStartRecorder{}
 	s := newEscStarter(t, rec)

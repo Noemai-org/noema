@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator"
@@ -75,7 +76,8 @@ func (s *EscalationStarter) Start(ctx context.Context, r EscalationStart) (Start
 	}
 	in := workflows.EscalateInput{TenantID: r.Session.TenantID, CorrelationID: r.CorrelationID, CreateGrantID: r.CreateGrantID, PlannedQueue: r.PlannedQueue,
 		DispositionDecisionID: r.DispositionDecisionID, ActivityTimeout: s.w.ActivityTimeout}
-	run, err := s.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: escalationWorkflowID(r.Session.TenantID, r.CorrelationID), TaskQueue: s.w.TaskQueue},
+	run, err := s.c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: escalationWorkflowID(r.Session.TenantID, r.CorrelationID), TaskQueue: s.w.TaskQueue,
+		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE},
 		workflows.EscalateWorkflowName, in)
 	if err != nil {
 		return StartedEscalation{}, &startFailure{cause: err}
