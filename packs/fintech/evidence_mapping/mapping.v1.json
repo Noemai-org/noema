@@ -2,7 +2,7 @@
   "mapping_id": "fin.map.v1",
   "version": 2,
   "label": "SYNTHETIC",
-  "ruleset": "fin.recon.rules@1",
+  "ruleset": "fin.recon.rules@2",
   "note": "The evidence mapping of the fintech pack (ENV-04, ruling A208, relayed): how a stored source payload becomes rows of the reconciliation rule set's vocabulary. Closed lookups and one quantifier only, no expression language. A field the payload does not give, or gives as a value not listed here, is left UNSET: absence is never a negative fact (INV-19). The rows' meaning is the reconciliation's, so the Architect approves each. Three entities only, the ones the stand-in's ports provide (debit, switch, credit); a settlement or a reversal row needs a source that does not exist yet. Version 2 (ruling A438, interim) adds list entities for the case system: `rows_from` names the payload list, `complete` the marker; \"no case\" is concluded only from a list marked complete, and any other list is UNKNOWN, never none. The case rows and the complaint row's clock anchor (complaint_ref.effective_at, from the case system's own clock_started_at) are typed by the pack's evidence descriptors.",
   "rows": [
     {

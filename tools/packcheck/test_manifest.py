@@ -823,12 +823,12 @@ class IdMatch(Base):
         # fin.map.v1 says which rule set it feeds; that must be the rule set the manifest expects (one rule set in the pack).
         root, manifest = self.tree()
         doc = json.loads((root / MAPPING).read_text(encoding="utf-8"))
-        doc["ruleset"] = "fin.recon.rules@2"
+        doc["ruleset"] = "fin.recon.rules@3"
         (root / MAPPING).write_text(json.dumps(doc, indent=2), encoding="utf-8")
         self.edit(root, manifest, lambda d: entry(d, "evidence_mapping").__setitem__("sha256", sha256(root / MAPPING)))
         problems = self.check(manifest, root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("fin.recon.rules@2", problems[0][1])
+        self.assertIn("fin.recon.rules@3", problems[0][1])
 
     def test_a_file_without_an_id_or_with_a_bad_version_or_not_json_fails(self):
         for rel, kind, mutate in (

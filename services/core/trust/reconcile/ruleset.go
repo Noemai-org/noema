@@ -27,6 +27,8 @@ type incompatible struct {
 	A      factRef  `json:"a"`
 	B      factRef  `json:"b"`
 	Unless *factRef `json:"unless"`
+	// Window is the matrix entry's convergence window in seconds (A674, A659). It is a member from rule set version 2 and required there; in version 1 it is an unknown field, as before.
+	Window json.RawMessage `json:"convergence_window_seconds"`
 }
 
 type singleValued struct {
@@ -83,6 +85,7 @@ type RuleSet struct {
 	version      int
 	scope        predicate.Scope
 	incompatible []incompatible
+	windows      []int64 // the convergence window of each matrix entry, in file order; 0 in version 1
 	single       []singleValued
 	derived      []derivedSpec
 	rules        []rule
@@ -200,6 +203,15 @@ func (rs *RuleSet) checkRef(r factRef) error {
 	return nil
 }
 
+// windowSeconds reads a matrix entry's window: a whole number above zero. A fraction, an exponent, a string, a boolean, null or a missing member is refused.
+func windowSeconds(raw json.RawMessage) (int64, bool) {
+	var n int64
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0, false
+	}
+	return n, n > 0
+}
+
 func (rs *RuleSet) checkMatrix(f rulesetFile) error {
 	seen := map[string]bool{}
 	for _, m := range f.Incompatible {
@@ -207,6 +219,18 @@ func (rs *RuleSet) checkMatrix(f rulesetFile) error {
 			return fmt.Errorf("%w: matrix labels must be present and unique (%q)", errRuleSet, m.Label)
 		}
 		seen[m.Label] = true
+		if f.Version <= 1 && m.Window != nil {
+			return fmt.Errorf("%w: json: unknown field %q (a window is a member from version 2)", errRuleSet, "convergence_window_seconds")
+		}
+		if f.Version > 1 { // version 2 on: a convergence window per entry (A674, A659)
+			w, ok := windowSeconds(m.Window)
+			if !ok {
+				return fmt.Errorf("%w: matrix entry %q needs convergence_window_seconds, a whole number of seconds above zero (version %d)", errRuleSet, m.Label, f.Version)
+			}
+			rs.windows = append(rs.windows, w)
+		} else {
+			rs.windows = append(rs.windows, 0)
+		}
 		refs := []factRef{m.A, m.B}
 		if m.Unless != nil {
 			refs = append(refs, *m.Unless)
@@ -338,7 +362,7 @@ func (rs *RuleSet) PendingMarkers() []PendingMarker {
 // Fact names an (entity, field, value) triple of the compatibility matrix.
 type Fact struct{ Entity, Field, Value string }
 
-// MatrixEntry is one pair of values the rule set declares incompatible. Unless, when set, cancels the pair.
+// MatrixEntry is one pair of values the rule set declares incompatible. Unless, when set, cancels the pair. WindowSeconds is the entry's convergence window (A674), 0 in version 1.
 type MatrixEntry struct {
 	Label         string
 	A, B          Fact
@@ -349,8 +373,8 @@ type MatrixEntry struct {
 // Matrix returns the compatibility matrix in file order, so that tests can assert every entry.
 func (rs *RuleSet) Matrix() []MatrixEntry {
 	out := make([]MatrixEntry, 0, len(rs.incompatible))
-	for _, m := range rs.incompatible {
-		e := MatrixEntry{Label: m.Label, A: Fact(m.A), B: Fact(m.B)}
+	for i, m := range rs.incompatible {
+		e := MatrixEntry{Label: m.Label, A: Fact(m.A), B: Fact(m.B), WindowSeconds: rs.windows[i]}
 		if m.Unless != nil {
 			u := Fact(*m.Unless)
 			e.Unless = &u
