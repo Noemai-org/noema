@@ -17,6 +17,8 @@ Date: 2026-11-24 · Owner: Core Engineer 2 (C2) · Task: EVD-04 · Ruling A645 (
 | the page is not marked complete, or has a cursor | `ErrIncomplete` |
 | a row the reader cannot make safe: a duplicate reference, a direction, amount, currency or time off the contract, an account with no four digits to show, an empty name, a match that is not an exact share of one or a matcher that fails | `ErrMalformed`, the whole answer |
 
+**An amount range of min 0 and max 0 (A689)** can match no candidate (a candidate's amount is above zero), so it is answered with the empty, complete answer and the source is not called; a range of 0 to 1, 1 to 1 or wider still calls it. **A candidate's currency and amount are checked with the generated `money.v1` type (A689):** the pair is decoded through `contracts.MoneyV1Money`, so the currency must be a value of the generated enum (the POC set, NGN today; USD is refused) and the amount an integer; the amount must also be within the contract's bound (2^53-1). The generated Go amount type is a bare `int64` with no bound, so the bound is a constant here and a test reads the maximum from `contracts/schemas/money.v1.json` and fails if they differ. A zero or negative amount is refused (the adapter's `Candidate.Validate`). A refusal is the whole answer with the fixed text below.
+
 An error is never an empty list. A complete empty page is an empty answer (the intake turns it into ESCALATE). Error text is fixed and carries no row, reference, identifier or name. A row with an empty name (after trimming) is `ErrMalformed`, as before.
 
 ## What an answer holds

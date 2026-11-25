@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"sort"
@@ -23,7 +24,10 @@ const (
 	schemaVersion  = "2.0"         // candidates-response.v2 (A676, AGENT-15): no name of any kind leaves the read
 	maxSurfaceRune = 64            // maxLength of counterparty_surface in the contract
 	maxMatchPart   = 1_000_000_000 // the contract's bound on a recipient_match numerator and denominator
-	idHexLen       = 16            // hex characters of the candidate id taken from the digest
+	// maxMinorAmount is the maximum of money.v1 MinorAmount (2^53-1). The generated Go type (`MoneyV1MinorAmount`, an int64) carries no bound, so the bound lives here and a test reads it from
+	// contracts/schemas/money.v1.json and fails if the two differ (A689).
+	maxMinorAmount = 9007199254740991
+	idHexLen       = 16 // hex characters of the candidate id taken from the digest
 )
 
 var (
@@ -102,6 +106,10 @@ func (r Reader) Read(ctx context.Context, req contracts.CandidatesRequestV1) (co
 	q, scope, err := r.query(req)
 	if err != nil {
 		return contracts.CandidatesResponseV2{}, err
+	}
+	if a := req.Filters.AmountRange; a != nil && a.MinMinor == 0 && a.MaxMinor == 0 {
+		// A689: a candidate's amount is above zero, so a range of 0 to 0 can match none: the answer is empty and complete, and the source is not called.
+		return contracts.CandidatesResponseV2{SchemaVersion: schemaVersion, TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: []contracts.CandidatesResponseV2Candidate{}}, nil
 	}
 	cctx, cancel := context.WithTimeout(ctx, r.cfg.ReadTimeout)
 	defer cancel()
@@ -203,7 +211,7 @@ func normalName(s string) string { return strings.Join(strings.Fields(strings.To
 
 func (r Reader) candidate(req contracts.CandidatesRequestV1, c adapters.Candidate) (contracts.CandidatesResponseV2Candidate, time.Time, error) {
 	var zero contracts.CandidatesResponseV2Candidate
-	if err := c.Validate(); err != nil || !refTailRe.MatchString(c.TransactionRef) || !currencyRe.MatchString(c.Currency) {
+	if err := c.Validate(); err != nil || !refTailRe.MatchString(c.TransactionRef) || !moneyOK(c.AmountMinor, c.Currency) {
 		return zero, time.Time{}, ErrMalformed
 	}
 	at, err := time.Parse(time.RFC3339Nano, c.OccurredAt)
@@ -249,4 +257,19 @@ func (r Reader) match(req contracts.CandidatesRequestV1, name string) (Match, er
 func candidateID(tenant, principal, ref string) string {
 	sum := sha256.Sum256([]byte(tenant + "\x00" + principal + "\x00" + ref))
 	return "cand_" + hex.EncodeToString(sum[:])[:idHexLen]
+}
+
+// moneyOK checks a candidate's amount and currency with the generated money.v1 type (A689): the pair is decoded through `contracts.MoneyV1Money`, so the currency must be a value of the generated
+// enum (the POC set, NGN) and the amount an integer, and the amount must be within the contract's bound. Nothing about the row is in a refusal.
+func moneyOK(amount int64, currency string) bool {
+	cur, err := json.Marshal(currency)
+	if err != nil {
+		return false
+	}
+	raw := []byte(`{"amount_minor":` + strconv.FormatInt(amount, 10) + `,"currency":` + string(cur) + `}`)
+	var m contracts.MoneyV1Money
+	if json.Unmarshal(raw, &m) != nil {
+		return false
+	}
+	return m.AmountMinor >= 0 && int64(m.AmountMinor) <= maxMinorAmount
 }
