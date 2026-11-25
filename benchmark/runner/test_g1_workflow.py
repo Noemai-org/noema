@@ -350,7 +350,7 @@ class G1StackWorkflow(unittest.TestCase):
             stub = root / "bin" / "docker"
             stub.write_text('#!/bin/sh\necho "a log line"\n', encoding="utf-8")
             stub.chmod(0o755)
-            env = {"PATH": f"{root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}", "GITHUB_OUTPUT": str(root / "gh_out")}
+            env = {"PATH": f"{root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}", "GITHUB_OUTPUT": str(root / "gh_out"), "MODE": "stack-check"}
             out = root / "benchmark" / "out"
             subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True, env=env)
             for name in ("mock-case.log", "mock-case-collector.err"):
@@ -359,6 +359,40 @@ class G1StackWorkflow(unittest.TestCase):
             (out / "mock-case.log").write_text("real collector line\n", encoding="utf-8")
             subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True, env=env)
             self.assertEqual((out / "mock-case.log").read_text(encoding="utf-8"), "real collector line\n", "an existing collector file is never touched")
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_a_full_run_never_gets_empty_collector_files_and_its_scan_refuses_a_missing_one_with_exit_2(self) -> None:
+        # A full run that never reached its collector must not pass the scan on an empty file: the capture step makes the empty files in a stack-check only, and the real scanner, given the
+        # full run's list of files with the collector files absent, refuses (exit 2). Both halves run for real here.
+        step = re.search(r"(?ms)- id: logs\n.*?run: \|\n(.*?)(?=^      - )", self.text)
+        assert step
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        scan_step = re.search(r"(?ms)- id: scan\n.*?run: \|\n(.*?)(?=^      - )", self.text)
+        assert scan_step
+        names = re.search(r"set -- (benchmark/out/run [^\n]+)", scan_step.group(1))
+        assert names
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bin").mkdir()
+            stub = root / "bin" / "docker"
+            stub.write_text('#!/bin/sh\necho "a log line"\n', encoding="utf-8")
+            stub.chmod(0o755)
+            env = {"PATH": f"{root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}", "GITHUB_OUTPUT": str(root / "gh_out"), "MODE": "full"}
+            out = root / "benchmark" / "out"
+            subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True, env=env)
+            for name in ("mock-case.log", "mock-case-collector.err"):
+                self.assertFalse((out / name).exists(), f"{name} must not be made in a full run")
+            for d in ("run", "score", "evidence", "joblog"):
+                (out / d).mkdir(parents=True, exist_ok=True)
+            (out / "summary.md").write_text("x\n", encoding="utf-8")
+            (out / "record-accessed.txt").write_text("x\n", encoding="utf-8")
+            targets = [t.replace("benchmark/out/", str(out) + "/") for t in names.group(1).split() + ["benchmark/out/record-accessed.txt"]]
+            scanner = WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.py"
+            r = subprocess.run([sys.executable, "-I", str(scanner), "--workdir", str(root / "w"), "--inventory", str(out / "inv.txt"), "--stamp", "s 1", "--root", str(out), *targets],
+                               capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("not found", r.stdout + r.stderr)
+            self.assertIn("mock-case.log", r.stdout + r.stderr)
 
     @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
     def test_a_stack_check_shows_the_tail_of_the_cores_log_only_after_a_clean_scan(self) -> None:

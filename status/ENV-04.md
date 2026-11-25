@@ -363,3 +363,6 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 ## Session 2026-11-24 (second) · ENV-04 · the failed start now says why
 - Run 45426208506 on the branch of noema#955 (stack-check, 32768): the two uploads worked live (`bench-g1-stack-<run>` 2,544 bytes and `bench-g1-stack-evidence-<run>` 868 bytes), so the scan, the inventory and the file list ran on a runner for the first time. The core still exited 1. The artifact is on Azure blob storage, which this session's egress proxy refuses, so I could not read the core's log from it.
 - Added to the same PR: the stack-check's job log shows the last 80 lines of the core's log after a clean scan (and the job-log scan reads it again). Test first, red then green; the step keeps `true` as its last command (a mutant without it fails the test).
+
+## Session 2026-11-25 (second) · ENV-04 · noema#955 follow-up (A667)
+- The capture step makes the empty collector files in a stack-check only. A full run that never reached its collector is refused by the scan (exit 2, "refused: not found"), never passed on an empty file; a test runs the capture step in a full run (no file is made) and the real scanner with the full run's list (exit 2). A mutant that makes the files in every mode fails it.
