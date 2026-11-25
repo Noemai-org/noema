@@ -89,6 +89,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `reconstruction.v2.json` | §43.6, US-12 | §32.1, §32 (REQ-AUD-003) | REQ-AUD-003, REQ-AUD-001, INV-10 | `reconstruction.v1.json` with its `events` and `event_type` pointing at `record-event.v2.json`; nothing else differs (checked by `tools/contracts/test_record_event_v2.py`). AGENT-15 migration note: a response carries events of one version only; v1 stays for v1 documents and is not edited. Nothing serves either yet (REC-03) |
 | `candidates-request.v1.json` | §35.6 | §21 (REQ-CTX-006, REQ-AMB-002) | REQ-CTX-006, REQ-AMB-002, REQ-SEC-003 | Model service to core, principal-scoped; `counterparty_surface` is untrusted text with a 64-character cap (agent default, open decision) |
 | `candidates-response.v1.json` | §35.6 | §21 (REQ-CTX-006, REQ-AMB-002) | REQ-CTX-006, REQ-AMB-002, REQ-CTX-007 | At most 20, newest first; fields equal the `candidates-api-shape` lint's allowed names (`test_candidates_shape.py`); `direction` is OUTGOING or INCOMING (generator values; open decision) |
+| `candidates-response.v2.json` | §35.6 | §21 (REQ-CTX-006, REQ-AMB-002) | REQ-CTX-006, REQ-AMB-002, REQ-CTX-007 | A676: no name of any kind: an opaque `counterparty_ref` (cp_1 to cp_20, by first appearance) and an exact `recipient_match`; at most 20, newest first; fields are the `candidates-api-shape` lint's allowed names (`test_candidates_shape_v2.py`); v1 is not edited and its consumers move afterwards |
 
 ## C-6 · Evidence, snapshot, Record, explanation facts, inbound events, errors
 

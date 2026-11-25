@@ -7,24 +7,23 @@ import (
 	"errors"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/adapters"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
-	"github.com/Noemai-org/noema/services/core/platform/masking"
 )
 
-// MaxCandidates is the most candidates one answer holds: the maxItems of candidates-response.v1 (REQ-CTX-006). It is the contract's number, not a setting.
+// MaxCandidates is the most candidates one answer holds: the maxItems of candidates-response.v2 (REQ-CTX-006). It is the contract's number, not a setting.
 const MaxCandidates = 20
 
 const (
-	schemaVersion  = "1.0"
-	maxDisplayRune = 64 // maxLength of counterparty_display in the contract
-	maxSurfaceRune = 64 // maxLength of counterparty_surface in the contract
-	idHexLen       = 16 // hex characters of the candidate id taken from the digest
+	schemaVersion  = "2.0"         // candidates-response.v2 (A676, AGENT-15): no name of any kind leaves the read
+	maxSurfaceRune = 64            // maxLength of counterparty_surface in the contract
+	maxMatchPart   = 1_000_000_000 // the contract's bound on a recipient_match numerator and denominator
+	idHexLen       = 16            // hex characters of the candidate id taken from the digest
 )
 
 var (
@@ -60,16 +59,26 @@ func (e *refusal) Unwrap() error        { return e.cause }
 
 func refuse(kind, cause error) error { return &refusal{kind: kind, cause: cause} }
 
+// Match is how well a counterparty's name matched what the customer said, as an exact share in [0, 1] (A676). It is exact so that ranking does not change by rounding: the same fractions the
+// reference matcher gives, and nothing of the name.
+type Match struct{ Numerator, Denominator int64 }
+
+// RecipientMatcher is the recipient match, computed in core (A676): it is given what the customer said (the request's counterparty_surface) and a counterparty's name, and returns only the match.
+// The name goes in and never comes out: an error from it is dropped for a fixed refusal. The production matcher is the pack's recipient matcher; it is not this package's.
+type RecipientMatcher interface {
+	Match(surface, name string) (Match, error)
+}
+
 // Config is everything the reader needs; nothing has a default (AGENT-16).
 type Config struct {
 	Source       adapters.Transactions // the principal-scoped candidate search
-	Masking      masking.Limits        // the pack's masking limits; must be loaded
+	Matcher      RecipientMatcher      // the recipient match, computed in core from the request's counterparty_surface
 	ReadTimeout  time.Duration         // the deadline of the search; from configuration, zero refuses
 	ResourceKind string                // the pack's <vertical>.<kind> of the resource this reader serves
 }
 
 // Reader is the principal-scoped candidates read (REQ-CTX-006). It reads as the request's tenant and principal, which the caller took from the authenticated session,
-// never from the model (INV-12). It decides nothing and calls no model (INV-01): it returns the masked, candidate-shaped rows, newest first.
+// never from the model (INV-12). It decides nothing and calls no model (INV-01): it returns the candidate-shaped rows, newest first, with no name of any kind (A676).
 type Reader struct {
 	cfg Config
 	ok  bool
@@ -78,7 +87,7 @@ type Reader struct {
 // New refuses a configuration with a missing part.
 func New(cfg Config) (Reader, error) {
 	switch {
-	case cfg.Source == nil, !cfg.Masking.Loaded(), cfg.ReadTimeout <= 0, !kindRe.MatchString(cfg.ResourceKind):
+	case cfg.Source == nil, cfg.Matcher == nil, cfg.ReadTimeout <= 0, !kindRe.MatchString(cfg.ResourceKind):
 		return Reader{}, refuse(ErrConfig, nil)
 	}
 	return Reader{cfg: cfg, ok: true}, nil
@@ -86,31 +95,31 @@ func New(cfg Config) (Reader, error) {
 
 // Read answers one candidates request, or refuses it. An error is never an empty list, and the answer is never cut: more rows than the contract allows, or a page the
 // source did not mark complete, is refused whole.
-func (r Reader) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV1, error) {
+func (r Reader) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV2, error) {
 	if !r.ok {
-		return contracts.CandidatesResponseV1{}, refuse(ErrConfig, nil)
+		return contracts.CandidatesResponseV2{}, refuse(ErrConfig, nil)
 	}
 	q, scope, err := r.query(req)
 	if err != nil {
-		return contracts.CandidatesResponseV1{}, err
+		return contracts.CandidatesResponseV2{}, err
 	}
 	cctx, cancel := context.WithTimeout(ctx, r.cfg.ReadTimeout)
 	defer cancel()
 	page, err := r.cfg.Source.FindCandidates(cctx, scope, q)
 	if err != nil {
-		return contracts.CandidatesResponseV1{}, refuse(ErrRead, err)
+		return contracts.CandidatesResponseV2{}, refuse(ErrRead, err)
 	}
 	if len(page.Items) > MaxCandidates {
-		return contracts.CandidatesResponseV1{}, refuse(ErrTooMany, nil)
+		return contracts.CandidatesResponseV2{}, refuse(ErrTooMany, nil)
 	}
 	if !page.Complete || page.NextCursor != "" {
-		return contracts.CandidatesResponseV1{}, refuse(ErrIncomplete, nil)
+		return contracts.CandidatesResponseV2{}, refuse(ErrIncomplete, nil)
 	}
 	out, err := r.shape(req, page.Items)
 	if err != nil {
-		return contracts.CandidatesResponseV1{}, err
+		return contracts.CandidatesResponseV2{}, err
 	}
-	return contracts.CandidatesResponseV1{
+	return contracts.CandidatesResponseV2{
 		SchemaVersion: schemaVersion, TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: out,
 	}, nil
 }
@@ -153,11 +162,14 @@ func (r Reader) query(req contracts.CandidatesRequestV1) (adapters.TransactionQu
 	return q, adapters.Scope{TenantID: string(req.TenantId), PrincipalID: string(req.PrincipalRef)}, nil
 }
 
-// shape turns the rows into masked candidates, newest first, ties on the candidate id.
-func (r Reader) shape(req contracts.CandidatesRequestV1, rows []adapters.Candidate) ([]contracts.CandidatesResponseV1Candidate, error) {
-	out := make([]contracts.CandidatesResponseV1Candidate, 0, len(rows))
+// shape turns the rows into candidates, newest first, ties on the candidate id, and numbers the counterparties in that order. A name is used for two things inside this function and for nothing
+// else: the recipient match, which is computed here, and the equality of two names after normalisation, which decides whether two candidates share a counterparty_ref. Neither puts any of it
+// in the answer.
+func (r Reader) shape(req contracts.CandidatesRequestV1, rows []adapters.Candidate) ([]contracts.CandidatesResponseV2Candidate, error) {
+	out := make([]contracts.CandidatesResponseV2Candidate, 0, len(rows))
 	seen := make(map[string]bool, len(rows))
 	times := make(map[string]time.Time, len(rows))
+	norms := make(map[string]string, len(rows))
 	for _, c := range rows {
 		cand, at, err := r.candidate(req, c)
 		if err != nil || seen[c.TransactionRef] {
@@ -165,6 +177,7 @@ func (r Reader) shape(req contracts.CandidatesRequestV1, rows []adapters.Candida
 		}
 		seen[c.TransactionRef] = true
 		times[cand.CandidateId] = at
+		norms[cand.CandidateId] = normalName(c.Counterparty)
 		out = append(out, cand)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -174,11 +187,22 @@ func (r Reader) shape(req contracts.CandidatesRequestV1, rows []adapters.Candida
 		}
 		return out[i].CandidateId < out[j].CandidateId
 	})
+	ordinal := make(map[string]int, len(out))
+	for i := range out {
+		n := norms[out[i].CandidateId]
+		if _, ok := ordinal[n]; !ok {
+			ordinal[n] = len(ordinal) + 1
+		}
+		out[i].CounterpartyRef = "cp_" + strconv.Itoa(ordinal[n])
+	}
 	return out, nil
 }
 
-func (r Reader) candidate(req contracts.CandidatesRequestV1, c adapters.Candidate) (contracts.CandidatesResponseV1Candidate, time.Time, error) {
-	var zero contracts.CandidatesResponseV1Candidate
+// normalName is what makes two spellings one counterparty: lower case, white space collapsed to single spaces, trimmed. It is for equality only and is never returned.
+func normalName(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
+
+func (r Reader) candidate(req contracts.CandidatesRequestV1, c adapters.Candidate) (contracts.CandidatesResponseV2Candidate, time.Time, error) {
+	var zero contracts.CandidatesResponseV2Candidate
 	if err := c.Validate(); err != nil || !refTailRe.MatchString(c.TransactionRef) || !currencyRe.MatchString(c.Currency) {
 		return zero, time.Time{}, ErrMalformed
 	}
@@ -187,65 +211,42 @@ func (r Reader) candidate(req contracts.CandidatesRequestV1, c adapters.Candidat
 		return zero, time.Time{}, ErrMalformed
 	}
 	last4 := lastFourRe.FindString(c.AccountRef)
-	if last4 == "" {
+	if last4 == "" || normalName(c.Counterparty) == "" {
 		return zero, time.Time{}, ErrMalformed
 	}
-	display := r.maskDisplay(c.Counterparty)
-	if display == "" {
+	match, err := r.match(req, c.Counterparty)
+	if err != nil {
 		return zero, time.Time{}, ErrMalformed
 	}
-	dir := contracts.CandidatesResponseV1CandidateDirection(c.Direction)
-	return contracts.CandidatesResponseV1Candidate{
-		CandidateId:         candidateID(string(req.TenantId), string(req.PrincipalRef), c.TransactionRef),
-		ResourceRef:         contracts.CommonV1ResourceRef(r.cfg.ResourceKind + ":" + c.TransactionRef),
-		AmountMinor:         contracts.MoneyV1MinorAmount(c.AmountMinor),
-		Currency:            contracts.MoneyV1CurrencyCode(c.Currency),
-		OccurredAt:          contracts.CommonV1Timestamp(c.OccurredAt),
-		CounterpartyDisplay: display,
-		AccountLast4:        last4,
-		Direction:           dir,
+	dir := contracts.CandidatesResponseV2CandidateDirection(c.Direction)
+	return contracts.CandidatesResponseV2Candidate{
+		CandidateId:    candidateID(string(req.TenantId), string(req.PrincipalRef), c.TransactionRef),
+		ResourceRef:    contracts.CommonV1ResourceRef(r.cfg.ResourceKind + ":" + c.TransactionRef),
+		AmountMinor:    contracts.MoneyV1MinorAmount(c.AmountMinor),
+		Currency:       contracts.MoneyV1CurrencyCode(c.Currency),
+		OccurredAt:     contracts.CommonV1Timestamp(c.OccurredAt),
+		RecipientMatch: contracts.CandidatesResponseV2CandidateRecipientMatch{Numerator: match.Numerator, Denominator: match.Denominator},
+		AccountLast4:   last4,
+		Direction:      dir,
 	}, at, nil
+}
+
+// match is the recipient match: 0/1 when the request carries no counterparty_surface (nothing to match, nothing asked), else the matcher's, which must be an exact share in [0, 1]. A matcher that
+// fails or answers outside that is a refusal of the whole answer with fixed text, and the matcher's own text is dropped (it may hold the name).
+func (r Reader) match(req contracts.CandidatesRequestV1, name string) (Match, error) {
+	surface := req.Filters.CounterpartySurface
+	if surface == nil {
+		return Match{Numerator: 0, Denominator: 1}, nil
+	}
+	m, err := r.cfg.Matcher.Match(*surface, name)
+	if err != nil || m.Denominator < 1 || m.Denominator > maxMatchPart || m.Numerator < 0 || m.Numerator > m.Denominator {
+		return Match{}, ErrMalformed
+	}
+	return m, nil
 }
 
 // candidateID is derived from the tenant, the principal and the reference, so it is stable, and it is not the reference.
 func candidateID(tenant, principal, ref string) string {
 	sum := sha256.Sum256([]byte(tenant + "\x00" + principal + "\x00" + ref))
 	return "cand_" + hex.EncodeToString(sum[:])[:idHexLen]
-}
-
-// maskDisplay masks every digit run of the masking limit plus one or more, keeping the last KeptDigits digits (AGENT-13); every Unicode decimal digit counts. It then
-// trims, and cuts at the contract's length on a rune boundary. An empty result is returned empty.
-func (r Reader) maskDisplay(s string) string {
-	min, keep := r.cfg.Masking.MinMaskedRun(), r.cfg.Masking.KeptDigits()
-	runes := []rune(strings.TrimSpace(s))
-	out := make([]rune, 0, len(runes))
-	for i := 0; i < len(runes); {
-		if !unicode.IsDigit(runes[i]) {
-			out = append(out, runes[i])
-			i++
-			continue
-		}
-		j := i
-		for j < len(runes) && unicode.IsDigit(runes[j]) {
-			j++
-		}
-		run := runes[i:j]
-		if len(run) >= min {
-			for k := range run {
-				if k < len(run)-keep {
-					out = append(out, '*')
-				} else {
-					out = append(out, run[k])
-				}
-			}
-		} else {
-			out = append(out, run...)
-		}
-		i = j
-	}
-	res := strings.TrimSpace(string(out))
-	if utf8.RuneCountInString(res) > maxDisplayRune {
-		res = strings.TrimSpace(string([]rune(res)[:maxDisplayRune]))
-	}
-	return res
 }

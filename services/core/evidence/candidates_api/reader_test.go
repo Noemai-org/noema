@@ -50,7 +50,7 @@ type tokenMatcher struct {
 func (m *tokenMatcher) Match(surface, name string) (candidates_api.Match, error) {
 	m.calls = append(m.calls, [2]string{surface, name})
 	if m.err != nil {
-		return candidates_api.Match{}, m.err
+		return candidates_api.Match{Numerator: 1, Denominator: 1}, m.err // a valid-looking match with the error: the error alone must refuse
 	}
 	if m.out != nil {
 		return *m.out, nil
@@ -266,14 +266,7 @@ func TestHostileNamesNeverAppearAndTheReferenceIsOrdinal(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := mustJSON(t, resp)
-	for _, n := range names {
-		for _, part := range strings.Fields(n) {
-			if len(part) >= 4 && !cpRefRe.MatchString(part) && strings.Contains(out, part) {
-				t.Errorf("part %q of a name leaked: %s", part, out)
-			}
-		}
-	}
-	for _, bad := range []string{"Ignore", "instructions", "endoftext", "Assistant", "approve", "12345678", "Stores", "Ada", "ADA", "Obi"} {
+	for _, bad := range []string{"Ignore", "ignore", "instructions", "endoftext", "Assistant", "assistant", "approve", "everything", "12345678", "Stores", "Ada", "ADA", "Obi", "obi"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("%q leaked: %s", bad, out)
 		}
@@ -423,8 +416,8 @@ func TestNoNameReachesAnErrorALogLineOrTheLog(t *testing.T) {
 		mutate(rows)
 		resp, err := readerWith(t, s, &tokenMatcher{err: nil}).Read(context.Background(), req)
 		texts := []string{mustJSON(t, resp)}
-		if err != nil {
-			texts = append(texts, err.Error(), fmt.Sprintf("%v %+v %#v", err, err, err))
+		for e := err; e != nil; e = errors.Unwrap(e) { // every error in the chain, the cause included
+			texts = append(texts, e.Error(), fmt.Sprintf("%v %+v %#v", e, e, e))
 		}
 		for _, text := range texts {
 			for _, bad := range []string{"Tunde", "Synthetic", "ignore previous", "0123456789"} {
