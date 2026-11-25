@@ -12,19 +12,16 @@ import (
 )
 
 // wire_trust_adapters.go builds the intake adapters that main code can build (STM-01 final composition; REQ-TRU-002, REQ-TRU-004, REQ-TRU-005; INV-03, INV-16, AGENT-16). Today that is
-// the three that read the pack: Capabilities, Scope and Authority (trustpack). Every other adapter waits on a data source or a pack load that is not on main (see
+// the three that read the pack: Capabilities, Scope and Authority (trustpack), and PackVersion, from the manifest-verified pack (compose_packsource.go). Every other adapter waits on a data source or an adapter that is not on main (see
 // status/STM-01-main-composition.md), and is named in one startup error: no fake, no invented source and no quiet nil. A pack-free adapter does not exist: each reads the pack.
 
 // EnvTrustEscalationGraph names the escalation graph of the pack (A319, A346: the pack has no field for it). Required once a pack is given; no default (A330).
 const EnvTrustEscalationGraph = "NOEMA_TRUST_ESCALATION_GRAPH"
 
-// PackSource gives the manifest-verified pack (A333, noema#773). Production has none until the pack load is on main: it must never read an unverified pack.
+// PackSource gives the manifest-verified pack (A333, noema#773). Production is productionPack (compose_packsource.go): it must never read an unverified pack.
 type PackSource func(env Env) (*trustpack.Pack, error)
 
-var errPackNotOnMain = errors.New("cmd/core: the manifest-verified pack is not available: its load is not on main")
-
-// productionPack is the production PackSource: none. Replacing it is the one change noema#773 makes here.
-func productionPack(Env) (*trustpack.Pack, error) { return nil, errPackNotOnMain }
+var errPackNotConfigured = errors.New("cmd/core: the manifest-verified pack is not available: its settings are not given")
 
 // UnbuiltAdaptersError names every Trust adapter that could not be built, in the order of the TrustAdapters struct ("Pack" first when there is no pack). Cause is the pack's own error, if any;
 // the text carries names only, never a path, a setting's value or a DSN.
@@ -66,14 +63,21 @@ func unsetAdapters(a TrustAdapters) []string {
 func trustAdaptersSource(pack PackSource) func(Env, reconstruct.TenantDBs, clock.Clock) (TrustAdapters, error) {
 	return func(env Env, _ reconstruct.TenantDBs, clk clock.Clock) (TrustAdapters, error) {
 		p, err := pack(env)
-		if err != nil && !errors.Is(err, errPackNotOnMain) {
+		if err != nil && !errors.Is(err, errPackNotConfigured) {
 			return TrustAdapters{}, fmt.Errorf("cmd/core: the pack: %w", err) // a pack that cannot be loaded or verified is a startup error, never a named gap (INV-16)
 		}
 		if err != nil || p == nil {
 			if err == nil {
-				err = errPackNotOnMain
+				err = errPackNotConfigured
 			}
-			return TrustAdapters{}, &UnbuiltAdaptersError{Names: append([]string{"Pack"}, unsetAdapters(TrustAdapters{Clock: clk})...), Cause: err}
+			names := []string{"Pack"}
+			var gap *packSettingsGap
+			if errors.As(err, &gap) {
+				for _, m := range gap.Missing {
+					names = append(names, "Pack: "+m+" missing") // a partly given set names what is missing, in fixed text and never a value (A571)
+				}
+			}
+			return TrustAdapters{}, &UnbuiltAdaptersError{Names: append(names, unsetAdapters(TrustAdapters{Clock: clk})...), Cause: err}
 		}
 		graph := env.Getenv(EnvTrustEscalationGraph)
 		if graph == "" {
@@ -91,7 +95,7 @@ func trustAdaptersSource(pack PackSource) func(Env, reconstruct.TenantDBs, clock
 		if err != nil {
 			return TrustAdapters{}, fmt.Errorf("cmd/core: the pack's authority: %w", err)
 		}
-		a := TrustAdapters{Capabilities: caps, Scope: scope, Authority: authority, Clock: clk}
+		a := TrustAdapters{Capabilities: caps, Scope: scope, Authority: authority, Clock: clk, PackVersion: p.Ref()}
 		return a, &UnbuiltAdaptersError{Names: unsetAdapters(a)}
 	}
 }

@@ -118,17 +118,18 @@ class InitTrustDsn(unittest.TestCase):
         emitters.mkdir(exist_ok=True)
         for t in ("ten_aa", "ten_bb"):
             (emitters / f"{t}__core-edge").write_text(self.EDGE_PASSWORD + "\n", encoding="utf-8")
-        dirs = {n: Path(self.tmp.name) / n for n in ("trust", "orch", "rr", "edge")}
+        dirs = {n: Path(self.tmp.name) / n for n in ("trust", "orch", "rr", "edge", "exec", "out")}
         for d in dirs.values():
             d.mkdir(exist_ok=True)
         self.dirs = dirs
-        return {"TRUST_DSN_EMITTERS": str(emitters), "TRUST_DSN_JOBS": f"trust_rw:{dirs['trust']} orchestrator_rw:{dirs['orch']} record_read:{dirs['rr']} edge:{dirs['edge']}"}
+        return {"TRUST_DSN_EMITTERS": str(emitters), "TRUST_DSN_JOBS": f"trust_rw:{dirs['trust']} orchestrator_rw:{dirs['orch']} record_read:{dirs['rr']} edge:{dirs['edge']} execution_rw:{dirs['exec']} outcome_rw:{dirs['out']}"}
 
-    def test_four_directories_each_with_its_own_login_and_password(self) -> None:
+    def test_six_directories_each_with_its_own_login_and_password(self) -> None:
         env = self.jobs_env()
         r = run(self.src, self.out, **env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        want = {"trust": "trust_rw__{t}:" + PASSWORD, "orch": "orchestrator_rw__{t}:" + PASSWORD, "rr": "record_read__{t}:" + PASSWORD, "edge": "record_emitter__{t}__core-edge:" + self.EDGE_PASSWORD}
+        want = {"trust": "trust_rw__{t}:" + PASSWORD, "orch": "orchestrator_rw__{t}:" + PASSWORD, "rr": "record_read__{t}:" + PASSWORD, "edge": "record_emitter__{t}__core-edge:" + self.EDGE_PASSWORD,
+                "exec": "execution_rw__{t}:" + PASSWORD, "out": "outcome_rw__{t}:" + PASSWORD}  # A554 (lane 5): the Execution side's two logins, the per-tenant execution_rw and outcome_rw
         for key, login in want.items():
             self.assertEqual(sorted(p.name for p in self.dirs[key].iterdir()), ["ten_aa", "ten_bb"], key)
             for t in ("ten_aa", "ten_bb"):
