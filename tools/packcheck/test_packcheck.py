@@ -458,6 +458,162 @@ class GraphParams(unittest.TestCase):
         self.assertNotIn("params", next(n for g in graphs.values() for n in g["nodes"] if n["capability_id"] == "fin.cap.log_complaint_reference"))
 
 
+class TrustRouting(unittest.TestCase):
+    """A544 (interim; REQ-RES-002, REQ-TRU-006, PERD v1.23 sections 23.1, 23.3, 23.5): the routing members of the pack's trust-limits document (the escalation reason of a
+    classification, the capabilities a freeze allows, the reason of a clock phase, the entity a clock's anchor event is read from) name only what the pack itself declares. No value is
+    invented (AGENT-16): the values the PERD states are in the file, every other one is absent, and absent means no route, which is UNKNOWN, and nothing allowed under a freeze."""
+
+    LIMITS = PACKS / "fintech/limits/trust_limits.json"
+
+    def setUp(self):
+        self.pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        self.limits = json.loads(self.LIMITS.read_text())
+
+    def run_check(self, mutate=None):
+        limits = copy.deepcopy(self.limits)
+        if mutate:
+            mutate(limits)
+        fn = getattr(checks, "check_trust_routing", None)
+        if fn is None:
+            self.fail("tools/packcheck/checks.py has no check_trust_routing(pack, limits) (A544)")
+        return fn(self.pack, limits)
+
+    def fails(self, mutate, fragment):
+        problems = self.run_check(mutate)
+        self.assertTrue(problems, "expected a trust_routing problem, got none")
+        self.assertTrue(all(c == "trust_routing" for c, _ in problems), problems)
+        self.assertIn(fragment, " | ".join(m for _, m in problems))
+
+    def test_the_real_limits_pass_and_the_real_run_covers_them(self):
+        self.assertEqual(self.run_check(), [])
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json"), [])
+
+    def test_the_limits_document_is_trust_limits_v2_and_a_v1_document_is_refused(self):
+        """A596 (interim): trust-limits is v2 and there is no compatibility path: the pack's file says 2.0 and packcheck refuses a v1 file."""
+        self.assertEqual(self.limits["schema_version"], "2.0")
+        self.fails(lambda d: d.__setitem__("schema_version", "1.0"), "schema_version")
+        self.fails(lambda d: d.pop("schema_version"), "schema_version")
+
+    def test_the_freeze_allows_exactly_the_three_capabilities_the_perd_names(self):
+        """REQ-RES-002 [ADOPTED DEC-2026-10-17]: CREATE_ESCALATION_CASE, RECORD_INVESTIGATION_EVIDENCE and ROUTE_TO_INTERNAL_OWNER, and no other."""
+        self.assertEqual(sorted(self.limits["allowed_under_freeze"]), ["fin.cap.create_escalation_case", "fin.cap.record_investigation_evidence", "fin.cap.route_to_internal_owner"])
+
+    def test_only_the_two_classifications_the_perd_routes_have_an_escalation_reason(self):
+        """PERD 23.3 T10: ESCALATE on contradiction or unknown outcome, per pack mapping (the examples of 23.1 are the two catalogue codes)."""
+        got = {r["classification"]: r["reason_code"] for r in self.limits["escalation_reasons"]}
+        self.assertEqual(got, {"CONTRADICTORY_STATE": "fin.reason.contradictory_state", "EXECUTION_OUTCOME_UNKNOWN": "fin.reason.execution_outcome_unknown"})
+
+    def test_no_clock_phase_is_routed_because_the_perd_does_not_say_which(self):
+        """PERD 23.5 gives the phases and 23.3 says T12 'may escalate per policy'; no phase is named as an escalation. A phase not routed routes nowhere (OPEN, safest default)."""
+        self.assertNotIn("phase_routes", self.limits)
+
+    def test_the_anchor_is_the_one_the_pack_clock_declares(self):
+        """A438 (interim): the clock anchor is complaint_ref.effective_at. The event is the one the pack's clock names."""
+        self.assertEqual(self.limits["anchor_entities"], [{"event": "complaint_logged", "entity": "complaint_ref", "field": "effective_at"}])
+        self.assertEqual({c["anchor_event"] for c in self.pack["clocks"]}, {"complaint_logged"})
+
+    def test_an_escalation_reason_outside_the_catalogue_fails(self):
+        self.fails(lambda l: l["escalation_reasons"][0].__setitem__("reason_code", "fin.reason.made_up"), "made_up")
+
+    def test_an_escalation_reason_the_pack_produces_for_a_clock_fails(self):
+        self.fails(lambda l: l["escalation_reasons"][0].__setitem__("reason_code", "fin.reason.sla_breached"), "STATE_MAPPING")
+
+    def test_a_classification_routed_twice_fails(self):
+        self.fails(lambda l: l["escalation_reasons"].append(dict(l["escalation_reasons"][0])), "twice")
+
+    def test_a_freeze_capability_the_pack_does_not_declare_fails(self):
+        self.fails(lambda l: l["allowed_under_freeze"].append("fin.cap.made_up"), "made_up")
+
+    def test_a_prohibited_capability_allowed_under_a_freeze_fails(self):
+        self.fails(lambda l: l["allowed_under_freeze"].append("fin.cap.transfer_funds"), "prohibited")
+
+    def test_a_phase_route_must_be_a_clock_mapping_reason_and_a_phase_routed_once(self):
+        self.fails(lambda l: l.__setitem__("phase_routes", [{"phase": "BREACHED", "reason_code": "fin.reason.contradictory_state"}]), "CLOCK_MAPPING")
+        self.fails(lambda l: l.__setitem__("phase_routes", [{"phase": "BREACHED", "reason_code": "fin.reason.sla_breached"}] * 2), "twice")
+
+    def test_an_anchor_event_no_pack_clock_names_fails(self):
+        self.fails(lambda l: l["anchor_entities"][0].__setitem__("event", "case_opened"), "case_opened")
+
+    def test_an_anchor_entity_the_pack_has_no_descriptor_for_fails(self):
+        self.fails(lambda l: l["anchor_entities"][0].__setitem__("entity", "made_up"), "made_up")
+
+    def test_the_confirmation_ttl_ceiling_is_the_perd_ten_minutes(self):
+        """A561 (interim; PERD v1.23 section 67, the provisional defaults, row 'Grants and confirmations': 'confirmation TTL 10 min', adopted DEC-2026-10-17, OD-P-31): 600000 ms."""
+        self.assertEqual(self.limits["confirmation_ttl_ceiling_ms"], 600000)
+        self.assertEqual(self.run_check(), [])
+
+    def test_an_anchor_field_the_entity_does_not_declare_fails(self):
+        """A575 (interim): `anchor_entities[].field` must be a field the entity's evidence descriptor declares."""
+        self.fails(lambda l: l["anchor_entities"][0].__setitem__("field", "made_up_field"), "made_up_field")
+
+    def test_an_anchor_field_that_is_not_a_timestamp_fails(self):
+        """A575 (interim): the field a clock's anchor is read from is a Timestamp; `epoch` of complaint_ref is an Integer, `subject` a Reference."""
+        for field in ("epoch", "subject"):
+            with self.subTest(field):
+                self.fails(lambda l, f=field: l["anchor_entities"][0].__setitem__("field", f), "Timestamp")
+
+    def test_the_real_anchor_field_is_a_declared_timestamp(self):
+        entity = next(d for d in self.pack["evidence_descriptors"] if d["entity"] == self.limits["anchor_entities"][0]["entity"])
+        self.assertEqual(entity["fields"][self.limits["anchor_entities"][0]["field"]]["type"], "Timestamp")
+
+    def test_a_document_of_another_pack_fails(self):
+        self.fails(lambda l: l.__setitem__("pack_id", "xyz"), "pack_id")
+
+class ShippedLimitsSchema(unittest.TestCase):
+    """A609 (interim; AGENT-15, AGENT-16): packcheck validates the SHIPPED limits file (packs/fintech/limits/trust_limits.json) against the trust-limits.v2 JSON Schema itself, not
+    only against the hand-written routing rules. A file missing the ceiling, a v1-shaped file and a file with an unknown member each make packcheck fail."""
+
+    LIMITS = PACKS / "fintech/limits/trust_limits.json"
+
+    def setUp(self):
+        self.limits = json.loads(self.LIMITS.read_text())
+
+    def schema_problems(self, mutate=None):
+        doc = copy.deepcopy(self.limits)
+        if mutate:
+            mutate(doc)
+        fn = getattr(checks, "check_limits_schema", None)
+        if fn is None:
+            self.fail("tools/packcheck/checks.py has no check_limits_schema(limits) (A609)")
+        return fn(doc)
+
+    def run_on_copy(self, mutate):
+        """The whole packcheck run on a copy of the real packs folder whose limits file is mutated (the end-to-end proof)."""
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            dst = Path(tmp) / "packs"
+            shutil.copytree(PACKS, dst)
+            f = dst / "fintech/limits/trust_limits.json"
+            doc = json.loads(f.read_text())
+            mutate(doc)
+            f.write_text(json.dumps(doc))
+            return checks.run(dst / "fintech_v1.json")
+
+    def test_the_shipped_file_is_valid_against_the_v2_schema(self):
+        self.assertEqual(self.schema_problems(), [])
+
+    def test_a_file_missing_the_ceiling_fails(self):
+        problems = self.schema_problems(lambda d: d.pop("confirmation_ttl_ceiling_ms"))
+        self.assertTrue(problems)
+        self.assertIn("confirmation_ttl_ceiling_ms", " | ".join(m for _, m in problems))
+        self.assertTrue(self.run_on_copy(lambda d: d.pop("confirmation_ttl_ceiling_ms")), "checks.run accepted a limits file without the ceiling")
+
+    def test_a_v1_shaped_file_fails(self):
+        def v1(d):
+            d["schema_version"] = "1.0"
+            d.pop("confirmation_ttl_ceiling_ms")
+        self.assertTrue(self.schema_problems(v1))
+        self.assertTrue(self.run_on_copy(v1), "checks.run accepted a v1-shaped limits file")
+
+    def test_a_file_with_an_unknown_member_fails(self):
+        self.assertTrue(self.schema_problems(lambda d: d.__setitem__("an_unknown_member", 1)))
+        self.assertTrue(self.run_on_copy(lambda d: d.__setitem__("an_unknown_member", 1)), "checks.run accepted a limits file with an unknown member")
+
+    def test_the_schema_is_the_v2_json_schema_not_a_hand_written_rule(self):
+        """A value the JSON Schema bounds (the ceiling above 600000) fails through the schema even though no hand-written packcheck rule names it."""
+        self.assertTrue(self.schema_problems(lambda d: d.__setitem__("confirmation_ttl_ceiling_ms", 600001)))
+
+
 class CandidateLabels(unittest.TestCase):
     """A555 (interim, relayed, not yet committed; REQ-AMB-004, REQ-AMB-003). The disambiguation block of a node that searches candidates carries the pack's question key for OPTIONS mode, the
     OPTIONS label template and the fixed order of askable attributes with a label template each. A template names only the candidate attributes a label may show (never an id or a
@@ -611,3 +767,230 @@ class HandoffRoutes(unittest.TestCase):
     def test_a_reason_code_that_is_not_a_core_code_is_refused(self):
         hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=self.with_routes([{**self.ROUTE, "reason_code": "fin.reason.permitted"}]))]
         self.assertTrue(any("fin.reason.permitted" in m for m in hits), hits)
+
+
+class Compensation(unittest.TestCase):
+    """A631, A647 (interim, relayed; REQ-CAP-004, REQ-AG-001, BD-08): the PERD's compensation rules, by packcheck. A REVERSIBLE or COMPENSABLE capability declares a compensation; an
+    IRREVERSIBLE one declares ESCALATE_ONLY and nothing else; an INVERSE_CAPABILITY names a capability that is itself registered, not prohibited and not the capability itself; a
+    prohibited capability declares no compensation and has no adapter. All data is SYNTHETIC."""
+
+    def hits(self, base):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "compensation"]
+
+    def cap(self, base, cid):
+        return next(c for c in base["capabilities"] if c["capability_id"] == cid)
+
+    def test_the_real_pack_and_the_conformance_packs_declare_compensation_by_the_rules(self):
+        base, _ = real()
+        self.assertEqual(self.hits(base), [])
+        for path in CONFORMANCE:
+            pack = json.loads(path.read_text())
+            self.assertEqual([m for c, m in checks.run(path, pack=pack) if c == "compensation"], [], path.name)
+
+    def test_the_two_irreversible_writes_of_the_pack_declare_escalate_only(self):
+        base, _ = real()
+        for cid in ("fin.cap.log_complaint_reference", "fin.cap.record_investigation_evidence"):
+            c = self.cap(base, cid)
+            self.assertEqual(c["consequence_profile"]["irreversibility"], "IRREVERSIBLE", cid)
+            self.assertEqual(c["compensation"], "ESCALATE_ONLY", cid)
+
+    def test_no_prohibited_capability_declares_a_compensation(self):
+        base, _ = real()
+        prohibited = [c for c in base["capabilities"] if c["prohibited"]]
+        self.assertTrue(prohibited)
+        for c in prohibited:
+            self.assertNotIn("compensation", c, c["capability_id"])
+            self.assertNotIn("inverse_mapping", c, c["capability_id"])
+
+    def test_an_irreversible_capability_that_declares_anything_but_escalate_only_is_refused(self):
+        for value in ("NONE_REQUIRED", "INVERSE_CAPABILITY"):
+            base, _ = real()
+            c = self.cap(base, "fin.cap.log_complaint_reference")
+            c["compensation"] = value
+            if value == "INVERSE_CAPABILITY":
+                c["inverse_mapping"] = {"capability_id": "fin.cap.route_to_internal_owner", "parameters": {"case_id": "case_id"}}
+            self.assertTrue(any("IRREVERSIBLE" in m for m in self.hits(base)), (value, self.hits(base)))
+
+    def test_a_reversible_or_compensable_capability_with_no_declared_compensation_is_refused(self):
+        for cid in ("fin.cap.route_to_internal_owner", "fin.cap.create_escalation_case"):
+            base, _ = real()
+            del self.cap(base, cid)["compensation"]
+            # The descriptor's own schema already requires it of every allowed capability (the `else` of its prohibited rule), so the refusal may come as a schema error: either way the pack is refused.
+            every = checks.run(PACKS / "fintech_v1.json", pack=base)
+            self.assertTrue(any("compensation" in m and (cid in m or c == "schema") for c, m in every), (cid, every))
+
+    def test_an_inverse_capability_must_be_registered_not_prohibited_and_not_itself(self):
+        for target, why in (("fin.cap.not_in_the_pack", "registered"), ("fin.cap.transfer_funds", "prohibited"), ("fin.cap.create_escalation_case", "itself")):
+            base, _ = real()
+            c = self.cap(base, "fin.cap.create_escalation_case")
+            c["compensation"] = "INVERSE_CAPABILITY"
+            c["inverse_mapping"] = {"capability_id": target, "parameters": {"case_id": "case_id"}}
+            self.assertTrue(any(why in m for m in self.hits(base)), (why, self.hits(base)))
+
+    def test_an_inverse_capability_that_is_a_registered_allowed_other_capability_passes(self):
+        base, _ = real()
+        c = self.cap(base, "fin.cap.create_escalation_case")
+        c["compensation"] = "INVERSE_CAPABILITY"
+        c["inverse_mapping"] = {"capability_id": "fin.cap.route_to_internal_owner", "parameters": {"case_id": "case_id"}}
+        self.assertEqual(self.hits(base), [])
+
+    def test_a_prohibited_capability_that_declares_a_compensation_or_carries_an_adapter_is_refused(self):
+        base, _ = real()
+        self.cap(base, "fin.cap.transfer_funds")["compensation"] = "ESCALATE_ONLY"
+        self.assertTrue(any("fin.cap.transfer_funds" in m and "prohibited" in m for m in self.hits(base)), self.hits(base))
+
+
+class TenantZoneAndGraphLink(unittest.TestCase):
+    """A647, A650, A645 (interim, relayed): `tenant_zone` is a pack member, an IANA zone name (the synthetic tenant uses Africa/Lagos), and an intent node names the action graph
+    its write capability comes from (`action_graph`), a graph the pack declares. All data is SYNTHETIC."""
+
+    def problems(self, base):
+        return checks.run(PACKS / "fintech_v1.json", pack=base)
+
+    def test_the_real_pack_declares_the_synthetic_tenant_zone(self):
+        base, _ = real()
+        self.assertEqual(base.get("tenant_zone"), "Africa/Lagos")
+        self.assertEqual([p for p in self.problems(base) if p[0] in ("schema", "tenant_zone")], [])
+
+    def test_a_zone_that_is_not_an_iana_name_is_refused(self):
+        for bad in ("Lagos", "africa/lagos", "Africa/Nowhere", "UTC+1", "", "Africa/Lagos "):
+            base, _ = real()
+            base["tenant_zone"] = bad
+            self.assertTrue([p for p in self.problems(base) if p[0] in ("schema", "tenant_zone")], bad)
+
+    def test_the_investigation_node_names_the_escalation_graph_the_pack_declares(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == "fin.payments.exception.investigate")
+        self.assertEqual(node.get("action_graph"), "fin.graph.escalate")
+        self.assertIn(node["action_graph"], {g["graph_id"] for g in graphs.values()})
+        self.assertEqual([p for p in self.problems(base) if p[0] in ("schema", "references", "graph_link")], [])
+
+    def test_a_node_that_names_a_graph_the_pack_does_not_declare_is_refused(self):
+        base, _ = real()
+        next(n for n in base["intent_nodes"] if n["node_id"] == "fin.payments.exception.investigate")["action_graph"] = "fin.graph.not_there"
+        self.assertTrue(any("fin.graph.not_there" in m for _, m in self.problems(base)), self.problems(base))
+
+
+class WriteWhenLink(unittest.TestCase):
+    """SR's request on noema#935 (REQ-TRU-004, REQ-CAP-001; INV-01): the Writes rule reads a node with no `write_when` as never writing, so the pack data alone decides the less
+    scrutinised direction. Packcheck therefore ties the two: an intent node whose `action_graph` holds a call to an allowed capability that writes (a risk class above R0) must carry a
+    `write_when`. A node with no graph, or a graph that only reads, needs none. All data is SYNTHETIC."""
+
+    NODE = "fin.payments.exception.investigate"
+
+    def problems(self, base, graphs):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "write_when"]
+
+    def test_the_real_pack_ties_its_writing_node_to_a_write_when(self):
+        base, graphs = real()
+        self.assertEqual(self.problems(base, graphs), [])
+
+    def test_a_node_whose_graph_writes_and_has_no_write_when_is_refused(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)
+        self.assertIn("write_when", node)
+        del node["write_when"]
+        found = self.problems(base, graphs)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn(self.NODE, found[0])
+        self.assertIn("fin.graph.escalate", found[0])
+        self.assertIn("fin.cap.create_escalation_case", found[0])
+
+    def test_the_message_names_no_value_beyond_the_ids(self):
+        base, graphs = real()
+        del next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)["write_when"]
+        for message in self.problems(base, graphs):
+            self.assertNotIn("{", message)
+
+    def test_a_node_whose_graph_only_reads_needs_no_write_when(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)
+        del node["write_when"]
+        node["action_graph"] = "fin.graph.investigate"
+        self.assertEqual(self.problems(base, graphs), [])
+
+    def test_a_node_with_no_graph_needs_no_write_when(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == "fin.meta.out_of_scope")
+        self.assertNotIn("action_graph", node)
+        self.assertNotIn("write_when", node)
+        self.assertEqual(self.problems(base, graphs), [])
+
+    def test_an_internal_capability_is_not_a_write(self):
+        base, graphs = real()
+        caps = {c["capability_id"]: c for c in base["capabilities"]}
+        self.assertEqual(caps["fin.cap.reconcile_transaction_state"]["risk_class"], "R0_internal")
+        self.assertEqual(caps["fin.cap.record_investigation_evidence"]["risk_class"], "R1_append_only")
+
+    def test_a_graph_the_pack_does_not_declare_is_the_graph_links_to_refuse_not_this_checks(self):
+        base, graphs = real()
+        node = next(n for n in base["intent_nodes"] if n["node_id"] == self.NODE)
+        del node["write_when"]
+        node["action_graph"] = "fin.graph.not_there"
+        self.assertEqual(self.problems(base, graphs), [])
+        self.assertTrue(any(c == "graph_link" for c, _ in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs)))
+
+
+def rules_file(version=1, window=None):
+    """The real rule set, as version 1 (no window) or as version 2 with one window on every compared pair and single-valued field (a test value, not a ruling)."""
+    doc = json.loads((PACKS / "fintech/recon_rules/rules.v1.json").read_text())
+    doc["version"] = version
+    if window is not None:
+        for entry in doc["incompatible"] + doc["single_valued"]:
+            entry["convergence_window_seconds"] = window
+    return doc
+
+
+class ReconRuleSet(unittest.TestCase):
+    """A659 (interim, relayed, not yet committed; REQ-RES-005; AGENT-15): the pack's rules file is checked against `recon-rule-set.v1`. From version 2 every compared pair and every
+    single-valued field declares `convergence_window_seconds` (at least 1); version 1 declares none. That a window equals the smaller freshness limit of its pair (A641) is not
+    checked here: it needs the evidence mapping's entity-to-source link, which is the rule set's data change (PCK-05)."""
+
+    def problems(self, doc):
+        fn = getattr(checks, "check_recon_rules", None)
+        self.assertIsNotNone(fn, "tools/packcheck/checks.py has no check_recon_rules(doc) (A659)")
+        return fn(doc)
+
+    def test_the_real_rule_set_is_a_valid_version_1(self):
+        self.assertEqual(self.problems(rules_file()), [])
+
+    def test_a_version_2_rule_set_with_every_window_is_valid(self):
+        self.assertEqual(self.problems(rules_file(2, 60)), [])
+
+    def test_every_compared_pair_and_every_single_valued_field_needs_its_window_in_version_2(self):
+        for section in ("incompatible", "single_valued"):
+            for i in range(len(rules_file()[section])):
+                doc = rules_file(2, 60)
+                del doc[section][i]["convergence_window_seconds"]
+                found = self.problems(doc)
+                self.assertTrue(found and all(c == "recon_rules" for c, _ in found), (section, i, found))
+                self.assertIn("convergence_window_seconds", " ".join(m for _, m in found))
+
+    def test_a_window_is_a_whole_number_of_seconds_of_at_least_one(self):
+        for bad in (0, -1, 1.5, "60", None, True, [60]):
+            doc = rules_file(2, 60)
+            doc["incompatible"][0]["convergence_window_seconds"] = bad
+            self.assertTrue(self.problems(doc), repr(bad))
+
+    def test_version_1_declares_no_window(self):
+        doc = rules_file(1)
+        doc["incompatible"][0]["convergence_window_seconds"] = 60
+        self.assertTrue(self.problems(doc))
+
+    def test_the_old_member_name_and_any_unknown_member_are_refused(self):
+        doc = rules_file(2, 60)
+        doc["incompatible"][0]["window_seconds"] = 60
+        self.assertTrue(self.problems(doc))
+        doc = rules_file(2, 60)
+        doc["window_seconds"] = 60
+        self.assertTrue(self.problems(doc))
+
+    def test_a_document_that_is_not_a_rule_set_is_refused_not_raised(self):
+        for bad in ([], "x", 3, None):
+            self.assertTrue(self.problems(bad), repr(bad))
+
+    def test_the_messages_name_the_place_and_never_a_value(self):
+        doc = rules_file(2, 60)
+        doc["incompatible"][0]["convergence_window_seconds"] = "SECRET-LOOKING-VALUE"
+        for _, message in self.problems(doc):
+            self.assertNotIn("SECRET-LOOKING-VALUE", message)

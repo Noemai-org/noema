@@ -79,7 +79,7 @@ func TestINV05NoCombinationOfFlagsMakesAProhibitedOrMonetaryCapabilityCallable(t
 		t.Fatal("no monetary-write descriptor in the pack to test")
 	}
 	rapid.Check(t, func(rt *rapid.T) {
-		ds := append([]contracts.CapabilityDescriptorV1(nil), base...)
+		ds := append([]contracts.CapabilityDescriptorV2(nil), base...)
 		// Every other descriptor takes any flag; the monetary ones are marked, except that one of them may be left unmarked.
 		unmark := rapid.IntRange(-1, len(monetary)-1).Draw(rt, "unmarked monetary write (-1: none)")
 		for i := range ds {
@@ -87,6 +87,15 @@ func TestINV05NoCombinationOfFlagsMakesAProhibitedOrMonetaryCapabilityCallable(t
 		}
 		for n, i := range monetary {
 			ds[i].Prohibited = n != unmark
+		}
+		// A647: a prohibited capability declares no compensation and an allowed one declares one, so the flag and the compensation move together.
+		none := contracts.CapabilityDescriptorV2CompensationNONEREQUIRED
+		for i := range ds {
+			if ds[i].Prohibited {
+				ds[i].Compensation, ds[i].InverseMapping = nil, nil
+			} else if ds[i].Compensation == nil {
+				ds[i].Compensation = &none
+			}
 		}
 		unmarkedMonetary := unmark >= 0
 		r, err := registry.New(ds)
