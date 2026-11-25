@@ -1,0 +1,34 @@
+{
+  "schema_version": "2.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "candidates": [
+    {
+      "resource_ref": "fin.transaction:TX88001",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:30:00Z",
+      "counterparty_ref": "cp_1",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_002",
+      "resource_ref": "fin.transaction:TX88002",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T08:10:00Z",
+      "counterparty_ref": "cp_2",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    }
+  ]
+}
