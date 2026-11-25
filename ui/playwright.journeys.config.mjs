@@ -12,7 +12,8 @@ const browser = ["/usr/bin/google-chrome", "/usr/bin/chromium"].find(existsSync)
 if (!browser) throw new Error("Stack browser checks need pre-installed Chrome or Chromium");
 
 export default defineConfig({
-  testDir: "browser-stack",
+  testDir: "journeys",
+  testMatch: "journeys.spec.mjs",
   timeout: 135_000, // one 60-second state wait + one 60-second SSE read, with cleanup margin
   expect: { timeout: 60_000 },
   use: {
