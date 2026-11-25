@@ -82,3 +82,11 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Exact next step: A682 settles the transport: IL adds a mock-case control endpoint that delivers webhooks through the relay path, signed with mock-case's own SYNTHETIC key. When it exists, the runner gets a sender that calls it (one small PR: a `MockCaseControl` method and the flag); until then a webhook case stays an ERROR.
 - Open questions (Architect): (1) the interface: a control endpoint on mock-case, or a signed delivery to the relay (then the runner holds the signing secret: SR); (2) settled by A682: a resume does not move the simulated clock (a test pins it).
 - Do not touch: the held-out set and the oracle (INV-22).
+
+# Session 2026-11-25 · BEN-03 · A689: `--support` applies the start-position check
+
+## Session summary
+- What changed: `support.reasons_for` now adds `event at start: <kind>` for an event the run refuses at the start of the timeline (`EVENT_AT_START_UNSUPPORTED`), so `--support` says what a run would do. The runner README's count is recomputed with the CLI: **145 of 320 can run** (175 blocked; 119 need no fault and no event), unchanged: 26 cases carry an event at the start and every one was already blocked by another reason, so the fix changes the reasons table, not the count. With a webhook sender the count is still 145: all 15 cases that hold a driven webhook kind are also blocked by a fault or an event no driver has.
+- Test-first, seen failing in CI: the red commit `41c0b6af` (tests only, 3 failing by design) was pushed before the fix. Tests: the report blocks a confirm at the start and names it, blocks a driven kind at the start even with a sender, does not block a kill switch or a clock advance at the start, blocks by name every suite case the run refuses at the start, and the README count equals the one the report computes.
+- Risks, and how they are contained: none for the run; the report only gets stricter. Tests added (A667, A689): 4 new, plus 1 guard. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+

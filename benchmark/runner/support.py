@@ -1,7 +1,7 @@
 """What this build can run of a suite, and what stops the rest. A blocked case is an ERROR when run, never skipped; this report says so before a run starts."""
 from typing import Any
 
-from .drivers import driven
+from .drivers import driven, misplaced_at_start
 from .faultplan import split_plan
 from .suite import LoadedCase, Suite
 
@@ -10,6 +10,7 @@ Json = dict[str, Any]
 
 def reasons_for(lc: LoadedCase, *, webhooks: bool = False) -> set[str]:
     reasons = {f"event: {e['event'] if e['event'].startswith('needs_fault:') else e['event'].split(':')[0]}" for e in lc.case["events_timeline"] if not driven(e["event"], webhooks=webhooks)}
+    reasons |= {f"event at start: {kind}" for kind in misplaced_at_start(lc.case)}  # the run refuses these before any side effect (EVENT_AT_START_UNSUPPORTED, A667), so the report blocks them too (A689)
     for text in split_plan(lc.case, lc.plan).unsupported:
         target_operation, _, _ = text.partition(":")
         reasons.add(f"fault: {target_operation.split('.')[0]} {target_operation.split(' ')[-1]}")
