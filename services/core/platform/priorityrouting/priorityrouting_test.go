@@ -124,6 +124,8 @@ func TestAMemberThatIsNotExactlyItsShapeIsRefused(t *testing.T) {
 		"phases a list":        with(t, func(m map[string]any) { m["phases"] = []any{} }),
 		"phase name lower":     with(t, func(m map[string]any) { m["phases"].(map[string]any)["breached"] = phase(m, "RUNNING") }),
 		"note null":            with(t, func(m map[string]any) { m["note"] = nil }), // A678: the schema wants a string when `note` is present
+		"note empty":           with(t, func(m map[string]any) { m["note"] = "" }),
+		"note too long":        with(t, func(m map[string]any) { m["note"] = strings.Repeat("x", 4001) }),
 		"note not a string":    with(t, func(m map[string]any) { m["note"] = 1 }),
 		"table id null":        with(t, func(m map[string]any) { m["table_id"] = nil }),
 		"label null":           with(t, func(m map[string]any) { m["label"] = nil }),
@@ -144,6 +146,12 @@ func TestAMemberThatIsNotExactlyItsShapeIsRefused(t *testing.T) {
 	if strings.Contains(priorityrouting.ErrTable.Error(), "QUEUE") {
 		t.Error("the refusal text holds content")
 	}
+}
+
+// A678: a `note` of exactly the longest length the schema allows is read; the member without a `note` is read too.
+func TestTheNoteIsOptionalAndBounded(t *testing.T) {
+	mustParse(t, with(t, func(m map[string]any) { m["note"] = strings.Repeat("x", 4000) }))
+	mustParse(t, with(t, func(m map[string]any) { delete(m, "note") }))
 }
 
 // A551: the accessor is read only. Phases is a sorted copy; changing it, or the bytes handed to Parse, changes nothing.

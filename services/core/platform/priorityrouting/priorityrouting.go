@@ -59,7 +59,7 @@ type tableDoc struct {
 	TableID *string                    `json:"table_id"`
 	Version json.RawMessage            `json:"version"`
 	Label   *string                    `json:"label"`
-	Note    *string                    `json:"note"`
+	Note    json.RawMessage            `json:"note"` // raw, so that an absent `note` and `note: null` differ (A678)
 	Phases  map[string]json.RawMessage `json:"phases"`
 }
 
@@ -84,7 +84,7 @@ func Parse(raw []byte) (*Table, error) {
 		len(doc.Phases) == 0 || len(doc.Phases) > maxPhases {
 		return nil, bad
 	}
-	if doc.Note != nil && (*doc.Note == "" || len(*doc.Note) > maxNote) {
+	if doc.Note != nil && !noteOK(doc.Note) {
 		return nil, bad
 	}
 	t := &Table{entries: make(map[string]Entry, len(doc.Phases))}
@@ -108,6 +108,12 @@ func Parse(raw []byte) (*Table, error) {
 		t.entries[phase] = Entry{Priority: p, OwnerQueue: *e.OwnerQueue}
 	}
 	return t, nil
+}
+
+// noteOK reports whether a present `note` is a string of 1 to maxNote bytes, as the schema has it (A678: `note: null` is refused, since the schema wants a string when present).
+func noteOK(raw json.RawMessage) bool {
+	var n string
+	return json.Unmarshal(raw, &n) == nil && n != "" && len(n) <= maxNote
 }
 
 // Lookup gives what a phase routes to and true, or, for a phase the member does not list, the zero Entry and false (A660: fail-closed, no silent NORMAL; packcheck requires an
