@@ -240,7 +240,7 @@ func TestAnAllowWritesTheSignedRecordThenEachGrantAndEachEventInOneTransaction(t
 	if err := w.keys.VerifyRecordAt(stored, epoch.Add(time.Minute)); err != nil {
 		t.Fatalf("the stored record does not verify: %v", err)
 	}
-	if stored.IntentId != "int_01J9X3" || stored.CorrelationId != "corr_ABC123" || stored.PolicyVersion != "fin.pol@3.1" || stored.IssuedAt == "" || stored.ExpiresAt == "" || stored.EvidenceSnapshotId != "evs_01ABC" {
+	if stored.IntentId != "int_01J9X3" || stored.CorrelationId != "corr_ABC123" || stored.PolicyVersion == nil || *stored.PolicyVersion != "fin.pol@3.1" || stored.IssuedAt == "" || stored.ExpiresAt == "" || stored.EvidenceSnapshotId == nil || *stored.EvidenceSnapshotId != "evs_01ABC" {
 		t.Fatalf("a bound field is missing: %+v", stored)
 	}
 	// each stored grant verifies and belongs to the record

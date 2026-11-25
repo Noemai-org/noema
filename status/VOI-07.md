@@ -16,3 +16,20 @@ Updated 2026-11-11.
 
 ## Messages
 None.
+
+# Session 2026-11-24 · VOI-07 (start of the G2 batch)
+
+## Needs check
+- VOI-07 Needs VOI-06 (not Done: no recordings). The lexicon it tests through now exists on `main` (`understanding/compiler/lexicon.py`; the pack's `fin.lex.en_ng.json` and `fin.lex.pcm.json`). **There is no Yoruba, Hausa or Igbo lexicon file in the pack**, so for those three locales there is nothing to test through; whether the pack gets them or the three stay measured only is for C2 and the Architect.
+
+## State
+- Nothing to run yet: no recorded utterance exists, and a regression case written without one would be invented (AGENT-25).
+- Ready when recordings exist: `study.AnnotatedSession` carries each utterance's annotation; the step is to run each annotated transcript through the lexicon and file each failing utterance as a regression case with its annotation (`done_when`).
+
+## Pre-work for the next agent
+- Exact next step: after VOI-06, write the runner that reads annotated sessions, applies the lexicon, and lists the failing utterances (tests first, on synthetic labelled records until real ones exist). Ask C2 about the three locales without a lexicon.
+
+# Session 2026-11-24 · VOI-07 (A636)
+
+- **A636 answers the lexicon question:** Yoruba, Hausa and Igbo are **measured only**, with no lexicon; the demo is in Pidgin (`pcm`) and Nigerian English (`en-NG`). So VOI-07's tests through the lexicon cover `en-NG` and `pcm`; the recordings of `yo`, `ha` and `ig` are still made and measured (VOI-06, VOI-09, G5 unchanged). noema#947 is closed on this ruling.
+- **The vendor host:** The Founder-supplied vendor host is set in the **bench copy** of `allowed_hosts` only; the repository keeps the placeholder `set-by-the-founder.invalid` (the strict URL test forbids the host in any file).
