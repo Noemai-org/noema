@@ -416,7 +416,7 @@ func (w *Writer) check(r Request) (decide.Basis, string, bool, error) {
 	// A597, A600 (A542): a decline rests on the request it declined. A REJECT whose reason is DECLINED_BY_APPROVER that names none is refused here, before a statement is sent, so no decline
 	// is stored with an empty state; every other REJECT may name none. The decision is known by its own reason codes, never by a flag of the caller.
 	if d.Outcome() == decide.Reject && r.DeclinedRequestID == "" && declinedByApprover(d) {
-		return decide.Basis{}, "", ErrRequest
+		return decide.Basis{}, "", false, ErrRequest
 	}
 	if d.Outcome() == decide.Clarify {
 		return decide.Basis{}, "", false, ErrUnsupported
