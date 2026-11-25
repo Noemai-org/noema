@@ -366,3 +366,8 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 
 ## Session 2026-11-25 (second) · ENV-04 · noema#955 follow-up (A667)
 - The capture step makes the empty collector files in a stack-check only. A full run that never reached its collector is refused by the scan (exit 2, "refused: not found"), never passed on an empty file; a test runs the capture step in a full run (no file is made) and the real scanner with the full run's list (exit 2). A mutant that makes the files in every mode fails it.
+
+## Session 2026-11-25 · ENV-04 · A667: the core's model-client key (IL)
+- Cause, read from the core's own log in run 45454545851 (the job-log tail added by #955): `NOEMA_MODEL_TLS_KEY_FILE: the file cannot be used as a secret (a regular file you own, mode 0400, no link)`. The key was a bind of the host file (mode 0600, the host user).
+- Fix in Compose only, the reader unchanged (A667): the one-shot `core-tls-init` (`deploy/compose/core-tls/init.py`, 8 tests, red first; nine mutants of the script, seven killed, the two survivors are defence in depth and named in the PR) copies the key into the `core_client_key` volume for user 65532 at mode 0400; the core mounts it read-only at `/run/tls-key`. netcheck: the core no longer mounts the host key, only `core-tls-init` does; 19 new mutations, 305 in all, all caught. `compose-scripts.yml` runs the init test.
+- Not claimed: that the core now starts. Other file secrets may fail next; the next stack-check says which.
