@@ -36,8 +36,14 @@ func listEntitiesFromDescriptors(pack []byte, m intakesources.ListMapper) (map[s
 			return nil, inputsFail("an evidence descriptor has no entity or source, or repeats an entity", nil)
 		}
 		seen[d.Entity] = true
-		if _, err := m.ListRows(d.Source, d.Entity, nil); errors.Is(err, mapping.ErrNoSuchList) {
+		// The probe has no payload, so a real list answers ErrIncomplete (the payload's marker is not true) and one the mapping does not list answers ErrNoSuchList. Any other error
+		// (ErrListShape, a failure) says nothing about whether the entity is a list: the mapping cannot be read, and the derivation fails with fixed text (INV-16, INV-19, AGENT-13).
+		_, err := m.ListRows(d.Source, d.Entity, nil)
+		switch {
+		case errors.Is(err, mapping.ErrNoSuchList):
 			continue // the mapping reads no list under this entity and source
+		case err != nil && !errors.Is(err, mapping.ErrIncomplete):
+			return nil, inputsFail("the evidence mapping cannot be read for an evidence descriptor", nil)
 		}
 		out[d.Entity] = intakesources.ListSpec{Source: d.Source, ScopePrefix: f.PackID + "." + d.Entity + ":"}
 	}
