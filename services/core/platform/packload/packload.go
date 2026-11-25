@@ -37,7 +37,7 @@ type Pack struct {
 	ActionGraphs map[string][]byte
 	// InjectionPatterns holds the verified bytes of the injection-screen pattern file the manifest pins (A645), and InjectionPatternsID the id the manifest expects of it. A file that is not pinned
 	// and verified is never here. A manifest below version 4 may list none (A664, interim): then both are empty and the pack carries no pattern data, so no screen can be built from it (the injection
-	// package has no empty Detector). A551: read-only, derived from the verified bytes, no industry term.
+	// package has no empty Detector). The wiring passes these bytes to injection.Parse and never re-reads the file (A664 round 2). A551: read-only, derived from the verified bytes, no industry term.
 	InjectionPatterns   []byte
 	InjectionPatternsID string
 	// Limits holds the verified bytes of each limits file the manifest pins (A544), by the path the manifest pins. Which file is which, and what it holds, is the caller's: this package

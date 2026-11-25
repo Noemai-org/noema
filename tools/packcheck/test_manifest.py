@@ -40,7 +40,7 @@ LIMITS = [
     "fintech/limits/session_limits.json",
     "fintech/limits/trust_limits.json",
 ]
-INJECTION_ID = "fin.ctx.injection_patterns@1"
+INJECTION_ID = "fin.ctx.injection_patterns@2"  # the shipped file's own pack_id@version (A664 round 2: the patterns changed, so the version did)
 EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
 
 

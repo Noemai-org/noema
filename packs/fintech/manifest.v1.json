@@ -6,7 +6,7 @@
   "expected": {
     "evidence_mapping_id": "fin.map.v1@2",
     "recon_rule_set_id": "fin.recon.rules@1",
-    "injection_patterns_id": "fin.ctx.injection_patterns@1"
+    "injection_patterns_id": "fin.ctx.injection_patterns@2"
   },
   "files": [
     {
@@ -62,7 +62,7 @@
     {
       "kind": "injection_patterns",
       "path": "fintech/context/injection_patterns.v1.json",
-      "sha256": "f415af8b77a35c677df219820ee8882616bc77df6d347c70bc166479cf4ccfe9"
+      "sha256": "a5829558103d488243a11b31a7ff883fb72d53dea043112e120bc202227a2dfd"
     }
   ]
 }

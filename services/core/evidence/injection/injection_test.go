@@ -277,7 +277,7 @@ func TestTheDocumentBoundsHoldAtTheirEdges(t *testing.T) {
 	at := func(mut func(l *injection.Limits)) error {
 		l := limits
 		mut(&l)
-		_, err := injection.Parse(raw, expected, l)
+		_, err := injection.Parse(raw, shipped, l)
 		return err
 	}
 	if err := at(func(l *injection.Limits) { l.MaxPatterns = len(doc.Patterns) }); err != nil {
