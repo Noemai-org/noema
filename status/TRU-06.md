@@ -17,3 +17,13 @@
 ## Pre-work for the next agent
 - Exact next step: after TRU-05, call `Evaluate` from the T12 step with the anchor read from evidence, record `SLA_EVALUATED`, map the phase to priority through the pack's routing rules.
 - Do not touch: `noema#94`, `noema#90`.
+
+# Session 2026-11-25 12:00 WAT · TRU-06 · slice 2: the priority routing and SLA_EVALUATED (A632, A640, A666)
+
+## Task card (PERD §61.4)
+- Task: TRU-06 (REQ-TRU-006, P1). SoT: INV-01, INV-14, INV-16, INV-21, AGENT-16, AGENT-25. Rulings (interim, relayed, not yet committed): A632, A640, A644, A666.
+- Allowlist: `services/core/trust/clocks/` (new `routing.go` and its test), `services/core/trust/recorder/` (new `sla_event.go` and its test, the package doc), this file.
+- Acceptance: (1) routing priority derives from the phase through a consumer-side `PriorityLookup`, raised and never lowered; a phase with no entry is NORMAL with no queue; an empty queue is no re-route. (2) `SLA_EVALUATED` is appended once per clock evaluation in the caller's transaction, by the emitter's identity, with every field as its payload. (3) No clock read, no number or name in code.
+- Tests first: `trust/clocks/routing_test.go` (examples, a rapid property, a source scan) and `trust/recorder/sla_event_test.go` (real database and hash chain).
+- Faults exercised: a failed Record append (the write fails and nothing remains), a rolled-back transaction, a request naming another tenant, an invalid request.
+- Record events asserted: `SLA_EVALUATED` with `written_by` and `actor` core-trust and `object_ref` the correlation.
