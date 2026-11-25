@@ -126,13 +126,14 @@ class RealManifest(Base):
         self.assertTrue(REAL_MANIFEST.is_file(), "packs/fintech/manifest.v1.json does not exist (A333)")
         self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
 
-    def test_it_is_labelled_synthetic_and_lists_exactly_the_four_kinds(self):
+    def test_it_is_labelled_synthetic_and_lists_exactly_the_five_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits")}, LISTED)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing")}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "limits"), LIMITS)  # A544
-        self.assertEqual(len(doc["files"]), 11)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
+        self.assertEqual([f["path"] for f in doc["files"] if f["kind"] == "priority_routing"], ["fintech/routing/priority_routing.v1.json"])  # PCK-09, A644
+        self.assertEqual(len(doc["files"]), 12)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -150,7 +151,7 @@ class RealManifest(Base):
 
     def test_every_json_file_of_a_listed_kind_is_listed(self):
         listed = {f["path"] for f in self.load()["files"]}
-        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context") for p in (PACKS / d).rglob("*.json")}
+        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context", "fintech/routing") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
         self.assertEqual(found, listed)
 
