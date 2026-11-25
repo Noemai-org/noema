@@ -27,3 +27,93 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 
 ## Pre-work for the next agent
 - Exact next step: the live runner (after noema#640 and noema#689 merge).
+
+# Session 2026-11-20 · VOI-16 (the baseline-run library)
+
+## Session summary
+- What changed: `voice/baseline.py`, the library of the live baseline run (no network, no key): the writer of the private raw-audio store (files 0600, folders 0700, set explicitly; each file's modification time is the analysis date; nothing outside the store; no overwrite; no link followed), the settings (all required, no default; concurrency 1), the three-part audio budget trimmed from the end of the manifest, the pause from the published connection limit, the 48 to 16 kHz reduction, the word error rate counted inside the core stand-in, and the report (counts, stages and failures only).
+- Tests: `tests/test_voice_baseline.py`; the store tests need POSIX modes and run on Linux CI. Debt: the runner that wires these to the adapters and the key (after noema#816 and the key); registered with the Steward.
+- Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: the runner entry point (reads `INTRON_API_KEY_FILE` with the key reader, builds the adapters with the connect factory of noema#816, generates the synthetic fixtures with Intron text-to-speech, reduces them to 16 kHz, calls `measure_session` per item with `session_s` as the whole-session deadline and `pause_s` between sessions, stops at the first RATE_LIMITED or after two failures in a row, and writes `build_report` as one JSON file outside the audio store). The runner takes the store path, the retention and every setting as arguments with no default.
+- Do not touch: the settings values (A380) or the store's modes.
+
+# Session 2026-11-21 · VOI-16 (the baseline runner entry point)
+
+## Session summary
+- What changed: `voice/baseline_run.py` (`python -m noema_model.voice.baseline_run`): reads the key ONLY from the owner-only file `INTRON_API_KEY_FILE` (the reader of noema#689, now also checking the owner), loads the A380 settings and the manifest from files in which every value is required and none defaulted, refuses before any connection when anything is wrong, builds the adapters with the connect factory of noema#816, generates the synthetic fixtures with Intron text-to-speech, reduces them to 16 kHz, stores them in the private store (files 0600, folders 0700, mtime = analysis date), runs one session at a time with the whole-session deadline and the pause, stops at the first quota refusal or after two failures in a row (a generation or store failure also stops it), and writes a counts-only report as an owner-only file outside the store. `AudioStore.read` reads a team recording from the store (plain names, no link, bounded size). `bench/baseline-settings.json` and its README hold the A380 values and name the sources.
+- Not pushed yet: it needs noema#816 and noema#824 on `main` (a PR may not be based on another PR); it is built and tested on a local branch with both merged in.
+- Tests: `tests/test_voice_baseline_run.py` (the store tests need POSIX modes and run on Linux CI). Conflicts: none.
+
+## Debt entries (text for the Repo Steward to register)
+1. **DEBT (VOI-01, noema#640): the audio sender's exception is observed and dropped, not reported with a fixed redacted code.** Codex's P2 on noema#640 asked for failures of the audio source's cleanup to be reported with fixed codes. The Intron speech-to-text adapter has no telemetry argument, and adding one would widen the `SpeechProvider` interface. The exception is observed (so the event loop never logs its message) and dropped. Accepted by the Founder (A380 to A383 record). Owner: Voice. Removal: when the speech adapters take a telemetry argument (with the voice route, A381), report `VOI_AUDIO_SENDER_FAILED` through it. Expiry: with the voice route build (after the baseline).
+2. **DEBT (VOI-16): the baseline runner has been run against no real endpoint.** The runner of `voice/baseline_run.py` is tested against scripted stand-ins and a loopback WebSocket server only; the wire format of Intron's streaming messages is from its public documentation (the status field is spelled `processing_staus` there). The first live call may show a field spelled differently, a one-file change in `intron_wire.py` or `intron_tts_wire.py`. Owner: Voice. Removal: the first live baseline run, with the key. Expiry: the day after the Founder's "start" on noema#767.
+
+## Pre-work for the next agent
+- Exact next step: when noema#816 and noema#824 merge, open the runner PR from `main` with these commits (tests first); then, when the key file is in place and the Founder writes `start` on noema#767, run it once and post the report.
+- Do not touch: the settings values of A380.
+
+# Session 2026-11-23 · VOI-16 (the runner entry point, in noema#824)
+
+## Session summary
+- What changed (noema#824): `voice/baseline_run.py` gains `--check-key` (A487, output accepted in A523): one speech-to-text connection with the key, nothing sent, closed, one word printed (accepted, rejected or inconclusive; exit 0, 1, 1; refusals before any connection exit 2). Only an authentication error message or a handshake refusal typed REJECTED is "rejected"; a dropped, silent or unknown reply is "inconclusive". An item whose generated audio is outside the 5 to 15 second condition is skipped before any speech-to-text call, counted as `skipped_out_of_bounds`, and the run goes on. `bench/manifest.proposed.json` and `bench/voices.proposed.json` are proposals (A523), described in `bench/README.md`.
+- Why: A487 (check the key without audio), A380 (the measurement condition), the Founder's instruction of 22 Nov to write the manifest and voices files marked proposed.
+- Risks, and how they are contained: the manifest's Yoruba, Hausa and Igbo phrases are written by the Voice Engineer, not a native speaker (REQ-VOI-007 asks for one); the voice gender is a placeholder (the documentation names no voices); the accent values for yo, ha and ig are the accents the documentation's text-to-speech table lists under those languages. Nothing has run against the real endpoint.
+- Tests added (REQ-VOI-001, REQ-VOI-004, REQ-NFR-003): 8 red at 457002af (model job read: 8 failed, 3183 passed), plus `test_a_refusal_at_the_handshake_is_rejected_only_when_the_vendor_refused_the_key`. Five mutants of the new code each fail a test.
+- Debt entries for the Steward to register (text): (1) the #640 deviation: the Intron speech-to-text adapter observes the audio sender's exception and drops it instead of reporting it with fixed redacted codes, because the adapter takes no telemetry argument and adding one widens its interface; owner Voice; removal condition: the voice route passes a telemetry sink (A381, after the baseline); (2) the baseline runner has never run against Intron's real endpoints; owner Voice and the Founder; removal condition: the first live run reported in noema#767 and the wire modules corrected in one place if the first call shows a field spelled differently.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Founder runs `--check-key` with the key file, the settings file and the base address (prints one word), then writes the single "start" comment on noema#767; Voice runs the baseline once and posts the report.
+- Open questions (Founder): adults-only and the bystander rule (noema#201); the voice names (the Intron Product session).
+- Files to read first: `voice/baseline_run.py`, `bench/README.md`.
+- Do not touch: the settings values (A380), the store's modes, any vendor address in the repository.
+
+# Session 2026-11-23 · VOI-16 (A556 in noema#824)
+
+## Session summary
+- What changed (noema#824): the settings file gains a required `allowed_hosts` (a non-empty list of plain lowercase host names, no default); `--base-url` must be exactly `wss://<one of them>` for a run and for `--check-key`, else the runner refuses before any connection with a fixed message that never echoes the address. The shipped file holds the placeholder `set-by-the-founder.invalid` (the repository must not name the vendor's host: the strict test of noema#632); the Founder sets the real host in the bench copy.
+- Why: A556.
+- Tests: red first at 463e2855; mutants of the pin (scheme, user information and port, the list membership, both call sites, the empty list, number-only hosts) each caught.
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Founder copies `bench/baseline-settings.json` to the bench host, sets `allowed_hosts` to the vendor's streaming host, puts the key file on the runner account, runs `--check-key` and comments `start` on noema#767.
+- Do not touch: the host in the repository (the strict URL test forbids it).
+
+# Session 2026-11-23 · VOI-16 (A568 in noema#824)
+
+## Session summary
+- What changed (noema#824): the budget is charged with the audio the vendor actually generated and the audio sent (plus the answer to speak, which must fit before a session starts), so a run that would overspend ends with `ended: budget_exhausted` and nothing is sent; the report file is created before any connection (owner-only, never over an existing file) and rewritten whole after every session, so a read failure or an unexpected error never discards the sessions already measured; `ended` names why a run stopped. A store read failure now ends the run with its report instead of raising.
+- Why: A568.
+- Tests: red first at a033d93c; nine mutants of the new code each caught (two survived the first tests and have tests now).
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: unchanged (Founder: key file, real host in `allowed_hosts`, `--check-key`, `start` on noema#767). No live run starts before noema#824 is merged.
+- Open questions: the spoken answer is charged at the manifest's `answer_s` (only its first audio is read, so the real length is not observed): the Architect may ask for a different rule.
+
+# Session 2026-11-23 · VOI-16 (A587 in noema#824)
+
+## Session summary
+- What changed (noema#824): a run that fails before any session removes the empty report file it created, so the rerun is not refused; only if the file is still empty and the path still names the same file (device and inode), never a report with anything in it. The connector and adapters are now built inside the same guard as the run.
+- Why: A587. Tests: red first at 0dfe3824 (three tests); mutants of the removal (size check, identity check, the call itself) each caught.
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: unchanged (Founder: key file, real host in `allowed_hosts`, `--check-key`, `start` on noema#767).
+
+# Session 2026-11-23 · VOI-16 (SR's atomic report in noema#824)
+
+## Session summary
+- What changed (noema#824): the report is written whole to a temporary file beside it, flushed to disk, and renamed over the path (then the directory is flushed), so a crash never leaves a half-written report; the empty placeholder that reserves the path is kept (an existing report still refuses the run before any credit is spent) and is removed only while it is still empty and still the same file (A587).
+- Tests: red first at fea29a0f (three tests); mutants of the rename, the temp-file cleanup, the identity check and both flushes each caught.
+- Debt entries: none. Conflicts raised: none.
+
+# Session 2026-11-24 · VOI-16 (A608 and A612 in noema#824)
+
+## Session summary
+- What changed (noema#824): the text-to-speech audio is charged chunk by chunk as it streams, before the next chunk is asked for; the generation stops at the chunk that would not fit (`budget_exhausted`) and closes the stream; the synthetic audio is held in memory and written to the store only once the item is accepted (inside the bounds and with its whole session fitting), so a budget stop leaves nothing in the store.
+- Tests: red first at 8ffb07c2 (four tests); six mutants of the new behaviour each caught (the stream close needed a test that reads its flag inside the run).
+- Debt entries: none. Conflicts raised: none.

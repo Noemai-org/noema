@@ -74,12 +74,12 @@ func readPack(dir, name string) ([]byte, error) {
 	if err != nil {
 		return nil, errPackRead
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }() // read-only handle: nothing is flushed, so a close error cannot change what was read
 	f, err := root.Open(name)
 	if err != nil {
 		return nil, errPackRead
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only handle, as above
 	raw, err := io.ReadAll(io.LimitReader(f, maxPackBytes+1))
 	if err != nil || len(raw) > maxPackBytes {
 		return nil, errPackRead
