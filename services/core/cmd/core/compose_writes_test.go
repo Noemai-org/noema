@@ -2,7 +2,7 @@ package main
 
 // STM-01 composition gap: Writes (A684 step 1, A543, A364, A551, interim, relayed, not yet committed). The composition builds intake.Writes from the SAME verified pack the other Trust
 // inputs read: the tenant's kill switch over the per-tenant trust_rw logins and the production WriteRule over the pack's `write_when` (trustport.NewPackWriteRule over
-// Pack.WriteWhens). Fail closed: a pack that is absent, unusable or carries no write_when data yields no rule and a named gap; a write_when that does not compile is an error with
+// Pack.WriteWhens). Fail closed: a pack that is absent or unusable yields no rule and a named gap, and a pack with no write_when on any node answers "no write" (A693); a write_when that does not compile is an error with
 // fixed text; no other tenant's login stands in for a tenant's own. REQ-STM-001, REQ-TRU-004, REQ-NFR-002; INV-01, INV-03, INV-14, INV-16; AGENT-13, AGENT-16. The answers are
 // compared with an independent read of the pack's own data. DB-backed cases run in CI only (they need pgsodium). All data is SYNTHETIC.
 
@@ -192,13 +192,11 @@ func TestWritesAreNeverEnabledForATenantWithNoLogin(t *testing.T) { // REQ-NFR-0
 // Each part Writes needs, absent, makes it a named gap and never an error and never an adapter with a default rule (AGENT-16). The builder is called alone: the other inputs
 // have their own answers for a missing pack or login (an error, as their own tests pin), and Writes must not depend on them.
 func TestWritesWithAPartMissingIsANamedGap(t *testing.T) { // REQ-STM-001; INV-03, INV-16
-	noWriteWhen := twPackWith(t, func(s string) string { return twWriteWhenLine.ReplaceAllString(s, "") })
 	cases := map[string]func(*trustInputsIn){
-		"no pack":                   func(in *trustInputsIn) { in.Pack = nil },
-		"a zero pack":               func(in *trustInputsIn) { in.Pack = &trustpack.Pack{} },
-		"no served tenant":          func(in *trustInputsIn) { in.Tenants = nil },
-		"no login at all":           func(in *trustInputsIn) { in.Pools = nil },
-		"a pack with no write_when": func(in *trustInputsIn) { in.Pack = noWriteWhen },
+		"no pack":          func(in *trustInputsIn) { in.Pack = nil },
+		"a zero pack":      func(in *trustInputsIn) { in.Pack = &trustpack.Pack{} },
+		"no served tenant": func(in *trustInputsIn) { in.Tenants = nil },
+		"no login at all":  func(in *trustInputsIn) { in.Pools = nil },
 	}
 	for name, mut := range cases {
 		in := tiIn(t)
@@ -208,18 +206,46 @@ func TestWritesWithAPartMissingIsANamedGap(t *testing.T) { // REQ-STM-001; INV-0
 			t.Errorf("%s: buildWritesInput %v, %v; want no port and no error", name, w, err)
 		}
 	}
-	// End to end: a pack with no write_when leaves Writes a named gap, and /readyz names it.
+}
+
+// A pack with no write_when on any node answers "no write" (A693, A543, interim, relayed, not yet committed). It is not a gap: Writes is built, no node needs a write, and the
+// kill switch is still the tenant's own.
+func TestAPackWithNoWriteWhenIsBuiltAndAnswersNoWrite(t *testing.T) { // REQ-TRU-004; INV-03, INV-14
 	in := tiIn(t)
-	in.Pack = noWriteWhen
+	in.Pack = twPackWith(t, func(s string) string { return twWriteWhenLine.ReplaceAllString(s, "") })
+	whens, err := in.Pack.WriteWhens()
+	if err != nil || len(whens) == 0 {
+		t.Fatalf("the changed pack gives no nodes: %v", err)
+	}
 	got, err := buildTrustInputs(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Writes != nil || !tiHas(got.Gaps, "Writes") {
-		t.Fatalf("Writes %v, gaps %v; want a nil port and a named gap", got.Writes, got.Gaps)
+	if got.Writes == nil || tiHas(got.Gaps, "Writes") {
+		t.Fatalf("Writes %v, gaps %v; want a built port and no Writes gap", got.Writes, got.Gaps)
 	}
-	if a := got.fill(TrustAdapters{}); a.Writes != nil || !tiHas(unsetAdapters(a), "Writes") {
-		t.Fatal("fill gave a Writes, or /readyz would not name trust.Writes")
+	if a := got.fill(TrustAdapters{}); a.Writes == nil || tiHas(unsetAdapters(a), "Writes") {
+		t.Fatal("fill gave no Writes, or /readyz would name trust.Writes")
+	}
+	ctx := tiDeadline(t)
+	for node, w := range whens {
+		a := tiIntent("ten_aa", "usr_alice", node, "")
+		a.Slots = map[string]string{}
+		for _, s := range w.Slots {
+			if !s.Required {
+				continue
+			}
+			a.Slots[s.Name] = "SYNTHETIC-1"
+			if len(s.Vocabulary) > 0 {
+				a.Slots[s.Name] = s.Vocabulary[0]
+			}
+		}
+		if may, err := got.Writes.NeedsWrite(ctx, a); err != nil || may {
+			t.Errorf("a pack with no write_when: NeedsWrite %v, %v; want false and no error", may, err)
+		}
+	}
+	if _, err := got.Writes.NeedsWrite(ctx, tiIntent("ten_aa", "usr_alice", "no_such_node", "")); err == nil {
+		t.Error("a node the pack does not hold was answered")
 	}
 }
 
