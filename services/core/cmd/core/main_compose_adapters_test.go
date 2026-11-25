@@ -32,6 +32,15 @@ func fixturePack(Env) (*trustpack.Pack, error) {
 	return trustpack.LoadPack(os.DirFS(filepath.Join("..", "..", "..", "..", "packs")), "fintech_v1.json")
 }
 
+func mustPack(t *testing.T) *trustpack.Pack {
+	t.Helper()
+	p, err := fixturePack(Env{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func adaptersAt(t *testing.T, pack PackSource, e envMap) (TrustAdapters, error) {
 	t.Helper()
 	return trustAdaptersSource(pack)(Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, nil, clock.NewManual(time.Unix(1_800_000_000, 0)))
@@ -63,12 +72,15 @@ func TestTheAdaptersFromThePackAreBuiltAndEveryOtherOneIsNamed(t *testing.T) {
 	if a.Clock == nil {
 		t.Error("no clock")
 	}
-	want := []string{"Intents", "Writes", "Candidates", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks", "Confirmations", "Planner", "Recorder", "PackVersion"}
+	want := []string{"Intents", "Writes", "Candidates", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks", "Confirmations", "Planner", "Recorder"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("not built %v; want %v", names, want)
 	}
+	if a.PackVersion == "" || a.PackVersion != mustPack(t).Ref() {
+		t.Errorf("PackVersion %q, want the pack's own %q (A377 item 6)", a.PackVersion, mustPack(t).Ref())
+	}
 	if a.Intents != nil || a.Writes != nil || a.Candidates != nil || a.Ownership != nil || a.Evidence != nil || a.Reconciler != nil || a.Policies != nil || a.Clocks != nil ||
-		a.Confirmations != nil || a.Planner != nil || a.Recorder != nil || a.PackVersion != "" {
+		a.Confirmations != nil || a.Planner != nil || a.Recorder != nil {
 		t.Errorf("an adapter is set that main cannot build: %+v", a)
 	}
 }
@@ -86,7 +98,7 @@ func TestWithoutAPackEveryAdapterIsNamedAndProductionHasNoPackYet(t *testing.T) 
 	if len(unbuilt(t, perr)) != len(want) || a.Capabilities != nil || a.Intents != nil {
 		t.Errorf("production adapters %+v, error %v; want every adapter named and none built", a, perr)
 	}
-	if !errors.Is(err, errPackNotOnMain) {
+	if !errors.Is(err, errPackNotConfigured) {
 		t.Errorf("error %v does not carry the pack refusal as its cause", err)
 	}
 }

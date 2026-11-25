@@ -266,15 +266,19 @@ func newRequest(c *intake.NewConfirmationRequest) *recorder.NewConfirmationReque
 		ConfirmationBindingEvidenceHash: c.ConfirmationBindingEvidenceHash, PlanHash: c.PlanHash, PolicyVersion: c.PolicyVersion, Requirement: c.Requirement, RequesterID: c.RequesterID, ExpiresAt: c.ExpiresAt}
 }
 
-// declinedShape is A470 and A507 (interim, relayed, not yet committed): only a REJECT for DECLINED_BY_APPROVER may name the confirmation request it rests on, and the name has the shape
+// declinedShape is A470, A507 and A542 (interim, relayed, not yet committed): a REJECT for DECLINED_BY_APPROVER MUST name its declined request, and only a REJECT for DECLINED_BY_APPROVER may name the confirmation request it rests on, and the name has the shape
 // of a confirmation request id. Any other decision that names one is refused before a transaction opens (INV-03: no other outcome rests on a confirmation); the Writer then checks that the
 // request is the tenant's and the decision's intent's.
 func declinedShape(r intake.RecordRequest) error {
-	if r.DeclinedRequestID == "" {
+	declined := r.Decision.Outcome() == decide.Reject && hasReason(r.Decision, "DECLINED_BY_APPROVER")
+	if !declined {
+		if r.DeclinedRequestID != "" {
+			return fmt.Errorf("%w: only a decline by the approver names a declined request", ErrRecordRequest)
+		}
 		return nil
 	}
-	if r.Decision.Outcome() != decide.Reject || !hasReason(r.Decision, "DECLINED_BY_APPROVER") {
-		return fmt.Errorf("%w: only a decline by the approver names a declined request", ErrRecordRequest)
+	if r.DeclinedRequestID == "" {
+		return fmt.Errorf("%w: a decline by the approver names the request it rests on (A542)", ErrRecordRequest)
 	}
 	if !recRequestRe.MatchString(r.DeclinedRequestID) {
 		return fmt.Errorf("%w: the declined request id is malformed", ErrRecordRequest)

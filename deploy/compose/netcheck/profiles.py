@@ -207,6 +207,13 @@ BENCH_CORE_SETTINGS = {
     "NOEMA_EDGE_KEY_DIR": "/run/edge-keys",
     "NOEMA_INPUT_HASH_KEY_FILE": "/run/input-hash/key",
     "NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE": "2",
+    # A554 and A564 (lane 5): the Execution side's two logins and the receipt and verdict signers' key directories. The overlaps mirror A506's (no ruling gives a number; the Architect confirms).
+    "NOEMA_EXECUTION_DSN_DIR": "/run/execution-dsn",
+    "NOEMA_OUTCOME_DSN_DIR": "/run/outcome-dsn",
+    "NOEMA_EXECUTION_KEY_DIR": "/run/execution-keys",
+    "NOEMA_EXECUTION_KEY_MAX_ACTIVE": "2",
+    "NOEMA_OUTCOME_KEY_DIR": "/run/outcome-keys",
+    "NOEMA_OUTCOME_KEY_MAX_ACTIVE": "2",
     "NOEMA_TEMPORAL_NAMESPACE": "default",
     "NOEMA_TEMPORAL_TASK_QUEUE": "noema-investigations",
     "NOEMA_TEMPORAL_TLS_CA_FILE": "/run/tls/ca.crt",
@@ -367,12 +374,12 @@ def settings_order_problems(values):
     return bad
 
 
-# A506: the DSN directories and the key directories. Each is written once by its one-shot (trust-dsn-init for the four DSN volumes, core-keys-init for the three key volumes) and mounted read-only by the
-# core and by nothing else; the three key values are held by core-keys-init only; the per-login emitter secrets are mounted by postgres and trust-dsn-init only.
+# A506: the DSN directories and the key directories. Each is written once by its one-shot (trust-dsn-init for the six DSN volumes, core-keys-init for the five key volumes) and mounted read-only by the
+# core and by nothing else; the five key values are held by core-keys-init only; the per-login emitter secrets are mounted by postgres and trust-dsn-init only.
 KEYS_INIT = "core-keys-init"
-DSN_VOLUMES = ("trust_dsns", "orchestrator_dsns", "record_read_dsns", "edge_dsns")
-KEY_VOLUMES = ("orchestrator_keys", "edge_keys", "input_hash")
-KEY_SECRETS = ("core_workflows_ed25519_seed_1", "core_edge_ed25519_seed_1", "input_hash_key")
+DSN_VOLUMES = ("trust_dsns", "orchestrator_dsns", "record_read_dsns", "edge_dsns", "execution_dsns", "outcome_dsns")
+KEY_VOLUMES = ("orchestrator_keys", "edge_keys", "input_hash", "execution_keys", "outcome_keys")
+KEY_SECRETS = ("core_workflows_ed25519_seed_1", "core_edge_ed25519_seed_1", "input_hash_key", "core_execution_ed25519_seed_1", "core_outcome_ed25519_seed_1")
 NEVER_SET = {"NOEMA_TEMPORAL_TLS_CERT_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client certificate stays unset (A506)",
              "NOEMA_TEMPORAL_TLS_KEY_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client key stays unset (A506)",
              "NOEMA_WRITE_SWAP_DECISIONS": "a test-only switch for the proposer-swap fixture, never a Compose setting (A506)"}
@@ -611,7 +618,7 @@ def check(cfg, profile):
             if [str(c).upper() for c in (svc.get("cap_drop") or [])] != ["ALL"] or sorted(str(c).upper() for c in (svc.get("cap_add") or [])) != ["CHOWN", "DAC_READ_SEARCH", "FOWNER", "SETGID", "SETUID"]:
                 bad.append(f"{profile}: {KEYS_INIT} must drop ALL capabilities and add back only CHOWN, DAC_READ_SEARCH, FOWNER, SETUID and SETGID: DAC_READ_SEARCH so it can READ the key secrets, which keep the host user's ownership and mode 0600 (Codex P1 on noema#874); never DAC_OVERRIDE (A506)")
             if set(held) != set(KEY_SECRETS):
-                bad.append(f"{profile}: {KEYS_INIT} must hold exactly the three key secrets {list(KEY_SECRETS)} (A506)")
+                bad.append(f"{profile}: {KEYS_INIT} must hold exactly the five key secrets {list(KEY_SECRETS)} (A506)")
         if name == "core" and profile == "bench":
             for init in (TRUST_DSN_INIT, KEYS_INIT):
                 if (svc.get("depends_on") or {}).get(init, {}).get("condition") != "service_completed_successfully":
@@ -836,6 +843,26 @@ def self_test(configs):
         "a bench DSN volume is mounted by the model": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "edge_dsns", "target": "/x", "read_only": True})),
         "the bench core mounts a key volume writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "edge_keys"]),
         "the bench core drops the input hash volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "input_hash"]})),
+        # A554 and A564 (lane 5): the new DSN and key volumes, the new key secrets, and the six settings, each pinned like A506's.
+        "the bench core drops the execution DSN volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "execution_dsns"]})),
+        "the bench core drops the outcome DSN volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "outcome_dsns"]})),
+        "the bench core drops the receipt key volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "execution_keys"]})),
+        "the bench core drops the verdict key volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "outcome_keys"]})),
+        "the bench core mounts the receipt keys writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "execution_keys"]),
+        "the bench core mounts the outcome logins writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "outcome_dsns"]),
+        "the model mounts the receipt keys": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "execution_keys", "target": "/x", "read_only": True})),
+        "the model mounts the verdict keys": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "outcome_keys", "target": "/x", "read_only": True})),
+        "the model mounts the execution logins": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "execution_dsns", "target": "/x", "read_only": True})),
+        "the ui mounts the outcome logins": ("bench", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "volume", "source": "outcome_dsns", "target": "/x", "read_only": True})),
+        "the core holds the receipt seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_execution_ed25519_seed_1", "target": "x"})),
+        "the core holds the verdict seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_outcome_ed25519_seed_1", "target": "x"})),
+        "core-keys-init loses the verdict seed": ("bench", lambda c: c["services"]["core-keys-init"].update({"secrets": [x for x in c["services"]["core-keys-init"]["secrets"] if (x if isinstance(x, str) else x.get("source")) != "core_outcome_ed25519_seed_1"]})),
+        "the bench core's execution key overlap changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EXECUTION_KEY_MAX_ACTIVE": "5"})),
+        "the bench core's outcome key overlap changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_OUTCOME_KEY_MAX_ACTIVE": "1"})),
+        "the bench core loses the execution DSN setting": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_EXECUTION_DSN_DIR")),
+        "the bench core loses the outcome DSN setting": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_OUTCOME_DSN_DIR")),
+        "the bench core's receipt key directory moves": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EXECUTION_KEY_DIR": "/run/outcome-keys"})),
+        "the bench core shares one key directory for both signers": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_OUTCOME_KEY_DIR": "/run/execution-keys"})),
         "the bench core drops a DSN volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "orchestrator_dsns"]})),
         "the bench core does not wait for core-keys-init": ("bench", lambda c: c["services"]["core"]["depends_on"].pop("core-keys-init")),
         "the core holds a key secret": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "input_hash_key", "target": "x"})),
