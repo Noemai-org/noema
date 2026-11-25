@@ -18,3 +18,9 @@
 ## Pre-work for the next agent
 - Exact next step: SR and one non-author Founder read; the board status of TRU-12 moves only on merged evidence (the Steward).
 - Do not touch: `ports.go` members of `Request` without changing the guard and this note in the same PR.
+
+## Amendment 2026-11-25 (C1, TRU-10, A581, A590): one typed member, `Request.TurnID`
+- What: `intake.Request` gains `TurnID string`: the client's request ID of the turn the request answers, a lower-case UUID (canonical-input `request_id`), a typed value and no text. The guard `TestTheRequestIsATypedRequestAndNotAConversation` lists it.
+- Why: A581 and A590 key an early (null-basis) decision by the turn, the verified principal and the tenant, so a replay of the same turn returns the stored record and a new turn records a new one. Trust reads it only as that key, never as an instruction; it is shape-checked by the Recorder's adapter and the Writer and by the database (`decision_record_early_key_shape`).
+- Not changed: `Session`, the other members, the import-boundary guard. No utterance, transcript or conversation state enters Trust.
+- Signature: **pending EL** (the review note of TRU-12 needs EL's re-signature for any change of the member set).

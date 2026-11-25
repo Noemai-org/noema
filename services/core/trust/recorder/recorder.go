@@ -130,6 +130,11 @@ type Request struct {
 	// writer needs to recompute that binding (the contract's field is still named evidence_set_hash). It is NOT the grant's evidence_set_hash: a step's EvidenceSetHash stays the snapshot's
 	// set hash, and neither the grant nor the Decision Record carries this value. Required, in the Hash form, for an ALLOW that follows a confirmation; named with no confirmation it is ErrRequest.
 	ConfirmationBindingEvidenceHash contracts.CommonV1Hash
+	// TurnID and PrincipalID are the key of an early decision (A581, A590; interim, relayed): the client's request ID of the turn (a lower-case UUID) and the verified principal of the
+	// session. They are required for an ESCALATE reached before the evidence and the policy were evaluated (an incomplete basis, recorded with the three basis members null, A574, A577,
+	// A663) and named by no other decision: any other request that names one is ErrRequest.
+	TurnID      string
+	PrincipalID string
 }
 
 // Result is what was written.
