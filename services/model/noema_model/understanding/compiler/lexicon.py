@@ -343,6 +343,8 @@ class Normaliser:
         last_scale = MAX_SAFE_INT
         after_hundred = joining = False
         for token in tokens:
+            if joining and token not in lex.numerals:  # a joiner is followed by a numeral word: never by a scale, another joiner, a currency word or anything else
+                return None
             if token in lex.joiners:
                 if not after_hundred:
                     return None
