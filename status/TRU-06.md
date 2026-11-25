@@ -27,3 +27,16 @@
 - Tests first: `trust/clocks/routing_test.go` (examples, a rapid property, a source scan) and `trust/recorder/sla_event_test.go` (real database and hash chain).
 - Faults exercised: a failed Record append (the write fails and nothing remains), a rolled-back transaction, a request naming another tenant, an invalid request.
 - Record events asserted: `SLA_EVALUATED` with `written_by` and `actor` core-trust and `object_ref` the correlation.
+
+## Session summary (2026-11-25 slice 2)
+- What changed (PR noema#977): `trust/clocks/routing.go` (`Prioritise`, `PriorityLookup`, `Entry`, `Evaluation`, `EventPayload`), `trust/recorder/sla_event.go` (`Writer.AppendSLAEvaluated`), the two package docs.
+- Why: A632/A666: C1 builds the evaluator and `SLA_EVALUATED` against `Lookup(phase)`; EL's PCK-09 table is not on main, so the lookup is a consumer-side interface and EL wires the adapter.
+- Risks, and how they are contained: a table that returns an unknown priority or a queue of another shape is refused, not coerced; the payload names are pinned by a Go test only (no contract schema, see the PR's [OPEN] 1).
+- Tests added (REQ-TRU-006, REQ-AUD-001, INV-16, INV-21, REQ-SEC-004): examples, one rapid property, a source scan, and five real-database tests of the event. Four hand mutants killed (the `>=` floor, the raised flag, the floor branch, the queue shape check).
+- Regression cases added: none (no bug fixed). Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the T12 call site (anchors, `Prioritise`, `AppendSLAEvaluated`) once EL's `priorityrouting.Table` adapter and a production `Anchors` exist; EC-T05 and the time-skip test then close TRU-06.
+- Open questions (Architect): the SLA_EVALUATED payload schema; where the case's current priority lives.
+- Files to read first: `services/core/trust/clocks/routing.go`, `trust/recorder/sla_event.go`.
+- Do not touch: noema#965 (EL's table).
