@@ -84,8 +84,12 @@ func TestRES05InsideTheWindowTheResultWaitsAndBeforeThatNothingIsFrozen(t *testi
 		if res.ValidUntil > deadline {
 			t.Errorf("now=%d: the answer may not hold past the window: %d > %d", now, res.ValidUntil, deadline)
 		}
-		if len(res.Contradictions) != 1 || res.Contradictions[0].Label != pairLabel || res.Contradictions[0].Deadline != deadline {
-			t.Errorf("now=%d: the disagreement and its deadline are recorded, got %+v", now, res.Contradictions)
+		// The pair inside its window is recorded in its own field, with its deadline; the set that causes a freeze is empty (nothing is frozen inside a window).
+		if len(res.InWindow) != 1 || res.InWindow[0].Label != pairLabel || res.InWindow[0].Deadline != deadline {
+			t.Errorf("now=%d: the disagreement and its deadline are recorded in InWindow, got %+v", now, res.InWindow)
+		}
+		if len(res.Contradictions) != 0 {
+			t.Errorf("now=%d: a pair inside its window is not a freezing contradiction, got %+v", now, res.Contradictions)
 		}
 	}
 }
@@ -296,4 +300,71 @@ func TestA659AWaitingAnswerIsAlwaysInsufficientEvidence(t *testing.T) {
 			t.Errorf("now=%d: want a wait and INSUFFICIENT_EVIDENCE, got %s wait=%+v", now, res.Classification, res.Wait)
 		}
 	}
+}
+
+// Codex's P2 on #949: with one pair expired and another still inside its window, the freezing set holds only the expired pair (its label and its evidence), and the waiting pair is visible in
+// its own field. Otherwise a freeze row would carry the waiting pair's label with none of its evidence.
+func TestRES05AMixedResultKeepsTheWaitingPairOutOfTheFreezingSet(t *testing.T) {
+	const expiredPair, waitingPair = "switch_failed_credit_credited", "reversal_conflict"
+	rs := ruleSetWithWindows(t, map[string]int64{expiredPair: 100, waitingPair: 600})
+	ev := []reconcile.Evidence{
+		{ID: "ev_switch", Source: "fin.src.switch", Entity: "switch", Status: reconcile.Known, EffectiveAt: 1000, ExpiresAt: 99999, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("FAILED")}},
+		{ID: "ev_credit", Source: "fin.src.ledger", Entity: "credit", Status: reconcile.Known, EffectiveAt: 1200, ExpiresAt: 99999, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("CREDITED")}},
+		{ID: "ev_reversal", Source: "fin.src.ledger", Entity: "reversal", Status: reconcile.Known, EffectiveAt: 1050, ExpiresAt: 99999, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("POSTED"), "original_debit_linked": predicate.Bool(true)}},
+		{ID: "ev_debit", Source: "fin.src.ledger", Entity: "debit", Status: reconcile.Known, EffectiveAt: 1100, ExpiresAt: 99999, Required: true,
+			Fields: map[string]predicate.Value{"state": predicate.Enum("NOT_POSTED")}},
+	}
+	const now = int64(1200) // the first pair's window ended at 1100; the second's ends at 1650
+	res, err := reconcile.Reconcile(rs, ev, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Classification != reconcile.ContradictoryState || res.Wait != nil || !res.Frozen() {
+		t.Fatalf("want CONTRADICTORY_STATE and no wait, got %s wait=%+v", res.Classification, res.Wait)
+	}
+	if len(res.Contradictions) != 1 || res.Contradictions[0].Label != expiredPair {
+		t.Fatalf("the freezing set holds only the expired pair, got %+v", res.Contradictions)
+	}
+	if got := res.Contributing; !reflect.DeepEqual(got, []string{"ev_credit", "ev_switch"}) {
+		t.Errorf("the evidence is the expired pair's alone, got %v", got)
+	}
+	if len(res.InWindow) != 1 || res.InWindow[0].Label != waitingPair || res.InWindow[0].Deadline != 1050+syntheticWs || res.InWindow[0].A == "" {
+		t.Errorf("the waiting pair is visible in its own field with its deadline, got %+v", res.InWindow)
+	}
+	for _, c := range res.Contradictions {
+		if c.Label == waitingPair {
+			t.Errorf("the waiting pair's label is in the freezing set: %+v", c)
+		}
+	}
+}
+
+// ruleSetWithWindows is ruleSetWith for several pairs (SYNTHETIC windows).
+func ruleSetWithWindows(t *testing.T, windows map[string]int64) *reconcile.RuleSet {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packs", "fintech", "recon_rules", "rules.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range doc["incompatible"].([]any) {
+		e := m.(map[string]any)
+		if w, ok := windows[e["label"].(string)]; ok {
+			e["convergence_window_seconds"] = w
+		}
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := reconcile.ParseRuleSet(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rs
 }
