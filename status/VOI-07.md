@@ -28,3 +28,8 @@ None.
 
 ## Pre-work for the next agent
 - Exact next step: after VOI-06, write the runner that reads annotated sessions, applies the lexicon, and lists the failing utterances (tests first, on synthetic labelled records until real ones exist). Ask C2 about the three locales without a lexicon.
+
+# Session 2026-11-24 · VOI-07 (A636)
+
+- **A636 answers the lexicon question:** Yoruba, Hausa and Igbo are **measured only**, with no lexicon; the demo is in Pidgin (`pcm`) and Nigerian English (`en-NG`). So VOI-07's tests through the lexicon cover `en-NG` and `pcm`; the recordings of `yo`, `ha` and `ig` are still made and measured (VOI-06, VOI-09, G5 unchanged). noema#947 is closed on this ruling.
+- **The vendor host:** The Founder-supplied vendor host is set in the **bench copy** of `allowed_hosts` only; the repository keeps the placeholder `set-by-the-founder.invalid` (the strict URL test forbids the host in any file).
