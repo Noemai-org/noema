@@ -41,7 +41,7 @@ LIMITS = [
     "fintech/limits/trust_limits.json",
 ]
 INJECTION_ID = "fin.ctx.injection_patterns@2"  # the shipped file's own pack_id@version (A664 round 2: the patterns changed, so the version did)
-EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
+EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@2", "injection_patterns_id": INJECTION_ID}
 
 
 def sha256(path: Path) -> str:
@@ -636,13 +636,153 @@ class InjectionGate(Base):
                 self.assertNotIn("at most one", self.messages(self.check(manifest, root)))
 
 
+WINDOW_PAIRS = ("switch_failed_credit_credited", "credit_without_debit", "switch_successful_credit_not_credited")
+WINDOW = "convergence_window_seconds"
+
+
+class ConvergenceWindows(Base):
+    """PCK-05 (A674, A659; REQ-RES-001, REQ-AG-001): rule set version 2 gives every matrix entry one `convergence_window_seconds`. packcheck reads the entity-to-source link from the evidence mapping
+    (no member in the rule file) and requires the window to equal the smaller freshness_sla_seconds of the pair's two sources in the pack file, and the rule file to be labelled SYNTHETIC. SYNTHETIC."""
+
+    def rules(self, root: Path) -> dict:
+        return json.loads((root / RULES).read_text(encoding="utf-8"))
+
+    def repin(self, root: Path, manifest: Path) -> None:
+        def fix(d):
+            for kind, rel in LISTED.items():
+                entry(d, kind)["sha256"] = sha256(root / rel)
+        self.edit(root, manifest, fix)
+
+    def v2_tree(self):
+        """The real files, normalised to the shape A674 asks for, so that a mutant below differs from a good tree in one thing."""
+        root, manifest = self.tree()
+        rules = self.rules(root)
+        rules["version"] = 2
+        rules["incompatible"] = [dict(m, **{WINDOW: 300}) for m in rules["incompatible"] if m["label"] in WINDOW_PAIRS]
+        write(root / RULES, rules)
+        mapping = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        mapping["ruleset"] = "fin.recon.rules@2"
+        write(root / MAPPING, mapping)
+        self.edit(root, manifest, lambda d: d["expected"].__setitem__("recon_rule_set_id", "fin.recon.rules@2"))
+        self.repin(root, manifest)
+        return root, manifest
+
+    def mutate_rules(self, root, manifest, fn):
+        rules = self.rules(root)
+        fn(rules)
+        write(root / RULES, rules)
+        self.repin(root, manifest)
+
+    def test_the_shipped_rule_set_is_version_2_with_the_three_pairs_at_300_seconds(self):
+        rules = self.rules(PACKS)
+        self.assertEqual(rules["version"], 2)
+        self.assertEqual(rules["label"], "SYNTHETIC")
+        self.assertEqual([m["label"] for m in rules["incompatible"]], list(WINDOW_PAIRS))
+        self.assertEqual([m[WINDOW] for m in rules["incompatible"]], [300, 300, 300])
+        self.assertNotIn("reversal_conflict", json.dumps(rules["incompatible"]))  # A674: out of the active list until Tushe answers
+        mapping = json.loads((PACKS / MAPPING).read_text(encoding="utf-8"))
+        self.assertEqual(mapping["ruleset"], "fin.recon.rules@2")
+
+    def test_an_entry_has_no_member_for_the_source(self):
+        # A674 (1): the entity-to-source link is read from the mapping; the rule file gets no new member for it.
+        for m in self.rules(PACKS)["incompatible"]:
+            self.assertLessEqual(set(m), {"label", "a", "b", "unless", WINDOW}, m["label"])
+
+    def test_the_baseline_tree_passes(self):
+        root, manifest = self.v2_tree()
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_window_that_is_not_the_smaller_freshness_of_the_pairs_sources_fails(self):
+        for bad in (299, 301, 60, 600):
+            with self.subTest(bad):
+                root, manifest = self.v2_tree()
+                self.mutate_rules(root, manifest, lambda r, b=bad: r["incompatible"][0].__setitem__(WINDOW, b))
+                self.fails(root, manifest, "switch_failed_credit_credited", WINDOW)
+
+    def test_a_missing_or_malformed_window_fails_and_names_the_pair(self):
+        cases = {"missing": lambda m: m.pop(WINDOW), "zero": lambda m: m.__setitem__(WINDOW, 0), "negative": lambda m: m.__setitem__(WINDOW, -300),
+                 "a string": lambda m: m.__setitem__(WINDOW, "300"), "a float": lambda m: m.__setitem__(WINDOW, 300.0), "a boolean": lambda m: m.__setitem__(WINDOW, True),
+                 "null": lambda m: m.__setitem__(WINDOW, None)}
+        for name, fn in cases.items():
+            for idx, label in enumerate(WINDOW_PAIRS):
+                with self.subTest(f"{name} {label}"):
+                    root, manifest = self.v2_tree()
+                    self.mutate_rules(root, manifest, lambda r, f=fn, i=idx: f(r["incompatible"][i]))
+                    self.fails(root, manifest, label, WINDOW)
+
+    def test_the_window_is_the_smaller_of_the_two_sources_freshness(self):
+        # switch 120 s, destination 300 s, ledger 300 s: the pairs holding the switch need 120, the other stays 300.
+        root, manifest = self.v2_tree()
+        pack = json.loads((root / PACK).read_text(encoding="utf-8"))
+        next(s for s in pack["evidence_sources"] if s["source_id"] == "fin.src.switch")["freshness_sla_seconds"] = 120
+        write(root / PACK, pack)
+        self.repin(root, manifest)
+        self.fails(root, manifest, "switch_failed_credit_credited", "switch_successful_credit_not_credited", WINDOW)
+        self.assertNotIn("credit_without_debit", self.messages(self.check(manifest, root)))
+        self.mutate_rules(root, manifest, lambda r: [m.__setitem__(WINDOW, 120) for m in r["incompatible"] if m["label"] != "credit_without_debit"])
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_the_link_is_read_from_the_mapping(self):
+        # Re-pointing the credit row at the case system (60 s) makes every pair holding the credit need 60, with nothing changed in the rule file.
+        root, manifest = self.v2_tree()
+        mapping = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        next(r for r in mapping["rows"] if r["entity"] == "credit")["source"] = "fin.src.case_system"
+        write(root / MAPPING, mapping)
+        self.repin(root, manifest)
+        self.fails(root, manifest, "switch_failed_credit_credited", "credit_without_debit", "switch_successful_credit_not_credited")
+
+    def test_an_entity_the_mapping_does_not_link_to_a_source_fails(self):
+        root, manifest = self.v2_tree()
+        mapping = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        mapping["rows"] = [r for r in mapping["rows"] if r["entity"] != "switch"]
+        write(root / MAPPING, mapping)
+        self.repin(root, manifest)
+        self.fails(root, manifest, "switch", "switch_failed_credit_credited")
+
+    def test_an_entity_the_mapping_links_to_two_sources_fails(self):
+        root, manifest = self.v2_tree()
+        mapping = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        mapping["rows"].append({"entity": "switch", "source": "fin.src.settlement", "fields": {}})
+        write(root / MAPPING, mapping)
+        self.repin(root, manifest)
+        self.fails(root, manifest, "switch", "switch_failed_credit_credited")
+
+    def test_a_source_the_pack_does_not_declare_fails(self):
+        root, manifest = self.v2_tree()
+        pack = json.loads((root / PACK).read_text(encoding="utf-8"))
+        pack["evidence_sources"] = [s for s in pack["evidence_sources"] if s["source_id"] != "fin.src.destination"]
+        write(root / PACK, pack)
+        self.repin(root, manifest)
+        self.fails(root, manifest, "fin.src.destination")
+
+    def test_a_rule_file_not_labelled_synthetic_fails(self):
+        for name, fn in {"missing": lambda r: r.pop("label"), "another": lambda r: r.__setitem__("label", "PRODUCTION")}.items():
+            with self.subTest(name):
+                root, manifest = self.v2_tree()
+                self.mutate_rules(root, manifest, fn)
+                self.fails(root, manifest, "SYNTHETIC")
+
+    def test_a_version_1_rule_set_is_not_asked_for_windows(self):
+        root, manifest = self.tree()
+        rules = self.rules(root)
+        rules["version"] = 1
+        rules["incompatible"] = [{k: v for k, v in m.items() if k != WINDOW} for m in rules["incompatible"]]
+        write(root / RULES, rules)
+        mapping = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        mapping["ruleset"] = "fin.recon.rules@1"
+        write(root / MAPPING, mapping)
+        self.edit(root, manifest, lambda d: d["expected"].__setitem__("recon_rule_set_id", "fin.recon.rules@1"))
+        self.repin(root, manifest)
+        self.assertEqual(self.check(manifest, root), [])
+
+
 class IdMatch(Base):
     def test_an_expected_id_that_is_not_the_files_id_fails(self):
         cases = (
             ("evidence_mapping_id", "fin.map.v2@1", "fin.map.v1@2"),
             ("evidence_mapping_id", "fin.map.v1@1", "fin.map.v1@2"),
-            ("recon_rule_set_id", "fin.recon.rules@2", "fin.recon.rules@1"),
-            ("recon_rule_set_id", "fin.recon.other@1", "fin.recon.rules@1"),
+            ("recon_rule_set_id", "fin.recon.rules@3", "fin.recon.rules@2"),
+            ("recon_rule_set_id", "fin.recon.other@1", "fin.recon.rules@2"),
         )
         for key, named, carried in cases:
             with self.subTest(named):
