@@ -27,7 +27,7 @@ type RouteScope struct {
 
 // RouteScopes finds the admitted session and intent of a correlation.
 type RouteScopes interface {
-	ScopeFor(ctx context.Context, tenantID, correlationID string) (RouteScope, error)
+	ScopeFor(ctx context.Context, tenantID, correlationID string, session intake.Session) (RouteScope, error)
 }
 
 // RouteRequest is what the worker asks the route step with (A504, interim): the identity of the ask (tenant, correlation, capability) and the two parameters of the step, CaseID and
@@ -35,8 +35,12 @@ type RouteScopes interface {
 // dispatch. CreateReceiptID is not here: the case ID comes from the verified create outcome. Another field, if one is ever needed, goes inside the hash with a test, never outside it.
 // OwnerQueue is the queue the worker planned; it is not a fact for Trust, whose queue is the winning PERMIT rule's param, and a dispatch to another queue is refused by the Controller's
 // params binding. The composition (cmd/core) converts the worker's RouteDecision into this field by field.
+//
+// Session is the one other field (A625, A639; interim, relayed, not yet committed): the principal and role the investigation recorded at its start, read by the orchestrator with its
+// own login and handed to Trust as typed data (TRU-12). It is identity, not a parameter: it selects no capability, target or hash input, and Trust reads nothing of the investigation (BD-05).
 type RouteRequest struct {
 	TenantID, CorrelationID, CaseID, OwnerQueue, CapabilityID string
+	Session                                                   intake.Session
 }
 
 // RouteResult has the same fields, in the same order, as the worker's RouteDecisionResult.
@@ -75,7 +79,7 @@ func (d RouteDecider) DecideRouteAfter(ctx context.Context, r RouteRequest, disp
 	if r.TenantID == "" || r.CorrelationID == "" || r.CaseID == "" || r.CapabilityID == "" {
 		return RouteResult{}, ErrRouteRequest
 	}
-	sc, err := d.Scopes.ScopeFor(ctx, r.TenantID, r.CorrelationID)
+	sc, err := d.Scopes.ScopeFor(ctx, r.TenantID, r.CorrelationID, r.Session)
 	if err != nil {
 		return RouteResult{}, fmt.Errorf("trustport: read the admitted scope: %w", err)
 	}
