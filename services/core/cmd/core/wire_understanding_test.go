@@ -45,8 +45,9 @@ import (
 const undManifestRel = "fintech/manifest.v1.json"
 
 var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json",
-	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json", // A510: the three action graphs are pinned by the manifest too
-	"fintech/context/injection_patterns.v1.json"} // A645: and the injection patterns
+	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json",
+	"fintech/limits/execution_limits.json", "fintech/limits/masking_limits.json", "fintech/limits/session_limits.json", "fintech/limits/trust_limits.json",
+	"fintech/context/injection_patterns.v1.json"} // A510: the three action graphs, (A544) the four limits files and (A645) the injection patterns are pinned by the manifest too
 
 // copyPack copies the real pack and its manifest into a fresh directory, so that a test can break one file of it.
 func copyPack(t *testing.T) string {

@@ -1,0 +1,9 @@
+{
+  "schema_version": "2.0",
+  "pack_id": "fin",
+  "label": "SYNTHETIC",
+  "ambiguity_absolute_floor_bp": 7000,
+  "clock_at_risk_remaining_bp": 2500,
+  "confirmation_ttl_ceiling_ms": 600000,
+  "auto_resolve_margin_bp": 3500
+}

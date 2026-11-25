@@ -87,11 +87,30 @@ func TestAPatternFileThatCarriesAnotherIdThanTheManifestExpectsIsRefused(t *test
 	}
 }
 
-// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the number the Architect's landing order gives, after #910's version 3).
+// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the version after the limits files' 3, A579). A manifest of version 3 or later lists its
+// limits files too, so a world of those versions carries them.
 const patternsFromVersion = 4
 
+func versioned(t *testing.T, v int) *world {
+	t.Helper()
+	w := newWorld(t)
+	if v >= 3 {
+		w = newLimitsWorld(t)
+	}
+	w.ver = v
+	w.seal()
+	return w
+}
+
+// without removes the patterns entry and its expected id and leaves the file on disk, which is what a deleted manifest entry looks like.
 func without(w *world) *world {
-	w.list = w.list[:3]
+	kept := w.list[:0:0]
+	for _, e := range w.list {
+		if e.Kind != kindPatterns {
+			kept = append(kept, e)
+		}
+	}
+	w.list = kept
 	delete(w.exp, "injection_patterns_id")
 	w.seal()
 	return w
@@ -99,9 +118,7 @@ func without(w *world) *world {
 
 func TestAGatedManifestWithoutThePatternsIsRefusedAndAnOlderOneLoadsWithNoPatternData(t *testing.T) {
 	for v := 1; v < patternsFromVersion; v++ {
-		w := newWorld(t)
-		w.version = v
-		p, err := without(w).load()
+		p, err := without(versioned(t, v)).load()
 		if err != nil {
 			t.Errorf("version %d without the kind: %v; want it to load (below the gate)", v, err)
 		}
@@ -110,33 +127,49 @@ func TestAGatedManifestWithoutThePatternsIsRefusedAndAnOlderOneLoadsWithNoPatter
 		}
 	}
 	for _, v := range []int{patternsFromVersion, patternsFromVersion + 1, 99} {
-		w := newWorld(t)
-		w.version = v
-		p, err := without(w).load()
-		if !errors.Is(err, packload.ErrManifest) || len(p.Pack) != 0 {
+		// The entry is deleted and the file is left on disk: that is refused at the gate, never loaded as "no patterns".
+		p, err := without(versioned(t, v)).load()
+		if !errors.Is(err, packload.ErrManifest) || len(p.Pack) != 0 || len(p.InjectionPatterns) != 0 {
 			t.Errorf("version %d without the kind: got %v; want ErrManifest and an empty pack (no opt-in)", v, err)
 		}
 	}
 }
 
-func TestAGatedManifestThatListsThePatternsButNamesNoIdOrTheIdWithoutTheFileIsRefusedAtEveryVersion(t *testing.T) {
+// SR condition 2 (A664): the expected id is read only behind the gate. A version-3 manifest (the version before the gate, which lists its limits files) that names no
+// `expected.injection_patterns_id` and lists no patterns file loads, whatever else is on disk; it neither panics nor reads a missing id.
+func TestAVersionThreeManifestWithNoExpectedPatternsIdLoadsAndDoesNotReadIt(t *testing.T) {
+	w := versioned(t, patternsFromVersion-1)
+	without(w)
+	if _, present := w.exp["injection_patterns_id"]; present {
+		t.Fatal("the world still names the id")
+	}
+	p, err := w.load()
+	if err != nil || len(p.InjectionPatterns) != 0 || p.InjectionPatternsID != "" || len(p.Limits) == 0 {
+		t.Errorf("got %v, patterns %q id %q, %d limits files; want it loaded with its limits and no pattern data", err, p.InjectionPatterns, p.InjectionPatternsID, len(p.Limits))
+	}
+}
+
+func TestAManifestThatListsThePatternsButNamesNoIdOrTheIdWithoutTheFileIsRefusedAtEveryVersion(t *testing.T) {
 	for _, v := range []int{1, patternsFromVersion - 1, patternsFromVersion, patternsFromVersion + 1} {
-		noID := newWorld(t)
-		noID.version = v
+		noID := versioned(t, v)
 		delete(noID.exp, "injection_patterns_id")
 		noID.seal()
 		if _, err := noID.load(); !errors.Is(err, packload.ErrManifest) {
 			t.Errorf("version %d: a pinned file without its expected id: %v; want ErrManifest", v, err)
 		}
-		noFile := newWorld(t)
-		noFile.version = v
-		noFile.list = noFile.list[:3]
+		noFile := versioned(t, v)
+		kept := noFile.list[:0:0]
+		for _, e := range noFile.list {
+			if e.Kind != kindPatterns {
+				kept = append(kept, e)
+			}
+		}
+		noFile.list = kept
 		noFile.seal()
 		if _, err := noFile.load(); !errors.Is(err, packload.ErrManifest) {
 			t.Errorf("version %d: an expected id without a pinned file: %v; want ErrManifest", v, err)
 		}
-		twoNoID := newWorld(t) // two files and no id: the pairing alone would accept it, the count must not
-		twoNoID.version = v
+		twoNoID := versioned(t, v) // two files and no id: the pairing alone would accept it, the count must not
 		twoNoID.write("demo/context/other.json", patternsBody)
 		twoNoID.list = append(twoNoID.list, entry{kindPatterns, "demo/context/other.json", sum(patternsBody)})
 		delete(twoNoID.exp, "injection_patterns_id")
@@ -144,8 +177,7 @@ func TestAGatedManifestThatListsThePatternsButNamesNoIdOrTheIdWithoutTheFileIsRe
 		if _, err := twoNoID.load(); !errors.Is(err, packload.ErrManifest) {
 			t.Errorf("version %d: two pinned pattern files and no expected id: %v; want ErrManifest", v, err)
 		}
-		two := newWorld(t)
-		two.version = v
+		two := versioned(t, v)
 		two.write("demo/context/other.json", patternsBody)
 		two.list = append(two.list, entry{kindPatterns, "demo/context/other.json", sum(patternsBody)})
 		two.seal()
@@ -157,10 +189,7 @@ func TestAGatedManifestThatListsThePatternsButNamesNoIdOrTheIdWithoutTheFileIsRe
 
 func TestAGatedManifestWithItsPatternsLoadsThemVerified(t *testing.T) {
 	for _, v := range []int{patternsFromVersion, patternsFromVersion + 3} {
-		w := newWorld(t)
-		w.version = v
-		w.seal()
-		p, err := w.load()
+		p, err := versioned(t, v).load()
 		if err != nil || string(p.InjectionPatterns) != patternsBody || p.InjectionPatternsID != patternsID {
 			t.Errorf("version %d: %v, patterns %q id %q; want the pinned bytes and the expected id", v, err, p.InjectionPatterns, p.InjectionPatternsID)
 		}
@@ -168,9 +197,7 @@ func TestAGatedManifestWithItsPatternsLoadsThemVerified(t *testing.T) {
 }
 
 func TestAnOlderManifestThatDoesNotListThePatternsServesNoUnpinnedPatternFile(t *testing.T) {
-	w := newWorld(t)
-	w.version = patternsFromVersion - 1
-	without(w)
+	w := without(versioned(t, patternsFromVersion-1))
 	// the file is still on disk (newWorld wrote it) but nobody pinned it
 	p, err := w.load()
 	if err != nil || len(p.InjectionPatterns) != 0 || p.InjectionPatternsID != "" {

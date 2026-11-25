@@ -33,6 +33,13 @@ INJECTION = "fintech/context/injection_patterns.v1.json"  # A645, A664: the inje
 LISTED = {"pack": PACK, "evidence_mapping": MAPPING, "recon_rules": RULES, "injection_patterns": INJECTION}
 # A510: the action graphs the pack names (`action_graph_files`) are pinned too, one `action_graph` entry each.
 GRAPHS = ["fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"]
+# A544 (interim): the limits files of the pack are pinned too, one `limits` entry each (an additive kind, as A510 added `action_graph`).
+LIMITS = [
+    "fintech/limits/execution_limits.json",
+    "fintech/limits/masking_limits.json",
+    "fintech/limits/session_limits.json",
+    "fintech/limits/trust_limits.json",
+]
 INJECTION_ID = "fin.ctx.injection_patterns@1"
 EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
 
@@ -49,13 +56,14 @@ def good_manifest(root: Path) -> dict:
         "note": "SYNTHETIC test manifest.",
         "expected": dict(EXPECTED),
         "files": [{"kind": kind, "path": rel, "sha256": sha256(root / rel)} for kind, rel in LISTED.items()]
-        + [{"kind": "action_graph", "path": rel, "sha256": sha256(root / rel)} for rel in GRAPHS],
+        + [{"kind": "action_graph", "path": rel, "sha256": sha256(root / rel)} for rel in GRAPHS]
+        + [{"kind": "limits", "path": rel, "sha256": sha256(root / rel)} for rel in LIMITS],
     }
 
 
 def build_root(root: Path) -> Path:
     """A pack folder with the three real files, the three real action graphs and a good manifest. Returns the manifest path."""
-    for rel in [*LISTED.values(), *GRAPHS]:
+    for rel in [*LISTED.values(), *GRAPHS, *LIMITS]:
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PACKS / rel, root / rel)
     path = root / "fintech/manifest.v1.json"
@@ -121,9 +129,10 @@ class RealManifest(Base):
     def test_it_is_labelled_synthetic_and_lists_exactly_the_four_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] != "action_graph"}, LISTED)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits")}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
-        self.assertEqual(len(doc["files"]), 7)  # A645: the four kinds and the three action graphs
+        self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "limits"), LIMITS)  # A544
+        self.assertEqual(len(doc["files"]), 11)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -141,7 +150,7 @@ class RealManifest(Base):
 
     def test_every_json_file_of_a_listed_kind_is_listed(self):
         listed = {f["path"] for f in self.load()["files"]}
-        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/context") for p in (PACKS / d).rglob("*.json")}
+        found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
         self.assertEqual(found, listed)
 
@@ -410,6 +419,67 @@ class ActionGraphs(Base):
         root, manifest = self.tree()
         self.set_named(root, manifest, None)
         self.fails(root, manifest, GRAPHS[0])
+
+
+class Limits(Base):
+    """A544 (interim): the pack's limits files are pinned as `limits` entries, every file of the folder, and verified like every other pack file. AGENT-16: a limit is data that a
+    Founder reviews, so a byte changed after the manifest was made refuses the pack; a limits file nobody pinned is a file nobody reviewed."""
+
+    def test_the_real_manifest_pins_every_limits_file_of_the_folder(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        pinned = {f["path"]: f["sha256"] for f in doc["files"] if f["kind"] == "limits"}
+        self.assertEqual(sorted(pinned), LIMITS)
+        on_disk = sorted(str(p.relative_to(PACKS)) for p in (PACKS / "fintech/limits").glob("*.json"))
+        self.assertEqual(sorted(pinned), on_disk)
+        for rel, digest in pinned.items():
+            self.assertEqual(digest, sha256(PACKS / rel), rel)
+
+    def test_a_good_tree_with_the_limits_passes(self):
+        root, manifest = self.tree()
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_changed_byte_in_a_pinned_limits_file_fails_for_each_file(self):
+        for rel in LIMITS:
+            with self.subTest(rel):
+                root, manifest = self.tree()
+                with open(root / rel, "ab") as f:
+                    f.write(b" ")
+                self.fails(root, manifest, rel, "sha256")
+
+    def test_a_limits_file_nobody_pinned_fails(self):
+        root, manifest = self.tree()
+        shutil.copyfile(root / LIMITS[0], root / "fintech/limits/extra_limits.json")
+        self.fails(root, manifest, "extra_limits.json", "not listed")
+
+    def test_a_pinned_limits_entry_whose_file_is_missing_fails(self):
+        root, manifest = self.tree()
+        (root / LIMITS[1]).unlink()
+        self.fails(root, manifest, LIMITS[1], "does not exist")
+
+    def test_a_limits_entry_listed_twice_fails(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: d["files"].append(dict(entry_of(d, LIMITS[2]))))
+        self.fails(root, manifest, LIMITS[2], "twice")
+
+    def test_a_limits_path_that_escapes_or_is_a_symlink_fails(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: entry_of(d, LIMITS[0]).__setitem__("path", "../outside.json"))
+        self.fails(root, manifest, "outside.json")
+        root, manifest = self.tree()
+        outside = root.parent / "outside_limits.json"
+        shutil.copyfile(root / LIMITS[3], outside)
+        (root / LIMITS[3]).unlink()
+        (root / LIMITS[3]).symlink_to(outside)
+        self.fails(root, manifest, LIMITS[3], "symlink")
+
+    def test_a_pack_with_no_limits_needs_no_limits_entry(self):
+        """The kind is additive: a manifest without one is still a manifest (the earlier packs and the test packs have none)."""
+        root, manifest = self.tree()
+        for rel in LIMITS:
+            (root / rel).unlink()
+        self.edit(root, manifest, lambda d: d.__setitem__("files", [f for f in d["files"] if f["kind"] != "limits"]))
+        self.assertEqual(self.check(manifest, root), [])
+
 
 
 class InjectionPatterns(Base):
@@ -763,6 +833,38 @@ class CommandLine(Base):
             fh.write(b" ")
         self.assertEqual(self.run_cli("manifest", str(manifest)).returncode, 1)
 
+
+
+class LimitsRequiredFromVersionThree(Base):
+    """A579 (interim; SOT-C-33): a pack of manifest version 3 or later must list its limits files; there is no opt-in. An older manifest (1, 2) may still list none."""
+
+    def without_limits(self, version: int):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: (d.__setitem__("version", version), d.__setitem__("files", [f for f in d["files"] if f["kind"] != "limits"])))
+        return root, manifest
+
+    def test_the_real_manifest_is_version_three_or_later_and_lists_limits(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(doc["version"], 3)
+        self.assertTrue([f for f in doc["files"] if f["kind"] == "limits"])
+
+    def test_version_three_or_later_without_a_limits_entry_fails(self):
+        for version in (3, 4, 10):
+            with self.subTest(version):
+                root, manifest = self.without_limits(version)
+                self.fails(root, manifest, "limits", str(version))
+
+    def test_an_older_manifest_without_limits_entries_still_passes(self):
+        for version in (1, 2):
+            with self.subTest(version):
+                root, manifest = self.without_limits(version)
+                shutil.rmtree(root / "fintech/limits")  # an older pack has no limits folder (a limits file nobody pinned is refused, test above)
+                self.assertEqual(self.check(manifest, root), [])
+
+    def test_version_three_with_the_limits_passes(self):
+        root, manifest = self.tree()
+        self.edit(root, manifest, lambda d: d.__setitem__("version", 3))
+        self.assertEqual(self.check(manifest, root), [])
 
 if __name__ == "__main__":
     unittest.main()

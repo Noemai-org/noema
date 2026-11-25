@@ -65,6 +65,8 @@ class ManifestSchema(unittest.TestCase):
         def with_version(v, files=True, ident=True):
             d = good()
             d["version"] = v
+            if v >= 3:  # A579: a manifest of version 3 or later lists its limits files
+                d["files"].append({"kind": "limits", "path": "fintech/limits/trust_limits.json", "sha256": HEX})
             if not files:
                 d["files"] = [f for f in d["files"] if f["kind"] != "injection_patterns"]
             if not ident:
@@ -96,7 +98,7 @@ class ManifestSchema(unittest.TestCase):
 
     def test_kinds_are_a_closed_list(self):
         kinds = schema()["properties"]["files"]["items"]["properties"]["kind"]["enum"]
-        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "pack", "recon_rules"])  # A510: the action graphs are pinned too; A645: and the injection patterns
+        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "limits", "pack", "recon_rules"])  # A510: the action graphs are pinned too; A544: the limits files; A645: the injection patterns
 
     def test_the_action_graph_kind_may_repeat_and_an_old_manifest_without_it_still_validates(self):
         doc = good()
@@ -165,6 +167,32 @@ class ManifestSchema(unittest.TestCase):
                 del doc["expected"][key]
                 self.assertTrue(errors(doc))
 
+
+
+class LimitsFromVersionThree(unittest.TestCase):
+    """A579 (interim): the manifest schema requires a `limits` entry from version 3 on; versions 1 and 2 may list none."""
+
+    def doc(self, version: int, limits: bool) -> dict:
+        d = good()
+        d["version"] = version
+        if limits:
+            d["files"].append({"kind": "limits", "path": "fintech/limits/trust_limits.json", "sha256": HEX})
+        return d
+
+    def test_version_three_or_later_without_limits_is_invalid(self):
+        for v in (3, 4, 99):
+            with self.subTest(v):
+                self.assertTrue(errors(self.doc(v, False)))
+
+    def test_version_three_or_later_with_limits_is_valid(self):
+        for v in (3, 4):
+            with self.subTest(v):
+                self.assertEqual(errors(self.doc(v, True)), [])
+
+    def test_versions_one_and_two_need_none(self):
+        for v in (1, 2):
+            with self.subTest(v):
+                self.assertEqual(errors(self.doc(v, False)), [])
 
 if __name__ == "__main__":
     unittest.main()

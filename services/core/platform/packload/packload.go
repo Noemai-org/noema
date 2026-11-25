@@ -40,6 +40,9 @@ type Pack struct {
 	// package has no empty Detector). A551: read-only, derived from the verified bytes, no industry term.
 	InjectionPatterns   []byte
 	InjectionPatternsID string
+	// Limits holds the verified bytes of each limits file the manifest pins (A544), by the path the manifest pins. Which file is which, and what it holds, is the caller's: this package
+	// names none of them. A limits file that is not pinned is never here, and a folder of limits files with one unpinned refuses the pack (ErrUnlisted).
+	Limits map[string][]byte
 }
 
 // The kinds of refusal. Callers compare with errors.Is.
@@ -55,7 +58,7 @@ var (
 	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph` or `injection_patterns`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`, `limits` or `injection_patterns`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -78,9 +81,12 @@ const (
 	kindMapping  = "evidence_mapping"
 	kindRules    = "recon_rules"
 	kindGraph    = "action_graph"
+	kindLimits   = "limits"
 	kindPatterns = "injection_patterns"
 
-	// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the A579 pattern, after the limits files' version 3).
+	// limitsFromVersion is the first manifest version that must list the limits files (A579, interim).
+	limitsFromVersion = 3
+	// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the A579 pattern, the version after the limits files' 3).
 	patternsFromVersion = 4
 	kindManifest        = "manifest"
 )
@@ -149,6 +155,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	listed := map[string]bool{manifest: true}
 	bytesOf := map[string][]byte{}
 	graphs := map[string][]byte{}
+	limits := map[string][]byte{}
 	for _, f := range doc.Files {
 		listed[*f.Path] = true
 	}
@@ -161,9 +168,12 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 		if hex.EncodeToString(sum[:]) != *f.Sha256 {
 			return Pack{}, refuse(ErrHash, *f.Kind)
 		}
-		if *f.Kind == kindGraph {
+		switch *f.Kind {
+		case kindGraph:
 			graphs[*f.Path] = data
-		} else {
+		case kindLimits:
+			limits[*f.Path] = data
+		default:
 			bytesOf[*f.Kind] = data
 		}
 	}
@@ -191,6 +201,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	}
 	p.InjectionPatterns, p.InjectionPatternsID = bytesOf[kindPatterns], patternsID
 	p.ActionGraphs = graphs
+	p.Limits = limits
 	return p, nil
 }
 
@@ -227,7 +238,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindPatterns {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindLimits && k != kindPatterns {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++
@@ -237,6 +248,10 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		paths[*f.Path] = true
 	}
 	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 {
+		return manifestDoc{}, bad
+	}
+	// A579 (interim; SOT-C-33): a manifest of version 3 or later lists its limits files, and a pack whose manifest does not is refused. There is no opt-in.
+	if *doc.Version >= limitsFromVersion && perKind[kindLimits] == 0 {
 		return manifestDoc{}, bad
 	}
 	// A645, A664 (interim; the A579 pattern): the injection patterns are listed exactly once from manifest version patternsFromVersion and none or once below it, always together with their expected id
