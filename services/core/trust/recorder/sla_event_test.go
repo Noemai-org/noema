@@ -110,15 +110,40 @@ func TestARequestThatIsNotAnEvaluationIsRefusedBeforeAnythingIsWritten(t *testin
 	noPriority.Priority = ""
 	noClock := slaEvaluation()
 	noClock.Status.ClockID = ""
+	// A694 (SR on noema#977): the Recorder re-checks what the evaluator promised; a caller that builds an Evaluation by hand gets no further than the refusal.
+	mod := func(f func(e *clocks.Evaluation)) clocks.Evaluation {
+		e := slaEvaluation()
+		f(&e)
+		return e
+	}
+	neg := int64(-1)
 	for name, r := range map[string]recorder.SLARequest{
-		"no tenant":       {CorrelationID: slaCorrelation, Evaluation: good},
-		"bad tenant":      {TenantID: "tenant-a", CorrelationID: slaCorrelation, Evaluation: good},
-		"no correlation":  {TenantID: tenant, Evaluation: good},
-		"bad correlation": {TenantID: tenant, CorrelationID: "case 1", Evaluation: good},
-		"no phase":        {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: noPhase},
-		"no priority":     {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: noPriority},
-		"no clock":        {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: noClock},
-		"zero value":      {},
+		"no tenant":                     {CorrelationID: slaCorrelation, Evaluation: good},
+		"bad tenant":                    {TenantID: "tenant-a", CorrelationID: slaCorrelation, Evaluation: good},
+		"no correlation":                {TenantID: tenant, Evaluation: good},
+		"bad correlation":               {TenantID: tenant, CorrelationID: "case 1", Evaluation: good},
+		"no phase":                      {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: noPhase},
+		"no priority":                   {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: noPriority},
+		"no clock":                      {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: noClock},
+		"zero value":                    {},
+		"negative elapsed":              {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) { e.Status.Elapsed = -1 })},
+		"negative remaining":            {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) { e.Status.Remaining = &neg })},
+		"raised to the lowest priority": {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) { e.Priority = clocks.PriorityLow })},
+		"not started names a start": {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) {
+			e.Status.Phase = clocks.NotStarted
+			e.Status.Elapsed = 0
+			e.Status.Remaining = nil
+			e.Status.DeadlineAt = nil
+		})},
+		"not started names a remaining": {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) {
+			e.Status.Phase = clocks.NotStarted
+			e.Status.Elapsed = 0
+			e.Status.StartedAt = nil
+			e.Status.DeadlineAt = nil
+		})},
+		"running without a start":     {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) { e.Status.StartedAt = nil })},
+		"running without a deadline":  {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) { e.Status.DeadlineAt = nil })},
+		"running without a remaining": {TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: mod(func(e *clocks.Evaluation) { e.Status.Remaining = nil })},
 	} {
 		w := newWorld(t)
 		err := w.appendSLA(t, r, true)
@@ -138,5 +163,19 @@ func TestAnEvaluationForAnotherTenantIsRefusedByTheDatabaseAndLeavesNothing(t *t
 	}
 	if got := w.events(t); len(got) != 0 {
 		t.Fatalf("events remain: %v", got)
+	}
+}
+
+func TestAnOwnerQueueOutsideThePacksShapeIsRefusedBeforeAnythingIsWritten(t *testing.T) { // A694, INV-16: the shape of #984's owner_queue and of the pack's queue
+	for name, q := range map[string]string{"lower case": "synthetic_queue", "leading digit": "1QUEUE", "space": "BAD QUEUE", "newline": "QUEUE\n", "too long": "QABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ"} {
+		e := slaEvaluation()
+		e.OwnerQueue = q
+		w := newWorld(t)
+		if err := w.appendSLA(t, recorder.SLARequest{TenantID: tenant, CorrelationID: slaCorrelation, Evaluation: e}, true); !errors.Is(err, recorder.ErrRequest) {
+			t.Errorf("%s: got %v, want ErrRequest", name, err)
+		}
+		if got := w.events(t); len(got) != 0 {
+			t.Errorf("%s: events remain: %v", name, got)
+		}
 	}
 }

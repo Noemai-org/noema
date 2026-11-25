@@ -1,7 +1,7 @@
 package clocks_test
 
 // REQ-TRU-006 (PERD 23.5; A632, A640, A644, interim, relayed, not yet committed): the routing priority derives from the phase through the pack's priority routing
-// member; priority may be raised, never lowered; a phase with no entry is NORMAL with no queue, and an empty queue means no re-route. The lookup is the consumer-side view of
+// member; priority may be raised, never lowered; a phase with no entry is ErrInvalid (A660: packcheck requires an entry for every phase, so an unlisted phase is a table that cannot be trusted, never a default), and an empty queue means no re-route. The lookup is the consumer-side view of
 // the member (EL's PCK-09 table implements it at composition). Deterministic and replayable (INV-21): no clock, no I/O. Every value here is SYNTHETIC.
 
 import (
@@ -40,13 +40,16 @@ func status(p clocks.Phase) clocks.Status {
 	return clocks.Status{ClockID: "syn.clock.test_72h", Label: contracts.ClockV1LabelSYNTHETIC, Phase: p}
 }
 
-func TestAPhaseWithNoEntryIsNormalWithNoQueueAndNoReroute(t *testing.T) { // REQ-TRU-006, A644
-	ev, err := clocks.Prioritise(status(clocks.AtRisk), "", table{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ev.Priority != "NORMAL" || ev.OwnerQueue != "" || ev.Reroute() || ev.Raised {
-		t.Fatalf("%+v reroute=%v", ev, ev.Reroute())
+func TestAPhaseWithNoEntryIsRefusedAndNeverDefaultsToNormal(t *testing.T) { // REQ-TRU-006, A660, A694: no default queue, no default priority (INV-16)
+	for _, p := range allPhases {
+		ev, err := clocks.Prioritise(status(p), "", table{})
+		if !errors.Is(err, clocks.ErrInvalid) || !reflect.DeepEqual(ev, clocks.Evaluation{}) {
+			t.Errorf("phase %s: got %+v, %v; want ErrInvalid and the zero value", p, ev, err)
+		}
+		ev, err = clocks.Prioritise(status(p), "HIGH", table{})
+		if !errors.Is(err, clocks.ErrInvalid) || !reflect.DeepEqual(ev, clocks.Evaluation{}) {
+			t.Errorf("phase %s with a case priority: got %+v, %v; want ErrInvalid and the zero value", p, ev, err)
+		}
 	}
 }
 
@@ -137,6 +140,12 @@ func TestRoutingIsDeterministicAndNeverLowersForAnyInputs(t *testing.T) { // INV
 			tb[string(phase)] = e
 		}
 		a, err := clocks.Prioritise(status(phase), cur, tb)
+		if !listed {
+			if !errors.Is(err, clocks.ErrInvalid) || !reflect.DeepEqual(a, clocks.Evaluation{}) {
+				t.Fatalf("an unlisted phase must be refused: %+v, %v", a, err)
+			}
+			return
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,9 +155,6 @@ func TestRoutingIsDeterministicAndNeverLowersForAnyInputs(t *testing.T) { // INV
 		}
 		if rank(a.Priority) < rank(cur) || (cur == "" && rank(a.Priority) < 0) {
 			t.Fatalf("lowered or unset: current %q, got %q", cur, a.Priority)
-		}
-		if !listed && (a.OwnerQueue != "" || a.Reroute()) {
-			t.Fatalf("an unlisted phase re-routes: %+v", a)
 		}
 		again, _ := clocks.Prioritise(status(phase), a.Priority, tb) // idempotent: the result is its own floor
 		if again.Priority != a.Priority || again.Raised {
@@ -175,7 +181,7 @@ func TestEventPayloadCarriesEveryFieldAsIntegersAndStrings(t *testing.T) { // RE
 }
 
 func TestEventPayloadOfAClockNotStartedAssumesNothing(t *testing.T) { // PERD 23.5: a missing anchor is never assumed
-	ev, err := clocks.Prioritise(status(clocks.NotStarted), "", table{})
+	ev, err := clocks.Prioritise(status(clocks.NotStarted), "", table{"NOT_STARTED": {Priority: "NORMAL"}})
 	if err != nil {
 		t.Fatal(err)
 	}
