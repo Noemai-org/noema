@@ -120,6 +120,16 @@ class BadMember(Tree):
                 self.change(root, manifest, fn)
                 self.fails(root, manifest, "priority_routing")
 
+    def test_a_null_member_fails(self):
+        """A678 (interim, relayed, not yet committed): the schema wants a string when `note` is present, so `note: null` is refused, as is a null in any other member."""
+        for name, fn in (("note", lambda d: d.update(note=None)), ("table_id", lambda d: d.update(table_id=None)), ("label", lambda d: d.update(label=None)),
+                         ("version", lambda d: d.update(version=None)), ("phases", lambda d: d.update(phases=None)),
+                         ("priority", lambda d: d["phases"]["RUNNING"].update(priority=None)), ("owner_queue", lambda d: d["phases"]["RUNNING"].update(owner_queue=None))):
+            with self.subTest(name):
+                root, manifest = self.member_tree()
+                self.change(root, manifest, fn)
+                self.fails(root, manifest, "priority_routing")
+
     def test_a_changed_member_fails_its_pin(self):
         root, manifest = self.member_tree()
         doc = real()
