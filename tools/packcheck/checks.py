@@ -791,7 +791,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
 
 def _priority_routing_problems(member: Path | None, pack_file: Path | None, root: Path) -> list[Problem]:
     """PCK-09 (A644, A616): the priority routing member is valid against its schema (priority HIGH|NORMAL|LOW, a non-empty owner queue, nothing unknown), and every phase it
-    routes is one the verified pack names in predicate_variables.sla_phase and every queue is one of the pack's routing_allowlist."""
+    routes is one the verified pack names in predicate_variables.sla_phase and every queue is one of the pack's routing_allowlist. A660: every phase of sla_phase
+    (the clock statuses; a test ties the list to trust/clocks) must have an entry."""
     if member is None:
         return []
     rel = member.relative_to(root).as_posix() if not member.is_symlink() else member.name
@@ -816,6 +817,9 @@ def _priority_routing_problems(member: Path | None, pack_file: Path | None, root
             out.append(("manifest", f"{rel} (priority_routing): phase {phase!r} is not one the pack's sla_phase names"))
         if not isinstance(queues, list) or e["owner_queue"] not in queues:
             out.append(("manifest", f"{rel} (priority_routing): phase {phase!r} routes to {e['owner_queue']!r}, which is not in the pack's routing_allowlist"))
+    for phase in phases if isinstance(phases, list) else []:
+        if phase not in body["phases"]:
+            out.append(("manifest", f"{rel} (priority_routing): the pack's sla_phase {phase!r} has no entry"))
     return out
 
 

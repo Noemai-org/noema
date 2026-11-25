@@ -39,7 +39,7 @@ const (
 	maxNote   = 4000
 )
 
-// Entry is what a phase routes to. A phase the member does not list is Entry{Priority: Normal} with no queue.
+// Entry is what a phase routes to. A phase the member does not list has no Entry: Lookup gives the zero Entry and false (A660).
 type Entry struct {
 	Priority   Priority
 	OwnerQueue string
@@ -110,14 +110,15 @@ func Parse(raw []byte) (*Table, error) {
 	return t, nil
 }
 
-// Lookup gives what a phase routes to and true, or, for a phase the member does not list, Entry{Priority: Normal} with no queue and false (A644). The result is a copy.
+// Lookup gives what a phase routes to and true, or, for a phase the member does not list, the zero Entry and false (A660: fail-closed, no silent NORMAL; packcheck requires an
+// entry for every clock status, so an unlisted phase at run time is a fault the caller must treat as such). The result is a copy.
 func (t *Table) Lookup(phase string) (Entry, bool) {
 	if t != nil {
 		if e, ok := t.entries[phase]; ok {
 			return e, true
 		}
 	}
-	return Entry{Priority: Normal}, false
+	return Entry{}, false
 }
 
 // Phases lists the phases the member routes, sorted. It is a copy: changing it changes nothing.

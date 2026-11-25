@@ -2,7 +2,7 @@
   "table_id": "fin.priority_routing",
   "version": 1,
   "label": "SYNTHETIC",
-  "note": "The priority routing member of the fintech pack (PCK-09; ruling A644, interim, relayed, not yet committed). It maps each SLA phase the pack names (predicate_variables.sla_phase) to a priority (HIGH, NORMAL or LOW) and the owner queue the case goes to (a queue in routing_allowlist). A phase with no entry is NORMAL. Every value is SYNTHETIC and is not a Founder-approved routing policy; the Founders set the real values (AGENT-16). Pack data (SoT 51).",
+  "note": "The priority routing member of the fintech pack (PCK-09; ruling A644, interim, relayed, not yet committed). It maps each SLA phase the pack names (predicate_variables.sla_phase) to a priority (HIGH, NORMAL or LOW) and the owner queue the case goes to (a queue in routing_allowlist). Every phase the pack names must have an entry (A660, interim, relayed, not yet committed); packcheck refuses a pack that misses one. Every value is SYNTHETIC and is not a Founder-approved routing policy; the Founders set the real values (AGENT-16). Pack data (SoT 51).",
   "phases": {
     "NOT_STARTED": {
       "priority": "LOW",

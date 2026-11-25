@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://packs.noema.invalid/fintech/schemas/priority_routing.v1.json",
   "title": "fin.priority_routing",
-  "description": "The priority routing member of a pack (PCK-09; ruling A644, interim, relayed, not yet committed): for each SLA phase, a priority (HIGH, NORMAL or LOW) and the owner queue. A phase with no entry is NORMAL (the reader's rule, not a member of this file). `tools/packcheck manifest` also checks that every phase is one the pack's sla_phase names and every queue is in the pack's routing_allowlist; the Go reader (`platform/priorityrouting`) refuses the same shapes. Pack data (SoT 51); a change is reviewed by a Founder (AGENT-16). SYNTHETIC.",
+  "description": "The priority routing member of a pack (PCK-09; ruling A644, interim, relayed, not yet committed): for each SLA phase, a priority (HIGH, NORMAL or LOW) and the owner queue. Every phase of the pack's sla_phase (the clock statuses) must have an entry (A660, interim, relayed, not yet committed), and the Go reader gives no default for a phase it does not list. `tools/packcheck manifest` also checks that every phase is one the pack's sla_phase names, that none is missing, and every queue is in the pack's routing_allowlist; the Go reader (`platform/priorityrouting`) refuses the same shapes. Pack data (SoT 51); a change is reviewed by a Founder (AGENT-16). SYNTHETIC.",
   "type": "object",
   "properties": {
     "table_id": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)*$", "not": {"pattern": "\n"}},

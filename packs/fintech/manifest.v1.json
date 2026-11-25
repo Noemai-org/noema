@@ -41,7 +41,7 @@
     {
       "kind": "priority_routing",
       "path": "fintech/routing/priority_routing.v1.json",
-      "sha256": "e2f1665a6624a3404549d033ee0575c5e57d2915c7cb29eb5be5b9f9ec21f786"
+      "sha256": "cdac3b2d7eadadb1284b12f641cd7897274620f6f0c560d9be4116965ce897ab"
     }
   ]
 }
