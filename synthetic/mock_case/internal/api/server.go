@@ -19,6 +19,7 @@ import (
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/config"
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/faultplan"
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/store"
+	"github.com/Noemai-org/noema/synthetic/mock_case/internal/webhook"
 )
 
 //go:embed openapi.json
@@ -41,6 +42,8 @@ type Server struct {
 	auth   *auth.Authenticator
 	log    *slog.Logger
 
+	hooks *webhook.Sender // nil unless MOCK_CASE_WEBHOOK_TARGET_URL and MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE are set (A682)
+
 	clkMu sync.Mutex
 	clk   clock.Clock
 	sim   *clock.Simulated
@@ -59,7 +62,9 @@ func New(cfg *config.Config, st *store.Store, log *slog.Logger) *Server {
 			a = scoped
 		}
 	}
-	return &Server{cfg: cfg, st: st, engine: faultplan.NewEngine(), auth: a, log: log, clk: clock.System{}}
+	srv := &Server{cfg: cfg, st: st, engine: faultplan.NewEngine(), auth: a, log: log, clk: clock.System{}}
+	srv.hooks = buildHooks(srv)
+	return srv
 }
 
 // forbidTenant answers a write that names another tenant than the credential's own.
