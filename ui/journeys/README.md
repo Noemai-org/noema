@@ -50,7 +50,7 @@ NOEMA_UI_E2E_TOKEN_DIR=../benchmark/out/idp/tokens \
 npm run test:stack
 ```
 
-Optional `NOEMA_UI_E2E_MANIFEST` overrides the committed BEN-23 manifest path. The test fails closed if a case has no completed runner result, correlation ID or principal token. It adds no expected output to BEN-23; it asserts only core-issued public stage/contract data and the real SSE frame contract.
+Optional `NOEMA_UI_E2E_MANIFEST` overrides the committed BEN-23 manifest path. The token directory defaults to `../benchmark/out/idp/tokens` (the `make bench-journey-tokens` output); set `NOEMA_UI_E2E_TOKEN_DIR` only when `BENCH_OUT` points elsewhere. The test fails closed if a case has no completed runner result, correlation ID or principal token. It adds no expected output to BEN-23; it asserts only core-issued public stage/contract data and the real SSE frame contract.
 
 ## Known backend/runner gates
 
