@@ -214,3 +214,25 @@ def test_the_merged_lexicon_digest_changes_when_a_numeral_changes() -> None:
 def test_a_direction_phrase_is_data_and_a_phrase_that_names_two_values_is_refused() -> None:
     with pytest.raises(ConfigError):
         Lexicon.from_mapping(variant(lambda r: r["directions"].append({"word": "sent me", "value": "OUTGOING", "mark": "[synthetic seed]"})))
+
+
+# --- a hyphen joins two numeral words and nothing else (Codex's P2 on noema#951) ---------------------------------------------------------------
+# "-twenty thousand" must not become 20,000: a sign is not a separator. Digits refuse the sign ("-20k"), so words refuse it too. The hyphen of "twenty-five" stays.
+
+@pytest.mark.parametrize("surface", [
+    "-twenty thousand", "twenty thousand-", "--twenty thousand", "twenty thousand --", "- twenty thousand", "twenty thousand -", "twenty--five thousand", "twenty - five thousand",
+    "twenty -five thousand", "twenty- five thousand", "-", "--", "-twenty", "twenty-", "-twenty-five thousand", "twenty-five-thousand-",
+])
+def test_a_sign_or_a_stray_hyphen_is_not_a_separator_so_the_amount_is_unread(surface: str) -> None:
+    assert read(f"I sent {surface} to Tunde", surface).amount_minor is None, surface
+
+
+@pytest.mark.parametrize("surface,minor", [
+    ("twenty-five thousand", 2_500_000), ("twenty-five thousand naira", 2_500_000), ("one hundred and twenty-five", 12_500), ("ninety-nine", 9_900), ("twenty-thousand", 2_000_000),
+])
+def test_a_single_hyphen_between_two_numeral_words_still_reads(surface: str, minor: int) -> None:
+    assert read(f"I sent {surface} to Tunde", surface).amount_minor == minor, surface
+
+
+def test_a_minus_sign_before_digits_and_before_words_agree() -> None:
+    assert read("I sent -20k", "-20k").amount_minor is None and read("I sent -twenty thousand", "-twenty thousand").amount_minor is None
