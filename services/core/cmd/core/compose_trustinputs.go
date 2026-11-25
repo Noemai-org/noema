@@ -63,6 +63,7 @@ type trustInputs struct {
 	Ownership intake.Ownership
 	Evidence  intake.Evidence
 	Policies  intake.Policies
+	Clocks    intake.Clocks
 	Gaps      []string
 }
 
