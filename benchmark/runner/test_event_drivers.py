@@ -141,6 +141,21 @@ class Resume(unittest.TestCase):
         self.assertEqual(message, f"Bearer {ADMIN_TOKEN}", "the later turn travels with the token the resume obtained")
         self.assertEqual(result["turns"], 2)
 
+    def test_a_resume_does_not_move_the_simulated_clock_a682(self) -> None:
+        """A682: a resume does not move the simulated clock (offsets order events and are not waited for; only `clock_advance` moves it)."""
+        lc = with_timeline(plain_case(), ["session_resume:same_channel"], turns=["The one ending 1234"], at="+02:00:00")
+        with Rig() as rig:
+            moved: list[str] = []
+
+            def advance(by: str) -> Json:
+                moved.append(by)
+                return {}
+
+            rig.env.control.advance = advance  # type: ignore[method-assign]
+            result = run_case(rig.env, lc)
+        self.assertEqual(result["status"], "COMPLETED", result["error"])
+        self.assertEqual(moved, [], "a resume at +02:00:00 moves nothing")
+
     def test_the_resume_keeps_the_conversation_and_the_channel(self) -> None:
         lc = with_timeline(plain_case(), ["session_resume:same_channel"], turns=["The one ending 1234"])
         with Rig() as rig:

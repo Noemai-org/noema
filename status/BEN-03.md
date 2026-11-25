@@ -79,6 +79,6 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Tests added (REQ-BEN-002, AGENT-12, A667): 15, seen failing first (5 failures, 6 errors). Regression cases added: none. Debt entries: none. Conflicts raised: none.
 
 ## Pre-work for the next agent
-- Exact next step: the environment owner (IL, EL) defines how a webhook reaches the core in the benchmark world and supplies a `WebhookSender`; the runner then needs one flag to build it.
-- Open questions (Architect): (1) the interface: a control endpoint on mock-case, or a signed delivery to the relay (then the runner holds the signing secret: SR); (2) whether a resume should bring the simulated clock to its offset (this build does not).
+- Exact next step: A682 settles the transport: IL adds a mock-case control endpoint that delivers webhooks through the relay path, signed with mock-case's own SYNTHETIC key. When it exists, the runner gets a sender that calls it (one small PR: a `MockCaseControl` method and the flag); until then a webhook case stays an ERROR.
+- Open questions (Architect): (1) the interface: a control endpoint on mock-case, or a signed delivery to the relay (then the runner holds the signing secret: SR); (2) settled by A682: a resume does not move the simulated clock (a test pins it).
 - Do not touch: the held-out set and the oracle (INV-22).
