@@ -120,9 +120,22 @@ func TestWritesAnswersFromThePacksOwnPredicateAndSlotValues(t *testing.T) { // R
 	if !strings.Contains(w.Predicate, "question_type == 'ESCALATION_REQUEST'") {
 		t.Fatalf("the pack's predicate changed (%q): update this test with it", w.Predicate)
 	}
+	// Every other required slot of the node gets a value (the first of its vocabulary, or an opaque synthetic text), so that only the slots the predicate names decide the answer.
 	at := func(slots map[string]string) intake.AdmittedIntent {
 		a := tiIntent("ten_aa", "usr_alice", node, "")
-		a.Slots = slots
+		a.Slots = map[string]string{}
+		for _, s := range w.Slots {
+			if !s.Required {
+				continue
+			}
+			a.Slots[s.Name] = "SYNTHETIC-1"
+			if len(s.Vocabulary) > 0 {
+				a.Slots[s.Name] = s.Vocabulary[0]
+			}
+		}
+		for k, v := range slots {
+			a.Slots[k] = v
+		}
 		return a
 	}
 	ctx := tiDeadline(t)
@@ -218,6 +231,7 @@ func TestWritesWithAnInvalidPartIsAnErrorThatQuotesNothing(t *testing.T) { // RE
 	})
 	cases := map[string]func(*trustInputsIn){
 		"a zero bound":            func(in *trustInputsIn) { in.Timeout = 0 },
+		"a tenant with no login":  func(in *trustInputsIn) { in.Tenants = append(in.Tenants, "ten_zz") },
 		"a predicate that breaks": func(in *trustInputsIn) { in.Pack = broken },
 	}
 	for name, mut := range cases {

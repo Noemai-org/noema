@@ -29,8 +29,8 @@ import (
 // compose_trustinputs.go builds the six Trust inputs of lane 2 of the G1 final composition (STM-01; A537, A469, A475, interim, relayed, not yet committed): Ownership, Writes, Evidence,
 // Reconciler, Policies and Clocks. REQ-STM-001, REQ-TRU-001 to REQ-TRU-007, REQ-CTX-003, REQ-CTX-004; INV-11, INV-12, INV-14, INV-16, INV-19; AGENT-13, AGENT-16.
 //
-// Three are built: Ownership (the pack's ownership data only, one instance per served tenant), Evidence and Policies. Three are named gaps whatever is given, because what they need is
-// not on main and is not invented (AGENT-20): Writes (its rule is a predicate over slot values, which the admitted intent does not carry), Reconciler (the pack carries neither the
+// Four are built: Writes (compose_writes.go: the tenant's kill switch and the pack's write_when rule; A684 step 1), Ownership (the pack's ownership data only, one instance per served
+// tenant), Evidence and Policies. Two are named gaps whatever is given, because what they need is not on main and is not invented (AGENT-20): Reconciler (the pack carries neither the
 // escalation reason of a classification nor the capabilities allowed under a freeze) and Clocks (no routing of a phase, no anchor-event mapping, and the trust limits are not pinned
 // by the manifest). A component whose part is absent is a gap too: the field stays nil, and /readyz names it by its TrustAdapters field name. A value that is present and invalid is an
 // error. Nothing is dialled, and no error carries a tenant, a path or a word of the pack.
