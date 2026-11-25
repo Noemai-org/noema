@@ -20,6 +20,7 @@ from noema_model.providers.llm.base import Transport
 from noema_model.providers.llm.replay import ReplayFixturesRefused, ReplayTransport
 
 ENV_PROFILE = "NOEMA_PROFILE"  # the name the evil provider already requires (benchmark/evil_provider); it must be `bench` there
+ENV_PROVIDER_PROFILE = "NOEMA_MODEL_PROVIDER_PROFILE"  # A679 (the name only; the behaviour follows in the green commit)
 ENV_REPLAY_FIXTURES = "NOEMA_MODEL_REPLAY_FIXTURES_DIR"  # the recorder's output directory (`fixtures reduce`); a new setting (A330; A635 approves the switch)
 
 PROFILES = frozenset({"dev", "ci", "bench", "demo", "test"})
