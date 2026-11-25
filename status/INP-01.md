@@ -1,6 +1,6 @@
 # Status · INP-01 · conversation continuity (design note)
 
-Updated 2026-11-23 (refreshed by the Repo Steward; see the session section at the end) · Author: Core Engineer 2 (C2) · State: DESIGN NOTE ONLY. No code, no test, no contract change in this change. It decides nothing itself; the five open points of 17 Nov were answered by the Architect's rulings A320 and A404 (below).
+Updated 2026-11-25 (A666 decisions; the Steward's refresh of 23 Nov and this session are at the end) · Author: Core Engineer 2 (C2) · State: DESIGN NOTE ONLY. No code, no test, no contract change in this change. The decisions in it come from the Architect's rulings A320, A404 and A666 (below).
 
 ## Task card
 
@@ -23,7 +23,7 @@ Updated 2026-11-23 (refreshed by the Repo Steward; see the session section at th
 | Version storage | `migrations/0026_admitted_intent.sql`: primary key `(tenant_id, intent_id, version)`, a check that version 1 has no `supersedes` and a later version has one, and a foreign key from `prev_version` to the same intent. So the store already **refuses a gap and a second version N+1 with the same key**: the optimistic lock of REQ-INT-004 exists as a constraint. |
 | Contract | `intent-object` carries `supersedes: <intent_id>@<version>` (`CommonV1IntentRef`). The enum comment says SUPERSEDED status was removed: supersession is the link, not a status. |
 | Canonical input | `conversation_ref` is an optional field typed `inv_` + 2..32 letters/digits (`InvestigationId`). The Interpreter port (#661, merged) builds the canonical input and does not set `conversation_ref` (checked in `portadapters/interpreter/port.go`): today every turn is a first turn. |
-| `conversation_ref` value | The same value as `investigation_id`: `inv_` + the ULID of the first turn's correlation id (A234, `cmd/core/conversations.go`). A follow-up carries the first turn's id in `conversation_ref` but gets its **own** correlation id. |
+| `conversation_ref` value and the ids | `conversation_ref` is the same value as `investigation_id`: `inv_` + the ULID of the first turn's correlation id (A234, `cmd/core/conversations.go`). Three ids must not be confused. (a) The **chain correlation id** is the first turn's, stored on the investigation; every version of an intent carries it (`0026`: `UNIQUE (tenant_id, correlation_id, version)`, the foreign key to the previous version includes `correlation_id`, and the stored document's `correlation_id` must equal the column), so a follow-up's N+1 **must carry the chain's id, not a new one**. (b) The **request id** of each turn is minted by the Gateway on the authenticated path (A598, A581); it never comes from a client header or body, and it is the log and Record-event request id only. (c) A caller's `traceparent` is untrusted data (dropped in REC-02 slice 1, #944); it is never an identity. `conversation_ref` is a lookup key under the verified session's tenant and principal, **never an identity** by itself. |
 | Record vocabulary | `INVESTIGATION_RESUMED` is in `record-event` v1 and v2. `INTENT_SUPERSEDED` exists as a void reason in `execution/controller` and in the grant-void reason enum. `INVESTIGATION_RESUMED` is only in the vocabulary: no code writes it yet. |
 | Model service | The pack (`packs/fintech_v1.json`) already lists `CONTRADICTS_PRIOR_TURN` as a proposable flag with its yes/no question, and the compiler's tests use it. **The compile request has no field that carries the prior intent** (no `prior_intent` anywhere in the Go, Python or contract sources), so the model cannot see what was said before. Per A404 it stays that way. |
 | Not built | The edge route for a follow-up turn on an existing conversation; the lookup of the open investigation by `conversation_ref` and principal; the compile call "in the context of the open Intent Object"; the write of N+1 with `supersedes`; the void of N's decision, grant and confirmation; the `INVESTIGATION_RESUMED` event. |
@@ -57,18 +57,23 @@ Updated 2026-11-23 (refreshed by the Repo Steward; see the session section at th
 
 Faults: the store insert failing after the compile (nothing admitted, nothing voided), and the model service down (the follow-up fails closed with the open intent unchanged). Both come from the real store and a stopped service, not mocks.
 
-## Open points (all five of 17 Nov are answered; one new point is added)
+## Decisions (A666 takes the safer default for each point; none adds a threshold, a dependency or a contract change)
 
-1. **Terminal-state follow-up. Answered (A320, A404):** refuse and ask for a new request, until a decision record says otherwise.
-2. **A contract change for `prior_intent`. Answered (A320, A404):** no `prior_intent` contract change.
-3. **Is the deterministic contradiction rule enough for the POC? Answered (A320, A404):** the rule is deterministic in the gate and the model's flag is advisory.
-4. **Who voids. Answered (A320, A404, D8):** no eager void; lazy refusal at spend and execute.
-5. **Rate and size of a conversation. Answered (A404):** no cap.
-6. **New: how the compile call gets the prior turn, with no contract change.** REQ-INP-004 says Understanding compiles the turn in the context of the open Intent Object, and A404 rules out `prior_intent`. Is "compile the new turn alone; the gate compares N and N+1" the intended design, or is there another path? **Owner: Architect.**
+A666 (interim, `DEC-2026-11-25-architect-rulings-a657-a667`): for each of C2's open questions, take C2's stated safer default; it is final unless it adds a threshold, a dependency or a contract change. Points 1 to 5 were already answered by A320 and A404 and are restated as decisions. Points 6 and 7 are the two the review added; their safer defaults are taken here and marked.
+
+1. **Terminal-state follow-up:** refused; the customer is asked for a new request, until a decision record says otherwise (A320, A404).
+2. **A contract change for `prior_intent`:** none (A320, A404). The compile request keeps its present shape.
+3. **Contradiction rule:** deterministic in the gate; the model's flag is advisory (A320, A404). The exact rule in design 5 (the pack lists the flag and the slot values of N+1 differ from N in a slot N had resolved) is **the author's proposal under that ruling**, to be confirmed by the first red tests, not text the ruling gives.
+4. **Who voids:** nobody at admit time (D8, A404). A grant minted under N is refused at spend and execute. REQ-INT-004's wording ("version N+1 voids any decision, grant or confirmation tied to N") is unchanged; A404 and D8 are the authority for reading it lazily. Whether the PERD needs a rewording like A312's (TRU-08) is a question for the Steward; nothing here depends on the answer, because the controller's E3 check (`controller.go:77-82`, the grant's `IntentHash` against `LatestIntentHash`) already refuses. The first red test proves it on the real controller (test 5).
+5. **Rate and size of a conversation:** no cap (A404).
+6. **How the compile call gets the prior turn (safer default taken):** compile the new turn alone, with no contract change; the gate compares N and N+1. The model sees nothing of the prior turn, so there is nothing to mask or to be injected through it. Nothing is added: no threshold, no dependency, no contract member.
+7. **How N+1 carries the chain id (safer default taken, from EL's finding 1):** the core writes the investigation's chain correlation id into the canonical input and the Intent Object of a follow-up; the request id stays the log and Record-event request id. No migration. **If the first red test shows this needs a migration or a contract change, the build stops and says so** (a migration is Tier 1 and needs an independent read, A463).
+
+SR's asks for the build stand: any prior-turn text given to a model is masked (no account number, no digit run over four); tenant, principal and `conversation_ref` are written by the core from the session and never taken from the compile response; any new migration is Tier 1.
 
 ## Pre-work for the next agent
 
-- Exact next step: points 1 to 5 are answered, so no contract task is needed. Point 6 is open (owner: Architect). Start with tests 2, 4, 5 and 6, which need no contract change, as one red PR, read the whole red run, then implement.
+- Exact next step: all seven points are decided (A320, A404, A666). No contract task is needed. Start with test 5 (the real controller refuses a grant minted under N once N+1 is admitted), test 6 (the property over stored versions) and a new test for decision 7 (a follow-up inserts N+1 under the chain's correlation id and `Latest` returns it), as one red PR; then tests 2 and 4; read the whole red run, then implement.
 - Files to read first: `migrations/0026_admitted_intent.sql`, `migrations/0027_decision_input_key.sql`, `cmd/core/conversations.go`, `understanding/interpreter/interpreter.go`, `orchestrator/portadapters/interpreter/port.go` (#661), `execution/controller/controller.go` (lines 70 to 110), PERD REQ-INP-004, REQ-INT-004, PUS-08.
 - Do not touch: `contracts/` (without the AGENT-15 steps), trust and outcome internals, the frozen `benchmark/decisions/`.
 
@@ -82,3 +87,9 @@ Faults: the store insert failing after the compile (nothing admitted, nothing vo
 - What changed: this file only (docs, `status/`). The five open points are marked answered with their source (A320 and A404, `DEC-2026-11-18-architect-rulings-a317-a328` and `DEC-2026-11-20-architect-rulings-a358-a453`; D8 of Block D). The design is corrected to match: the `prior_intent` member is withdrawn (design 3); the invented retry rule is removed (design 4: the loser is recompiled, exactly as REQ-INT-004 says); the void at admit time is removed in favour of the lazy refusal at spend and execute (design 6, test 5); the terminal-state refusal is a ruling (design 2, test 7). The facts table is re-read at `cca1ff55` (#661 merged; no `prior_intent` anywhere). A new open point 6 asks how the compile call gets the prior turn.
 - Not changed: C2's other claims, which were not re-verified (the decision-key claim in design 7 stays "not verified").
 - Debt entries: none. Conflicts raised: none.
+
+## Session 2026-11-25 · C2 (A666)
+
+- What changed: this file only (docs, `status/`). The correlation-id statement is corrected (three ids, the chain id and the Gateway's request id are different things; a follow-up's N+1 carries the chain id; `traceparent` is untrusted; `conversation_ref` is a lookup key, not an identity). The open-points section is now a decisions section: points 1 to 5 restated, point 6 and the new point 7 decided on the safer default (EL's finding 1), the exact contradiction rule marked as the author's proposal (EL's note 3), and REQ-INT-004's lazy reading tied to A404 and D8 (EL's finding 2). #685 is closed (superseded by #944).
+- Tests added: none (note only; red-first does not apply to a note-only change). Debt entries: none. Conflicts raised: none. Docs-only, SYNTHETIC examples only (none added).
+- Open for the Steward: whether PERD REQ-INT-004 needs a rewording like A312's.
