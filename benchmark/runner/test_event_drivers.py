@@ -202,6 +202,46 @@ class Support(unittest.TestCase):
         self.assertEqual(reasons_for(lc, webhooks=True), set())
         self.assertEqual(reasons_for(with_timeline(plain_case(), ["session_resume:same_channel"])), set())
 
+    def test_support_applies_the_start_position_check_the_run_applies_a689(self) -> None:
+        """A689: `--support` says what a run would do. An event that sits at the start of the timeline, where only a kill switch and a clock advance are driven, makes the run an ERROR
+        (EVENT_AT_START_UNSUPPORTED), so the report must block that case too, and name the reason."""
+        from benchmark.runner.support import reasons_for
+        lc = with_timeline(plain_case(), ["confirm:ACCEPT"], at="+00:00:00")
+        self.assertEqual(reasons_for(lc), {"event at start: confirm"})
+        with Rig() as rig:
+            result = run_case(rig.env, lc)
+        self.assertEqual(result["error"]["code"], "EVENT_AT_START_UNSUPPORTED", "the run and the report agree")
+
+    def test_a_driven_kind_at_the_start_is_blocked_in_the_report_even_with_a_sender(self) -> None:
+        from benchmark.runner.support import reasons_for
+        lc = with_timeline(plain_case(), ["webhook:settlement_updated", "session_resume:same_channel"], at="+00:00:00")
+        self.assertEqual(reasons_for(lc, webhooks=True), {"event at start: session_resume", "event at start: webhook"})
+
+    def test_a_kill_switch_and_a_clock_advance_at_the_start_are_not_blocked(self) -> None:
+        from benchmark.runner.support import reasons_for
+        lc = with_timeline(plain_case(), ["kill_switch:on", "clock_advance:PT31S"], at="+00:00:00")
+        self.assertEqual(reasons_for(lc), set())
+
+    def test_every_case_of_the_suite_the_run_refuses_at_the_start_is_blocked_by_name_in_the_report(self) -> None:
+        from benchmark.runner.drivers import misplaced_at_start
+        from benchmark.runner.support import reasons_for
+        from benchmark.runner.test_run import suite
+        refused = [lc for lc in suite().cases if misplaced_at_start(lc.case)]
+        self.assertTrue(refused, "the generated suite has cases with an event at the start")
+        for lc in refused:
+            self.assertTrue(any(r.startswith("event at start: ") for r in reasons_for(lc)), lc.case["case_id"])
+
+    def test_the_readme_states_the_runnable_count_the_report_computes(self) -> None:
+        import re
+        from pathlib import Path
+        from benchmark.runner.support import report
+        from benchmark.runner.test_run import suite
+        found = report(suite())
+        readme = (Path(__file__).resolve().parent / "README.md").read_text(encoding="utf-8")
+        match = re.search(r"\*\*(\d+) of (\d+) can run\*\*", readme)
+        assert match, "the README states the count"
+        self.assertEqual((int(match.group(1)), int(match.group(2))), (found["runnable"], found["total"]))
+
 
 if __name__ == "__main__":
     unittest.main()
