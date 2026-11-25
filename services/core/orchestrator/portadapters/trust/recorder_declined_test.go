@@ -82,9 +82,9 @@ func TestADeclinedRejectCarriesItsRequestIDToTheWriterUnchanged(t *testing.T) {
 	}
 }
 
-// A REJECT with no declined request, for the declined reason or any other, maps an empty value; the rest of the mapping is as before.
-func TestARejectWithoutADeclinedRequestMapsEmpty(t *testing.T) {
-	for _, reason := range []string{"DECLINED_BY_APPROVER", "NOT_AUTHORIZED", "POLICY_VERSION_MISMATCH"} {
+// A REJECT for any reason but the approver's decline carries no declined request, and the empty value maps empty; the rest of the mapping is as before.
+func TestARejectForAnotherReasonMapsAnEmptyDeclinedRequest(t *testing.T) {
+	for _, reason := range []string{"NOT_AUTHORIZED", "POLICY_VERSION_MISMATCH"} {
 		_, w, err := dclRecord(t, dclRequest(t, "REJECT", reason), 0)
 		if err != nil {
 			t.Fatalf("%s: %v", reason, err)
@@ -92,6 +92,18 @@ func TestARejectWithoutADeclinedRequestMapsEmpty(t *testing.T) {
 		if len(w.got) != 1 || w.got[0].DeclinedRequestID != "" {
 			t.Errorf("%s: writer got %+v", reason, w.got)
 		}
+	}
+}
+
+// A542 (interim, relayed, not yet committed), INV-03: a REJECT DECLINED_BY_APPROVER MUST name the request it rests on; an empty id is refused with ErrRecordRequest before any
+// transaction, and nothing reaches the Writer.
+func TestADeclinedRejectWithoutADeclinedRequestIDIsRefusedBeforeAnyTransaction(t *testing.T) {
+	b, w, err := dclRecord(t, dclRequest(t, "REJECT", "DECLINED_BY_APPROVER"), 0)
+	if !errors.Is(err, ErrRecordRequest) {
+		t.Fatalf("err %v, want ErrRecordRequest", err)
+	}
+	if len(b.tenants) != 0 || len(w.got) != 0 {
+		t.Error("a declined reject with no request id reached the database")
 	}
 }
 
