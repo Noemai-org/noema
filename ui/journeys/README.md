@@ -33,6 +33,12 @@ The benchmark runner drives each generated case through the public API and recor
 
    The overlay proxies same-origin `/v1/` from the UI container to `core:8080` over the existing `edge_net`; it does not publish core or add a network. SSE buffering is disabled.
 
+## A715-approved UI safeguards
+
+- Push-to-talk recording stops after 30 seconds at the UI, even if the host requests a longer duration. A shorter host-supplied limit remains authoritative. Capture remains disabled without a voice sink.
+- Each SSE frame, including an incomplete frame, is bounded to 65,536 bytes before parsing. An oversized frame is never delivered; the UI falls back to the authoritative investigation GET at the existing 2,000 ms polling cadence, within the existing 60,000 ms polling ceiling.
+- Tokens are read directly from the #983 output directory. Never copy token contents into source, fixtures, test output, environment dumps, CI logs, screenshots, Playwright traces, videos or reports. Do not attach token-bearing browser storage state or network traces.
+
 ## A658-approved settings
 
 - UI polling interval: 2,000 ms.
@@ -49,7 +55,7 @@ NOEMA_UI_E2E_RUN_DIR=../benchmark/out/ui-j1-j8-run \
 npm run test:stack
 ```
 
-Optional `NOEMA_UI_E2E_MANIFEST` overrides the committed BEN-23 manifest path. The token directory defaults to `../benchmark/out/idp/tokens` (the `make bench-journey-tokens` output); set `NOEMA_UI_E2E_TOKEN_DIR` only when `BENCH_OUT` points elsewhere. The test fails closed if a case has no completed runner result, correlation ID or principal token. It adds no expected output to BEN-23; it asserts only core-issued public stage/contract data and the real SSE frame contract.
+Optional `NOEMA_UI_E2E_MANIFEST` overrides the committed BEN-23 manifest path. The token directory defaults to `../benchmark/out/idp/tokens` (the `make bench-journey-tokens` output); set `NOEMA_UI_E2E_TOKEN_DIR` only when `BENCH_OUT` points elsewhere. The test reads token files in memory only; do not log, persist, screenshot or attach token values. The test fails closed if a case has no completed runner result, correlation ID or principal token. It adds no expected output to BEN-23; it asserts only core-issued public stage/contract data and the real SSE frame contract.
 
 ## Known backend/runner gates
 
