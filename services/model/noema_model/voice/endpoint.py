@@ -24,6 +24,7 @@ _BYTES_PER_SAMPLE = 2
 _MS_PER_S = 1000
 _A191_MAX_CHUNK_BYTES = 32_000  # ruling A191 (docs#169): a hard ceiling. The limits below are data that may be made stricter, never looser.
 _A191_SAMPLE_RATE_HZ = 16_000
+_A715_MAX_RECORDING_MS = 30_000  # ruling A715 (OD-P-122, OPEN for the Founders): the longest push-to-talk recording. A ceiling like A191's: stricter is allowed, longer is not.
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,8 +46,15 @@ class FrameLimits:
 
     max_chunk_bytes: int = _A191_MAX_CHUNK_BYTES
     sample_rate_hz: int = _A191_SAMPLE_RATE_HZ
+    # Ruling A715: the same maximum the UI sets, enforced here on the host. Measured only from the samples fed (INV-21). A stricter value is allowed, a longer one is not, and a
+    # change of the value is the Founders' (OD-P-122), never an edit here (AGENT-16).
+    max_recording_ms: int = _A715_MAX_RECORDING_MS
 
     def __post_init__(self) -> None:
+        if self.max_recording_ms < 1:
+            raise ValueError("the maximum recording must be a positive number of milliseconds")
+        if self.max_recording_ms > _A715_MAX_RECORDING_MS:
+            raise ValueError(f"ruling A715: the maximum recording cannot be raised above {_A715_MAX_RECORDING_MS} ms (a stricter maximum is allowed)")
         if self.max_chunk_bytes < _BYTES_PER_SAMPLE or self.max_chunk_bytes % _BYTES_PER_SAMPLE:
             raise ValueError("frame limits must be a positive even byte cap")
         if self.max_chunk_bytes > _A191_MAX_CHUNK_BYTES:
@@ -75,6 +83,7 @@ class EndpointDetector:
         self._limits = FrameLimits() if limits is None else limits
         self._speech_ms = 0.0
         self._silence_ms = 0.0
+        self._recorded_samples = 0  # integer samples: the limit is checked without float rounding
         self._state = EndpointState.WAITING
 
     @property
@@ -93,6 +102,10 @@ class EndpointDetector:
         if self._state is EndpointState.ENDED:
             return self._state
         duration_ms = len(chunk.data) // _BYTES_PER_SAMPLE * _MS_PER_S / chunk.sample_rate_hz
+        samples = len(chunk.data) // _BYTES_PER_SAMPLE
+        if (self._recorded_samples + samples) * _MS_PER_S > self._limits.max_recording_ms * chunk.sample_rate_hz:
+            raise ValueError(f"recording is over the {self._limits.max_recording_ms} ms maximum (ruling A715)")
+        self._recorded_samples += samples
         if _rms(chunk.data) >= self._config.speech_rms:
             self._speech_ms += duration_ms
             self._silence_ms = 0.0
