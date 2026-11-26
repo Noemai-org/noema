@@ -50,7 +50,8 @@ def test_the_vectors_cover_every_tier_and_both_phonetic_modes() -> None:
         if "dataset" not in case:
             seen.add(matcher.score(case["query"], case["display"], phonetic=case["phonetic"]))
     for name, case in cases.items():
-        if name.endswith(" on") and cases[name[:-3] + " off"]["want"] != case["want"]:
+        partner = cases.get(name[:-3] + " off") if name.endswith(" on") else None
+        if partner is not None and partner["want"] != case["want"]:
             on_off_differ = True
     assert {Fraction(0), Fraction(1), Fraction(4, 5), Fraction(3, 5), Fraction(2, 5)} <= seen
     assert on_off_differ, "no vector shows the phonetic tier changing a score"
