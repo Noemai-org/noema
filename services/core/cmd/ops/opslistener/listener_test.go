@@ -189,7 +189,10 @@ func TestHandlerRefusesARequestWithoutAVerifiedChain(t *testing.T) { // INV-12, 
 	}
 	_, _, pair := w.opCA.leaf(t, leafOpts{cn: operator, usages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
 	leaf, _ := x509.ParseCertificate(pair.Certificate[0])
+	_, _, srvOnly := w.opCA.leaf(t, leafOpts{cn: operator, usages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
+	badUse, _ := x509.ParseCertificate(srvOnly.Certificate[0])
 	cases := map[string]*tls.ConnectionState{
+		"verified chain, but not for client authentication": {PeerCertificates: []*x509.Certificate{badUse}, VerifiedChains: [][]*x509.Certificate{{badUse}}},
 		"no TLS at all":                      nil,
 		"TLS with no peer certificate":       {},
 		"a peer certificate, never verified": {PeerCertificates: []*x509.Certificate{leaf}},
@@ -476,5 +479,38 @@ func TestServeRunsUntilTheContextEnds(t *testing.T) { // REQ-OPS-003
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Serve did not return after its context ended")
+	}
+}
+
+// A client that opens a connection and never finishes its headers is cut off after the header timeout (REQ-OPS-003).
+func TestASlowClientIsCutOff(t *testing.T) { // REQ-OPS-003
+	w := newWorld(t)
+	w.cfg.HeaderTimeout = 300 * time.Millisecond
+	l, err := opslistener.New(w.cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- l.Serve(ctx, ln) }()
+	t.Cleanup(func() { cancel(); <-done })
+	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{RootCAs: w.srvPool, Certificates: []tls.Certificate{w.operator}, Time: func() time.Time { return synthNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("POST /v1/ops/tenants/")); err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan struct{})
+	go func() { _, _ = io.ReadAll(conn); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the connection was not closed by the server after the header timeout")
 	}
 }
