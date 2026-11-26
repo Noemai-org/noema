@@ -21,7 +21,7 @@ def _calls_named(tree: ast.AST, owner: str, name: str) -> list[ast.Call]:
 
 def fan_out_of(source: str) -> int:
     """The calls the pool may have to serve for one pipeline: the SUM, over every `asyncio.gather` in `run_pipeline`, of the calls it starts (an argument that is a bare name is a task or a coroutine that
-    already exists, not a new call), or the tasks `create_task` makes, whichever is larger (A480, noema#832 follow-up: sum all gathers, not the widest; the real pipeline's is 5, against a pool of 6). A gather
+    already exists, not a new call), or the tasks `create_task` makes, whichever is larger (A480, noema#832 follow-up: sum all gathers, not the widest; the real pipeline's is 6 since UND-18, against a pool of 7). A gather
     with a starred argument has no readable width and a pipeline with no gather has none to read: both are refused, so a new shape is taught on purpose."""
     module = ast.parse(source)
     (run_pipeline,) = [n for n in module.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_pipeline"]
@@ -71,9 +71,9 @@ class FanOutReading(unittest.TestCase):
 
 
 class PoolCoversFanOut(unittest.TestCase):
-    def test_the_fan_out_is_read_from_the_pipeline_and_is_five(self) -> None:
-        """The five starts of run.py step 2. If the pipeline changes this number, the number here changes with it, on purpose."""
-        self.assertEqual(pipeline_fan_out(), 5)
+    def test_the_fan_out_is_read_from_the_pipeline_and_is_six(self) -> None:
+        """The six starts of run.py step 2 (UND-18, A603: the slot gate is one more call than the five of run 44521380842). If the pipeline changes this number, the number here changes with it, on purpose."""
+        self.assertEqual(pipeline_fan_out(), 6)
 
     def test_the_pool_is_an_integer_of_at_least_the_fan_out_plus_one_spare(self) -> None:
         self.assertIs(type(build.POOL_SIZE), int)

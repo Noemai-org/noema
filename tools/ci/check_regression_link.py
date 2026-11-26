@@ -9,12 +9,16 @@ fix. A test file the PR itself changes (`path/to/test_x.py`, `path/to/x_test.go`
 REGRESSION_ALLOW_TEST_FILE=1: that alternative is ruling A156 (docs#157), which is not committed until a Founder merges that pull request (AGENTS.md section 2.3), so the workflow turns it
 on after that merge. The check sees a case ID's shape and a PR's file list, not whether the case is new or permanent, nor the order of the commits; the reviewer reads those (AGENTS.md section 8).
 
+A case-ID link must name a case that EXISTS in the generated suite of the checkout the check runs in (A652; both Founders): the workflow checks out the PR's merge commit, so a case the PR adds counts and a
+well-formed ID that no suite holds does not. An unreadable suite fails closed.
+
 Inputs: HEAD_REF, PR_TITLE, PR_BODY, PR_LABELS (one per line or comma separated) and CHANGED_FILES (one path per line) from the environment, and optionally
 REGRESSION_ALLOW_TEST_FILE. Not wired into a workflow here: `.github` is not on this task's path (AGENTS.md section 11), so adding the job needs a Founder's approval."""
 import os
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from pathlib import Path
 
 FIX_BRANCH = re.compile(r"^fix/")
 FIX_TITLE = re.compile(r"(?<![A-Za-z])(?:fix|fixes|fixed|fixing)(?![A-Za-z])", re.IGNORECASE)
@@ -53,10 +57,24 @@ def _outside_code(body: str) -> str:
     return "\n".join(kept)
 
 
-def check(head_ref: str, title: str, body: str, changed_files: Sequence[str], labels: Sequence[str] = (), allow_test_file: bool = False) -> list[str]:
+def links_of(body: str) -> list[str]:
+    return LINK.findall(_outside_code(body))
+
+
+def load_known_case_ids() -> frozenset[str]:
+    """The case IDs of the generated suite in THIS checkout (A652). The workflow checks out the pull request's merge commit, so a case the PR adds is in it and a case that exists is in it. Needs the
+    benchmark's pinned requirements (jsonschema); the workflow installs them. It raises when the suite cannot be built, and the caller treats that as a failure."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from benchmark.generator.generate import DEFAULT_SEED, generate  # noqa: PLC0415 (lazy: a PR that is not a fix never builds the suite)
+    return frozenset(generate(DEFAULT_SEED).cases)
+
+
+def check(head_ref: str, title: str, body: str, changed_files: Sequence[str], labels: Sequence[str] = (), allow_test_file: bool = False, *,
+          known_case_ids: Collection[str] | None) -> list[str]:
+    """`known_case_ids` is the set of case IDs the suite holds, or None when it could not be read. It is required (keyword only): no caller can forget it, and None fails closed for any case-ID link."""
     if not is_fix_pr(head_ref, title, labels):
         return []
-    links = LINK.findall(_outside_code(body))
+    links = links_of(body)
     if not links:
         return ["a fix PR needs a line 'Regression case: <benchmark case ID>' in its body (REQ-MEM-002)"]
     out = []
@@ -65,7 +83,10 @@ def check(head_ref: str, title: str, body: str, changed_files: Sequence[str], la
         if ref.strip().lower() in EMPTY:
             out.append(f"'Regression case: {ref}' names no case; a fix needs one (REQ-MEM-002)")
         elif CASE_ID.fullmatch(ref.strip()):
-            continue
+            if known_case_ids is None:
+                out.append(f"'{ref.strip()}' cannot be checked: the generated suite could not be read, and a link to a case that may not exist is not a link (A652)")
+            elif ref.strip() not in known_case_ids:
+                out.append(f"'{ref.strip()}' is a well-formed case ID but there is no such case in the generated suite of this checkout: the fix must link a case that exists or that this PR adds (REQ-MEM-002, A652)")
         elif not allow_test_file:
             out.append(f"'{ref.strip()}' is not a benchmark case ID (BEN-<CATEGORY>-<4 digits>); REQ-MEM-002 asks for a named case ID, and the test-file alternative (ruling A156, docs#157) is not enabled until it is committed")
         elif not TEST_FILE.search(path):
@@ -80,7 +101,14 @@ def main() -> int:
     files = [line.strip() for line in os.environ.get("CHANGED_FILES", "").splitlines() if line.strip()]
     labels = [part.strip() for line in os.environ.get("PR_LABELS", "").splitlines() for part in line.split(",") if part.strip()]
     allow_test_file = os.environ.get("REGRESSION_ALLOW_TEST_FILE") == "1"
-    problems = check(head_ref, title, body, files, labels, allow_test_file)
+    known: frozenset[str] | None = frozenset()
+    if is_fix_pr(head_ref, title, labels) and any(CASE_ID.fullmatch(ref.strip()) for ref in links_of(body)):
+        try:
+            known = load_known_case_ids()
+        except Exception as exc:  # noqa: BLE001 (any failure to build the suite is a failed check, never a pass)
+            print(f"regression-link: the generated suite could not be built ({exc.__class__.__name__})")
+            known = None
+    problems = check(head_ref, title, body, files, labels, allow_test_file, known_case_ids=known)
     for problem in problems:
         print(f"regression-link FAIL: {problem}")
     if not problems:

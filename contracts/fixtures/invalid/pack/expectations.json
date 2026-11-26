@@ -13,5 +13,12 @@
   "handoff_route_queue_lower_case.json": "pattern",
   "handoff_route_extra_member.json": "additionalProperties",
   "handoff_route_without_queue.json": "required",
-  "handoff_route_nodes_empty.json": "minItems"
+  "handoff_route_nodes_empty.json": "minItems",
+  "slot_gates_empty.json": "minItems",
+  "slot_gate_threshold_zero.json": "minimum",
+  "slot_gate_threshold_above_ten_thousand.json": "maximum",
+  "slot_gate_threshold_not_an_integer.json": "type",
+  "slot_gate_without_threshold.json": "required",
+  "slot_gate_extra_member.json": "additionalProperties",
+  "slot_gate_slot_name_not_snake_case.json": "pattern"
 }

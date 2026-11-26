@@ -24,8 +24,8 @@ const (
 	ConfirmationPending
 	// ConfirmationGiven: the profile asks for one and a valid ACCEPT resolved to a fresh evaluation (confirm.Proceed, INV-25), whose event the Confirmation names.
 	ConfirmationGiven
-	// ConfirmationDeclined: the profile asks for one and the approver declined it. In this version T13 does not decide on it: like any status it does not know, it ends the
-	// evaluation in UNKNOWN. SoT 43.2a step 4 makes a decline REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only: awaiting the Architect.
+	// ConfirmationDeclined: the profile asks for one and the approver declined it. T13 ends the evaluation in REJECT DECLINED_BY_APPROVER, recorded with the declined request's ID
+	// (A542, A557; SoT 43.2a step 4). A Declined answer with no well-formed RequestID, or one that carries a NewRequest, is not an answer: UNKNOWN, with no Record and no plan.
 	ConfirmationDeclined
 )
 
@@ -152,6 +152,9 @@ type RecordRequest struct {
 	// requirement, the requester and the expiry. The Recorder mints the request ID and computes the binding hash itself (SoT 43.2a); a CONFIRM that names an already open
 	// request carries none, and so does every other decision.
 	ConfirmationRequest *NewConfirmationRequest
+	// TurnID is the client's request ID of the turn the request answers (A581, A590; interim, relayed): set by the intake from Request.TurnID, and only on an ESCALATE recorded with an
+	// incomplete basis, so that a replay of the same turn returns the stored decision and a new turn records a new one. Empty for every other decision.
+	TurnID string
 }
 
 // NewConfirmationRequest is a confirmation request to create, as plain values. The first eight are the binding of SoT 43.2a (confirm.BindingInput); the intake does not import
@@ -185,7 +188,7 @@ type RecordResult struct {
 //
 // The port is documented for every outcome (A456, A470): the decision ID comes back for every recorded outcome. A plan hash and steps are required only for ALLOW; a non-ALLOW with no
 // steps and no plan hash is recorded as it is, and a grant on a non-ALLOW is refused before any transaction. A REJECT, CONFIRM or UNKNOWN never carries a grant. A REJECT DECLINED_BY_APPROVER
-// may name the declined request in DeclinedRequestID.
+// must name the declined request in DeclinedRequestID (a cfr_ ID); every other decision carries none (A542, A597).
 type Recorder interface {
 	Record(ctx context.Context, r RecordRequest) (RecordResult, error)
 }

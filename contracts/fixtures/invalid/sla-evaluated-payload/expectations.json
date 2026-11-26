@@ -1,0 +1,22 @@
+{
+  "unknown_member.json": "additionalProperties",
+  "missing_clock_id.json": "required",
+  "missing_priority.json": "required",
+  "missing_reroute.json": "required",
+  "negative_elapsed.json": "minimum",
+  "fractional_elapsed.json": "type",
+  "text_deadline_at.json": "type",
+  "negative_remaining.json": "minimum",
+  "priority_unknown.json": "enum",
+  "priority_lower_case.json": "enum",
+  "phase_unknown.json": "enum",
+  "label_not_allowed.json": "enum",
+  "owner_queue_bad_shape.json": "pattern",
+  "reroute_true_without_queue.json": "const",
+  "reroute_false_with_queue.json": "const",
+  "priority_raised_text.json": "type",
+  "not_started_with_started_at.json": "not",
+  "not_started_elapsed_not_zero.json": "const",
+  "running_without_deadline_at.json": "required",
+  "running_without_remaining.json": "required"
+}

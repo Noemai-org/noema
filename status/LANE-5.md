@@ -60,3 +60,26 @@ The mounts (IL), the ports' integration in the composition root (EL), `EnvTrust*
 - Open questions (owner): where the pack declares the predicate-variable sources (Architect); whether a pending condition belongs in the outcome definition (Architect).
 - Files to read first: `services/core/outcome/request/request.go`, `services/core/outcome/verifier/types.go`, `services/core/orchestrator/portadapters/verifier/port.go`.
 - Do not touch: `outcome/verifier` (OUT-01), `trust/`, `execution/`.
+
+---
+
+# Session 2026-11-25 · LANE-5 slice 2 · the Execution side per tenant (A547, A550, A666)
+
+Written by C1 from `DEC-2026-11-23-architect-rulings-a542-a553` (A547, A550) and A666 (interim, relayed: "start lane 5 slice 2 now"). Slice 1 (`execution.go`, noema#917) and slice 3 (the Outcome request builder, noema#950) are merged.
+
+## What slice 2 is
+`cmd/core/execution_side.go`: `buildExecutionSide(env, parts, seams)` takes slice 1's `executionParts` (the receipt ring and one execution pool for each tenant) and the seams other lanes own, and builds for each tenant a `controller.Controller` over `ledger.Ledger` (as that tenant's `execution_rw` login, Record events appended in the spend transaction under the `core-execution` signer), `ledger.StoreBinder`, the receipt ring, the grant key verifier, the dispatcher and the revalidator. A tenant router makes one `orchestrator.Executor` of the per-tenant `executorport.Port`s. `WritePorts(journal)` returns `orchestrator.WritePorts` or, for each part still missing, one fixed gap line for `/readyz`. It is a function EL calls from the composition root (out of scope here): it touches no existing file.
+
+## Seams (owned by other lanes, passed in; a nil seam is a named gap, never a stand-in)
+Clock, IDs (`ID(prefix)` and `ReceiptID()`), Dispatcher and Revalidator (the bridge over the case adapter: `cmd/core` may not import `adapters`), Intents and Plans (`ledger.IntentSource`, `ledger.PlanSource`), Keys (the grant key verifier: HMAC, E1), Verifier (`verifierport.Port`: needs slice 4's request reader), Bindings (the Trust adapter), and the Journal (EL, noema#907).
+
+## Settings this slice adds (no default, AGENT-16) [OPEN: not in A554]
+`NOEMA_EXECUTION_ROLLBACK_TIMEOUT_MS` (Ledger.RollbackTimeout, A24) and `NOEMA_EXECUTION_EXECUTE_TIMEOUT_MS` (the Executor port's bound for one grant). `NOEMA_DB_SERIALIZATION_ATTEMPTS` is the existing ledger setting. Absent is a named gap; present and invalid is an error naming the setting and never the value.
+
+## Plan
+Files: `cmd/core/execution_side.go`, `cmd/core/execution_side_test.go`, this file. Tests first: a complete build gives one controller per tenant wired to that tenant's own pool and the one ring; each missing seam or setting gives no Executor and one fixed gap line; an invalid setting is an error that does not echo the value; the tenant router sends a grant only to its own tenant's port and refuses an unknown or empty tenant before any call (INV-12, INV-03); the Controller built keeps no `Boundary` (the crash harness hook) and the execute port refuses a context with no deadline. Faults: every missing part, an invalid timeout, a tenant with no controller. Record events: none are written here; the spend, receipt and void events are the Ledger's, tested in `execution/ledger` and `execution/e2e`.
+
+## Acceptance
+- One controller per tenant, each over that tenant's own execution pool.
+- A partial composition builds no Executor (a Controller that cannot do everything dispatches nothing).
+- No message holds a DSN, a login, a key or a setting value.

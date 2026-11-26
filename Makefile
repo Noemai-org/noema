@@ -62,7 +62,7 @@ codegen-check:
 	python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test bench-venv bench-reproduce bench bench-live bench-tokens bench-tokens-test bench-us bench-chaos bench-evil bench-full bench-g1
+.PHONY: bench-test bench-venv bench-reproduce bench bench-live bench-tokens bench-tokens-test bench-journey-tokens bench-us bench-chaos bench-evil bench-full bench-g1
 BENCH_VENV := .venv-bench
 BENCH_PY := $(BENCH_VENV)/bin/python
 BENCH_SEED ?= 20261020
@@ -115,6 +115,15 @@ bench: bench-venv
 # NOEMA_SESSION_* settings) and $(BENCH_OUT)/idp/runner-args (pass them in BENCH_RUNNER_ARGS). Tokens are issued on demand and last at most 15 minutes.
 bench-tokens:
 	BENCH_OUT="$(abspath $(BENCH_OUT))" deploy/compose/bench_tokens.sh
+
+# make bench-journey-tokens (A683): one token for each principal of the journeys manifest (noema#962, A652), issued by bench_tokens.sh for BENCH_TENANT. At most 15 minutes: they stop working then and
+# are kept only in $(BENCH_OUT)/idp/tokens (mode 0400, a private directory that no upload or scan reads). The list comes from the manifest, never from this file; the count is pinned.
+BENCH_JOURNEYS ?= benchmark/journeys/j1-j8.v1.json
+BENCH_JOURNEY_COUNT ?= 19
+bench-journey-tokens:
+	@test -f "$(BENCH_JOURNEYS)" || { echo "bench-journey-tokens: $(BENCH_JOURNEYS) does not exist (noema#962 has not merged)" >&2; exit 2; }
+	@principals="$$(python3 -I deploy/compose/journey_principals.py "$(BENCH_JOURNEYS)" --expect "$(BENCH_JOURNEY_COUNT)")" || exit $$?; \
+	BENCH_PRINCIPALS="$$principals" BENCH_TOKEN_TTL=15m $(MAKE) bench-tokens
 
 bench-tokens-test:
 	sh deploy/compose/test_bench_tokens.sh
