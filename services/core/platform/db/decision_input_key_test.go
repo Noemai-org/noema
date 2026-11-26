@@ -71,9 +71,10 @@ func TestADecisionRecordInputTupleIsUnique(t *testing.T) {
 	}
 }
 
-// A document with no context snapshot is not covered by the index. decision-record.v2 requires the snapshot and the writer refuses a request without one
-// (ErrNoEvaluatedBasis), so only the direct inserts of the schema tests lack it; they write many records for one tenant and must keep working.
-func TestARecordWithNoSnapshotIsNotKeyed(t *testing.T) {
+// A577 (migration 0038): a document no longer lacks a context snapshot, its value is null or a snapshot ID, so every direct insert of the schema tests names one of its own (testpg.BoundFieldsSQL
+// draws a fresh ID per row). Several records of one tenant, each with its own snapshot, are different inputs and must keep working; a null snapshot is keyed too, which
+// decision_basis_nullable_test.go proves.
+func TestRecordsOfOneTenantWithTheirOwnSnapshotsAreDifferentInputs(t *testing.T) {
 	pool := migrated(t)
 	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
 		t.Fatal(err)

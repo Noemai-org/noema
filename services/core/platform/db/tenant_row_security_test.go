@@ -254,7 +254,7 @@ func policiesOnTenant(t *testing.T, pool *pgxpool.Pool) []tenantPolicy {
 	return out
 }
 
-// (d) The catalog: `tenant` has row security enabled and forced, and exactly three policies, one per role group (the five power groups, the verifier's read, the verifier's stop). The expectation is the whole set, so a policy that is loosened, widened to another role, added or dropped fails it.
+// (d) The catalog: `tenant` has row security enabled and forced, and exactly five policies, one per role group (the five power groups, the verifier's read, the verifier's stop) and the control plane's two, which match the admin emitter login's own tenant (migration 0042, EXE-06). The expectation is the whole set, so a policy that is loosened, widened to another role, added or dropped fails it.
 func TestTenantForcesRowSecurityWithOnePolicyPerRoleGroup(t *testing.T) {
 	pool := migrated(t)
 	var enabled, forced bool
@@ -265,6 +265,8 @@ func TestTenantForcesRowSecurityWithOnePolicyPerRoleGroup(t *testing.T) {
 		t.Errorf("tenant: row security enabled=%v forced=%v, want both", enabled, forced)
 	}
 	want := []tenantPolicy{
+		{"tenant_control_plane_apply", "w", "record_append", "(tenant_id = admin_login_tenant())", "(tenant_id = admin_login_tenant())"},
+		{"tenant_control_plane_read", "r", "record_append", "(tenant_id = admin_login_tenant())", ""},
 		{"tenant_own_row", "*", "evidence_rw,execution_rw,orchestrator_rw,outcome_rw,trust_rw", "(tenant_id = decision_login_tenant())", "(tenant_id = decision_login_tenant())"},
 		{"tenant_verify_halt", "w", "record_verify", "true", "kill_switch"},
 		{"tenant_verify_read", "r", "record_verify", "true", ""},

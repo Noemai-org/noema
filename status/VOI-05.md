@@ -18,3 +18,17 @@ Updated 2026-11-12.
 
 ## Messages
 Architect's instruction of 12 Nov to take the next two unblocked tasks (data; used for: this PR and `status/VOI-08.md`).
+
+# Session 2026-11-24 · VOI-05 (what is left of its done_when)
+
+- **Plan written:** `docs/voice/recording-plan-DRAFT.md` (noema#201, amended to A377 to A379: no consent form, counsel or signature); open for the Founders: adults only, and the bystander rule.
+- **Storage path with restricted access and a retention timer:** the private store of noema#819 (`store.sh init|check|purge`, owner-only, never named by a workflow) and `voice/retention.py` (`scan_objects`, `deletions_due`, the durations as arguments). The Founder provisions the encrypted volume and runs `store.sh init`; the retention value (90 days after analysis, 7 days for a removal) goes on the host, never in the repository.
+- **The Integrator account's retention is zero days:** only the Founder can set and confirm it in the account (Intron's email says new accounts start at zero retention, configurable); the confirmation is the Founder's, as text with no key shown. Not done.
+- **Raw audio is never in the repository:** the leak scans of CI hold; the runner writes only under the private store.
+- VOI-05 is therefore **not Done**: the plan is unmerged or in review, the store is not provisioned, and the zero-retention setting is unconfirmed.
+
+# Session 2026-11-24 · VOI-05 (the Founder's confirmations of 24 Nov)
+
+- **Confirmed by the Founder in this session (counts once this pull request is merged by a non-author Founder, AGENTS section 2, item 3):** adults only and the bystander rule of `docs/voice/recording-plan-DRAFT.md`; that the Integrator account's retention is zero days (the Founder's statement; no screenshot or key is stored in the repository: the Founder may add a one-line comment on noema#294 naming the setting and the date); that Voice starts the preparation work of VOI-04 to VOI-07 before their Needs are Done, with no recording and no Done claim.
+- **Still not done:** the private store is not evidenced as provisioned (`store.sh init` and `check` on the bench host, by a Founder), the devices and SIMs (PRE-05) are not evidenced as received, and `tasks.csv` still shows VOI-01 and VOI-05 In progress (the Steward moves status from merged evidence).
+- VOI-05 is **not Done** until the store and the retention evidence exist.

@@ -23,6 +23,7 @@ var (
 	decisionIDRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
 	grantIDRe    = regexp.MustCompile(`\Agrt_[0-9A-Za-z]{2,32}\z`)
 	requestIDRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
+	turnIDRe     = regexp.MustCompile(`\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z`) // the client's request ID of the turn (A581): a lower-case UUID
 	// requirementRe is the contract's ApproverRequirement (enums.v1.json): SELF, MAKER_CHECKER or ROLE:<role>.
 	requirementRe = regexp.MustCompile(`\A(?:SELF|MAKER_CHECKER|ROLE:[a-z][a-z0-9_]*)\z`)
 	// bindingValueRe is the character set a bound value may hold (trust/confirm refuses any other when it hashes the binding); the intake checks it first so that a value the
@@ -57,9 +58,8 @@ func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
 
 // t13: the trust profile's approver confirmation. Not required: continue. Required and resolved (a valid ACCEPT that the confirmation store turned into this fresh evaluation,
 // INV-25): continue, and the grant will follow its event. Required and not resolved (Pending): the CONFIRM, recorded before it is returned (EC-E16), with the confirmation request
-// created in the same Record call when none is open. Any other answer is not an answer: that includes Declined, which ends in UNKNOWN like a status Trust does not know. The order
-// is that Declined becomes REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only, and trust/decide refuses any other outcome from T13: that is a
-// stop condition awaiting the Architect (status/TRU-07-confirm-t13.md), and UNKNOWN is the safer reading meanwhile.
+// created in the same Record call when none is open. Declined is the REJECT DECLINED_BY_APPROVER (t13Declined: recorded first, with no
+// steps and no grant, naming the request it rests on, A542); any other answer is not an answer and ends in UNKNOWN like a status Trust does not know.
 func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
@@ -97,7 +97,7 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 // was answered; it never carries a new one), nothing is planned, and no grant exists for a refusal (INV-03). If the Recorder fails, nothing else happens and the evaluation ends in
 // UNKNOWN, never in a REJECT the caller could take as recorded.
 func (e *evaluation) t13Declined(ctx context.Context, c Confirmation) decide.StepResult {
-	if c.NewRequest != nil || c.RequestID != "" && !requestIDRe.MatchString(c.RequestID) {
+	if c.NewRequest != nil || !requestIDRe.MatchString(c.RequestID) { // A542: a decline names the request it rests on, as the Given answer does
 		return decide.FailStep(errAnswer)
 	}
 	reason, err := decide.Core("DECLINED_BY_APPROVER")
@@ -293,6 +293,7 @@ func (e *evaluation) firstCapabilities(ctx context.Context) (ok bool, err error)
 		return false, err
 	}
 	a := e.intent
+	// A first evaluation has no verified result to carry, so the query's EvidencePacket stays empty here (A694); it is never defaulted.
 	ids, err := e.svc.Runnable.Runnable(ctx, RunnableQuery{TenantID: a.TenantID, IntentID: a.IntentID, IntentVersion: a.Version, IntentNode: a.IntentNode, SnapshotID: e.snapshotID})
 	if err != nil {
 		return false, err
@@ -499,8 +500,17 @@ func (e *evaluation) recordEscalate(ctx context.Context, d decide.Decision, trac
 		return failed()
 	}
 	a := e.intent
-	rec, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
-		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest})
+	req := RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest}
+	if !d.HasCompleteBasis() {
+		// A663, A581, A590 (interim, relayed): an ESCALATE reached before the evidence and the policy were evaluated is recorded with its basis null, keyed by the turn. A request that names no
+		// well-formed turn cannot be keyed, so nothing is recorded and the evaluation ends in UNKNOWN INTERNAL_ERROR (A578), never an ESCALATE nobody recorded.
+		if !turnIDRe.MatchString(e.req.TurnID) {
+			return failed()
+		}
+		req.TurnID = e.req.TurnID
+	}
+	rec, err := e.svc.Ports.Recorder.Record(ctx, req)
 	if err != nil || !decisionIDRe.MatchString(rec.DecisionID) || len(rec.GrantIDs) != 0 || rec.ConfirmationRequestID != "" {
 		return failed()
 	}

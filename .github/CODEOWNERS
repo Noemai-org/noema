@@ -3,6 +3,7 @@
 /services/core/execution/   @OladiranOlatunde @noemai-systems
 /services/core/outcome/     @OladiranOlatunde @noemai-systems
 /services/core/record/      @OladiranOlatunde @noemai-systems
+/services/core/evidence/  @OladiranOlatunde @noemai-systems
 /services/core/cmd/record-verify/  @OladiranOlatunde @noemai-systems
 /services/core/cmd/policypublish/  @OladiranOlatunde @noemai-systems
 /services/core/cmd/tenantinit/  @OladiranOlatunde @noemai-systems

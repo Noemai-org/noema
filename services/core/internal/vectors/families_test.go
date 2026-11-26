@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Noemai-org/noema/services/core/execution/planner"
+	"github.com/Noemai-org/noema/services/core/execution/registry"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 )
@@ -103,6 +106,92 @@ func TestBindingHashVectors(t *testing.T) {
 	}
 }
 
+// CON-04 (A672; INV-17, INV-18, REQ-INT-001, REQ-PLN-002): the schema-valid families. Each input is a document the contracts accept (an intent-object.v3, a plan.v1), read strictly into the
+// generated type the production code reads, and hashed the way production hashes it: the Intent Object by the gate's canonical form (the typed value, canonicalised, then SHA-256), the
+// plan by planner.HashDocument over the pack's registry. The Python test (tools/contracts/test_schema_valid_hash_vectors.py) reads the same file.
+func schemaValidFamilies(t *testing.T) (intents, plans, refused []hashFamily) {
+	t.Helper()
+	raw, err := os.ReadFile("../../../../contracts/fixtures/golden_vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &all); err != nil {
+		t.Fatal(err)
+	}
+	for k, dst := range map[string]*[]hashFamily{"intent_hash_v3_vectors": &intents, "plan_hash_v1_vectors": &plans, "plan_hash_v1_refused_vectors": &refused} {
+		if err := json.Unmarshal(all[k], dst); err != nil || len(*dst) == 0 {
+			t.Fatalf("%s: %v (%d vectors)", k, err, len(*dst))
+		}
+	}
+	return intents, plans, refused
+}
+
+func strictInto(t *testing.T, raw json.RawMessage, v any) {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		t.Fatalf("the input is not the contract's shape: %v", err)
+	}
+}
+
+func fintechRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+	b, err := os.ReadFile("../../../../packs/fintech_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Load(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+func TestSchemaValidIntentHashVectors(t *testing.T) { // CON-04, INV-17, REQ-INT-001
+	intents, _, _ := schemaValidFamilies(t)
+	for _, c := range intents {
+		var obj contracts.IntentObjectV3
+		strictInto(t, c.Input, &obj)
+		if got := jcsOf(t, c.Input); got != c.ExpectedJCS || crypto.Hash([]byte(got)) != c.IntentHash {
+			t.Errorf("intent_hash %s: the input's own form is %s", c.Name, got)
+		}
+		typed, err := crypto.HashOf(obj)
+		if err != nil || typed != c.IntentHash {
+			t.Errorf("intent_hash %s: the typed object hashes to %s (%v), not the vector's", c.Name, typed, err)
+		}
+	}
+}
+
+func TestSchemaValidPlanHashVectors(t *testing.T) { // CON-04, INV-17, INV-18, REQ-PLN-002
+	_, plans, _ := schemaValidFamilies(t)
+	reg := fintechRegistry(t)
+	for _, c := range plans {
+		var doc contracts.PlanV1
+		strictInto(t, c.Input, &doc)
+		got, err := planner.HashDocument(reg, doc)
+		if err != nil || got != c.PlanHash {
+			t.Errorf("plan_hash %s: HashDocument gave %s (%v)", c.Name, got, err)
+		}
+		if jcsOf(t, c.Input) != c.ExpectedJCS {
+			t.Errorf("plan_hash %s: the JCS of the input is not the vector's", c.Name)
+		}
+	}
+}
+
+func TestSchemaValidPlanThatMustHaveNoHash(t *testing.T) { // CON-04, INV-18, REQ-PLN-002
+	_, _, refused := schemaValidFamilies(t)
+	reg := fintechRegistry(t)
+	for _, c := range refused {
+		var doc contracts.PlanV1
+		strictInto(t, c.Input, &doc)
+		if got, err := planner.HashDocument(reg, doc); err == nil || got != "" {
+			t.Errorf("plan_hash_refused %s: got %q with no error; a plan like this has no hash", c.Name, got)
+		}
+	}
+}
+
 // Every family of the vector file has a Go test that reads it: a family added to the file without one fails here, and the file named for a family must hold its key.
 func TestEveryVectorFamilyHasAGoTest(t *testing.T) {
 	raw, err := os.ReadFile("../../../../contracts/fixtures/golden_vectors.json")
@@ -117,6 +206,9 @@ func TestEveryVectorFamilyHasAGoTest(t *testing.T) {
 		"jcs_vectors":                        "vectors_test.go",
 		"intent_hash_vectors":                "families_test.go",
 		"plan_hash_vectors":                  "families_test.go",
+		"intent_hash_v3_vectors":             "families_test.go",
+		"plan_hash_v1_vectors":               "families_test.go",
+		"plan_hash_v1_refused_vectors":       "families_test.go",
 		"evidence_set_hash_vectors":          "../../evidence/snapshot/hash_test.go",
 		"evidence_set_hash_negative_vectors": "../../evidence/snapshot/hash_test.go",
 		"binding_hash_vectors":               "families_test.go",

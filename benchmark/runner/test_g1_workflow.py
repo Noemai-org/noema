@@ -335,6 +335,88 @@ class G1StackWorkflow(unittest.TestCase):
                 (root / "out" / "negative-probes.json").write_text(stamp + leak, encoding="utf-8")
                 self.assertEqual(self.scan(root / "out"), 1, leak)
 
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's log-capture step")
+    def test_a_start_that_failed_before_the_run_step_still_leaves_both_collector_files_for_the_scan(self) -> None:
+        # The stack-check of 24 Nov (run 45423718092) failed at `make bench-up` (the core exited 1), so the run step never made benchmark/out/mock-case.log or mock-case-collector.err. The scan
+        # names both files and refuses a missing one (exit 2), which left the core's own log unscanned, not uploaded and not shown: the failure had no visible reason. The capture step runs on
+        # every outcome and now leaves an empty file where the run step made none, so the service logs are scanned and, if clean, uploaded. The job still fails on the start step; an existing
+        # file (a real collector's) is never touched.
+        step = re.search(r"(?ms)- id: logs\n.*?run: \|\n(.*?)(?=^      - )", self.text)
+        assert step
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bin").mkdir()
+            stub = root / "bin" / "docker"
+            stub.write_text('#!/bin/sh\necho "a log line"\n', encoding="utf-8")
+            stub.chmod(0o755)
+            env = {"PATH": f"{root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}", "GITHUB_OUTPUT": str(root / "gh_out"), "MODE": "stack-check"}
+            out = root / "benchmark" / "out"
+            subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True, env=env)
+            for name in ("mock-case.log", "mock-case-collector.err"):
+                self.assertTrue((out / name).is_file(), f"{name} is missing after a start that never reached the run step")
+                self.assertEqual((out / name).read_text(encoding="utf-8"), "")
+            (out / "mock-case.log").write_text("real collector line\n", encoding="utf-8")
+            subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True, env=env)
+            self.assertEqual((out / "mock-case.log").read_text(encoding="utf-8"), "real collector line\n", "an existing collector file is never touched")
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_a_full_run_never_gets_empty_collector_files_and_its_scan_refuses_a_missing_one_with_exit_2(self) -> None:
+        # A full run that never reached its collector must not pass the scan on an empty file: the capture step makes the empty files in a stack-check only, and the real scanner, given the
+        # full run's list of files with the collector files absent, refuses (exit 2). Both halves run for real here.
+        step = re.search(r"(?ms)- id: logs\n.*?run: \|\n(.*?)(?=^      - )", self.text)
+        assert step
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        scan_step = re.search(r"(?ms)- id: scan\n.*?run: \|\n(.*?)(?=^      - )", self.text)
+        assert scan_step
+        names = re.search(r"set -- (benchmark/out/run [^\n]+)", scan_step.group(1))
+        assert names
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bin").mkdir()
+            stub = root / "bin" / "docker"
+            stub.write_text('#!/bin/sh\necho "a log line"\n', encoding="utf-8")
+            stub.chmod(0o755)
+            env = {"PATH": f"{root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}", "GITHUB_OUTPUT": str(root / "gh_out"), "MODE": "full"}
+            out = root / "benchmark" / "out"
+            subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True, env=env)
+            for name in ("mock-case.log", "mock-case-collector.err"):
+                self.assertFalse((out / name).exists(), f"{name} must not be made in a full run")
+            for d in ("run", "score", "evidence", "joblog"):
+                (out / d).mkdir(parents=True, exist_ok=True)
+            (out / "summary.md").write_text("x\n", encoding="utf-8")
+            (out / "record-accessed.txt").write_text("x\n", encoding="utf-8")
+            targets = [t.replace("benchmark/out/", str(out) + "/") for t in names.group(1).split() + ["benchmark/out/record-accessed.txt"]]
+            scanner = WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.py"
+            r = subprocess.run([sys.executable, "-I", str(scanner), "--workdir", str(root / "w"), "--inventory", str(out / "inv.txt"), "--stamp", "s 1", "--root", str(out), *targets],
+                               capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("not found", r.stdout + r.stderr)
+            self.assertIn("mock-case.log", r.stdout + r.stderr)
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_a_stack_check_shows_the_tail_of_the_cores_log_only_after_a_clean_scan(self) -> None:
+        # The first two stack-checks on main ended with the core exiting 1 and the reason only inside an artifact. The tail of the core's own log is shown in the stack-check's job log, after the
+        # leak scan that already covered the file and only if it was clean; the job-log scan reads it again. A full run shows no service log.
+        show = re.search(r"(?ms)- name: Show the run output \(only if the leak scan is clean\)\n.*?        run: \|\n(.*?)(?=^      - )", self.text)
+        assert show
+        script = "\n".join(line[10:] for line in show.group(1).splitlines())
+        def run(scan: str, mode: str) -> str:
+            with tempfile.TemporaryDirectory() as tmp:
+                logs = Path(tmp, "benchmark", "out", "service-logs")
+                logs.mkdir(parents=True)
+                (logs / "core.log").write_text("".join(f"core line {i}\n" for i in range(200)), encoding="utf-8")
+                (logs / "model.log").write_text("model line\n", encoding="utf-8")
+                r = subprocess.run(["bash", "-e", "-c", script], cwd=tmp, capture_output=True, text=True, check=False, env={"PATH": os.environ["PATH"], "SCAN": scan, "MODE": mode})
+                self.assertEqual(r.returncode, 0, f"the show step must not fail a run (scan {scan}, mode {mode}): {r.stderr}")  # a group ends with its last command's status (the 23 Nov Summary step)
+                return r.stdout
+        out = run("0", "stack-check")
+        self.assertIn("core line 199", out)
+        self.assertNotIn("core line 100", out, "only the tail is shown")
+        self.assertNotIn("model line", out, "only the core's log is shown")
+        self.assertNotIn("core line", run("2", "stack-check"), "a scan that did not pass shows nothing")
+        self.assertNotIn("core line", run("0", "full"), "a full run shows no service log")
+
     def test_a_captured_service_log_is_not_scanned_with_the_model_access_log_on(self) -> None:
         # Codex P1 on noema#591: uvicorn's access line carries the client's ephemeral port, five digits, on every request and on the health check every three seconds, so a captured model
         # log would fail the scan of an otherwise clean run. The workflow captures the model's log; the bench overlay must start it without the access log.
