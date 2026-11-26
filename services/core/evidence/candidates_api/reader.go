@@ -36,7 +36,6 @@ var (
 	correlRe     = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
 	kindRe       = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
 	refTailRe    = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
-	currencyRe   = regexp.MustCompile(`^[A-Z]{3}$`)
 	timestampRe  = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$`)
 	lastFourRe   = regexp.MustCompile(`[0-9]{4}$`)
 	errorNoValue = "candidates_api: "
@@ -153,7 +152,8 @@ func (r Reader) query(req contracts.CandidatesRequestV1) (adapters.TransactionQu
 	q := adapters.TransactionQuery{From: from, To: to, Limit: MaxCandidates + 1}
 	if a := req.Filters.AmountRange; a != nil {
 		lo, hi := int64(a.MinMinor), int64(a.MaxMinor)
-		if lo < 0 || hi < 0 || lo > hi || !currencyRe.MatchString(string(a.Currency)) {
+		// A689 round 2: both bounds are held to the contract's maximum (the generated type is an int64 with none) and the currency to the generated money.v1 enum, before the source is asked.
+		if lo < 0 || hi < 0 || lo > hi || lo > maxMinorAmount || hi > maxMinorAmount || !currencyOK(string(a.Currency)) {
 			return bad()
 		}
 		q.AmountMinMinor, q.AmountMaxMinor = lo, hi
@@ -257,6 +257,16 @@ func (r Reader) match(req contracts.CandidatesRequestV1, name string) (Match, er
 func candidateID(tenant, principal, ref string) string {
 	sum := sha256.Sum256([]byte(tenant + "\x00" + principal + "\x00" + ref))
 	return "cand_" + hex.EncodeToString(sum[:])[:idHexLen]
+}
+
+// currencyOK is true when the code is a value of the generated money.v1 currency enum (the POC set): it is decoded through `contracts.MoneyV1CurrencyCode`, never matched by a hand-written pattern.
+func currencyOK(code string) bool {
+	raw, err := json.Marshal(code)
+	if err != nil {
+		return false
+	}
+	var c contracts.MoneyV1CurrencyCode
+	return json.Unmarshal(raw, &c) == nil
 }
 
 // moneyOK checks a candidate's amount and currency with the generated money.v1 type (A689): the pair is decoded through `contracts.MoneyV1Money`, so the currency must be a value of the generated

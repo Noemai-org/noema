@@ -9,6 +9,8 @@ Updated 2026-11-24.
 
 - **A689 round, 2026-11-25:** (1) an amount range of min 0 and max 0 is answered empty without calling the source; (2) a candidate's currency and amount are checked with the generated `money.v1` type (USD refused; the amount bound 2^53-1 is a constant pinned to the schema by a test, because the generated Go amount type carries no bound). (3) **A695 approves `golang.org/x/text` and one manifest kind for the Go recipient matcher, and both Founders approve at the #960 merge; the matcher is still not built** (the Founder did not ask for it in this round).
 
+- **A689 round 2 (Codex P2-1, P2-2; SR):** the request's amount range is bounded at the contract's maximum and its currency checked through the generated money.v1 enum, before the source is called (the counting double sees no call on any refusal).
+
 ## Open
 - **OPEN entry requested of the Steward:** the counterparty ordinal groups counterparties **within one candidate set** only; a reference that holds across sets needs a Tushe beneficiary id or a key decision.
 - **The production matcher.** The pack's `recipient_matcher.json` is matched in Python today (exact fractions, Unicode folding NFC/casefold/NFKD, a voice-path phonetic mode). Core needs the same with `math/big` and a Unicode normalisation that the Go standard library lacks: `golang.org/x/text` as a direct dependency (AGENT-14, an [OPEN] entry and approval) and a manifest kind for the matcher file (the manifest, `packload`, `packcheck` and the schema, on lines #964 also edits). The request also has no `phonetic` member (a contract change). The reader takes the matcher through a port, so the composition cannot build it until the matcher exists.
