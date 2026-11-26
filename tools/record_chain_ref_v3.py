@@ -134,6 +134,8 @@ def record_event_fixtures() -> tuple[dict[str, dict], dict[str, dict], dict[str,
     # PERD 32.2 (A114): kinds of SECURITY_EVENT, not event types. REQ-EXE-008: a clear is by a person on the control plane (C-ADMIN); a refused clear is written for an authenticated caller.
     valid["security_event_kill_switch_cleared"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEARED", object_ref="ten_demo", actor="admin:usr_synth_014")
     valid["security_event_kill_switch_clear_refused"] = one("admin", event_type="SECURITY_EVENT", kind="KILL_SWITCH_CLEAR_REFUSED", object_ref="ten_demo")
+    # A664 (REQ-CTX-005, REQ-CTX-007): a truncated enterprise field is recorded by the Evidence Layer's login (core-evidence); the event names the item and carries no field content (AGENT-13).
+    valid["security_event_field_truncated"] = one("core-evidence", event_type="SECURITY_EVENT", kind="FIELD_TRUNCATED", object_ref="evi_0001")
     valid["security_event_confirmation_refused"] = one("core-edge", event_type="SECURITY_EVENT", kind="CONFIRMATION_REFUSED", object_ref="cnf_0001",
                                                        actor="customer:usr_synth_014")
     for reason in VOID_REASONS:

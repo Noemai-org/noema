@@ -198,10 +198,10 @@ class VersionsDoNotMix(unittest.TestCase):
         for key in ("RecordEventType", "GrantVoidReason", "ProviderFailoverReason"):
             self.assertEqual(V3["$defs"][key], v2[key], key)
 
-    def test_security_kinds_are_those_of_v2_and_the_three_added_in_place(self):
-        """Additive members, in this order (AGENT-15): CONFIRMATION_REFUSED (A362 to A376) and the two kill-switch kinds (A430, PERD 32.2)."""
+    def test_security_kinds_are_those_of_v2_and_the_four_added_in_place(self):
+        """Additive members, in this order (AGENT-15): CONFIRMATION_REFUSED (A362 to A376), the two kill-switch kinds (A430, PERD 32.2) and FIELD_TRUNCATED (A664, REQ-CTX-005, REQ-CTX-007)."""
         v2 = SCHEMAS["record-event.v2.json"]["$defs"]["SecurityKind"]
-        want = {**v2, "enum": v2["enum"] + ["CONFIRMATION_REFUSED", "KILL_SWITCH_CLEARED", "KILL_SWITCH_CLEAR_REFUSED"]}
+        want = {**v2, "enum": v2["enum"] + ["CONFIRMATION_REFUSED", "KILL_SWITCH_CLEARED", "KILL_SWITCH_CLEAR_REFUSED", "FIELD_TRUNCATED"]}
         self.assertEqual(V3["$defs"]["SecurityKind"], want)
 
     def test_a_refused_confirmation_is_a_valid_security_event_and_an_unknown_kind_is_not(self):
