@@ -55,24 +55,13 @@ func run(t testing.TB, all []exchange, read, family string, timeout time.Duratio
 
 const generous = 5 * time.Second
 
-// othersAreKnown requires the reads that were not faulted to be what they were without any fault, and read once each.
+// othersAreKnown requires every read to have reached the source exactly once (A728: reads use a fresh connection each time, so the attempt count is exact, and no
+// read is retried or replayed), and the reads that were not faulted to be what they were without any fault.
 func othersAreKnown(t *testing.T, obs []layer.Observation, read string, rp *replay, paths map[string]string) {
 	t.Helper()
-	othersAreKnownWithin(t, obs, read, rp, paths, 1)
-}
-
-// othersAreKnownWithin is othersAreKnown with the most requests the faulted read may cost. The reader and the adapter never retry; a request that the source
-// drops on a connection that was already in use is replayed once by Go's own HTTP transport (it replays an idempotent GET that got no response on a reused
-// connection), so a dropped read may reach the source twice. Every other outcome is one request.
-func othersAreKnownWithin(t *testing.T, obs []layer.Observation, read string, rp *replay, paths map[string]string, targetMax int) {
-	t.Helper()
 	for _, name := range readNames {
-		limit := 1
-		if name == read {
-			limit = targetMax
-		}
-		if n := rp.hitsOn(paths[name]); n < 1 || n > limit {
-			t.Errorf("the %s read reached the source %d times, want %d at most and no adapter retry", name, n, limit)
+		if n := rp.hitsOn(paths[name]); n != 1 {
+			t.Errorf("the %s read reached the source %d times, want exactly once (no retry, no replay on a reused connection)", name, n)
 		}
 		if name == read {
 			continue
@@ -245,7 +234,8 @@ func TestANearTimeoutAnswerIsAcceptedOnlyWithinTheReadDeadline(t *testing.T) {
 }
 
 // INV-07, REQ-CTX-008 (a read budget exhausted is UNAVAILABLE): a source that goes silent or cuts the connection is UNAVAILABLE with no bytes, whatever the
-// read's deadline. (For a write the same silence is OUTCOME_UNKNOWN; that is the execution path's, and not a read's.)
+// read's deadline. (For a write the same silence is OUTCOME_UNKNOWN; that is the execution path's, and not a read's.) A dropped GET is attempted exactly once:
+// it is never replayed on a reused connection (A728), which is why the harness gives the client a fresh connection for every read.
 func TestASilentOrDroppedSourceIsUnavailableWithNoBytes(t *testing.T) {
 	all := load(t)
 	for _, family := range []string{"timeout_before_commit", "timeout_after_commit", "drop_response"} {
@@ -261,7 +251,7 @@ func TestASilentOrDroppedSourceIsUnavailableWithNoBytes(t *testing.T) {
 					if status(o) != "UNAVAILABLE" || !o.NoBytes || o.RawHash != "" || o.Payload != nil || o.Read.Determinate {
 						t.Fatalf("timeout %v: status %s (class %s), nobytes %v, raw %q, payload %v", timeout, status(o), o.Read.Class, o.NoBytes, o.RawHash, o.Payload != nil)
 					}
-					othersAreKnownWithin(t, obs, read, rp, paths, 2)
+					othersAreKnown(t, obs, read, rp, paths)
 				}
 			})
 		}
