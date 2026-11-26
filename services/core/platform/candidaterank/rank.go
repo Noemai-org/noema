@@ -70,6 +70,7 @@ type Candidate struct {
 	RecipientBP int64
 	AliasMatch  bool
 	Direction   string
+	ResourceRef string
 }
 
 // Target is what the customer described: the values the candidates are compared to. A part the customer did not say is absent, and its feature is 0.
@@ -124,14 +125,15 @@ type Scored struct {
 
 // Resolution is the result. Ranked is in presentation order: score, then the newer time, then the ID (REQ-AMB-004); an order never breaks a tie for resolving.
 type Resolution struct {
-	State      State
-	Ranked     []Scored
-	TopBP      int64
-	SecondBP   int64
-	MarginBP   int64
-	AboveFloor int
-	WhyNot     []Why
-	ResolvedID string
+	State       State
+	Ranked      []Scored
+	TopBP       int64
+	SecondBP    int64
+	MarginBP    int64
+	AboveFloor  int
+	WhyNot      []Why
+	ResolvedID  string
+	ResolvedRef string
 }
 
 // scaledScore is the exact weighted sum of the features, unrounded: the sum of weight x feature, each in basis points, so it is the score in basis points times UnitBP (an integer, at

@@ -16,6 +16,7 @@ type AuditPayload struct {
 	MarginBP       int64    `json:"margin_bp"`
 	// ResolvedCandidateID is named only when the ranking resolved on its own (AUTO_RESOLVED); in every other state it is left out.
 	ResolvedCandidateID string           `json:"resolved_candidate_id,omitempty"`
+	ResolvedTarget      string           `json:"resolved_target,omitempty"`
 	Candidates          []AuditCandidate `json:"candidates"`
 }
 

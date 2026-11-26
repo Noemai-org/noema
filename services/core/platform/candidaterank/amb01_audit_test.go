@@ -17,8 +17,8 @@ func auditSet() ([]Candidate, Target) {
 	at := time.Date(2026, 11, 20, 9, 30, 0, 0, time.UTC)
 	tgt := Target{HasAmount: true, AmountMinor: 100000, Currency: "NGN", HasWindow: true, From: at.Add(-30 * time.Minute), To: at.Add(30 * time.Minute), ExpectedDirection: "OUTGOING"}
 	return []Candidate{
-		{ID: "cand_low", AmountMinor: 100000, Currency: "NGN", OccurredAt: at, RecipientBP: 4000, Direction: "INCOMING"},
-		{ID: "cand_top", AmountMinor: 100000, Currency: "NGN", OccurredAt: at, RecipientBP: 10000, AliasMatch: true, Direction: "OUTGOING"},
+		{ID: "cand_low", ResourceRef: "test.txn:LOW0001", AmountMinor: 100000, Currency: "NGN", OccurredAt: at, RecipientBP: 4000, Direction: "INCOMING"},
+		{ID: "cand_top", ResourceRef: "test.txn:TOP0001", AmountMinor: 100000, Currency: "NGN", OccurredAt: at, RecipientBP: 10000, AliasMatch: true, Direction: "OUTGOING"},
 	}, tgt
 }
 
@@ -156,7 +156,7 @@ func TestTheAuditPayloadHasNoKeyBeyondIdsAndScores(t *testing.T) {
 		sort.Strings(ks)
 		return strings.Join(ks, ",")
 	}
-	if got, want := keys(v), "above_floor,candidate_count,candidates,margin_bp,resolved_candidate_id,second_bp,state,top_bp,why_not"; got != want {
+	if got, want := keys(v), "above_floor,candidate_count,candidates,margin_bp,resolved_candidate_id,resolved_target,second_bp,state,top_bp,why_not"; got != want {
 		t.Errorf("payload keys = %s, want %s", got, want)
 	}
 	rows, ok := v["candidates"].([]any)
