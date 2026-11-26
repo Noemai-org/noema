@@ -223,7 +223,7 @@ func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
 		return fmt.Errorf("%w: the customer role has no principal type", ErrStartTurn)
 	}
 	// A514 (amended), INV-12: the session carries the verified reference, the principal type of the edge's mapping and the verified issuer of the authenticated session.
-	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.PrincipalID, Role: string(session.RoleCustomer), AuthnRef: t.SessionID, PrincipalType: principalType, AssertedBy: t.AssertedBy}
+	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.CorrelationID, Role: string(session.RoleCustomer), AuthnRef: t.SessionID, PrincipalType: principalType, AssertedBy: t.AssertedBy}
 	// t.SessionID is the authenticated session's reference, put on the identity by the edge's session middleware (gatewayIdentity): the store writes it with the role as the investigation's
 	// recorded session (A441, INV-12). It is never read from the request body.
 	sctx, cancel := context.WithTimeout(ctx, s.cfg.Start)
