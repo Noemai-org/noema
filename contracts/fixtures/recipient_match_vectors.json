@@ -1,0 +1,3838 @@
+{
+ "label": "SYNTHETIC",
+ "note": "Recipient matcher golden vectors (A710; REQ-AMB-003, INV-21). Every name is invented. Both the Go matcher (services/core/evidence/recipientmatch) and the Python reference (services/model/tests/test_matcher_vectors.py) load this file, build their matcher from packs/fintech/lexicons/recipient_matcher.json, and must give the same exact fraction (numerator over denominator, in lowest terms) for every case. The expected values were produced by the Python reference matcher (the authority); a Go result that differs is a Go defect. A phonetic case is scored with the voice-path tier enabled (the request has no phonetic member, so the production adapter never enables it). The data file's tiers, folding, nicknames and variants are the matcher's only name knowledge.",
+ "version": 1,
+ "data": "packs/fintech/lexicons/recipient_matcher.json",
+ "cases": [
+  {
+   "name": "exact",
+   "query": "Tunde",
+   "display": "Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "case",
+   "query": "tunde",
+   "display": "TUNDE",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "diacritics",
+   "query": "Adebayo",
+   "display": "Adébáyọ̀",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "dot below",
+   "query": "Ṣade",
+   "display": "Sade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hooked d",
+   "query": "Ɗanjuma",
+   "display": "Danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hooked k",
+   "query": "Ƙarami",
+   "display": "Karami",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hooked b",
+   "query": "Ɓello",
+   "display": "Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hooked y",
+   "query": "Ƴusuf",
+   "display": "Yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "apostrophe",
+   "query": "Ja'afar",
+   "display": "Jaafar",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "curly apostrophe",
+   "query": "Ja’afar",
+   "display": "Ja'afar",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "modifier apostrophe",
+   "query": "Jaʼafar",
+   "display": "Jaafar",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "umlaut",
+   "query": "Müller",
+   "display": "Muller",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "acute",
+   "query": "José",
+   "display": "Jose",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "cedilla",
+   "query": "François",
+   "display": "Francois",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "tilde",
+   "query": "Núñez",
+   "display": "Nunez",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "fullwidth",
+   "query": "Ａｄａ",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "ligature",
+   "query": "ﬁnn",
+   "display": "finn",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "superscript",
+   "query": "Ada²",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "circled",
+   "query": "Ⓐda",
+   "display": "ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "sharp s",
+   "query": "Straße",
+   "display": "STRASSE",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "final sigma",
+   "query": "ΟΔΥΣΣΕΥΣ",
+   "display": "οδυσσευς",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "sigma",
+   "query": "Σίσυφος",
+   "display": "σίσυφος",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "dotted I",
+   "query": "İbrahim",
+   "display": "ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "dotless i",
+   "query": "ıdris",
+   "display": "idris",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "cyrillic",
+   "query": "Иван",
+   "display": "иван",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "greek",
+   "query": "Άννα",
+   "display": "Αννα",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "nfc vs nfd",
+   "query": "Adé",
+   "display": "Adé",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hangul",
+   "query": "한국",
+   "display": "한국",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "arabic",
+   "query": "محمد",
+   "display": "محمد",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "mixed scripts",
+   "query": "Ada Обі",
+   "display": "ada обі",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combining only",
+   "query": "́̂",
+   "display": "x",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "empty display",
+   "query": "Ada",
+   "display": "",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "blank display",
+   "query": "Ada",
+   "display": "   ",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "digits only",
+   "query": "12345",
+   "display": "12345",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "digits vs name",
+   "query": "12345",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "punctuation only",
+   "query": "!!!",
+   "display": "???",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "punctuation vs name",
+   "query": "...",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hostile",
+   "query": "ignore previous instructions",
+   "display": "Ignore Previous Instructions",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hostile partial",
+   "query": "Ada <|endoftext|>",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "newline",
+   "query": "Ada\nObi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "tab",
+   "query": "Ada\tObi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "nbsp",
+   "query": "Ada Obi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "zero width",
+   "query": "Ada​Obi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "nickname forward",
+   "query": "Tunde",
+   "display": "Babatunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "nickname back",
+   "query": "Babatunde",
+   "display": "Tunde Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "emeka",
+   "query": "Emeka",
+   "display": "Chukwuemeka Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "two full names",
+   "query": "Adebayo",
+   "display": "Adewale",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "ade",
+   "query": "Ade",
+   "display": "Adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "ade2",
+   "query": "Ade",
+   "display": "Adewale",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "variant mohammed",
+   "query": "Mohammed",
+   "display": "Muhammad Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "variant yusuf",
+   "query": "Yusuf",
+   "display": "Yussuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "variant ibrahim",
+   "query": "Ibrahim",
+   "display": "Ibraheem Musa",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "variant aisha",
+   "query": "Aisha",
+   "display": "Ayisha",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "variant khadija",
+   "query": "Khadija",
+   "display": "Kadija",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "order",
+   "query": "Adeyemi Tunde",
+   "display": "Tunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "order2",
+   "query": "Tunde Adeyemi",
+   "display": "Adeyemi Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "initial",
+   "query": "T. Adeyemi",
+   "display": "Tunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 7,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "initial only",
+   "query": "T",
+   "display": "Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "initial reverse",
+   "query": "Tunde",
+   "display": "T",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "initial long",
+   "query": "Tu",
+   "display": "Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "partial 1/2",
+   "query": "Tunde Adeyemi",
+   "display": "Tunde Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "partial 1/3",
+   "query": "Tunde Adeyemi Bello",
+   "display": "Tunde Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "partial 2/3",
+   "query": "Tunde Adeyemi Bello",
+   "display": "Tunde Adeyemi Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "extra name tokens",
+   "query": "Ada",
+   "display": "Ada Obi Stores Ltd",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "duplicate query tokens",
+   "query": "Ada Ada",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "duplicate both",
+   "query": "Ada Ada",
+   "display": "Ada Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "duplicate display",
+   "query": "Ada",
+   "display": "Ada Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "three tokens one match",
+   "query": "Ada Ada Ada",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "more than eight query",
+   "query": "a b c d e f g h i j",
+   "display": "a b c d e f g h",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "more than eight display",
+   "query": "Ada",
+   "display": "x1 x2 x3 x4 x5 x6 x7 x8 Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "nine tokens match ninth",
+   "query": "i",
+   "display": "a b c d e f g h i",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "eight exactly",
+   "query": "a b c d e f g h",
+   "display": "h g f e d c b a",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "alias plus exact",
+   "query": "Tunde Adeyemi",
+   "display": "Babatunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "alias plus initial",
+   "query": "Tunde A.",
+   "display": "Babatunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "initial vs exact tie",
+   "query": "Ade A",
+   "display": "Ade Adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 7,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "none",
+   "query": "Chidi",
+   "display": "Ngozi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "query empty",
+   "query": "",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "query none",
+   "query": null,
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "query blank",
+   "query": "   ",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "query punct",
+   "query": "...",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "both empty",
+   "query": "",
+   "display": "",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "long names",
+   "query": "Oluwaseyi Adebayo Chukwuemeka Babatunde Olatunde",
+   "display": "Olatunde Chukwuemeka Adebayo Oluwaseyi Babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "single letters",
+   "query": "a",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "single letters differ",
+   "query": "a",
+   "display": "b",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "initial of initial",
+   "query": "a",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "hyphen",
+   "query": "Ade-Bayo",
+   "display": "Ade Bayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "underscore",
+   "query": "Ade_Bayo",
+   "display": "Ade Bayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "digits in name",
+   "query": "Ada2 Obi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "possessive",
+   "query": "Ada's",
+   "display": "Adas",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "sh s off",
+   "query": "Shade",
+   "display": "Sade",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "sh s on",
+   "query": "Shade",
+   "display": "Sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "ch c off",
+   "query": "Chike",
+   "display": "Cike",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "ch c on",
+   "query": "Chike",
+   "display": "Cike",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "ph f off",
+   "query": "Philip",
+   "display": "Filip",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "ph f on",
+   "query": "Philip",
+   "display": "Filip",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "ck k off",
+   "query": "Nicky",
+   "display": "Nikky",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "ck k on",
+   "query": "Nicky",
+   "display": "Nikky",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "kh k off",
+   "query": "Khalid",
+   "display": "Kalid",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "kh k on",
+   "query": "Khalid",
+   "display": "Kalid",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "gh g off",
+   "query": "Ghana",
+   "display": "Gana",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "gh g on",
+   "query": "Ghana",
+   "display": "Gana",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "dh d off",
+   "query": "Dhaka",
+   "display": "Daka",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "dh d on",
+   "query": "Dhaka",
+   "display": "Daka",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "q k off",
+   "query": "Qasim",
+   "display": "Kasim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "q k on",
+   "query": "Qasim",
+   "display": "Kasim",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "x ks off",
+   "query": "Alex",
+   "display": "Aleks",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "x ks on",
+   "query": "Alex",
+   "display": "Aleks",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "vowels dropped off",
+   "query": "Bola",
+   "display": "Bla",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "vowels dropped on",
+   "query": "Bola",
+   "display": "Bla",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "short key off",
+   "query": "Ao",
+   "display": "Eu",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "short key on",
+   "query": "Ao",
+   "display": "Eu",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "short key 2 off",
+   "query": "Ab",
+   "display": "Eb",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "short key 2 on",
+   "query": "Ab",
+   "display": "Eb",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "doubles off",
+   "query": "Ammaa",
+   "display": "Ama",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "doubles on",
+   "query": "Ammaa",
+   "display": "Ama",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "repeat off",
+   "query": "Ssssam",
+   "display": "Sam",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "repeat on",
+   "query": "Ssssam",
+   "display": "Sam",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "different off",
+   "query": "Ada",
+   "display": "Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "different on",
+   "query": "Ada",
+   "display": "Obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "phonetic plus alias off",
+   "query": "Tunde Shola",
+   "display": "Babatunde Sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "phonetic plus alias on",
+   "query": "Tunde Shola",
+   "display": "Babatunde Sola",
+   "phonetic": true,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "empty key off",
+   "query": "Aeiou",
+   "display": "Eioua",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "empty key on",
+   "query": "Aeiou",
+   "display": "Eioua",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 000",
+   "query": "t",
+   "display": "shola obi babatunde danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 001",
+   "query": "emile adebayo ngozi straße",
+   "display": "emile babatunde straße strasse",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 002",
+   "query": "tunde",
+   "display": "ngozi émile strasse sola muhammad",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 003",
+   "query": "chidi ṣade",
+   "display": "emile obi a",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 004",
+   "query": "emile sola t",
+   "display": "emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 005",
+   "query": "yusuf sade adebayo ibraheem",
+   "display": "mohammed obi ṣade sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 006",
+   "query": "babatunde straße émile strasse",
+   "display": "ngozi ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 007",
+   "query": "shola",
+   "display": "ibraheem shola muhammad sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 008",
+   "query": "ada sade sola ngozi",
+   "display": "ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 009",
+   "query": "t",
+   "display": "emile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 010",
+   "query": "chidi ṣade ṣade",
+   "display": "obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 011",
+   "query": "ṣade sade ɗanjuma",
+   "display": "babatunde babatunde emile shola adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 012",
+   "query": "emile ibraheem",
+   "display": "ɗanjuma chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 013",
+   "query": "tunde",
+   "display": "ibrahim straße obi obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 014",
+   "query": "sola babatunde straße",
+   "display": "tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 4,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 015",
+   "query": "ɗanjuma shola adebayo babatunde",
+   "display": "strasse",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 016",
+   "query": "straße a sola",
+   "display": "t adebayo babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 017",
+   "query": "sade yusuf",
+   "display": "ada danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 018",
+   "query": "émile ṣade shola",
+   "display": "strasse ṣade ɗanjuma ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 019",
+   "query": "t sola strasse tunde",
+   "display": "adebayo émile a ibraheem ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 020",
+   "query": "ibrahim",
+   "display": "sola babatunde yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 021",
+   "query": "shola muhammad ṣade muhammad",
+   "display": "yusuf danjuma emile chidi a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 022",
+   "query": "obi danjuma",
+   "display": "mohammed ɗanjuma chidi t babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 023",
+   "query": "sola obi ɗanjuma sade",
+   "display": "t sade strasse sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 024",
+   "query": "t tunde",
+   "display": "sade tunde adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 025",
+   "query": "straße chidi",
+   "display": "émile ibrahim ngozi ade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 026",
+   "query": "mohammed",
+   "display": "straße",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 027",
+   "query": "t strasse babatunde",
+   "display": "straße ade a straße t",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 028",
+   "query": "chidi ɗanjuma",
+   "display": "ibrahim ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 029",
+   "query": "shola",
+   "display": "ibrahim mohammed adebayo ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 030",
+   "query": "ada yusuf ade strasse",
+   "display": "obi obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 031",
+   "query": "ade",
+   "display": "t ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 032",
+   "query": "danjuma ibrahim émile",
+   "display": "émile adebayo ngozi émile ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 033",
+   "query": "danjuma ada ade",
+   "display": "sola t danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 034",
+   "query": "strasse shola",
+   "display": "sola",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 035",
+   "query": "danjuma danjuma ada",
+   "display": "obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 036",
+   "query": "tunde straße ngozi",
+   "display": "sade ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 037",
+   "query": "babatunde a",
+   "display": "sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 038",
+   "query": "danjuma",
+   "display": "danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 039",
+   "query": "danjuma",
+   "display": "ada strasse t sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 040",
+   "query": "yusuf mohammed",
+   "display": "obi babatunde straße yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 041",
+   "query": "a muhammad babatunde",
+   "display": "ibrahim muhammad ɗanjuma chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 042",
+   "query": "chidi",
+   "display": "mohammed straße ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 043",
+   "query": "strasse strasse",
+   "display": "muhammad ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 044",
+   "query": "ngozi obi ṣade a",
+   "display": "ɗanjuma adebayo tunde chidi t",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "combination 045",
+   "query": "shola shola shola strasse",
+   "display": "shola strasse ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 046",
+   "query": "emile tunde a",
+   "display": "ngozi straße ɗanjuma ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 047",
+   "query": "mohammed t émile ibrahim",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 048",
+   "query": "a ibraheem",
+   "display": "muhammad ada ade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 049",
+   "query": "chidi yusuf strasse yusuf",
+   "display": "a straße ɗanjuma t",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 050",
+   "query": "ṣade danjuma",
+   "display": "adebayo babatunde a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 051",
+   "query": "ngozi",
+   "display": "obi ada ngozi sade babatunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 052",
+   "query": "ibrahim",
+   "display": "strasse shola ngozi ada emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 053",
+   "query": "émile straße",
+   "display": "sade a babatunde babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 054",
+   "query": "ibrahim",
+   "display": "emile ade ngozi chidi mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 055",
+   "query": "chidi muhammad",
+   "display": "ada ngozi ɗanjuma strasse emile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 056",
+   "query": "ibraheem yusuf",
+   "display": "emile sola ade tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 057",
+   "query": "a",
+   "display": "yusuf mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 058",
+   "query": "ṣade babatunde",
+   "display": "babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 059",
+   "query": "t emile",
+   "display": "ngozi sade ɗanjuma sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 060",
+   "query": "adebayo ibraheem",
+   "display": "ṣade ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 061",
+   "query": "tunde ṣade",
+   "display": "ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 062",
+   "query": "émile emile adebayo sola",
+   "display": "chidi ṣade babatunde chidi ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 063",
+   "query": "chidi a ada",
+   "display": "tunde chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 064",
+   "query": "émile",
+   "display": "yusuf ibraheem sola danjuma straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 065",
+   "query": "strasse",
+   "display": "yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 066",
+   "query": "ɗanjuma ibraheem",
+   "display": "t ngozi sola a",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 067",
+   "query": "ɗanjuma tunde mohammed",
+   "display": "emile ibraheem chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 068",
+   "query": "chidi babatunde émile",
+   "display": "ṣade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 069",
+   "query": "chidi danjuma émile ibrahim",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 070",
+   "query": "obi",
+   "display": "mohammed babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 071",
+   "query": "émile",
+   "display": "muhammad obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 072",
+   "query": "adebayo ibrahim ade t",
+   "display": "t sola straße mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 073",
+   "query": "babatunde",
+   "display": "yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 074",
+   "query": "strasse adebayo strasse",
+   "display": "émile babatunde tunde shola yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 075",
+   "query": "mohammed chidi muhammad",
+   "display": "ibrahim obi ṣade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 076",
+   "query": "ṣade",
+   "display": "ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 077",
+   "query": "sade adebayo",
+   "display": "ṣade t",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 078",
+   "query": "ngozi adebayo ibrahim",
+   "display": "sola émile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 079",
+   "query": "ade mohammed emile",
+   "display": "yusuf adebayo ngozi a",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 080",
+   "query": "ibrahim émile",
+   "display": "yusuf ṣade ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 081",
+   "query": "ṣade ada",
+   "display": "t mohammed mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 082",
+   "query": "émile yusuf ṣade",
+   "display": "ɗanjuma adebayo ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 083",
+   "query": "sade emile",
+   "display": "adebayo chidi t danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 084",
+   "query": "babatunde mohammed ibraheem a",
+   "display": "adebayo",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "combination 085",
+   "query": "tunde sola",
+   "display": "ade sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 086",
+   "query": "obi sola mohammed shola",
+   "display": "sade ṣade straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 087",
+   "query": "ibraheem",
+   "display": "ada chidi ade obi straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 088",
+   "query": "yusuf émile chidi",
+   "display": "t obi danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 089",
+   "query": "sola",
+   "display": "muhammad ade t ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 090",
+   "query": "strasse",
+   "display": "sade chidi babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 091",
+   "query": "ade chidi danjuma babatunde",
+   "display": "obi ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 092",
+   "query": "ade sade a",
+   "display": "babatunde ibraheem ɗanjuma shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 093",
+   "query": "ɗanjuma strasse sade",
+   "display": "ade ibraheem strasse straße adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 094",
+   "query": "ṣade yusuf",
+   "display": "a emile ibrahim ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 095",
+   "query": "danjuma",
+   "display": "ṣade ibrahim ade ngozi shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 096",
+   "query": "strasse a ibrahim tunde",
+   "display": "shola sola ṣade ngozi babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 097",
+   "query": "a ada",
+   "display": "émile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 098",
+   "query": "danjuma chidi",
+   "display": "shola tunde yusuf",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 099",
+   "query": "émile",
+   "display": "émile chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 100",
+   "query": "ibraheem t ada",
+   "display": "obi strasse emile ada yusuf",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 101",
+   "query": "ada",
+   "display": "straße emile yusuf tunde ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 102",
+   "query": "strasse",
+   "display": "yusuf t ngozi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 103",
+   "query": "danjuma sade",
+   "display": "emile t",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 104",
+   "query": "muhammad mohammed",
+   "display": "ibraheem émile shola ibraheem",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 105",
+   "query": "ɗanjuma ibrahim sola chidi",
+   "display": "émile a straße babatunde shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 106",
+   "query": "ibraheem ibraheem emile adebayo",
+   "display": "danjuma babatunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 107",
+   "query": "yusuf",
+   "display": "ada danjuma muhammad",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 108",
+   "query": "obi muhammad émile t",
+   "display": "yusuf ɗanjuma strasse sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 109",
+   "query": "a yusuf",
+   "display": "straße ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 110",
+   "query": "ada ibrahim",
+   "display": "ṣade shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 111",
+   "query": "émile ade",
+   "display": "chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 112",
+   "query": "tunde sola",
+   "display": "tunde tunde shola sade strasse",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 113",
+   "query": "strasse emile",
+   "display": "ṣade strasse ade babatunde ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 114",
+   "query": "émile",
+   "display": "sola tunde ṣade obi babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 115",
+   "query": "ada",
+   "display": "muhammad émile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 116",
+   "query": "émile sola",
+   "display": "chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 117",
+   "query": "strasse mohammed ngozi babatunde",
+   "display": "ɗanjuma ibraheem chidi a ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 118",
+   "query": "ade ada",
+   "display": "sade ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 119",
+   "query": "émile ibraheem ibraheem",
+   "display": "ade adebayo shola ade mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 120",
+   "query": "a chidi sola",
+   "display": "adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 121",
+   "query": "strasse t adebayo",
+   "display": "ibraheem ṣade ɗanjuma shola straße",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 122",
+   "query": "émile",
+   "display": "muhammad adebayo straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 123",
+   "query": "obi t a adebayo",
+   "display": "yusuf mohammed strasse",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 124",
+   "query": "émile tunde babatunde",
+   "display": "danjuma danjuma danjuma t",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 125",
+   "query": "ibrahim chidi sade",
+   "display": "obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 126",
+   "query": "strasse babatunde ṣade strasse",
+   "display": "tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 127",
+   "query": "ngozi sola strasse",
+   "display": "t ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 128",
+   "query": "émile shola ade ade",
+   "display": "ade sade ibraheem",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 129",
+   "query": "ada",
+   "display": "ada a ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 130",
+   "query": "sola chidi obi shola",
+   "display": "danjuma mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 131",
+   "query": "straße émile",
+   "display": "muhammad",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 132",
+   "query": "emile",
+   "display": "obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 133",
+   "query": "obi danjuma ṣade",
+   "display": "sade ade adebayo ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 134",
+   "query": "emile",
+   "display": "straße t emile ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 135",
+   "query": "obi a",
+   "display": "shola muhammad ada sade chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 136",
+   "query": "danjuma",
+   "display": "chidi chidi danjuma émile adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 137",
+   "query": "ibrahim adebayo",
+   "display": "émile babatunde mohammed ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 138",
+   "query": "muhammad mohammed emile",
+   "display": "straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 139",
+   "query": "ṣade",
+   "display": "muhammad",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 140",
+   "query": "émile",
+   "display": "t chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 141",
+   "query": "ibrahim straße adebayo obi",
+   "display": "mohammed ngozi ade émile",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 142",
+   "query": "ngozi ada",
+   "display": "ada ade obi ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 143",
+   "query": "a sade",
+   "display": "ṣade ngozi ngozi straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 144",
+   "query": "émile straße émile",
+   "display": "muhammad a ada ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 145",
+   "query": "chidi emile",
+   "display": "strasse tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 146",
+   "query": "t t",
+   "display": "ada muhammad ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 147",
+   "query": "sade",
+   "display": "ɗanjuma ṣade muhammad shola ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 148",
+   "query": "ṣade emile",
+   "display": "émile ngozi strasse muhammad babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 149",
+   "query": "chidi",
+   "display": "emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 150",
+   "query": "adebayo tunde straße ibrahim",
+   "display": "émile obi obi danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 151",
+   "query": "emile",
+   "display": "chidi sola obi chidi ibraheem",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 152",
+   "query": "ibrahim sade mohammed",
+   "display": "chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 153",
+   "query": "mohammed shola",
+   "display": "emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 154",
+   "query": "yusuf straße",
+   "display": "straße ṣade tunde ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 155",
+   "query": "sola",
+   "display": "obi ṣade babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 156",
+   "query": "danjuma sola",
+   "display": "adebayo émile sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 157",
+   "query": "straße t mohammed ade",
+   "display": "muhammad t ibrahim mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 158",
+   "query": "tunde",
+   "display": "shola straße mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 159",
+   "query": "babatunde babatunde",
+   "display": "shola muhammad sola émile ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 160",
+   "query": "ngozi tunde t emile",
+   "display": "muhammad sola ṣade ibraheem",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 161",
+   "query": "sola adebayo a ada",
+   "display": "babatunde tunde tunde shola shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 162",
+   "query": "babatunde tunde mohammed danjuma",
+   "display": "ṣade ṣade a emile danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 163",
+   "query": "strasse",
+   "display": "ngozi adebayo ngozi ɗanjuma muhammad",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 164",
+   "query": "ṣade sade emile",
+   "display": "emile ade ṣade danjuma muhammad",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 165",
+   "query": "adebayo",
+   "display": "ɗanjuma yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 166",
+   "query": "ada danjuma ade",
+   "display": "ngozi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 167",
+   "query": "shola emile",
+   "display": "sola",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 168",
+   "query": "ngozi straße shola",
+   "display": "a tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 169",
+   "query": "ɗanjuma a",
+   "display": "t ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 170",
+   "query": "tunde ɗanjuma adebayo ngozi",
+   "display": "muhammad straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 171",
+   "query": "emile sade babatunde",
+   "display": "ibraheem tunde ade babatunde emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 172",
+   "query": "a mohammed shola",
+   "display": "mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 173",
+   "query": "adebayo strasse babatunde",
+   "display": "chidi ɗanjuma mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 174",
+   "query": "shola muhammad",
+   "display": "muhammad",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 175",
+   "query": "ngozi",
+   "display": "muhammad",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 176",
+   "query": "ṣade strasse tunde ɗanjuma",
+   "display": "danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 177",
+   "query": "ibraheem sade",
+   "display": "obi emile mohammed mohammed straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 178",
+   "query": "emile ṣade sola t",
+   "display": "shola emile obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 179",
+   "query": "strasse émile yusuf",
+   "display": "chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 180",
+   "query": "mohammed danjuma emile ade",
+   "display": "emile straße yusuf yusuf",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 181",
+   "query": "chidi danjuma emile strasse",
+   "display": "t adebayo a a ngozi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 182",
+   "query": "shola mohammed ada",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 183",
+   "query": "strasse tunde sade emile",
+   "display": "tunde ṣade ṣade ngozi",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 184",
+   "query": "ada ibraheem",
+   "display": "mohammed t yusuf ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 185",
+   "query": "babatunde",
+   "display": "t ṣade ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 186",
+   "query": "muhammad straße",
+   "display": "ɗanjuma ade",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 187",
+   "query": "emile chidi chidi straße",
+   "display": "sola ade sola ɗanjuma danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 188",
+   "query": "t",
+   "display": "chidi ibrahim t danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 189",
+   "query": "émile ada",
+   "display": "mohammed ade babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 190",
+   "query": "straße ibraheem yusuf sade",
+   "display": "shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 191",
+   "query": "ada ṣade",
+   "display": "t strasse émile tunde t",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 192",
+   "query": "ade mohammed ibrahim ngozi",
+   "display": "mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 193",
+   "query": "ade muhammad ibraheem",
+   "display": "straße mohammed obi chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 194",
+   "query": "chidi strasse",
+   "display": "obi ngozi t",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 195",
+   "query": "ngozi ɗanjuma strasse ibrahim",
+   "display": "straße émile shola ṣade mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 196",
+   "query": "émile danjuma",
+   "display": "ibraheem tunde ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "combination 197",
+   "query": "tunde strasse babatunde",
+   "display": "muhammad strasse émile danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 198",
+   "query": "straße obi emile",
+   "display": "ibraheem muhammad ṣade émile",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 199",
+   "query": "straße emile adebayo ɗanjuma",
+   "display": "chidi ibraheem strasse ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 200",
+   "query": "sola muhammad ibraheem",
+   "display": "ade t",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 201",
+   "query": "ngozi",
+   "display": "ade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 202",
+   "query": "ade",
+   "display": "tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 203",
+   "query": "straße tunde muhammad ngozi",
+   "display": "babatunde ɗanjuma sade sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 204",
+   "query": "shola",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 205",
+   "query": "straße mohammed",
+   "display": "danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 206",
+   "query": "chidi adebayo",
+   "display": "ada danjuma émile ibraheem ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 207",
+   "query": "sola",
+   "display": "ibrahim a shola",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 208",
+   "query": "muhammad adebayo straße",
+   "display": "obi emile mohammed mohammed yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 209",
+   "query": "tunde yusuf ade",
+   "display": "a straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 210",
+   "query": "sola ngozi strasse sola",
+   "display": "adebayo ada ade babatunde ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 211",
+   "query": "straße ada muhammad",
+   "display": "mohammed ade muhammad",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 212",
+   "query": "a t t",
+   "display": "ibraheem t sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 213",
+   "query": "sola t strasse strasse",
+   "display": "shola yusuf émile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 214",
+   "query": "ṣade yusuf a ibrahim",
+   "display": "ade t babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "combination 215",
+   "query": "danjuma",
+   "display": "émile ɗanjuma tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 216",
+   "query": "sade sola adebayo strasse",
+   "display": "ibraheem ada ade mohammed yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 217",
+   "query": "muhammad ibrahim straße shola",
+   "display": "danjuma danjuma chidi sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 218",
+   "query": "ibrahim ade",
+   "display": "shola t ṣade adebayo adebayo",
+   "phonetic": true,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "combination 219",
+   "query": "shola ada straße",
+   "display": "sola ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 220",
+   "query": "ade",
+   "display": "t ibrahim sade émile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 221",
+   "query": "sade ade ibrahim a",
+   "display": "ada ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "combination 222",
+   "query": "yusuf",
+   "display": "tunde ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 223",
+   "query": "straße",
+   "display": "mohammed muhammad mohammed adebayo mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 224",
+   "query": "mohammed",
+   "display": "emile adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 225",
+   "query": "danjuma",
+   "display": "sade",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 226",
+   "query": "emile sola ibraheem",
+   "display": "ṣade ngozi ade straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 227",
+   "query": "ngozi danjuma babatunde ṣade",
+   "display": "chidi babatunde adebayo sade ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 3,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 228",
+   "query": "ngozi ngozi muhammad",
+   "display": "danjuma adebayo",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 229",
+   "query": "emile",
+   "display": "a ada babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 230",
+   "query": "danjuma mohammed obi muhammad",
+   "display": "babatunde babatunde tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 231",
+   "query": "ade",
+   "display": "ade émile a ada sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 232",
+   "query": "sade ibraheem strasse",
+   "display": "muhammad ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 233",
+   "query": "ɗanjuma emile ɗanjuma",
+   "display": "sade a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 234",
+   "query": "ngozi",
+   "display": "ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 235",
+   "query": "mohammed",
+   "display": "adebayo chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 236",
+   "query": "sade",
+   "display": "émile obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 237",
+   "query": "mohammed ṣade",
+   "display": "strasse babatunde danjuma ngozi emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 238",
+   "query": "chidi",
+   "display": "ngozi mohammed sade",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 239",
+   "query": "straße",
+   "display": "ṣade ṣade chidi mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 240",
+   "query": "chidi mohammed shola shola",
+   "display": "a strasse chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 241",
+   "query": "emile",
+   "display": "ibraheem sade tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 242",
+   "query": "strasse ada mohammed",
+   "display": "muhammad",
+   "phonetic": true,
+   "want": {
+    "numerator": 4,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "combination 243",
+   "query": "ade mohammed obi",
+   "display": "ibraheem ade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 244",
+   "query": "babatunde",
+   "display": "adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 245",
+   "query": "tunde shola émile t",
+   "display": "ade emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 246",
+   "query": "ibrahim shola obi tunde",
+   "display": "ɗanjuma shola chidi chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "combination 247",
+   "query": "adebayo",
+   "display": "ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 248",
+   "query": "ada",
+   "display": "émile ibrahim sade yusuf",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 249",
+   "query": "muhammad straße ade",
+   "display": "ṣade émile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 250",
+   "query": "ngozi",
+   "display": "ibraheem obi t",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 251",
+   "query": "shola straße ibraheem mohammed",
+   "display": "ibrahim ngozi mohammed tunde chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 20
+   }
+  },
+  {
+   "name": "combination 252",
+   "query": "sola ada",
+   "display": "mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 253",
+   "query": "yusuf emile ɗanjuma",
+   "display": "sade ibraheem sola",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 254",
+   "query": "ṣade babatunde ɗanjuma ibraheem",
+   "display": "t muhammad ada shola",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 255",
+   "query": "mohammed a shola t",
+   "display": "obi babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 256",
+   "query": "strasse",
+   "display": "tunde muhammad ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 257",
+   "query": "émile",
+   "display": "a shola",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "combination 258",
+   "query": "ibraheem sola shola",
+   "display": "a ade ngozi ibraheem",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "combination 259",
+   "query": "emile",
+   "display": "tunde obi mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  }
+ ]
+}
