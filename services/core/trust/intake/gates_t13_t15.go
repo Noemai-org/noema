@@ -293,6 +293,7 @@ func (e *evaluation) firstCapabilities(ctx context.Context) (ok bool, err error)
 		return false, err
 	}
 	a := e.intent
+	// A first evaluation has no verified result to carry, so the query's EvidencePacket stays empty here (A694); it is never defaulted.
 	ids, err := e.svc.Runnable.Runnable(ctx, RunnableQuery{TenantID: a.TenantID, IntentID: a.IntentID, IntentVersion: a.Version, IntentNode: a.IntentNode, SnapshotID: e.snapshotID})
 	if err != nil {
 		return false, err
