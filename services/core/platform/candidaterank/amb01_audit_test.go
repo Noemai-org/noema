@@ -159,11 +159,22 @@ func TestTheAuditPayloadHasNoKeyBeyondIdsAndScores(t *testing.T) {
 	if got, want := keys(v), "above_floor,candidate_count,candidates,margin_bp,resolved_candidate_id,second_bp,state,top_bp,why_not"; got != want {
 		t.Errorf("payload keys = %s, want %s", got, want)
 	}
-	row := v["candidates"].([]any)[0].(map[string]any)
+	rows, ok := v["candidates"].([]any)
+	if !ok || len(rows) == 0 {
+		t.Fatalf("candidates = %v, want a list with a row", v["candidates"])
+	}
+	row, ok := rows[0].(map[string]any)
+	if !ok {
+		t.Fatalf("a candidate row is %T, want an object", rows[0])
+	}
 	if got, want := keys(row), "candidate_id,features,score_bp"; got != want {
 		t.Errorf("candidate keys = %s, want %s", got, want)
 	}
-	if got, want := keys(row["features"].(map[string]any)), "amount_bp,recipient_bp,relationship_bp,temporal_bp,type_direction_bp"; got != want {
+	feats, ok := row["features"].(map[string]any)
+	if !ok {
+		t.Fatalf("features is %T, want an object", row["features"])
+	}
+	if got, want := keys(feats), "amount_bp,recipient_bp,relationship_bp,temporal_bp,type_direction_bp"; got != want {
 		t.Errorf("feature keys = %s, want %s", got, want)
 	}
 }
@@ -178,6 +189,9 @@ func TestTheAuditPayloadSharesNothingWithTheResolution(t *testing.T) {
 	}
 	before := marshalAudit(t, res)
 	p := res.AuditPayload()
+	if len(p.Candidates) == 0 || len(p.WhyNot) == 0 {
+		t.Fatalf("the payload has %d candidates and %d reasons, want some of each", len(p.Candidates), len(p.WhyNot))
+	}
 	p.Candidates[0].CandidateID = "changed"
 	p.WhyNot[0] = "changed"
 	if res.Ranked[0].ID == "changed" || res.WhyNot[0] == "changed" {
@@ -185,5 +199,47 @@ func TestTheAuditPayloadSharesNothingWithTheResolution(t *testing.T) {
 	}
 	if again := marshalAudit(t, res); !bytes.Equal(before, again) {
 		t.Fatalf("the payload changed after an edit of a copy:\n%s\n%s", before, again)
+	}
+}
+
+// REQ-AMB-003: each feature is recorded under its own name. Two candidates whose five features are all different from one another, so that a payload that swaps two of them cannot pass.
+func TestEachFeatureIsRecordedUnderItsOwnName(t *testing.T) {
+	c := goodConfig()
+	at := time.Date(2026, 11, 20, 9, 30, 0, 0, time.UTC)
+	tgt := Target{HasAmount: true, AmountMinor: 100000, Currency: "NGN", HasWindow: true, From: at.Add(-30 * time.Minute), To: at.Add(30 * time.Minute), ExpectedDirection: "OUTGOING"}
+	cands := []Candidate{
+		// the amount is 500 of the 1000 tolerance away (5000), the time is 3600 s of the 7200 s tolerance outside the window (5000)
+		{ID: "cand_alias", AmountMinor: 100500, Currency: "NGN", OccurredAt: at.Add(30*time.Minute + 3600*time.Second), RecipientBP: 1234, AliasMatch: true, Direction: "INCOMING"},
+		{ID: "cand_dir", AmountMinor: 100000, Currency: "NGN", OccurredAt: at, RecipientBP: 4321, Direction: "OUTGOING"},
+	}
+	res, err := c.Rank(cands, tgt, Context{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]AuditFeatures{}
+	for _, cand := range res.AuditPayload().Candidates {
+		got[cand.CandidateID] = cand.Features
+	}
+	want := map[string]AuditFeatures{
+		"cand_alias": {AmountBP: 5000, RecipientBP: 1234, TemporalBP: 5000, RelationshipBP: 10000, TypeDirectionBP: 0},
+		"cand_dir":   {AmountBP: 10000, RecipientBP: 4321, TemporalBP: 10000, RelationshipBP: 0, TypeDirectionBP: 10000},
+	}
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("%s: features %+v, want %+v", id, got[id], w)
+		}
+	}
+}
+
+// REQ-AMB-003: a resolved id is named only for an AUTO_RESOLVED state, whatever a caller put in a Resolution it built by hand (its fields are exported).
+func TestTheAuditPayloadNeverNamesAResolvedIdOutsideAnAutoResolve(t *testing.T) {
+	for _, st := range []State{NoCandidates, Ambiguous, TooManyCandidates} {
+		p := Resolution{State: st, ResolvedID: "cand_x"}.AuditPayload()
+		if p.ResolvedCandidateID != "" {
+			t.Errorf("state %s: resolved id %q", st, p.ResolvedCandidateID)
+		}
+	}
+	if p := (Resolution{State: AutoResolved, ResolvedID: "cand_x"}).AuditPayload(); p.ResolvedCandidateID != "cand_x" {
+		t.Errorf("auto resolved: resolved id %q, want cand_x", p.ResolvedCandidateID)
 	}
 }

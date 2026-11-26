@@ -172,3 +172,79 @@ func TestTheSameInputsGiveTheSameOrderAThousandTimes(t *testing.T) {
 		}
 	}
 }
+
+// exactConfig has weights with no common factor, so that a score can sit one scaled unit (a ten-thousandth of a basis point) either side of a threshold. A566: the margin, the floor and
+// the tie are decided on the exact sums, to the last unit.
+func exactConfig() Config {
+	return Config{
+		Weights:  Weights{AmountBP: 3500, RecipientBP: 1, TemporalBP: 3499, RelationshipBP: 1500, TypeDirectionBP: 1500},
+		FloorBP:  7000,
+		MarginBP: 3500, MaxAboveFloor: 4, AmountToleranceBP: 100, TimeToleranceSeconds: 7200, MaxRaw: 20,
+	}
+}
+
+// REQ-AMB-003, A566: the floor is exact to one scaled unit: 69,999,999 of 70,000,000 is below it and 70,000,000 reaches it (the reported score floors to 6999 and 7000).
+func TestTheFloorIsExactToTheLastScaledUnit(t *testing.T) {
+	c := exactConfig()
+	at := time.Date(2026, 11, 20, 9, 30, 0, 0, time.UTC)
+	tgt := Target{HasAmount: true, AmountMinor: 100000, Currency: "NGN", HasWindow: true, From: at.Add(-time.Minute), To: at.Add(time.Minute)}
+	// amount full (35,000,000) and time full (34,990,000) are 69,990,000; the recipient weight is 1, so a feature of 9999 adds 9,999 and a feature of 10000 adds 10,000.
+	for _, tc := range []struct {
+		name      string
+		recipient int64
+		wantBP    int64
+		wantState State
+		wantWhy   []Why
+	}{
+		{"one scaled unit below the floor", 9999, 6999, Ambiguous, []Why{BelowFloor}},
+		{"exactly the floor", 10000, 7000, AutoResolved, nil},
+	} {
+		got, err := c.Rank([]Candidate{{ID: "cand_one", AmountMinor: 100000, Currency: "NGN", OccurredAt: at, RecipientBP: tc.recipient}}, tgt, Context{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.TopBP != tc.wantBP || got.State != tc.wantState || fmt.Sprint(got.WhyNot) != fmt.Sprint(tc.wantWhy) {
+			t.Errorf("%s: top %d state %s why %v, want %d %s %v", tc.name, got.TopBP, got.State, got.WhyNot, tc.wantBP, tc.wantState, tc.wantWhy)
+		}
+	}
+}
+
+// REQ-AMB-003, A566: the margin is exact to one scaled unit: a lead of 34,999,999 of 35,000,000 does not resolve and a lead of exactly 35,000,000 does. The floor is 0 here so that the margin
+// alone decides.
+func TestTheMarginIsExactToTheLastScaledUnit(t *testing.T) {
+	c := exactConfig()
+	c.FloorBP = 0
+	at := time.Date(2026, 11, 20, 9, 30, 0, 0, time.UTC)
+	tgt := Target{HasAmount: true, AmountMinor: 100000, Currency: "NGN"}
+	top := Candidate{ID: "cand_top", AmountMinor: 100000, Currency: "NGN", OccurredAt: at}
+	for _, tc := range []struct {
+		name      string
+		recipient int64 // the second's recipient feature: weight 1, so this many scaled units
+		wantState State
+	}{
+		{"a lead one scaled unit short of the margin", 1, Ambiguous},
+		{"a lead of exactly the margin", 0, AutoResolved},
+	} {
+		second := Candidate{ID: "cand_second", AmountMinor: 100000, Currency: "USD", OccurredAt: at, RecipientBP: tc.recipient}
+		got, err := c.Rank([]Candidate{top, second}, tgt, Context{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != tc.wantState {
+			t.Errorf("%s: state %s why %v, want %s", tc.name, got.State, got.WhyNot, tc.wantState)
+		}
+	}
+}
+
+// REQ-AMB-003, A583: a tie needs two candidates. One candidate that scores 0 is not tied with the zero the rule gives its missing second: it is short of the margin and the floor, nothing more.
+func TestOneCandidateThatScoresZeroIsNotATie(t *testing.T) {
+	c := goodConfig()
+	at := time.Date(2026, 11, 20, 9, 30, 0, 0, time.UTC)
+	got, err := c.Rank([]Candidate{{ID: "cand_zero", OccurredAt: at}}, Target{}, Context{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TopBP != 0 || got.State != Ambiguous || fmt.Sprint(got.WhyNot) != "[MARGIN_NOT_MET BELOW_FLOOR]" {
+		t.Errorf("top %d state %s why %v, want 0, AMBIGUOUS and [MARGIN_NOT_MET BELOW_FLOOR]", got.TopBP, got.State, got.WhyNot)
+	}
+}
