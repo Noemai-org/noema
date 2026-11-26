@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
@@ -422,3 +423,31 @@ func TestAnInvalidInjectionSettingStopsTheProcess(t *testing.T) {
 }
 
 var _ = packload.Pack{}
+
+// The composition names the missing limit on the adapters that read the screen, in the same reasons the wiring keeps for every other gap: a setting is named, never its value.
+func TestTheCompositionNamesAMissingInjectionLimitOnTheAdaptersThatReadTheScreen(t *testing.T) {
+	e := twProductionEnv(t)
+	for k, v := range injRuling() {
+		e[k] = v
+	}
+	delete(e, EnvInjectionMaxDepth)
+	var calls twCalls
+	d := twDeps(&loaded{})
+	inner := d.WireTrust
+	var wired trustWired
+	d.WireTrust = func(in trustWiringIn) (trustWired, error) {
+		w, err := inner(in)
+		wired = w // the Reasons map is shared with the composition, which names the screen's gaps on it after this returns
+		return w, err
+	}
+	_, _, closer, err := twBuild(t, e, d, &calls)
+	if err != nil {
+		t.Fatalf("a missing limit is a named gap, not a stop: %v", err)
+	}
+	defer closer()
+	for _, a := range []string{"Evidence", "Policies"} {
+		if !slices.Contains(wired.Reasons[a], EnvInjectionMaxDepth) {
+			t.Errorf("%s reasons %v; want %s named", a, wired.Reasons[a], EnvInjectionMaxDepth)
+		}
+	}
+}

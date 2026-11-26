@@ -301,6 +301,13 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 		closeAll()
 		return Components{}, TrustParts{}, closeAll, err
 	}
+	// A704: the injection screen of the payload reader. An absent limit is a named gap, an invalid one stops the process; no Record port is wired here (nil).
+	screen, err := buildInjectionScreen(env, c.AccessLog, nil)
+	if err != nil {
+		closeAll()
+		return Components{}, TrustParts{}, closeAll, err
+	}
+	c.InjectionFailures = screen.Failures
 	var parts TrustParts
 	if trustRequested(env) {
 		if d.TrustAdapters == nil {
@@ -334,11 +341,12 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 				closeAll()
 				return Components{}, TrustParts{}, closeAll, fmt.Errorf("cmd/core: the pack: %w", err)
 			}
-			wired, err := d.WireTrust(trustWiringIn{Env: env, Clock: clk, Pack: pack, Tenants: c.ServedTenants, Pools: logins, Keys: keys, Understanding: c.Understanding})
+			wired, err := d.WireTrust(trustWiringIn{Env: env, Clock: clk, Pack: pack, Tenants: c.ServedTenants, Pools: logins, Keys: keys, Understanding: c.Understanding, Screen: screen.Deps})
 			if err != nil {
 				closeAll()
 				return Components{}, TrustParts{}, closeAll, err
 			}
+			screen.annotate(&wired)
 			adapters = wired.fill(adapters)
 			if c.TrustUnbuilt = stillUnbuilt(unbuilt.Names, adapters); len(c.TrustUnbuilt) > 0 {
 				break
