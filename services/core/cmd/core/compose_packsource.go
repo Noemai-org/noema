@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpack"
 	"github.com/Noemai-org/noema/services/core/platform/packload"
@@ -65,4 +66,63 @@ func productionPack(env Env) (*trustpack.Pack, error) {
 		return nil, refused("Trust pack", err)
 	}
 	return pack, nil
+}
+
+// VerifiedSource gives the manifest-verified pack with the bytes of every file the manifest pins (A722): the same one load that the Trust pack is built from, so a consumer of the pinned
+// bytes (the injection screen) never loads the pack again. An unset or partly set pack is errPackNotConfigured (a named gap); anything else is fatal.
+type VerifiedSource func(Env) (packload.Pack, error)
+
+// loadVerified reads the pack settings and loads the pack through its manifest (every file pinned by its SHA-256).
+func loadVerified(env Env) (packload.Pack, error) {
+	if env.Getenv == nil {
+		return packload.Pack{}, errPackNotConfigured
+	}
+	dir, manifest, bound := env.Getenv(EnvPackDir), env.Getenv(EnvPackManifest), env.Getenv(EnvPackMaxBytes)
+	if dir == "" && manifest == "" && bound == "" {
+		return packload.Pack{}, errPackNotConfigured
+	}
+	maxBytes, err := packBound(env, bound)
+	if err != nil {
+		return packload.Pack{}, err
+	}
+	var missing []string
+	for _, s := range []struct{ name, value string }{{EnvPackDir, dir}, {EnvPackManifest, manifest}, {EnvPackMaxBytes, bound}} {
+		if s.value == "" {
+			missing = append(missing, s.name)
+		}
+	}
+	if len(missing) > 0 {
+		return packload.Pack{}, &packSettingsGap{Missing: missing}
+	}
+	verified, err := packload.Load(dir, manifest, maxBytes)
+	if err != nil {
+		return packload.Pack{}, fmt.Errorf("cmd/core: %s: the pack cannot be loaded: %w", EnvPackDir, err)
+	}
+	return verified, nil
+}
+
+// packFromVerified builds the Trust pack from one verified load.
+func packFromVerified(src VerifiedSource) PackSource {
+	return func(env Env) (*trustpack.Pack, error) {
+		verified, err := src(env)
+		if err != nil {
+			return nil, err
+		}
+		pack, err := trustpack.LoadVerified(verified.Pack, verified.ActionGraphs)
+		if err != nil {
+			return nil, refused("Trust pack", err)
+		}
+		return pack, nil
+	}
+}
+
+// memoVerified answers once, a failure included (A548, INV-16).
+func memoVerified(src VerifiedSource) VerifiedSource {
+	var once sync.Once
+	var v packload.Pack
+	var err error
+	return func(env Env) (packload.Pack, error) {
+		once.Do(func() { v, err = src(env) })
+		return v, err
+	}
 }

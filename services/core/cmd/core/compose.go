@@ -302,7 +302,7 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 		return Components{}, TrustParts{}, closeAll, err
 	}
 	// A704: the injection screen of the payload reader. An absent limit is a named gap, an invalid one stops the process; no Record port is wired here (nil).
-	screen, err := buildInjectionScreen(env, c.AccessLog, nil)
+	screen, err := buildInjectionScreen(env, d.Verified, c.AccessLog, nil)
 	if err != nil {
 		closeAll()
 		return Components{}, TrustParts{}, closeAll, err
@@ -395,6 +395,8 @@ type composeDeps struct {
 	WorkerActivities func() *workflows.EscalateActivities
 	// Pack is the one source of the manifest-verified pack for the whole composition (A548, INV-16): the same call the TrustAdapters source makes, so the pack is loaded and verified once.
 	Pack PackSource
+	// Verified is the same single load as Pack, with the pinned bytes the injection screen reads (A722). Nil means the screen has no pack.
+	Verified VerifiedSource
 	// WireTrust builds the Trust inputs and the decisions over the pack and the shared Trust logins (compose_trust_wiring.go). Nil means the composition builds none of them.
 	WireTrust func(trustWiringIn) (trustWired, error)
 	// Surfaces are the parts the surfaces lane takes from other tasks (compose_surfaces.go); the zero value names each as a gap.

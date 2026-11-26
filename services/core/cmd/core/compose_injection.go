@@ -140,7 +140,7 @@ func newInjectionScreen(v packload.Pack, lim injection.Limits, log *slog.Logger,
 // buildInjectionScreen builds the screen from the environment: the five limits, then the pack's pattern bytes through the manifest (the same settings and the same loader as the rest of the
 // composition: every file is pinned by its SHA-256). An absent limit, or no complete pack setting, is a named gap; an invalid limit, a pack that does not load or patterns the limits
 // refuse stop the process (A704, A469). It dials nothing.
-func buildInjectionScreen(env Env, log *slog.Logger, rec injection.Recorder) (injectionScreen, error) {
+func buildInjectionScreen(env Env, _ VerifiedSource, log *slog.Logger, rec injection.Recorder) (injectionScreen, error) {
 	lim, missing, err := injectionLimitsFrom(env)
 	if err != nil {
 		return injectionScreen{}, err
@@ -177,4 +177,21 @@ func (s injectionScreen) annotate(w *trustWired) {
 			w.Reasons[a] = append(w.Reasons[a], s.Missing...)
 		}
 	}
+}
+
+// The three evidence login settings (A722). Stub: nothing reads them yet.
+const (
+	EnvEvidenceDSNDir       = "NOEMA_EVIDENCE_DSN_DIR"
+	EnvEvidenceKeyFile      = "NOEMA_EVIDENCE_KEY_FILE"
+	EnvEvidenceKeyMaxActive = "NOEMA_EVIDENCE_KEY_MAX_ACTIVE"
+)
+
+type evidenceSettings struct {
+	DSNDir       string
+	KeyFile      string
+	KeyMaxActive int
+}
+
+func evidenceSettingsFrom(env Env) (evidenceSettings, []string, error) {
+	return evidenceSettings{}, nil, nil
 }

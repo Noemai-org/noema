@@ -26,7 +26,11 @@ var injNames = []string{
 
 // injRuling is the Architect's bench set (A704): 64 patterns, 1024 per pattern, 65536 per document, depth 8, field cap 256.
 func injRuling() envMap {
-	return envMap{injNames[0]: "64", injNames[1]: "1024", injNames[2]: "65536", injNames[3]: "8", injNames[4]: "256"}
+	e := envMap{injNames[0]: "64", injNames[1]: "1024", injNames[2]: "65536", injNames[3]: "8", injNames[4]: "256"}
+	for k, v := range evRuling() {
+		e[k] = v
+	}
+	return e
 }
 
 func injLimits() injection.Limits {
@@ -321,16 +325,16 @@ func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 	for k, v := range injRuling() {
 		full[k] = v
 	}
-	s, err := buildInjectionScreen(mcEnvOf(full), l, nil)
+	s, err := buildInjectionScreen(mcEnvOf(full), loadVerified, l, nil)
 	if err != nil || !screenGiven(s.Deps) || len(s.Missing) != 0 {
 		t.Fatalf("screen %+v, err %v; want a built screen", s, err)
 	}
-	none, err := buildInjectionScreen(mcEnvOf(twProductionEnv(t)), l, nil)
-	if err != nil || screenGiven(none.Deps) || strings.Join(none.Missing, ",") != strings.Join(injNames, ",") {
+	none, err := buildInjectionScreen(mcEnvOf(twProductionEnv(t)), loadVerified, l, nil)
+	if err != nil || screenGiven(none.Deps) || strings.Join(none.Missing, ",") != strings.Join(append(slices.Clone(injNames), evNames...), ",") {
 		t.Fatalf("screen %+v, err %v; want every setting named and no screen", none, err)
 	}
 	noPack := injRuling()
-	g, err := buildInjectionScreen(mcEnvOf(noPack), l, nil)
+	g, err := buildInjectionScreen(mcEnvOf(noPack), loadVerified, l, nil)
 	if err != nil || screenGiven(g.Deps) || len(g.Missing) != 1 {
 		t.Fatalf("screen %+v, err %v; want the pack's patterns named and no screen", g, err)
 	}
@@ -339,7 +343,7 @@ func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 		bad[k] = v
 	}
 	bad[EnvInjectionMaxDepth] = "x"
-	if _, err := buildInjectionScreen(mcEnvOf(bad), l, nil); err == nil || strings.Contains(err.Error(), "\"x\"") {
+	if _, err := buildInjectionScreen(mcEnvOf(bad), loadVerified, l, nil); err == nil || strings.Contains(err.Error(), "\"x\"") {
 		t.Errorf("an invalid setting: err %v", err)
 	}
 	over := twProductionEnv(t)
@@ -347,7 +351,7 @@ func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 		over[k] = v
 	}
 	over[EnvInjectionMaxPatterns] = "1"
-	if _, err := buildInjectionScreen(mcEnvOf(over), l, nil); err == nil {
+	if _, err := buildInjectionScreen(mcEnvOf(over), loadVerified, l, nil); err == nil {
 		t.Error("a pack whose patterns exceed the limit started")
 	}
 	badPack := twProductionEnv(t)
@@ -355,7 +359,7 @@ func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 		badPack[k] = v
 	}
 	badPack[EnvPackManifest] = "fintech/no-such-manifest.json"
-	if _, err := buildInjectionScreen(mcEnvOf(badPack), l, nil); err == nil {
+	if _, err := buildInjectionScreen(mcEnvOf(badPack), loadVerified, l, nil); err == nil {
 		t.Error("a pack that does not load started")
 	}
 }
