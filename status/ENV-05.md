@@ -118,6 +118,7 @@ Built from the specification v1.0, delta v1.2 and v1.3 and Tushe's response of 7
 6. **Which timestamp and which boundary a "state at T" fold uses** (`occurredAt` or `observedAt`; whether a row at T counts). Delta v1.3 says only "fold the transitions up to a timestamp". Not built.
 7. **Credential presentation, list envelopes and field types, the event types and members beyond `id`, `sequence`, `traceId`, the webhook header names, the payout read** (open since 18 Nov; noema#690).
 8. **The OpenAPI document and event schemas** (noema#690): not in the docs repository.
+9. **The scope of `seq` in a transition log: payout-wide or per lifecycle** (EL on noema#961). `LifecycleStates` requires `seq` strictly increasing across the whole log; if Tushe numbers per lifecycle, a valid log is refused as MALFORMED (the safe side, but it would block the live suite). Keyed per lifecycle only if Tushe states it.
 
 ## Pre-work for the next agent
 - Exact next step: the Founders answer noema#690 (the OpenAPI first); then items 1 to 7 become fields, not guesses. Until then ENV-05's "Contract suite passes against Tushe" cannot be met: there is no Tushe to observe and no list of routes beyond the two reads.
