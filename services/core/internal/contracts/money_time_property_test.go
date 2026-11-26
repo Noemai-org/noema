@@ -87,3 +87,20 @@ func TestACanonicalFormIsNeverComputedOverAFloat(t *testing.T) {
 		}
 	})
 }
+
+// The edges, named: rapid may or may not draw them (M10: 0, 1 and 2^53-1 are accepted, 2^53 is not).
+func TestTheCeilingEdgesAreExact(t *testing.T) {
+	for _, tc := range []struct {
+		n  int64
+		ok bool
+	}{{0, true}, {1, true}, {maxSafeInt - 1, true}, {maxSafeInt, true}, {maxSafeInt + 1, false}, {math.MaxInt64, false}} {
+		var m contracts.MoneyV1Money
+		if err := json.Unmarshal(moneyJSON(fmt.Sprint(tc.n)), &m); err != nil {
+			t.Fatalf("%d: %v", tc.n, err)
+		}
+		_, err := crypto.CanonicalJSON(m)
+		if (err == nil) != tc.ok {
+			t.Fatalf("%d: canonical form err=%v, want ok=%v", tc.n, err, tc.ok)
+		}
+	}
+}
