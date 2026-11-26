@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { encodePcm16Mono, PushToTalk } from "../build/js/push-to-talk.js";
+import { encodePcm16Mono, PushToTalk, MAX_PUSH_TO_TALK_RECORDING_MS } from "../build/js/push-to-talk.js";
 import * as capture from "../build/js/pcm-capture.js";
 
 test("REQ-VOI-001 A191: PCM frames keep whole samples and never exceed 32000 bytes", () => {
@@ -32,9 +32,14 @@ test("REQ-UI-001: push-to-talk is disabled when no voice sink is supplied", () =
   assert.match(html, /disabled=""[^>]*>Push to talk/u);
 });
 
-test("REQ-VOI-004: a sink without a host recording limit cannot enable capture", () => {
-  const html = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {} }));
-  assert.match(html, /disabled=""[^>]*>Push to talk/u);
+test("A715: recording limit defaults to exactly 30 seconds and cannot be extended by the host", () => {
+  assert.equal(MAX_PUSH_TO_TALK_RECORDING_MS, 30_000);
+  const defaultHtml = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {} }));
+  const shorterHtml = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {}, maxRecordingMs: 12_000 }));
+  const extendedHtml = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {}, maxRecordingMs: 90_000 }));
+  assert.match(defaultHtml, /<button(?![^>]*disabled)/u);
+  assert.match(shorterHtml, /<button(?![^>]*disabled)/u);
+  assert.match(extendedHtml, /<button(?![^>]*disabled)/u);
 });
 
 test("REQ-VOI-004: invalid recording limits are refused before microphone access", async () => {
