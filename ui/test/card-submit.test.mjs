@@ -166,3 +166,26 @@ test("REQ-UI-002 US-18: malformed or oversized 409 bodies fail closed as unavail
     assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "unavailable");
   });
 });
+
+
+test("A715: the None of these choice submits only the core-minted none_option_id", async () => {
+  const card = await currentCard("clarification_four_options");
+  assert.equal(typeof card.none_option_id, "string");
+  assert.ok(card.none_option_id.length > 0);
+  let seen;
+  await withServer(async (request, response) => {
+    seen = { path: request.url, auth: request.headers.authorization, body: await bodyOf(request) };
+    response.writeHead(202, { "content-type": "application/json" }).end();
+  }, async (baseUrl) => {
+    const result = await submitClarification({
+      baseUrl, conversationRef: conversation, sessionToken: bearer, card,
+      optionId: card.none_option_id, requestId: cardRequestId,
+    });
+    assert.equal(result, "accepted");
+  });
+  assert.equal(seen.path, `/v1/conversations/${conversation}/messages`);
+  assert.equal(seen.auth, `Bearer ${bearer}`);
+  assert.equal(seen.body.option_id, card.none_option_id);
+  assert.equal(seen.body.clarification_id, card.clarification_id);
+  assert.deepEqual(Object.keys(seen.body).sort(), ["clarification_id", "option_id", "request_id"]);
+});
