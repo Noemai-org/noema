@@ -103,9 +103,9 @@ func TestTheLoadedPolicyBuildsABreaker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	params, err := breaker.ParamsOf(contracts.CapabilityDescriptorV1Limits{
+	params, err := breaker.ParamsOf(contracts.CapabilityDescriptorV2Limits{
 		RatePerPrincipalPerHour: 5, TimeoutMs: 3000,
-		CircuitBreaker: contracts.CapabilityDescriptorV1LimitsCircuitBreaker{ErrorRate: json.Number("0.5"), WindowS: 60},
+		CircuitBreaker: contracts.CapabilityDescriptorV2LimitsCircuitBreaker{ErrorRate: json.Number("0.5"), WindowS: 60},
 	})
 	if err != nil {
 		t.Fatal(err)

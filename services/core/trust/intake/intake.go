@@ -24,6 +24,10 @@ type Service struct {
 	// Escalation is optional (A562): which capabilities belong to the pack's escalation plan. A decision records the ESCALATE disposition it follows only when one of its steps is in the set
 	// (REQ-TRU-010); a read or a step outside the set never carries one. Nil means no step is an escalation step, so none carries a disposition (fail closed). The composition builds it from pack data.
 	Escalation EscalationSteps
+	// Rates is optional (TRU-11, REQ-TRU-012): the per-principal rate check of T11. Nil means no capability is rate limited, so a deployment that has not composed the adapter limits nothing;
+	// a composed adapter that cannot answer is an error and T11 fails closed. It is a field of the Service and not of Ports because cmd/core wires every Ports field and refuses to start
+	// without it; the adapter is composed after the G1 run (status/TRU-11.md).
+	Rates Rates
 }
 
 // EscalationSteps says whether a capability is a step of the pack's escalation plan. The composition injects it; Trust holds no capability name (INV-14).

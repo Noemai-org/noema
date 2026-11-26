@@ -46,10 +46,28 @@ type eventsSettings struct {
 	maxEventBytes, maxStreams, perPrincipal, maxBatch int
 }
 
+// eventsBounds is the approved range of each setting, in the unit the setting names (A658, interim, relayed, not yet committed). They are resource limits, not safety thresholds; the
+// values inside them are the deployment's and none has a default (AGENT-16).
+var eventsBounds = map[string]struct{ min, max int64 }{
+	EnvEventsPollMS:                 {2000, 60000},
+	EnvEventsMaxStreamMS:            {60000, 900000},
+	EnvEventsWriteTimeoutMS:         {1000, 30000},
+	EnvEventsReadTimeoutMS:          {500, 10000},
+	EnvEventsMaxEventBytes:          {1024, 1048576},
+	EnvEventsMaxStreams:             {1, 1000},
+	EnvEventsMaxStreamsPerPrincipal: {1, 10},
+	EnvEventsMaxBatch:               {1, 500},
+}
+
+// positive reads one setting as a whole number inside its approved range. The error names the setting and never the value (A469).
 func positive(env Env, name string) (int64, error) {
+	b, ok := eventsBounds[name]
+	if !ok {
+		return 0, fmt.Errorf("cmd/core: %s has no approved range", name)
+	}
 	n, err := strconv.ParseInt(env.Getenv(name), 10, 64)
-	if err != nil || n < 1 || n > 1<<31 {
-		return 0, fmt.Errorf("cmd/core: %s must be a positive whole number", name)
+	if err != nil || n < b.min || n > b.max {
+		return 0, fmt.Errorf("cmd/core: %s must be a whole number inside its approved range", name)
 	}
 	return n, nil
 }
@@ -79,6 +97,15 @@ func loadEventsSettings(env Env) (eventsSettings, error) {
 		if err := f(); err != nil {
 			return eventsSettings{}, err
 		}
+	}
+	// The cross-checks fail closed and name both settings, never a value (A658).
+	switch {
+	case s.poll >= s.maxStream:
+		return eventsSettings{}, fmt.Errorf("cmd/core: %s must be below %s", EnvEventsPollMS, EnvEventsMaxStreamMS)
+	case s.readTimeout > s.poll:
+		return eventsSettings{}, fmt.Errorf("cmd/core: %s must not exceed %s", EnvEventsReadTimeoutMS, EnvEventsPollMS)
+	case s.perPrincipal > s.maxStreams:
+		return eventsSettings{}, fmt.Errorf("cmd/core: %s must not exceed %s", EnvEventsMaxStreamsPerPrincipal, EnvEventsMaxStreams)
 	}
 	return s, nil
 }

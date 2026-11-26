@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -109,18 +108,11 @@ func main() {
 	defer p.Close()
 	srv := &http.Server{Addr: addr, Handler: p.Handler, ReadHeaderTimeout: headerTimeout}
 
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout) // ctx is already done: keep its values, not its cancellation
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			logger.Error("shutdown", "error", err.Error())
-		}
-	}()
-
 	logger.Info("core listening", "addr", addr)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("serve", "error", err.Error())
-		os.Exit(1)
+	// A worker or a recovery pass that dies on its own stops the server and the exit is non-zero, so Compose restarts the process (A442).
+	code := serve(ctx, srv, mergeFatal(ctx, p.fatalChans()...), shutdownTimeout, logger)
+	p.Close()
+	if code != 0 {
+		os.Exit(code)
 	}
 }

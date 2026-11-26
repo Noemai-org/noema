@@ -78,3 +78,23 @@ class KillSwitchKindFixtures(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FieldTruncatedKind(unittest.TestCase):
+    """A664 (interim, relayed): FIELD_TRUNCATED is a kind of SECURITY_EVENT (a truncated enterprise field is recorded, REQ-CTX-005, REQ-CTX-007), never an event type;
+    it is the last value of the list, so every earlier value keeps its place; its event carries no field content (AGENT-13): the usual members and the empty-object body."""
+
+    def test_it_is_the_last_security_kind_and_not_an_event_type(self):
+        self.assertEqual(V3["SecurityKind"]["enum"][-1], "FIELD_TRUNCATED")
+        self.assertNotIn("FIELD_TRUNCATED", V3["RecordEventType"]["enum"])
+
+    def test_it_has_a_valid_synthetic_security_event_fixture_with_no_body_content(self):
+        doc = fixture("FIELD_TRUNCATED")
+        self.assertTrue(doc, "no valid fixture security_event_field_truncated.json")
+        self.assertEqual((doc["event_type"], doc["kind"]), ("SECURITY_EVENT", "FIELD_TRUNCATED"))
+        self.assertEqual(doc["payload_hash"], json.loads((VALID / "genesis_event.json").read_text(encoding="utf-8"))["payload_hash"], "the empty-object hash: no field content")
+        self.assertEqual(check(doc), [])
+
+    def test_the_word_as_an_event_type_is_refused(self):
+        base = json.loads((VALID / "security_event.json").read_text(encoding="utf-8"))
+        self.assertTrue(check({**{n: v for n, v in base.items() if n != "kind"}, "event_type": "FIELD_TRUNCATED"}))

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/sla-evaluated-payload.v1.json",
+  "title": "SLA_EVALUATED payload",
+  "description": "The payload of the SLA_EVALUATED Record event (PERD §23.5, §32.2; A681, OD-P-116): one evaluation of a clock, with the routing its phase gives. Times are Unix seconds and every number is a whole number (PERD §32.1). A clock whose anchor event has not happened (NOT_STARTED) has no started_at, deadline_at or remaining: they are never assumed. A routing that names an owner queue is a re-route (reroute is true exactly then). SYNTHETIC configuration until validated by counsel (SoT §50.2, AGENT-25).",
+  "type": "object",
+  "properties": {
+    "clock_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "label": {
+      "type": "string",
+      "enum": [
+        "SYNTHETIC",
+        "VALIDATED"
+      ]
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "NOT_STARTED",
+        "RUNNING",
+        "AT_RISK",
+        "BREACHED"
+      ]
+    },
+    "started_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "deadline_at": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "elapsed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "remaining": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "LOW",
+        "NORMAL",
+        "HIGH"
+      ]
+    },
+    "owner_queue": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    },
+    "priority_raised": {
+      "type": "boolean"
+    },
+    "reroute": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "clock_id",
+    "label",
+    "phase",
+    "elapsed",
+    "priority",
+    "priority_raised",
+    "reroute"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "NOT_STARTED"
+          }
+        },
+        "required": [
+          "phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "elapsed": {
+            "const": 0
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "started_at"
+              ]
+            },
+            {
+              "required": [
+                "deadline_at"
+              ]
+            },
+            {
+              "required": [
+                "remaining"
+              ]
+            }
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "started_at",
+          "deadline_at",
+          "remaining"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "owner_queue"
+        ]
+      },
+      "then": {
+        "properties": {
+          "reroute": {
+            "const": true
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "reroute": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

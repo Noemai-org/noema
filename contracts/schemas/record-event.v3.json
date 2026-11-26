@@ -80,7 +80,8 @@
         "CHAIN_BREAK",
         "CONFIRMATION_REFUSED",
         "KILL_SWITCH_CLEARED",
-        "KILL_SWITCH_CLEAR_REFUSED"
+        "KILL_SWITCH_CLEAR_REFUSED",
+        "FIELD_TRUNCATED"
       ]
     },
     "GrantVoidReason": {
