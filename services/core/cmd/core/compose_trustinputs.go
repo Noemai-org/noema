@@ -29,10 +29,10 @@ import (
 // compose_trustinputs.go builds the six Trust inputs of lane 2 of the G1 final composition (STM-01; A537, A469, A475, interim, relayed, not yet committed): Ownership, Writes, Evidence,
 // Reconciler, Policies and Clocks. REQ-STM-001, REQ-TRU-001 to REQ-TRU-007, REQ-CTX-003, REQ-CTX-004; INV-11, INV-12, INV-14, INV-16, INV-19; AGENT-13, AGENT-16.
 //
-// Four are built: Writes (compose_writes.go: the tenant's kill switch and the pack's write_when rule; A684 step 1), Ownership (the pack's ownership data only, one instance per served
-// tenant), Evidence and Policies. Two are named gaps whatever is given, because what they need is not on main and is not invented (AGENT-20): Reconciler (the pack carries neither the
-// escalation reason of a classification nor the capabilities allowed under a freeze) and Clocks (no routing of a phase, no anchor-event mapping, and the trust limits are not pinned
-// by the manifest). A component whose part is absent is a gap too: the field stays nil, and /readyz names it by its TrustAdapters field name. A value that is present and invalid is an
+// Five are built: Writes (compose_writes.go: the tenant's kill switch and the pack's write_when rule; A684 step 1), Ownership (the pack's ownership data only, one instance per served
+// tenant), Evidence, Policies and Clocks (compose_clocks.go). One is a named gap whatever is given, because what it needs is not on main and is not invented (AGENT-20): Reconciler (the pack
+// carries neither the escalation reason of a classification nor the capabilities allowed under a freeze). A component whose part is absent is a gap too: the field stays nil, and /readyz names
+// it by its TrustAdapters field name. A value that is present and invalid is an
 // error. Nothing is dialled, and no error carries a tenant, a path or a word of the pack.
 
 // trustInputsIn is everything the builder takes: the verified pack (the trustpack.Pack and the bytes the manifest pinned), the per-tenant Trust logins, the Understanding parts main
@@ -64,6 +64,7 @@ type trustInputs struct {
 	Ownership intake.Ownership
 	Evidence  intake.Evidence
 	Policies  intake.Policies
+	Clocks    intake.Clocks
 	Gaps      []string
 }
 
@@ -141,6 +142,9 @@ func buildTrustInputs(in trustInputsIn) (trustInputs, error) {
 	if out.Policies, err = buildPoliciesInput(in); err != nil {
 		return trustInputs{}, err
 	}
+	if out.Clocks, err = buildClocksInput(in); err != nil {
+		return trustInputs{}, err
+	}
 	built := out.fill(TrustAdapters{})
 	for _, name := range unsetAdapters(built) {
 		if slices.Contains([]string{"Writes", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks"}, name) {
@@ -163,6 +167,9 @@ func (t trustInputs) fill(a TrustAdapters) TrustAdapters {
 	}
 	if t.Policies != nil {
 		a.Policies = t.Policies
+	}
+	if t.Clocks != nil {
+		a.Clocks = t.Clocks
 	}
 	return a
 }

@@ -293,6 +293,11 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 	} else {
 		c.UnderstandingUnbuilt = gap
 	}
+	// A612: a pack whose trust limits are not exactly trust-limits.v2 starts nothing; there is no default.
+	if err := checkPackLimits(env); err != nil {
+		closeAll()
+		return Components{}, TrustParts{}, closeAll, err
+	}
 	var parts TrustParts
 	if trustRequested(env) {
 		if d.TrustAdapters == nil {

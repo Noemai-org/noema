@@ -7,8 +7,6 @@ package main
 //   - Writes: NOT a gap any more (A684 step 1, interim, relayed, not yet committed). The admitted intent carries the slot values since noema#913 and the production WriteRule over the
 //     pack's `write_when` is on main (noema#935), so compose_writes.go builds it; compose_writes_test.go pins that. It is a gap only when its own parts are absent.
 //   - Reconciler: the pack carries neither the reason code a classification escalates with nor the capabilities allowed under a freeze (reconciler README, "Pack data").
-//   - Clocks: the routing of a clock phase to an escalation reason has no source in the pack (intakeadapters README), the anchor events have no entity or field mapping, and the pack's
-//     trust limits (the at-risk fraction) are not pinned by the manifest.
 //
 // REQ-STM-001, REQ-TRU-002, REQ-TRU-007; INV-01, INV-03, INV-14, INV-19; AGENT-16. SYNTHETIC.
 
@@ -17,22 +15,22 @@ import (
 	"testing"
 )
 
-func TestReconcilerAndClocksAreNamedGapsWhateverIsGiven(t *testing.T) {
+func TestTheReconcilerIsANamedGapWhateverIsGiven(t *testing.T) {
 	got, err := buildTrustInputs(tiInWithLists(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"Reconciler", "Clocks"} {
+	for _, name := range []string{"Reconciler"} {
 		if !tiHas(got.Gaps, name) {
 			t.Errorf("%s is not a named gap (gaps %v)", name, got.Gaps)
 		}
 	}
 	a := got.fill(TrustAdapters{})
-	if a.Reconciler != nil || a.Clocks != nil {
-		t.Fatalf("fill gave a Reconciler or a Clocks: %+v", a)
+	if a.Reconciler != nil {
+		t.Fatalf("fill gave a Reconciler: %+v", a)
 	}
 	unset := unsetAdapters(a)
-	for _, name := range []string{"Reconciler", "Clocks"} {
+	for _, name := range []string{"Reconciler"} {
 		if !tiHas(unset, name) {
 			t.Errorf("/readyz would not name trust.%s (unset %v)", name, unset)
 		}
@@ -45,9 +43,9 @@ func TestTheGapsAreInTheOrderOfTheAdapterStructAndExcludeWhatIsBuilt(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"Reconciler", "Clocks"}
+	want := []string{"Reconciler"}
 	if !slices.Equal(got.Gaps, want) {
-		t.Fatalf("gaps %v; want %v (Writes, Ownership, Evidence and Policies are built)", got.Gaps, want)
+		t.Fatalf("gaps %v; want %v (Writes, Ownership, Evidence, Policies and Clocks are built)", got.Gaps, want)
 	}
 }
 
