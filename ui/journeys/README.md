@@ -36,7 +36,7 @@ The benchmark runner drives each generated case through the public API and recor
 ## A715-approved UI safeguards
 
 - Push-to-talk recording stops after 30 seconds at the UI, even if the host requests a longer duration. A shorter host-supplied limit remains authoritative. Capture remains disabled without a voice sink.
-- Each SSE frame, including an incomplete frame, is bounded to 65,536 bytes before parsing. An oversized frame is never delivered; the UI falls back to the authoritative investigation GET at the existing 2,000 ms polling cadence, within the existing 60,000 ms polling ceiling.
+- Each SSE frame, including an incomplete frame, is bounded to 65,536 bytes before parsing. An oversized frame is never delivered; the reconnect helper falls back to the authoritative investigation GET at the existing 2,000 ms polling cadence, within the existing 60,000 ms polling ceiling. The shipped overlay remains polling-only; this does not claim that it consumes SSE.
 - Tokens are read directly from the #983 output directory. Never copy token contents into source, fixtures, test output, environment dumps, CI logs, screenshots, Playwright traces, videos or reports. Do not attach token-bearing browser storage state or network traces.
 
 ## A658-approved settings
