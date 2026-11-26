@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Annotated, TypeAlias
 from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
-from .capability_descriptor_v1 import CapabilityDescriptorV1
+from .capability_descriptor_v2 import CapabilityDescriptorV2
 from .clock_v1 import ClockV1
 from .common_v1 import CommonV1PackId, CommonV1SchemaVersion, CommonV1Semver, CommonV1Vertical
 from .enums_v1 import EnumsV1CoreReasonCode
@@ -47,6 +47,14 @@ class PackV1UnderstandingRankingWeights(ContractModel):
     temporal: PackV1ExactNumber
     relationship: PackV1ExactNumber
     type_direction: PackV1ExactNumber
+
+
+class PackV1UnderstandingSlotGatesItem(ContractModel):
+    """PackV1UnderstandingSlotGatesItem Source: pack.v1.json#$defs/Understanding/properties/slot_gates/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    slot: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
+    assertion_threshold_bp: Annotated[int, Field(ge=1, le=10000)]
 
 
 class PackV1UnderstandingStateFlags(ContractModel):
@@ -106,6 +114,7 @@ class PackV1Understanding(ContractModel):
     intent_unclear_flag: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     out_of_scope_flag: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     state_flags: PackV1UnderstandingStateFlags
+    slot_gates: Annotated[list[PackV1UnderstandingSlotGatesItem], Field(min_length=1)] | None = Field(default=None)
 
 
 class PackV1(ContractModel):
@@ -116,10 +125,11 @@ class PackV1(ContractModel):
     pack_id: CommonV1Vertical
     pack_version: CommonV1Semver
     name: Annotated[str, StringConstraints(min_length=1)]
+    tenant_zone: Annotated[str, StringConstraints(pattern='\\A[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*\\Z')] | None = Field(default=None)
     intent_nodes: Annotated[list[IntentNodeV1], Field(min_length=1)]
     trust_profiles: Annotated[list[TrustProfileV1], Field(min_length=1)]
     outcome_definitions: list[OutcomeDefinitionV1]
-    capabilities: list[CapabilityDescriptorV1]
+    capabilities: list[CapabilityDescriptorV2]
     evidence_sources: list[EvidenceSourceV1]
     policy: PackV1Policy
     clocks: list[ClockV1]
@@ -138,6 +148,7 @@ PackV1UnderstandingLocalesItem.model_rebuild()
 PackV1UnderstandingProposableFlagsItem.model_rebuild()
 PackV1UnderstandingRanking.model_rebuild()
 PackV1UnderstandingRankingWeights.model_rebuild()
+PackV1UnderstandingSlotGatesItem.model_rebuild()
 PackV1UnderstandingStateFlags.model_rebuild()
 PackV1CaseReasonsItem.model_rebuild()
 PackV1HandoffRoutesItem.model_rebuild()

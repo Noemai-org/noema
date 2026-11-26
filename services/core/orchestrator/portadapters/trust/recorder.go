@@ -50,6 +50,7 @@ var (
 	recDecisionRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
 	recHashRe     = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
 	recRequestRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
+	recTurnRe     = regexp.MustCompile(`\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z`) // the client's request ID of the turn (A581): a lower-case UUID
 )
 
 // TxBeginner opens a transaction as the tenant's own database login (the composition holds one pool per tenant, as noema#535 does). The adapter commits or rolls it back.
@@ -201,6 +202,16 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	}
 	if digest != r.BasisDigest {
 		return recorder.Request{}, ErrBasisDigest
+	}
+	// A663, A581, A590 (interim, relayed): an ESCALATE whose basis is incomplete has no sealed snapshot and no policy to take facts from. It is recorded with its basis null and keyed by the
+	// turn and the verified principal; the facts are not asked. Only such an ESCALATE names a turn, and it must (a well-formed one), or nothing is opened.
+	early := r.Decision.Outcome() == decide.Escalate && !r.Decision.HasCompleteBasis()
+	if r.TurnID != "" && !early || early && !recTurnRe.MatchString(r.TurnID) {
+		return recorder.Request{}, fmt.Errorf("%w: only an early ESCALATE names a turn, and it names a well-formed one", ErrRecordRequest)
+	}
+	if early {
+		return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), Decision: r.Decision, Evaluated: r.Evaluated,
+			TurnID: r.TurnID, TurnPrincipalID: r.PrincipalID}, nil
 	}
 	if (r.ConfirmationEventID == "") != (r.ConfirmationPlanHash == "") || (r.ConfirmationEventID != "" && r.ConfirmationPlanHash != r.PlanHash) {
 		return recorder.Request{}, ErrPlanHash

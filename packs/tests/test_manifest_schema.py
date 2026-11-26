@@ -28,11 +28,12 @@ def good() -> dict:
         "version": 1,
         "label": "SYNTHETIC",
         "note": "SYNTHETIC.",
-        "expected": {"evidence_mapping_id": "fin.map.v1@1", "recon_rule_set_id": "fin.recon.rules@1"},
+        "expected": {"evidence_mapping_id": "fin.map.v1@1", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": "fin.ctx.injection_patterns@1"},
         "files": [
             {"kind": "pack", "path": "fintech_v1.json", "sha256": HEX},
             {"kind": "evidence_mapping", "path": "fintech/evidence_mapping/mapping.v1.json", "sha256": HEX},
             {"kind": "recon_rules", "path": "fintech/recon_rules/rules.v1.json", "sha256": HEX},
+            {"kind": "injection_patterns", "path": "fintech/context/injection_patterns.v1.json", "sha256": HEX},  # A645
         ],
     }
 
@@ -55,7 +56,40 @@ class ManifestSchema(unittest.TestCase):
         self.assertIs(s["properties"]["expected"]["additionalProperties"], False)
         self.assertIs(s["properties"]["files"]["items"]["additionalProperties"], False)
         for obj in (s, s["properties"]["expected"], s["properties"]["files"]["items"]):
-            self.assertEqual(set(obj["required"]), set(obj["properties"]) - ({"note"} if obj is s else set()))
+            optional = {"note"} if obj is s else {"injection_patterns_id"} if obj is s["properties"]["expected"] else set()  # A664: the patterns id is optional below the gate, and the gate requires it
+            self.assertEqual(set(obj["required"]), set(obj["properties"]) - optional)
+
+    def test_the_patterns_are_required_from_manifest_version_4_and_optional_below_it(self):
+        """A664 (interim; the A579 pattern): a manifest of version 4 or later lists the patterns file and names its id; below that both may be absent; they go together at every version."""
+
+        def with_version(v, files=True, ident=True):
+            d = good()
+            d["version"] = v
+            if v >= 3:  # A579: a manifest of version 3 or later lists its limits files
+                d["files"].append({"kind": "limits", "path": "fintech/limits/trust_limits.json", "sha256": HEX})
+            if not files:
+                d["files"] = [f for f in d["files"] if f["kind"] != "injection_patterns"]
+            if not ident:
+                del d["expected"]["injection_patterns_id"]
+            return d
+
+        for v in (1, 2, 3):
+            self.assertEqual(errors(with_version(v, files=False, ident=False)), [], f"version {v} without the patterns must validate")
+        for v in (4, 5, 99):
+            self.assertEqual(errors(with_version(v)), [], f"version {v} with the patterns must validate")
+            self.assertTrue(errors(with_version(v, files=False, ident=False)), f"version {v} without the patterns must be refused")
+            self.assertTrue(errors(with_version(v, files=False)), f"version {v}: an id and no file must be refused")
+            self.assertTrue(errors(with_version(v, ident=False)), f"version {v}: a file and no id must be refused")
+        for v in (1, 3, 4):
+            self.assertTrue(errors(with_version(v, files=False)), f"version {v}: an id without its file must be refused")
+            self.assertTrue(errors(with_version(v, ident=False)), f"version {v}: a file without its id must be refused")
+
+    def test_two_pattern_files_are_refused_at_every_version(self):
+        for v in (1, 3, 4):
+            d = good()
+            d["version"] = v
+            d["files"].append({"kind": "injection_patterns", "path": "fintech/context/other.json", "sha256": HEX})
+            self.assertTrue(errors(d), f"version {v} with two pattern files must be refused")
 
     def test_the_real_manifest_and_a_good_one_validate(self):
         self.assertEqual(errors(good()), [])
@@ -64,11 +98,11 @@ class ManifestSchema(unittest.TestCase):
 
     def test_kinds_are_a_closed_list(self):
         kinds = schema()["properties"]["files"]["items"]["properties"]["kind"]["enum"]
-        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "pack", "recon_rules"])  # A510: the action graphs are pinned too
+        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "limits", "pack", "priority_routing", "recon_rules"])  # A510: the action graphs are pinned too; A544: the limits files; A645: the injection patterns; PCK-09 (A644): the priority routing member
 
     def test_the_action_graph_kind_may_repeat_and_an_old_manifest_without_it_still_validates(self):
         doc = good()
-        self.assertEqual(errors(doc), [])  # a manifest of the three earlier kinds is still valid: the change is additive
+        self.assertEqual(errors(doc), [])  # a manifest with no action graph is still valid: the action graphs are additive (A510); the patterns file is required (A645)
         for name in ("g_one", "g_two", "g_three"):
             doc["files"].append({"kind": "action_graph", "path": f"fintech/graph/{name}.json", "sha256": HEX})
         self.assertEqual(errors(doc), [])
@@ -133,6 +167,32 @@ class ManifestSchema(unittest.TestCase):
                 del doc["expected"][key]
                 self.assertTrue(errors(doc))
 
+
+
+class LimitsFromVersionThree(unittest.TestCase):
+    """A579 (interim): the manifest schema requires a `limits` entry from version 3 on; versions 1 and 2 may list none."""
+
+    def doc(self, version: int, limits: bool) -> dict:
+        d = good()
+        d["version"] = version
+        if limits:
+            d["files"].append({"kind": "limits", "path": "fintech/limits/trust_limits.json", "sha256": HEX})
+        return d
+
+    def test_version_three_or_later_without_limits_is_invalid(self):
+        for v in (3, 4, 99):
+            with self.subTest(v):
+                self.assertTrue(errors(self.doc(v, False)))
+
+    def test_version_three_or_later_with_limits_is_valid(self):
+        for v in (3, 4):
+            with self.subTest(v):
+                self.assertEqual(errors(self.doc(v, True)), [])
+
+    def test_versions_one_and_two_need_none(self):
+        for v in (1, 2):
+            with self.subTest(v):
+                self.assertEqual(errors(self.doc(v, False)), [])
 
 if __name__ == "__main__":
     unittest.main()

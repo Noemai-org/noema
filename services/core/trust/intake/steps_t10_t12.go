@@ -147,6 +147,11 @@ func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 	if err != nil {
 		return decide.FailStep(err)
 	}
+	if d, stop, err := e.rateLimited(ctx, r, ids); err != nil {
+		return decide.FailStep(err)
+	} else if stop {
+		return decide.Stop(d)
+	}
 	answers := make([]PolicyEvaluation, 0, len(ids))
 	params := map[string]map[string]string{}
 	for _, id := range ids {
@@ -411,4 +416,28 @@ func (e *evaluation) stepSet(ctx context.Context, authorized []string) ([]string
 		return nil, errStepNotAllowed
 	}
 	return []string{st.capabilityID}, nil
+}
+
+// rateLimited is the per-principal rate check of T11 (REQ-TRU-012): a write whose principal has used up the hourly rate of any capability the plan may use is REJECT RATE_LIMITED,
+// before the policy is asked and before any grant. The tenant and the principal are the authenticated session's (INV-12). It asks only for a request that leads to a write (T3), and
+// only when the Rates port is composed: a nil port limits nothing. An error from the port is an error, never "not over the rate".
+func (e *evaluation) rateLimited(ctx context.Context, r decide.ResolvedIntent, ids []string) (d decide.Decision, stop bool, err error) {
+	if e.svc.Rates == nil || !e.late.needsWrite {
+		return decide.Decision{}, false, nil
+	}
+	for _, id := range ids {
+		over, err := e.svc.Rates.Exceeded(ctx, RateQuery{TenantID: e.req.Session.TenantID, PrincipalID: e.req.Session.PrincipalID, CapabilityID: id})
+		if err != nil {
+			return decide.Decision{}, false, err
+		}
+		if over {
+			code, err := decide.Core("RATE_LIMITED")
+			if err != nil {
+				return decide.Decision{}, false, err
+			}
+			d, err := r.Reject(layers(decide.Fail), code)
+			return d, true, err
+		}
+	}
+	return decide.Decision{}, false, nil
 }

@@ -102,11 +102,12 @@ func TestADeclinedRejectNamingARequestOfAnotherTenantIsRefusedAndNothingIsWritte
 	}
 }
 
-// A decline that names no request stays valid (the field is optional, A470) and a name that is not a request ID is still refused as a bad request, not as an ownership failure.
-func TestADeclineThatNamesNoRequestStaysValidAndAMalformedNameStaysABadRequest(t *testing.T) {
+// A597 (A542; it replaces A470's "the field is optional"): a decline that names no request is refused with ErrRequest, before any statement (declined_required_test.go), and a name that is
+// not a request ID is still refused as a bad request, not as an ownership failure.
+func TestADeclineThatNamesNoRequestIsRefusedAndAMalformedNameStaysABadRequest(t *testing.T) {
 	w := newWorld(t)
-	if _, err := w.write(t, declinedReject(t, "evs_01ABC", ""), true); err != nil {
-		t.Fatalf("a decline that names no request: %v", err)
+	if _, err := w.write(t, declinedReject(t, "evs_01ABC", ""), true); !errors.Is(err, recorder.ErrRequest) {
+		t.Fatalf("a decline that names no request: %v, want ErrRequest", err)
 	}
 	w2 := newWorld(t)
 	if _, err := w2.write(t, declinedReject(t, "evs_01ABC", "not_a_request"), true); !errors.Is(err, recorder.ErrRequest) || errors.Is(err, recorder.ErrDeclinedRequestNotValid) {
