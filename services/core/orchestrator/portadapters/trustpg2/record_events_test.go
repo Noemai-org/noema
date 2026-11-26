@@ -5,7 +5,7 @@ package trustpg2_test
 // All data is SYNTHETIC.
 
 import (
-	"strings"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -36,6 +36,13 @@ func (w *reqWorld) recorded(t *testing.T) []recEvent {
 	return out
 }
 
+// recReq is newReq with a correlation ID of the Record's own form (corr_ and a short ID): the real appender refuses the sink tests' "cor_1".
+func (w *reqWorld) recReq(plan string, ttl time.Duration, supersedes string) trustpg2.NewRequest {
+	n := w.newReq(plan, ttl, supersedes)
+	n.CorrelationID = "corr_Rec1"
+	return n
+}
+
 // realStore is the store of tenant A with the real Record appender over the same database.
 func (w *reqWorld) realStore(t *testing.T, signed bool) trustpg2.Requests {
 	t.Helper()
@@ -50,7 +57,7 @@ func (w *reqWorld) realStore(t *testing.T, signed bool) trustpg2.Requests {
 
 func TestAnswerAppendsConfirmationReceivedInTheStoresTransaction(t *testing.T) {
 	w := newReqWorld(t)
-	id, err := w.a.Open(reqCtx(t), w.newReq("sha256:r1", time.Hour, ""))
+	id, err := w.a.Open(reqCtx(t), w.recReq("sha256:r1", time.Hour, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,14 +70,15 @@ func TestAnswerAppendsConfirmationReceivedInTheStoresTransaction(t *testing.T) {
 	if len(got) != 1 || got[0].eventType != "CONFIRMATION_RECEIVED" || got[0].actor != "approver:prn_2" || got[0].objectRef != id || got[0].writtenBy != "core-trust" {
 		t.Fatalf("Record events = %+v, want one CONFIRMATION_RECEIVED by approver:prn_2 about %s written by core-trust", got, id)
 	}
-	if !strings.Contains(got[0].payload, event) || !strings.Contains(got[0].payload, `"accepted":true`) {
-		t.Fatalf("payload %s must carry the confirmation event ID %s and accepted", got[0].payload, event)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(got[0].payload), &payload); err != nil || payload["confirmation_id"] != event || payload["accepted"] != true || payload["confirmation_request_id"] != id {
+		t.Fatalf("payload %s must carry the request ID %s, the confirmation event ID %s and accepted (%v)", got[0].payload, id, event, err)
 	}
 }
 
 func TestAnAppendThatFailsStoresNoAnswer(t *testing.T) {
 	w := newReqWorld(t)
-	id, err := w.a.Open(reqCtx(t), w.newReq("sha256:r2", time.Hour, ""))
+	id, err := w.a.Open(reqCtx(t), w.recReq("sha256:r2", time.Hour, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +96,7 @@ func TestAnAppendThatFailsStoresNoAnswer(t *testing.T) {
 
 func TestAnAnswerNeedsAKindThatIsAPrincipalKind(t *testing.T) {
 	w := newReqWorld(t)
-	id, err := w.a.Open(reqCtx(t), w.newReq("sha256:r3", time.Hour, ""))
+	id, err := w.a.Open(reqCtx(t), w.recReq("sha256:r3", time.Hour, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +113,7 @@ func TestAnAnswerNeedsAKindThatIsAPrincipalKind(t *testing.T) {
 
 func TestExpireAppendsConfirmationExpiredAsTheCoresOwnEvent(t *testing.T) {
 	w := newReqWorld(t)
-	id, err := w.a.Open(reqCtx(t), w.newReq("sha256:r4", time.Second, ""))
+	id, err := w.a.Open(reqCtx(t), w.recReq("sha256:r4", time.Second, ""))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -85,6 +85,7 @@ type Requests struct {
 
 var (
 	safeRe        = regexp.MustCompile(`^[A-Za-z0-9_.:@-]+$`)
+	kindRe        = regexp.MustCompile(`^[a-z]+$`)
 	requestIDRe   = regexp.MustCompile(`^cfr_[0-9A-Za-z]{2,32}$`)
 	requirementRe = regexp.MustCompile(`^(SELF|MAKER_CHECKER|ROLE:[A-Za-z0-9_.-]+)$`)
 )
@@ -257,6 +258,9 @@ func (r Requests) Answer(ctx context.Context, a AnswerInput) (string, error) {
 	}
 	if !hasDeadline(ctx) || !safeRe.MatchString(a.TenantID) || !requestIDRe.MatchString(a.RequestID) || !safeRe.MatchString(a.ApproverID) ||
 		(a.Response != confirm.Accept && a.Response != confirm.Decline) {
+		return "", ErrRequestForm
+	}
+	if !kindRe.MatchString(a.ApproverKind) {
 		return "", ErrRequestForm
 	}
 	roles := make([]string, 0, len(a.Roles))
