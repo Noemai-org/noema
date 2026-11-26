@@ -106,8 +106,8 @@ func newClocksAdapter(p clocksParts) (intake.Clocks, error) {
 // buildClocksInput builds T12. The limits are checked first, so that a bad file is an error whatever else is missing (A612); without the verified pack, the anchor mapping, the list
 // convention, the mapping, the payload source or the screen it is a gap. An anchor entity that the lists do not serve is an error: the clocks could never be read.
 func buildClocksInput(in trustInputsIn) (intake.Clocks, error) {
-	if len(in.Verified.Pack) == 0 {
-		return nil, nil
+	if len(in.Verified.Pack) == 0 || len(in.Verified.Limits) == 0 {
+		return nil, nil // no verified pack, or the wiring has not been given the limits files the manifest pinned: Clocks is a named gap (fails closed); the start-up check of the limits file still refuses a bad one
 	}
 	limits, doc, err := trustLimitsOf(in.Verified)
 	if err != nil {
