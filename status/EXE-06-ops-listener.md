@@ -18,3 +18,12 @@ Updated 2026-11-26. Plan task EXE-06 (REQ-EXE-008, REQ-OPS-002, REQ-SEC-006). Br
 - Open questions (owner): see the PR body, "Safer readings taken".
 - Files to read first: `services/core/cmd/ops/opslistener/doc.go`, `listener.go`.
 - Do not touch: `execution/controlplane/switch.go`, migration 0042.
+
+## Session 2026-11-26 A721 follow-up · EXE-06 ops listener
+
+### Session summary
+- What changed: nothing in code. A721 (docs `DEC-2026-11-26-architect-rulings-a721-a737`) approves the three listener settings, the certificate name as principal, the tenant from the path, the TLS 1.3 floor, and one condition: the operator CA differs from the service mTLS CA, asserted by netcheck. The admin DSN directory takes the `NOEMA_OPS_` prefix; the ruling leaves its exact name to EL.
+- Stopped (AGENT-20): the ops `main`, the admin login pools and the netcheck assertion are not built. Unstated: (1) the compose topology has no ops service (no image, network, port, operator CA mount or operator certificate source), so a netcheck assertion that the operator CA file is not the service mTLS CA, and that only the ops process mounts the admin emitter DSN (A699), has nothing to assert against; (2) no job writes admin emitter DSN files (`trust-dsn-init` has six directories, none for the `admin` emitter); (3) the exact directory name is EL's to name in the ruling (the brief proposes `NOEMA_OPS_DSN_DIR`).
+
+### Pre-work for the next agent
+- Exact next step: EL names the directory and the ops compose service and DSN job (SR paths: `deploy/`), then red tests for the netcheck assertions, then the `main`.
