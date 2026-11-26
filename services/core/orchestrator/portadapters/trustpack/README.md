@@ -41,6 +41,10 @@ There is no second port for the remedy (A370). `intake.AdmittedIntent.RequestedC
 
 `Handoffs` implements `intake.Handoffs` over the pack's `handoff_routes`: `Routed(ctx, {tenant, intent node, reason code})` is true when the pack routes that reason to an owner queue for that node (a route with no `intent_nodes` applies to every node). A reason the pack does not list is not routed and is not an error. No tenant is `ErrSession`, no node or no reason is `ErrHandoffQuery`, a node the pack does not have is `ErrIntent`; the zero value and a nil pack are `ErrConfig`. `LoadPack` refuses a pack that routes one reason twice for the same node, or names a node it does not have. `Pack.HandoffRoutes()` is the read-only accessor (a sorted copy). The package names no reason code and no queue (a source scan pins it). The composition sets `Service.Handoffs` from `NewHandoffs`.
 
+## Action graph data (TRU-14, A551, A684)
+
+`Pack.ActionGraphData(graphID)` gives a graph's roots, nodes (kind, capability, preconditions as text) and edges (condition) as a copy, read at load. An empty ID or a graph the pack does not have is `ErrGraph`; a nil pack is `ErrConfig`. This package does not parse or evaluate the predicates; `portadapters/runnableport` hands the data to `portadapters/runnable`.
+
 ## Tests
 
 ```
