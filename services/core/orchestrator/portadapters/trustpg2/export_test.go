@@ -63,3 +63,8 @@ func (r Requests) Open(ctx context.Context, n NewRequest) (string, error) {
 	}
 	return id, nil
 }
+
+// LookupAt is Lookup judged at the instant `at` instead of the database's now(), so that the boundary of the expiry (A612: exactly at expiry is expired) can be tested exactly.
+func (r Requests) LookupAt(ctx context.Context, tenantID, requestID string, at time.Time) (confirm.StoredRequest, bool, error) {
+	return r.lookup(ctx, tenantID, requestID, &at)
+}

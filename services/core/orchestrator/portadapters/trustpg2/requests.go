@@ -165,6 +165,41 @@ func (r Requests) Latest(ctx context.Context, tenantID, principalID, intentID st
 	return out, true, nil
 }
 
+// Lookup is the request the ID names, for this tenant only (A550: the request-by-id read of the confirmation route). It is a read: no event, no write. A request of another tenant (row
+// security hides it, and the tenant is in the predicate too), an unknown ID and a request the store does not hold are the same answer, not found (REQ-TRU-003). A malformed tenant or ID
+// and a context with no deadline are ErrRequestForm. The request is returned as stored, with its expiry at the database's precision and the database's own verdict on it (A607, A612):
+// whether it was answered or superseded is the answer path's to decide (A368 (iv)).
+func (r Requests) Lookup(ctx context.Context, tenantID, requestID string) (confirm.StoredRequest, bool, error) {
+	return r.lookup(ctx, tenantID, requestID, nil)
+}
+
+// lookup is Lookup judged at `at` instead of the database's now(), for the boundary tests only (export_test.go); Lookup passes nil.
+func (r Requests) lookup(ctx context.Context, tenantID, requestID string, at *time.Time) (confirm.StoredRequest, bool, error) {
+	if !hasDeadline(ctx) || r.Pool == nil || !safeRe.MatchString(tenantID) || !requestIDRe.MatchString(requestID) {
+		return confirm.StoredRequest{}, false, ErrRequestForm
+	}
+	var (
+		out     confirm.StoredRequest
+		expires time.Time
+	)
+	b := &out.Request.Binding
+	// The verdict is the database's: expires_at at or before its now() (or the instant a test names) is expired, so a request exactly at its expiry is expired (A607, A612). The expiry
+	// comes back as timestamptz, at the microsecond precision the database keeps; nothing here is rounded.
+	err := r.Pool.QueryRow(ctx, `SELECT confirmation_request_id, principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash, policy_version,
+			requirement, requester_id, expires_at, expires_at <= COALESCE($3::timestamptz, now())
+		FROM confirmation_request WHERE tenant_id = $1 AND confirmation_request_id = $2`, tenantID, requestID, at).
+		Scan(&out.Request.ID, &b.PrincipalID, &b.IntentHash, &b.CapabilityID, &b.TargetRef, &b.ParamsHash, &b.EvidenceSetHash, &b.PlanHash, &b.PolicyVersion, &out.Request.Requirement, &out.Request.RequesterID, &expires, &out.Expired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return confirm.StoredRequest{}, false, nil
+	}
+	if err != nil {
+		return confirm.StoredRequest{}, false, fmt.Errorf("trustpg2: read the request: %w", err)
+	}
+	out.ExpiresAt = expires.UTC()
+	out.Request.ExpiresAt = expires.Unix() // the whole-second form for confirm.Resolve; the verdict above, not this, decides expiry
+	return out, true, nil
+}
+
 // Expire records CONFIRMATION_EXPIRED for the request, once, and only when the request has expired by the clock.
 func (r Requests) Expire(ctx context.Context, tenantID, requestID string) error {
 	if err := r.ready(); err != nil {

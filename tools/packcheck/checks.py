@@ -616,6 +616,33 @@ def check_understanding(pack: dict, pack_dir: Path, conformance: bool = False) -
     codes = [loc["code"] for loc in und["locales"]]
     for code in sorted({c for c in codes if codes.count(c) > 1}):
         out.append(("understanding", f"duplicate locale {code}"))
+    return out + check_slot_gates(pack, und)
+
+
+def check_slot_gates(pack: dict, und: dict) -> list[Problem]:
+    """UND-18 (A603, interim; AGENT-16): `understanding.slot_gates` gates OPTIONAL slots that have a closed list of values (a `vocabulary`, or `references`). The threshold range is the
+    schema's (integer basis points, 1 to 10000). Here: the slot exists in some node, no declaration of it is required, every declaration has a closed list, and a slot is gated once.
+    A gate on a required slot would let doubt drop a value the node cannot do without; one without a closed list has nothing to pick from."""
+    out: list[Problem] = []
+    gates = und.get("slot_gates") or []
+    declared: dict[str, list[dict]] = {}
+    for node in pack["intent_nodes"]:
+        for slot in node.get("slots", []):
+            declared.setdefault(slot["name"], []).append(slot)
+    names = [g["slot"] for g in gates]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        out.append(("understanding", f"slot gate on {name} is declared twice"))
+    for name in dict.fromkeys(names):
+        slots = declared.get(name)
+        if not slots:
+            out.append(("understanding", f"slot gate on {name}: no node declares such a slot"))
+            continue
+        if sum(1 for node in pack["intent_nodes"] if any(s["name"] == name for s in node.get("slots", []))) > 1:
+            out.append(("understanding", f"slot gate on {name}: the slot is declared by more than one node; a gate belongs to one node"))
+        if any(s.get("required") is True for s in slots):
+            out.append(("understanding", f"slot gate on {name}: the slot is required in a node; only an optional slot may be gated"))
+        if any(s.get("vocabulary") is None and s.get("references") is None for s in slots):
+            out.append(("understanding", f"slot gate on {name}: the slot has no closed list of values to pick from"))
     return out
 
 
