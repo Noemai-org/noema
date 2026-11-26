@@ -131,6 +131,13 @@ const (
 	principalKey = "principal-principal-principal-principal-0003"   // SYNTHETIC
 )
 
+// freshConnections is the HTTP client of every read here: a new connection each time (A728), so a dropped GET is never replayed by Go's transport on a reused
+// connection and the number of requests the source sees is the number of reads. StandinClient's own default (a nil HTTP) keeps connections alive; the line to change is
+// in the PR, for EL.
+func freshConnections() *http.Client {
+	return &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+}
+
 func newClient(t testing.TB, rp *replay) *synthetic_tushe.StandinClient {
 	t.Helper()
 	dir := t.TempDir()
@@ -141,7 +148,7 @@ func newClient(t testing.TB, rp *replay) *synthetic_tushe.StandinClient {
 	if err := os.WriteFile(key, []byte(principalKey), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c, err := synthetic_tushe.NewStandinClient(synthetic_tushe.StandinOptions{BaseURL: rp.srv.URL, TokenFile: tok, PrincipalKeyFile: key, Now: func() time.Time { return epoch }})
+	c, err := synthetic_tushe.NewStandinClient(synthetic_tushe.StandinOptions{BaseURL: rp.srv.URL, TokenFile: tok, PrincipalKeyFile: key, Now: func() time.Time { return epoch }, HTTP: freshConnections()})
 	if err != nil {
 		t.Fatal(err)
 	}

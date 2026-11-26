@@ -13,7 +13,7 @@ Order of the work: A717 of `DEC-2026-11-26-architect-rulings-a704-a720` ("The EN
 - Tests added (REQ-CTX-008, REQ-CTX-002, REQ-TST-004, REQ-ENV-004, INV-07, INV-19, INV-23, INV-01): 22 fault families by 3 reads (66 recorded exchanges), replayed to the real `StandinClient` and `portread.Reader`; plus the no-model-in-the-path scan, the recording's reproducibility, and the upstream's wire-shape guard.
 - Regression cases added: none (no defect fixed).
 - Debt entries: none.
-- Conflicts raised: none blocking. Two items for the Architect in the PR body: an added field is UNKNOWN here and "Ignored" in REQ-CTX-008; a stale answer of a state that was final cannot be told from a live one.
+- Conflicts raised: none by me. A728 (`DEC-2026-11-26-architect-rulings-a721-a737`) answered the five questions: an added field reads as UNKNOWN (CONFLICT SOT-C-35, REQ-CTX-008 "Ignored" against the safer reading, applied meanwhile); a stale read of a state is caught at dispatch revalidation (REQ-EXE-003) and by the A706 version token, not at read time (recorded known limitation; guarding tests `execution/e2e` `TestG2ARouteGrantBoundToAStaleTokenIsVoidedAtRevalidation` and `execution/bridge` `TestRouteRevalidation`; the A706 token is not built, so no test of it); reads use a fresh connection each time; the read retry budget stays 0 beyond EVD-02's one refresh (OD-P-112 Open); the stand-in's identifiers are fixed by IL and the reader is never loosened.
 
 ## Evidence
 - Characterisation: the code under test already existed, so there is no behavioural red. The red run is the missing recordings (the drift guard and the core tests fail until `read_hostility_recordings.json` is committed); mutants show the tests bite.
@@ -22,7 +22,8 @@ Order of the work: A717 of `DEC-2026-11-26-architect-rulings-a704-a720` ("The EN
 ## Open questions
 - Retry-After and the [REC] 100, 300, 900 ms backoff have no implementation to test: no read retries exist and the retry budget is OD-P-112 (AGENT-16). Owner: Architect (budget), then whoever builds the read budget (REQ-CTX-008 "within the read budget").
 - The `EVIDENCE_READ` attempt count that REQ-CTX-008 names is not recorded anywhere.
-- A transport that replays a dropped GET once (Go's own behaviour on a reused connection) makes the attempt count not equal to the number of adapter calls.
+- For EL (production, not edited here): `services/core/adapters/synthetic_tushe/standin_client.go` line 87, `hc = &http.Client{}` (when `StandinOptions.HTTP` is nil), keeps connections alive, so Go's transport replays a dropped GET once. A728 wants a fresh connection per read: `hc = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}`. The tests here pass that client in `StandinOptions.HTTP` and assert each read reaches the source exactly once (red first at 50bb888ee). Whoever wires `StandinClient` in `cmd/core` must pass the same client until the default changes.
+- Identifiers (IL): the recordings use `TX1` and `usr_ab12` because `portread` rejects the stand-in's `fin.transaction:TX1` and `usr_a`. The stand-in fix is not on main (`benchmark/fixtures/test_standin.py` still has them as of the merge at ee737f9f1); switch the recordings to the stand-in's valid references when it lands.
 
 ## Pre-work for the next agent
 - Exact next step (the Tushe-contract part): wait for ENV-03 and ENV-05's list; then show the same handling against Tushe's documented read behaviour, with no behaviour assumed that has not been shown (AGENTS section 14).

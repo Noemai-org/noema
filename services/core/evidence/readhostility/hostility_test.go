@@ -86,8 +86,8 @@ func TestWithoutAFaultEveryReadIsKnownWithTheHashOfTheWireBytes(t *testing.T) {
 }
 
 // REQ-CTX-008 ("Unknown enum values SHALL never map to known states"; "schema drift: renamed or missing required fields, or an unknown enum value: UNKNOWN"),
-// REQ-ENV-005 as amended (a corrupted payload is never a fact), EC-S19. An added field is also UNKNOWN: the PERD says "ignored" and the adapter is stricter;
-// the stricter reading stands until the Architect says otherwise (see the PR, "decisions needed").
+// REQ-ENV-005 as amended (a corrupted payload is never a fact), EC-S19. An added field is also UNKNOWN: REQ-CTX-008 says "Ignored", and A728 applies the safer
+// reading (CONFLICT SOT-C-35, open until the Founders restate the requirement).
 func TestAnAnswerTheProxyCorruptedIsUnknownWithNoPayload(t *testing.T) {
 	all := load(t)
 	for _, family := range []string{"truncated_body", "invalid_json", "wrong_content_type", "empty_body_success", "drift_add", "drift_remove", "drift_rename", "drift_unknown_enum"} {
