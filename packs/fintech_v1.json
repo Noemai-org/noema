@@ -2325,5 +2325,42 @@
         "assertion_threshold_bp": 9000
       }
     ]
-  }
+  },
+  "outcome_bindings": [
+    {
+      "capability_id": "fin.cap.create_escalation_case",
+      "outcome_id": "fin.outcome.exception.case_opened",
+      "variables": {
+        "subject_resource": "SUBJECT",
+        "intent_id": "INTENT_ID"
+      },
+      "retry_safety": "QUERYABLE_BY_KEY"
+    },
+    {
+      "capability_id": "fin.cap.route_to_internal_owner",
+      "outcome_id": "fin.outcome.exception.case_routed",
+      "variables": {
+        "case_id": "PLAN_PARAM:case_id",
+        "planned_queue": "PLAN_PARAM:owner_queue"
+      },
+      "retry_safety": "QUERYABLE_BY_KEY"
+    },
+    {
+      "capability_id": "fin.cap.record_investigation_evidence",
+      "outcome_id": "fin.outcome.exception.evidence_recorded",
+      "variables": {
+        "case_id": "PLAN_PARAM:case_id",
+        "planned_payload_hash": "PLAN_PARAM:payload"
+      },
+      "retry_safety": "QUERYABLE_BY_KEY"
+    },
+    {
+      "capability_id": "fin.cap.log_complaint_reference",
+      "outcome_id": "fin.outcome.exception.complaint_logged",
+      "variables": {
+        "subject_resource": "SUBJECT"
+      },
+      "retry_safety": "QUERYABLE_BY_KEY"
+    }
+  ]
 }

@@ -181,6 +181,14 @@
     },
     "understanding": {
       "$ref": "#/$defs/Understanding"
+    },
+    "outcome_bindings": {
+      "description": "A723 (interim, relayed; REQ-VER-001, REQ-EXE-006; INV-14, INV-24): per write capability, which outcome definition its result is verified against and where each predicate variable of that definition gets its value, so the core holds no capability or variable name (the Outcome request builder reads this, A692 step_params). `variables` maps a predicate variable (one of `predicate_variables` that the outcome's success predicate reads) to its source: `PLAN_PARAM:<param>` (one param of the executed plan step, an input of the capability, carried by the receipt's step_params), `INTENT_ID` (the plan's intent) or `SUBJECT` (the subject of the intent, its `subject_slot`). `retry_safety` repeats the capability's own (packcheck checks they are equal). Optional and additive (A698): absent means no capability has a binding. A capability is bound at most once, and only a write the pack declares and does not prohibit (all checked by packcheck). SYNTHETIC in the fintech pack.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/OutcomeBinding"
+      }
     }
   },
   "required": [
@@ -387,6 +395,38 @@
         "intent_unclear_flag",
         "out_of_scope_flag",
         "state_flags"
+      ],
+      "additionalProperties": false
+    },
+    "OutcomeBinding": {
+      "type": "object",
+      "properties": {
+        "capability_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+        },
+        "outcome_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+        },
+        "variables": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^(INTENT_ID|SUBJECT|PLAN_PARAM:[a-z][a-z0-9_]*)$"
+          }
+        },
+        "retry_safety": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/RetrySafety"
+        }
+      },
+      "required": [
+        "capability_id",
+        "outcome_id",
+        "variables",
+        "retry_safety"
       ],
       "additionalProperties": false
     }

@@ -262,6 +262,7 @@ TYPES: dict[str, Any] = {
     "overlay-card.v1#ConfirmationCard": overlay_card_v1.OverlayCardV1ConfirmationCard,
     "pack.v1": pack_v1.PackV1,
     "pack.v1#ExactNumber": pack_v1.PackV1ExactNumber,
+    "pack.v1#OutcomeBinding": pack_v1.PackV1OutcomeBinding,
     "pack.v1#Understanding": pack_v1.PackV1Understanding,
     "pack.v1#Understanding/properties/locales/items": pack_v1.PackV1UnderstandingLocalesItem,
     "pack.v1#Understanding/properties/proposable_flags/items": pack_v1.PackV1UnderstandingProposableFlagsItem,

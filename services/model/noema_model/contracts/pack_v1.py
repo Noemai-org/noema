@@ -9,7 +9,7 @@ from ._base import ContractModel
 from .capability_descriptor_v2 import CapabilityDescriptorV2
 from .clock_v1 import ClockV1
 from .common_v1 import CommonV1PackId, CommonV1SchemaVersion, CommonV1Semver, CommonV1Vertical
-from .enums_v1 import EnumsV1CoreReasonCode
+from .enums_v1 import EnumsV1CoreReasonCode, EnumsV1RetrySafety
 from .evidence_descriptor_v1 import EvidenceDescriptorV1, EvidenceDescriptorV1FieldType
 from .evidence_source_v1 import EvidenceSourceV1
 from .intent_node_v1 import IntentNodeV1
@@ -20,6 +20,16 @@ from .trust_profile_v1 import TrustProfileV1
 
 # PackV1ExactNumber. Source: pack.v1.json#$defs/ExactNumber
 PackV1ExactNumber: TypeAlias = Annotated[str, StringConstraints(pattern='\\A(?:[0-9]{1,18}(?:\\.[0-9]{1,18})?|[0-9]{1,18}/[1-9][0-9]{0,17})\\Z')]
+
+
+class PackV1OutcomeBinding(ContractModel):
+    """PackV1OutcomeBinding Source: pack.v1.json#$defs/OutcomeBinding"""
+
+    model_config = ConfigDict(extra="forbid")
+    capability_id: CommonV1PackId
+    outcome_id: CommonV1PackId
+    variables: dict[str, Annotated[str, StringConstraints(pattern='\\A(INTENT_ID|SUBJECT|PLAN_PARAM:[a-z][a-z0-9_]*)\\Z')]]
+    retry_safety: EnumsV1RetrySafety
 
 
 class PackV1UnderstandingLocalesItem(ContractModel):
@@ -141,8 +151,10 @@ class PackV1(ContractModel):
     evidence_descriptors: list[EvidenceDescriptorV1] | None = Field(default=None)
     predicate_variables: dict[str, EvidenceDescriptorV1FieldType] | None = Field(default=None)
     understanding: PackV1Understanding | None = Field(default=None)
+    outcome_bindings: Annotated[list[PackV1OutcomeBinding], Field(min_length=1)] | None = Field(default=None)
 
 
+PackV1OutcomeBinding.model_rebuild()
 PackV1Understanding.model_rebuild()
 PackV1UnderstandingLocalesItem.model_rebuild()
 PackV1UnderstandingProposableFlagsItem.model_rebuild()

@@ -11,6 +11,40 @@ import (
 // A non-negative decimal or fraction written as a string, such as "0.35" or "7/20". Never a JSON number: a float would let the same file mean different things on different machines (INV-21; the model service's ranking r...
 type PackV1ExactNumber string
 
+// PackV1OutcomeBinding is generated from pack.v1.json#$defs/OutcomeBinding.
+type PackV1OutcomeBinding struct {
+	CapabilityId CommonV1PackId     `json:"capability_id"`
+	OutcomeId    CommonV1PackId     `json:"outcome_id"`
+	Variables    map[string]string  `json:"variables"`
+	RetrySafety  EnumsV1RetrySafety `json:"retry_safety"`
+}
+
+var PackV1OutcomeBindingShape = objectShape{name: "PackV1OutcomeBinding", props: map[string]bool{"capability_id": true, "outcome_id": true, "variables": true, "retry_safety": true}, required: []string{"capability_id", "outcome_id", "variables", "retry_safety"}, nonNull: map[string]bool{"capability_id": true, "outcome_id": true, "variables": true, "retry_safety": true}, closed: true}
+
+func (t *PackV1OutcomeBinding) UnmarshalJSON(b []byte) error {
+	raw, err := PackV1OutcomeBindingShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias PackV1OutcomeBinding
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: PackV1OutcomeBinding: %w", err)
+	}
+	_ = raw
+	*t = PackV1OutcomeBinding(a)
+	return nil
+}
+
+func (t PackV1OutcomeBinding) MarshalJSON() ([]byte, error) {
+	type alias PackV1OutcomeBinding
+	a := alias(t)
+	if a.Variables == nil {
+		a.Variables = map[string]string{}
+	}
+	return json.Marshal(a)
+}
+
 // PackV1Understanding is generated from pack.v1.json#$defs/Understanding.
 // Pipeline and ranking data the model service reads (PERD REQ-AMB-002, REQ-AMB-003, REQ-INT-005, §20.3; DEC-2026-10-20 D3 and D5). Every number is a value the PERD already gives, labelled in packs/fintech/understanding....
 type PackV1Understanding struct {
@@ -306,9 +340,10 @@ type PackV1 struct {
 	EvidenceDescriptors *[]EvidenceDescriptorV1                   `json:"evidence_descriptors,omitempty"`
 	PredicateVariables  *map[string]EvidenceDescriptorV1FieldType `json:"predicate_variables,omitempty"`
 	Understanding       *PackV1Understanding                      `json:"understanding,omitempty"`
+	OutcomeBindings     *[]PackV1OutcomeBinding                   `json:"outcome_bindings,omitempty"`
 }
 
-var PackV1Shape = objectShape{name: "PackV1", props: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, required: []string{"schema_version", "pack_id", "pack_version", "name", "intent_nodes", "trust_profiles", "outcome_definitions", "capabilities", "evidence_sources", "policy", "clocks", "reason_catalogue"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, closed: true}
+var PackV1Shape = objectShape{name: "PackV1", props: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true, "outcome_bindings": true}, required: []string{"schema_version", "pack_id", "pack_version", "name", "intent_nodes", "trust_profiles", "outcome_definitions", "capabilities", "evidence_sources", "policy", "clocks", "reason_catalogue"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true, "outcome_bindings": true}, closed: true}
 
 func (t *PackV1) UnmarshalJSON(b []byte) error {
 	raw, err := PackV1Shape.check(b)

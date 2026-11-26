@@ -325,6 +325,47 @@ def check_recon_rules(doc: object) -> list[Problem]:
     return [("recon_rules", f"{where}: {what}") for where, what in found[:20]]
 
 
+def check_outcome_bindings(pack: dict, pack_dir: Path) -> list[Problem]:
+    """A723 (interim, relayed; REQ-VER-001, REQ-EXE-006; INV-14): the pack's optional `outcome_bindings`. A binding is of a declared, non-prohibited write capability (a risk class above R0),
+    once; it names that capability's own `expected_outcome` and `retry_safety`; each variable is one the pack declares in `predicate_variables` and the outcome's success predicate reads;
+    and a `PLAN_PARAM:<param>` source names an input of the capability's own input schema. A message names the place and the rule, never a value. A pack with none is valid."""
+    out: list[Problem] = []
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    outcomes = {o["outcome_id"]: o for o in pack["outcome_definitions"]}
+    declared = pack.get("predicate_variables", {})
+    seen: set[str] = set()
+    for b in pack.get("outcome_bindings", []):
+        cap_id = b["capability_id"]
+        where = f"outcome_bindings[{cap_id}]"
+        if cap_id in seen:
+            out.append(("outcome_bindings", f"{where}: bound twice"))
+        seen.add(cap_id)
+        cap = caps.get(cap_id)
+        if cap is None:
+            out.append(("outcome_bindings", f"{where}: the capability is not declared"))
+            continue
+        if cap["prohibited"] or RANK.get(cap["risk_class"], 0) < 1:
+            out.append(("outcome_bindings", f"{where}: only a declared, non-prohibited write capability has a binding"))
+            continue
+        if b["outcome_id"] != cap["expected_outcome"]:
+            out.append(("outcome_bindings", f"{where}: outcome_id is not the capability's expected_outcome"))
+        if b["retry_safety"] != cap["retry_safety"]:
+            out.append(("outcome_bindings", f"{where}: retry_safety is not the capability's own"))
+        predicate = (outcomes.get(b["outcome_id"]) or {}).get("success_predicate", "")
+        try:
+            inputs = set(validate.load_strict(pack_dir / cap["input_schema"]).get("properties", {}))
+        except (OSError, ValueError, KeyError):
+            inputs = None
+        for name, source in sorted(b["variables"].items()):
+            if name not in declared:
+                out.append(("outcome_bindings", f"{where}: {name} is not a predicate variable the pack declares"))
+            elif not re.search(rf"(?<![\w.]){re.escape(name)}(?![\w])", predicate):
+                out.append(("outcome_bindings", f"{where}: the outcome's success predicate never reads {name}"))
+            if source.startswith("PLAN_PARAM:") and inputs is not None and source.split(":", 1)[1] not in inputs:
+                out.append(("outcome_bindings", f"{where}: {name}: the param is not an input of {cap_id}"))
+    return out
+
+
 def check_subject_slot(pack: dict) -> list[Problem]:
     """A520 (interim; DEBT-54): an intent node's optional `subject_slot` names a Resource slot of the SAME node, the slot whose resolved reference is the subject of the intent (the
     core reads the name from the pack, INV-14). A node with no such slot declares none."""
@@ -1063,7 +1104,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack) + check_outcome_bindings(pack, pack_path.parent)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)

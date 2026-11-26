@@ -180,6 +180,7 @@ var Types = map[string]func() any{
 	"overlay-card.v1#ConfirmationCard":                            func() any { return new(OverlayCardV1ConfirmationCard) },
 	"pack.v1":                                                     func() any { return new(PackV1) },
 	"pack.v1#ExactNumber":                                         func() any { return new(PackV1ExactNumber) },
+	"pack.v1#OutcomeBinding":                                      func() any { return new(PackV1OutcomeBinding) },
 	"pack.v1#Understanding":                                       func() any { return new(PackV1Understanding) },
 	"pack.v1#Understanding/properties/locales/items":              func() any { return new(PackV1UnderstandingLocalesItem) },
 	"pack.v1#Understanding/properties/proposable_flags/items":     func() any { return new(PackV1UnderstandingProposableFlagsItem) },
