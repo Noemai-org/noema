@@ -26,8 +26,8 @@ Token order, initials ("T. Adeyemi") and "first name only" are handled by the en
 
 ## `fin.lex.*.json`
 
-Amounts, numerals and relative times (REQ-INT-003), one file per language, named by the intent node's `lexicon_refs` and merged by the compiler (`load_pack_lexicons`; the files must agree on the offset and the currency, and a word or phrase two of them define must mean the same). `fin.lex.en_ng.json` is English; `fin.lex.pcm.json` is Nigerian Pidgin and holds only `dis morning` for now (UND-16, run #6; A532: a Pidgin phrase is never put in the English file). Every entry is a `[synthetic seed]`, and both files are SYNTHETIC (AGENT-25, A538): invented for the POC, not reviewed by a native speaker. The lexicon files are not pinned in the manifest; the run record pins their merged digest (`lexicon_sha256`).
+Amounts, numerals and relative times (REQ-INT-003), one file per language, named by the intent node's `lexicon_refs` and merged by the compiler (`load_pack_lexicons`; the files must agree on the offset and the currency, and a word or phrase two of them define must mean the same). `fin.lex.en_ng.json` is English (amounts and numeral words, the words that mark an amount as uncertain, the joiner of a spoken number, relative times and the direction words and phrases; UND-06 slice 1, A634); `fin.lex.pcm.json` is Nigerian Pidgin and holds only `dis morning` for now (UND-16, run #6; A532: a Pidgin phrase is never put in the English file). Every entry is a `[synthetic seed]`, and both files are SYNTHETIC (AGENT-25, A538): invented for the POC, not reviewed by a native speaker. The lexicon files are not pinned in the manifest; the run record pins their merged digest (`lexicon_sha256`).
 
 ## Not here yet
 
-`fin.lex.yo`, `fin.lex.ha`, `fin.lex.ig` (named by the intent node, no file; skipped by the loader) and the numerals as words belong to UND-06.
+`fin.lex.yo`, `fin.lex.ha`, `fin.lex.ig` (named by the intent node, no file; skipped by the loader) and their numeral tables belong to UND-06 and need a native reviewer first (OQ-12, GOV-10). The English numeral words are in `fin.lex.en_ng.json`; Pidgin numerals are not added (no input needs them yet).

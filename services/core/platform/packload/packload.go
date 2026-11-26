@@ -28,9 +28,11 @@ import (
 
 // Pack is a verified pack: the bytes each digest covers and the ids the manifest names (`<id>@<version>`, as the files carry them).
 type Pack struct {
-	Pack              []byte
-	EvidenceMapping   []byte
-	ReconRules        []byte
+	Pack            []byte
+	EvidenceMapping []byte
+	ReconRules      []byte
+	// PriorityRouting is the verified bytes of the priority routing member (PCK-09), nil when the manifest lists none.
+	PriorityRouting   []byte
 	EvidenceMappingID string
 	ReconRuleSetID    string
 	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
@@ -58,7 +60,7 @@ var (
 	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`, `limits` or `injection_patterns`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`, `limits`, `injection_patterns` or `priority_routing`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -83,6 +85,7 @@ const (
 	kindGraph    = "action_graph"
 	kindLimits   = "limits"
 	kindPatterns = "injection_patterns"
+	kindPriority = "priority_routing"
 
 	// limitsFromVersion is the first manifest version that must list the limits files (A579, interim).
 	limitsFromVersion = 3
@@ -182,7 +185,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 			return Pack{}, err
 		}
 	}
-	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules],
+	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules], PriorityRouting: bytesOf[kindPriority],
 		EvidenceMappingID: *doc.Expected.MappingID, ReconRuleSetID: *doc.Expected.RulesID}
 	if err := checkIDs(p); err != nil {
 		return Pack{}, err
@@ -238,7 +241,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindLimits && k != kindPatterns {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindLimits && k != kindPatterns && k != kindPriority {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++
@@ -247,7 +250,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		}
 		paths[*f.Path] = true
 	}
-	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 {
+	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 || perKind[kindPriority] > 1 {
 		return manifestDoc{}, bad
 	}
 	// A579 (interim; SOT-C-33): a manifest of version 3 or later lists its limits files, and a pack whose manifest does not is refused. There is no opt-in.

@@ -3,6 +3,7 @@
   "pack_id": "fin",
   "pack_version": "1.0.0",
   "name": "Noema Fintech Pack v1 (SYNTHETIC)",
+  "tenant_zone": "Africa/Lagos",
   "intent_nodes": [
     {
       "node_id": "fin.payments.exception.investigate",
@@ -104,7 +105,8 @@
       "examples": [
         "SYNTHETIC: Wetin happen to the 20k wey I send this morning?",
         "SYNTHETIC: I sent 50k to Tunde and he hasn't received it"
-      ]
+      ],
+      "action_graph": "fin.graph.escalate"
     },
     {
       "node_id": "fin.meta.out_of_scope",
@@ -364,7 +366,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -433,7 +435,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -502,7 +504,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -571,7 +573,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -640,7 +642,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -709,7 +711,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -782,7 +784,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "none_required",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "DECISION_MADE",
         "GRANT_SPENT",
@@ -858,7 +860,7 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "none_required",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "DECISION_MADE",
         "GRANT_SPENT",
@@ -943,7 +945,7 @@
         "reads": "bounded_backoff",
         "writes": "only_under_new_grant_after_verification"
       },
-      "compensation": "none_required",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "DECISION_MADE",
         "GRANT_SPENT",
@@ -1028,7 +1030,7 @@
         "reads": "bounded_backoff",
         "writes": "only_under_new_grant_after_verification"
       },
-      "compensation": "none_required",
+      "compensation": "ESCALATE_ONLY",
       "audit": [
         "DECISION_MADE",
         "GRANT_SPENT",
@@ -1112,7 +1114,7 @@
         "reads": "bounded_backoff",
         "writes": "only_under_new_grant_after_verification"
       },
-      "compensation": "none_required",
+      "compensation": "NONE_REQUIRED",
       "audit": [
         "DECISION_MADE",
         "GRANT_SPENT",
@@ -1196,7 +1198,7 @@
         "reads": "bounded_backoff",
         "writes": "only_under_new_grant_after_verification"
       },
-      "compensation": "none_required",
+      "compensation": "ESCALATE_ONLY",
       "audit": [
         "DECISION_MADE",
         "GRANT_SPENT",
@@ -1268,7 +1270,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -1337,7 +1338,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -1406,7 +1406,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -1475,7 +1474,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -1544,7 +1542,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -1613,7 +1610,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -1682,7 +1678,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],
@@ -1751,7 +1746,6 @@
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
       "audit": [
         "EVIDENCE_READ"
       ],

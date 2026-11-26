@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs docs/engineering/state-registry.md at docs commit 1a257a2f5f4e6772f01ba332955188553c2f4e87. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs docs/engineering/state-registry.md at docs commit 88843e1de48749933fa503763bcf40a2d18d06e5. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # State registry
 

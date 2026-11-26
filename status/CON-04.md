@@ -23,3 +23,26 @@ None sent or accepted for this task.
 
 ## Pre-work for the next agent
 - Exact next step: schema-valid intent and plan vectors, with the Architect's inputs; then A259's shared masking vector file.
+
+# Session 2026-11-25 · CON-04 (schema-valid intent_hash and plan_hash vectors; A672)
+
+## Task card
+- Task: CON-04 (shared vectors). Ruling: A672 (interim, relayed, not yet committed): shared Go and Python golden vectors for schema-valid `intent_hash` and `plan_hash`, red first, a small `/contracts` fixtures PR, no schema change.
+- REQ: REQ-INT-001, REQ-PLN-002, REQ-API-001. SoT: INV-17 (a grant binds `intent_hash` and `plan_hash`), INV-18 (no hash for a plan that names a prohibited or unregistered capability), INV-21.
+- Allowlist: `contracts/fixtures/golden_vectors.json`, `contracts/fixtures/README.md`, `services/core/internal/vectors/families_test.go`, `tools/contracts/test_schema_valid_hash_vectors.py`, `status/CON-04.md`. No schema, no production code, no tool.
+- Plan: three new families in the existing vector file (it is the one file the gitleaks allowlist already covers): `intent_hash_v3_vectors` (intent-object.v3), `plan_hash_v1_vectors` (plan.v1), `plan_hash_v1_refused_vectors` (plan.v1 with no hash). Red: both tests and the family names land first, with no family in the file, so they fail on "missing or empty". Green: the inputs, the RFC 8785 form and the hashes, all computed by `tools/check_vectors.py` (written from the PERD text, no shared code with Go), then read by Go through the generated types and `planner.HashDocument` over the pack's registry, and by Python through `validate.py`.
+- Faults exercised: a plan with a prohibited capability, an unregistered one and a gap in the step numbers (refused, no hash); a plan with its steps reversed (another hash).
+- Record events asserted: none (no Record write on this path).
+
+## Session summary (2026-11-25)
+- What changed (PR noema#974): `contracts/fixtures/golden_vectors.json` gains `intent_hash_v3_vectors` (3: the SoT example, the version-2 object that supersedes it, a Unicode and escaped surface form), `plan_hash_v1_vectors` (2: one read step; read, write and evidence steps with a string, an integer, a boolean and a null param) and `plan_hash_v1_refused_vectors` (3: prohibited, unregistered, a gap in the step numbers); `contracts/fixtures/README.md` rows. No schema change, no production code.
+- Why: A672; the older intent and plan vectors are JCS primitives over inputs no contract accepts, so INV-17's two bindings had no shared test on a real document.
+- Evidence: expected values were computed by `tools/check_vectors.py` (PERD text, no shared code); Go (`go test -count=1 ./internal/vectors/`) and Python (`tools.contracts.test_schema_valid_hash_vectors`) both agree on the first run, so there is no implementation disagreement and no CONFLICT. Two mutants die in both languages (a flipped plan hash, an intent vector given another vector's hash). The Go side reads the generated types strictly and hashes the plan through `planner.HashDocument`.
+- Risks: the JCS in `check_vectors.py` sorts by code point; every key in the new vectors is ASCII, so it equals RFC 8785's order. A non-ASCII key would need the independent Node tool.
+- Tests added (REQ-INT-001, REQ-PLN-002; INV-17, INV-18): `TestSchemaValidIntentHashVectors`, `TestSchemaValidPlanHashVectors`, `TestSchemaValidPlanThatMustHaveNoHash`, `SchemaValidHashVectors` (4 tests). Regression cases: none (no bug). Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the shared masking vector file (A259) is a separate PR.
+- Open questions (owner): none.
+- Files to read first: `contracts/fixtures/README.md`, `services/core/internal/vectors/families_test.go`.
+- Do not touch: the schemas and the older `intent_hash_vectors` and `plan_hash_vectors`.

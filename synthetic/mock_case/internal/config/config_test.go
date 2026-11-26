@@ -79,3 +79,43 @@ func TestLoadRefusals(t *testing.T) {
 		})
 	}
 }
+
+// A682: the webhook settings are both or neither, and the signing secret is its own.
+func TestWebhookSettingsAreBothOrNeitherAndTheSecretIsItsOwn(t *testing.T) {
+	sec := "whsec_" + "MfKQ9r8GKYqrTwjU" + "PD8ILPZIo2LaLaSw"
+	withFiles := func(extra map[string]string) map[string]string {
+		m := map[string]string{}
+		for k, v := range good {
+			m[k] = v
+		}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	c, err := Load(env(nil), files(good))
+	if err != nil || c.WebhookTarget != "" || c.WebhookSecret != "" {
+		t.Fatalf("neither is the default: %+v %v", c, err)
+	}
+	both := map[string]string{"MOCK_CASE_WEBHOOK_TARGET_URL": "http://webhook-relay:8090/webhooks", "MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE": "/wh"}
+	c, err = Load(env(both), files(withFiles(map[string]string{"/wh": sec + "\n"})))
+	if err != nil || c.WebhookTarget != "http://webhook-relay:8090/webhooks" || c.WebhookSecret != sec {
+		t.Fatalf("both: %+v %v", c, err)
+	}
+	for name, e := range map[string]map[string]string{"target only": {"MOCK_CASE_WEBHOOK_TARGET_URL": "http://r/w"}, "secret file only": {"MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE": "/wh"}} {
+		if _, err := Load(env(e), files(withFiles(map[string]string{"/wh": sec}))); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+	for name, f := range map[string]map[string]string{"the runtime token": {"/wh": tokA}, "the bench token": {"/wh": tokB}, "an empty file": {"/wh": "\n"}} {
+		_, err := Load(env(both), files(withFiles(f)))
+		if err == nil {
+			t.Errorf("%s as the secret: want an error", name)
+		} else if strings.Contains(err.Error(), tokA) || strings.Contains(err.Error(), tokB) {
+			t.Errorf("the error repeats a credential: %v", err)
+		}
+	}
+	if _, err := Load(env(both), files(good)); err == nil {
+		t.Error("a missing secret file: want an error")
+	}
+}
