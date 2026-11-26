@@ -24,8 +24,8 @@ import (
 // a write_when that does not compile over its node's slots (the whole rule is refused, never a rule without that node), or a bound that is not positive. No error carries a
 // predicate, a slot, a tenant or a path (AGENT-13).
 func buildWritesInput(in trustInputsIn) (intake.Writes, error) {
-	if in.Pack == nil || len(in.Tenants) == 0 || len(in.Pools) == 0 {
-		return nil, nil
+	if in.Pack == nil || len(in.Tenants) == 0 || len(in.Pools) == 0 || in.Timeout <= 0 {
+		return nil, nil // an absent part is a gap; a given bound that is not positive was already refused where the setting is read
 	}
 	whens, err := in.Pack.WriteWhens()
 	if errors.Is(err, trustpack.ErrConfig) {
