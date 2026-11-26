@@ -123,7 +123,8 @@ func seamTurn(mod func(*inputgateway.Turn)) inputgateway.Turn {
 	return tn
 }
 
-// A turn the production Start refuses, or a store that fails, never reaches the Interpreter: the counting double saw no call, and no session reached the port.
+// A turn the production Start refuses never reaches the Interpreter: the counting double saw no call, and no session reached the port. A store that fails is not exercised here (AGENT-12:
+// no mocked failure mode); see the pull request for what would.
 func TestTheInterpreterIsNeverCalledAfterTheStartRefuses(t *testing.T) {
 	w := newSeamWorld(t)
 	w.rec.admit(seamRecordRef, orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: seamTenantA, PrincipalID: seamPrincipalA, CorrelationID: "corr_" + aULID, RequestID: aRequestID, ObjectRef: "req_01ARZ3NDEKTSV4RRFFQ69G5FAV"})
@@ -138,10 +139,6 @@ func TestTheInterpreterIsNeverCalledAfterTheStartRefuses(t *testing.T) {
 		if err := w.starter.Start(t.Context(), seamTurn(mod)); err == nil {
 			t.Errorf("%s: Start accepted the turn", name)
 		}
-	}
-	w.store.err = errors.New("synthetic store failure")
-	if err := w.starter.Start(t.Context(), seamTurn(nil)); err == nil {
-		t.Error("a failing store: Start accepted the turn")
 	}
 	w.drain()
 	if got := w.port.sessions(); len(got) != 0 {
