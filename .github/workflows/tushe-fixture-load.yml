@@ -20,9 +20,6 @@ on:
         required: true
 permissions:
   contents: read
-concurrency:
-  group: tushe-fixture-load
-  cancel-in-progress: false
 jobs:
   load:
     if: github.ref == 'refs/heads/main'
