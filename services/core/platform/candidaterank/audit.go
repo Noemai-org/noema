@@ -35,5 +35,34 @@ type AuditFeatures struct {
 	TypeDirectionBP int64 `json:"type_direction_bp"`
 }
 
-// AuditPayload is a stub for the red run: it returns the zero payload, so the tests that assert its content fail on their assertions and not on the build.
-func (r Resolution) AuditPayload() AuditPayload { return AuditPayload{} }
+// AuditPayload makes the CANDIDATES_RESOLVED payload of this resolution. It is a copy: it shares no slice with the resolution, and an empty list is an empty slice, never nil, so the
+// payload has no null.
+func (r Resolution) AuditPayload() AuditPayload {
+	p := AuditPayload{
+		State:          string(r.State),
+		WhyNot:         make([]string, 0, len(r.WhyNot)),
+		CandidateCount: len(r.Ranked),
+		AboveFloor:     r.AboveFloor,
+		TopBP:          r.TopBP,
+		SecondBP:       r.SecondBP,
+		MarginBP:       r.MarginBP,
+		Candidates:     make([]AuditCandidate, 0, len(r.Ranked)),
+	}
+	for _, w := range r.WhyNot {
+		p.WhyNot = append(p.WhyNot, string(w))
+	}
+	if r.State == AutoResolved {
+		p.ResolvedCandidateID = r.ResolvedID
+	}
+	for _, s := range r.Ranked {
+		p.Candidates = append(p.Candidates, AuditCandidate{
+			CandidateID: s.ID,
+			ScoreBP:     s.ScoreBP,
+			Features: AuditFeatures{
+				AmountBP: s.Features.AmountBP, RecipientBP: s.Features.RecipientBP, TemporalBP: s.Features.TemporalBP,
+				RelationshipBP: s.Features.RelationshipBP, TypeDirectionBP: s.Features.TypeDirectionBP,
+			},
+		})
+	}
+	return p
+}

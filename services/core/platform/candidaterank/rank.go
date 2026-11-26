@@ -115,10 +115,11 @@ const (
 	TooManyAboveFloor Why = "TOO_MANY_ABOVE_FLOOR"
 )
 
-// Scored is one candidate's score in basis points.
+// Scored is one candidate's score in basis points, with the five feature values it was made from (REQ-AMB-003: scores and feature values are recorded).
 type Scored struct {
-	ID      string
-	ScoreBP int64
+	ID       string
+	ScoreBP  int64
+	Features Features
 }
 
 // Resolution is the result. Ranked is in presentation order: score, then the newer time, then the ID (REQ-AMB-004); an order never breaks a tie for resolving.
@@ -220,9 +221,10 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 	}
 	seen := make(map[string]bool, len(cands))
 	type row struct {
-		id     string
-		scaled int64
-		at     time.Time
+		id       string
+		scaled   int64
+		at       time.Time
+		features Features
 	}
 	rows := make([]row, 0, len(cands))
 	for _, cand := range cands {
@@ -234,7 +236,7 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 			AmountBP: c.AmountFeatureBP(t, cand), RecipientBP: cand.RecipientBP, TemporalBP: c.TemporalFeatureBP(t, cand),
 			RelationshipBP: RelationshipFeatureBP(cand), TypeDirectionBP: TypeDirectionFeatureBP(t, cand),
 		}
-		rows = append(rows, row{id: cand.ID, scaled: c.scaledScore(f), at: cand.OccurredAt})
+		rows = append(rows, row{id: cand.ID, scaled: c.scaledScore(f), at: cand.OccurredAt, features: f})
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].scaled != rows[j].scaled {
@@ -248,7 +250,7 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 	res := Resolution{Ranked: make([]Scored, 0, len(rows))}
 	floorScaled, marginScaled := c.FloorBP*UnitBP, c.MarginBP*UnitBP
 	for _, r := range rows {
-		res.Ranked = append(res.Ranked, Scored{ID: r.id, ScoreBP: r.scaled / UnitBP})
+		res.Ranked = append(res.Ranked, Scored{ID: r.id, ScoreBP: r.scaled / UnitBP, Features: r.features})
 		if r.scaled >= floorScaled {
 			res.AboveFloor++
 		}
