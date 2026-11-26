@@ -37,6 +37,10 @@ There is no second port for the remedy (A370). `intake.AdmittedIntent.RequestedC
 4. `Prohibited` capability: `Registered` true. `intake` refuses `!Registered || Prohibited`, so either reading refuses; this one follows REQ-CAP-002 ("registered, rejecting, unreachable").
 5. (A346, **assumed**) An intent whose capability does not root the named graph keeps the A306 rule above: the downstream of its own root, reads included, unioned over graphs; empty for a capability that roots no graph; `ErrCapability` for an unknown or prohibited one. A346 names only the escalation graph, so the fintech investigation graph's reads and the complaint graph's write are authorized as before. If the ruling means "only writes, always", one condition changes. A capability that roots the named graph and another graph gets the named graph's writes only, not the union.
 
+## Handoffs (TRU-14, A531, A684)
+
+`Handoffs` implements `intake.Handoffs` over the pack's `handoff_routes`: `Routed(ctx, {tenant, intent node, reason code})` is true when the pack routes that reason to an owner queue for that node (a route with no `intent_nodes` applies to every node). A reason the pack does not list is not routed and is not an error. No tenant is `ErrSession`, no node or no reason is `ErrHandoffQuery`, a node the pack does not have is `ErrIntent`; the zero value and a nil pack are `ErrConfig`. `LoadPack` refuses a pack that routes one reason twice for the same node, or names a node it does not have. `Pack.HandoffRoutes()` is the read-only accessor (a sorted copy). The package names no reason code and no queue (a source scan pins it). The composition sets `Service.Handoffs` from `NewHandoffs`.
+
 ## Tests
 
 ```

@@ -90,23 +90,23 @@ func TestWiringBuildsWhatItCanFromTheVerifiedPackAndNamesTheRest(t *testing.T) {
 	if a.Ownership == nil || a.Evidence == nil || a.Policies == nil {
 		t.Errorf("Ownership %v, Evidence %v, Policies %v: each must be built when its inputs are given", a.Ownership != nil, a.Evidence != nil, a.Policies != nil)
 	}
-	want := []string{"Writes", "Candidates", "Reconciler", "Clocks", "Confirmations", "Planner", "Recorder"}
+	want := []string{"Candidates", "Reconciler", "Clocks", "Confirmations", "Planner", "Recorder"}
 	if got := w.Unbuilt(); !reflect.DeepEqual(got, want) {
 		t.Errorf("unbuilt = %v, want %v", got, want)
 	}
 }
 
-// What production gives today: Intents only; the rest is named, with the reason as fixed text.
+// What production gives today: Intents and Writes (the pack's write rule and the tenants' kill switch, A684 step 1); the rest is named, with the reason as fixed text.
 func TestWiringWithTheProductionInputsBuildsIntentsAndNamesTheRest(t *testing.T) {
 	w, err := wireTrustInputs(twProduction(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := w.fill(TrustAdapters{})
-	if a.Intents == nil || a.Ownership != nil || a.Evidence != nil || a.Policies != nil || a.Recorder != nil || a.Candidates != nil || a.Writes != nil {
+	if a.Intents == nil || a.Writes == nil || a.Ownership != nil || a.Evidence != nil || a.Policies != nil || a.Recorder != nil || a.Candidates != nil {
 		t.Errorf("built: Intents %v, Ownership %v, Evidence %v, Policies %v, Recorder %v, Candidates %v, Writes %v", a.Intents != nil, a.Ownership != nil, a.Evidence != nil, a.Policies != nil, a.Recorder != nil, a.Candidates != nil, a.Writes != nil)
 	}
-	want := []string{"Writes", "Candidates", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks", "Confirmations", "Planner", "Recorder"}
+	want := []string{"Candidates", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks", "Confirmations", "Planner", "Recorder"}
 	if got := w.Unbuilt(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unbuilt = %v, want %v", got, want)
 	}
@@ -321,7 +321,7 @@ func TestProductionComposeBuildsIntentsOverTheVerifiedPackAndNamesTheRest(t *tes
 		t.Fatalf("the process must start: %v", err)
 	}
 	defer closer()
-	want := []string{"Writes", "Candidates", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks", "Confirmations", "Planner", "Recorder"}
+	want := []string{"Candidates", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks", "Confirmations", "Planner", "Recorder"}
 	if !reflect.DeepEqual(c.TrustUnbuilt, want) {
 		t.Errorf("TrustUnbuilt = %v, want %v", c.TrustUnbuilt, want)
 	}
