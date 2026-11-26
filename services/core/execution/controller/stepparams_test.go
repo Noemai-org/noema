@@ -3,6 +3,7 @@ package controller_test
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,13 @@ func TestDiscloseParamsCarriesTheBoundParamsOnly(t *testing.T) {
 	}
 }
 
+func TestDiscloseParamsReadsAWholeJSONNumberAsAnInteger(t *testing.T) {
+	got, err := controller.DiscloseParams(map[string]any{"rank": json.Number("2")}, map[string]controller.ParamHandling{"rank": controller.HandlingVerbatim})
+	if err != nil || got["rank"] != int64(2) {
+		t.Fatalf("%v %v", got, err)
+	}
+}
+
 func TestDiscloseParamsMasksAndHashesIdentifiers(t *testing.T) {
 	got, err := controller.DiscloseParams(
 		map[string]any{"account": "ACC-1234567890", "subject": "tx_SYNTH0001", "number": int64(1234567890)},
@@ -76,7 +84,8 @@ func TestDiscloseParamsRefusesWhatTheSchemaWouldRefuseAndWhatItCannotSay(t *test
 		"an unknown handling":      {map[string]any{"a": "x"}, map[string]controller.ParamHandling{"a": "AS_IS"}},
 		"a nested object":          {map[string]any{"a": map[string]any{"b": "x"}}, map[string]controller.ParamHandling{"a": v}},
 		"an array":                 {map[string]any{"a": []any{"x"}}, map[string]controller.ParamHandling{"a": v}},
-		"a fractional number":      {map[string]any{"a": 1.5}, map[string]controller.ParamHandling{"a": v}},
+		"a float":                  {map[string]any{"a": math.Sqrt2}, map[string]controller.ParamHandling{"a": v}},
+		"a fractional json number": {map[string]any{"a": json.Number("12.5")}, map[string]controller.ParamHandling{"a": v}},
 		"a value past the length":  {map[string]any{"a": strings.Repeat("x", controller.MaxStepParamLength+1)}, map[string]controller.ParamHandling{"a": v}},
 		"a masked non-string":      {map[string]any{"a": int64(12345678)}, map[string]controller.ParamHandling{"a": controller.HandlingMasked}},
 		"a slot name out of shape": {map[string]any{"Bad-Name": "x"}, map[string]controller.ParamHandling{"Bad-Name": v}},
@@ -163,7 +172,7 @@ func TestWithNoPolicyTheReceiptHasNoStepParams(t *testing.T) {
 	}
 }
 
-// A policy that cannot answer, or params that cannot be disclosed, stop the run BEFORE the spend: nothing is spent, recorded as dispatched or dispatched (EC-E16, INV-03).
+// A policy that cannot answer, or params that cannot be disclosed, stop the run BEFORE the spend: nothing is spent, recorded or dispatched (EC-E16, INV-03).
 func TestAPolicyThatFailsStopsTheRunBeforeTheSpend(t *testing.T) {
 	for name, pol := range map[string]*policyStub{
 		"the policy errors":      {err: errors.New("synthetic: policy unavailable")},
@@ -177,8 +186,8 @@ func TestAPolicyThatFailsStopsTheRunBeforeTheSpend(t *testing.T) {
 			t.Fatalf("%s: want an error and no receipt, got %+v %v", name, out, err)
 		}
 		s := w.Snapshot()
-		if len(s.Dispatches) != 0 || len(s.Record) != 1 {
-			t.Fatalf("%s: nothing is dispatched and only the revalidation is recorded, got dispatches %d record %d", name, len(s.Dispatches), len(s.Record))
+		if len(s.Dispatches) != 0 || len(s.Record) != 0 {
+			t.Fatalf("%s: nothing is dispatched and nothing is recorded (the run stops at E5), got dispatches %d record %d", name, len(s.Dispatches), len(s.Record))
 		}
 	}
 }
