@@ -127,3 +127,14 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: C2 points the replay provider at `benchmark/compile_acceptance/boundary-a604/fixture` and scores the gate offline with `remedy_labelled.v1.json`.
 - Do not touch: the goldens, the held-out set (INV-22), the threshold (AGENT-16).
+
+# Session 2026-11-26 · BEN-23 · A733: the boundary generating test runs in the model job
+
+## Session summary
+- What changed: `.github/workflows/model.yml` runs `benchmark.compile_acceptance.test_synthetic_boundary` with the model service's dependencies and `NOEMA_REQUIRE_MODEL_DEPS=1` (it also runs when `benchmark/compile_acceptance/` or `benchmark/requirements.lock` change); the test fails, not skips, when that variable is set and the dependencies are missing.
+- Evidence: in a clean venv with only `benchmark/requirements.lock` the test skips; with the variable set it fails; in a fresh venv with `services/model/requirements-dev.lock` and `benchmark/requirements.lock` it passes (11 tests).
+- Risks: a `.github` change, so SR reads it (Tier 1 path).
+- Tests, regression cases, debt, conflicts: none added.
+
+## Pre-work for the next agent
+- Exact next step: open the PR after the recordings PR merges (it is stacked on that branch).
