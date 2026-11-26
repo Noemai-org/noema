@@ -52,7 +52,7 @@ export function PushToTalk({ onPcm, maxRecordingMs = MAX_PUSH_TO_TALK_RECORDING_
   };
   return h("div", null,
     h("button", {
-      type: "button", disabled: !onPcm || typeof maxRecordingMs !== "number" || !Number.isSafeInteger(maxRecordingMs) || maxRecordingMs <= 0 || maxRecordingMs > 2_147_483_647, "aria-pressed": active,
+      type: "button", disabled: !onPcm || recordingLimitMs <= 0, "aria-pressed": active,
       onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
