@@ -344,6 +344,7 @@ def test_the_pool_size_is_read_strictly_from_the_environment(environ: Mapping[st
 def test_the_service_refuses_to_build_its_transport_without_a_pool_size(tmp_path: Path) -> None:
     from noema_model.harness import assemble_harness
     from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL, ENV_MASKING_LIMITS
+    from noema_model.providers.llm.profile import ENV_PROVIDER_PROFILE
     from tests.support import MASKING_FILE
     from noema_model.platform.telemetry import InMemoryTelemetry
     from tests.support import ManualClock, raw_config
@@ -352,7 +353,9 @@ def test_the_service_refuses_to_build_its_transport_without_a_pool_size(tmp_path
     path = tmp_path / "harness.json"
     path.write_text(json.dumps(raw_config(providers=("alpha",))))
     telemetry = InMemoryTelemetry()
-    result = assemble_harness({ENV_CONFIG: str(path), ENV_MASKING_LIMITS: MASKING_FILE}, ManualClock(), telemetry)
+    result = assemble_harness(
+        {ENV_CONFIG: str(path), ENV_MASKING_LIMITS: MASKING_FILE, ENV_PROVIDER_PROFILE: "live"}, ManualClock(), telemetry
+    )
     assert result.harness is None and ENV_LLM_POOL in result.reason
     assert [e[0] for e in telemetry.events] == ["HARNESS_CONFIG_REJECTED"]
 
@@ -360,6 +363,7 @@ def test_the_service_refuses_to_build_its_transport_without_a_pool_size(tmp_path
 def test_the_pool_size_in_effect_is_written_to_the_start_up_log(tmp_path: Path) -> None:
     from noema_model.harness import assemble_harness
     from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL, ENV_MASKING_LIMITS
+    from noema_model.providers.llm.profile import ENV_PROVIDER_PROFILE
     from tests.support import MASKING_FILE
     from noema_model.platform.telemetry import InMemoryTelemetry
     from tests.support import ManualClock, raw_config
@@ -368,7 +372,9 @@ def test_the_pool_size_in_effect_is_written_to_the_start_up_log(tmp_path: Path) 
     path = tmp_path / "harness.json"
     path.write_text(json.dumps(raw_config(providers=("alpha",))))
     telemetry = InMemoryTelemetry()
-    result = assemble_harness({ENV_CONFIG: str(path), ENV_LLM_POOL: "3", ENV_MASKING_LIMITS: MASKING_FILE}, ManualClock(), telemetry)
+    result = assemble_harness(
+        {ENV_CONFIG: str(path), ENV_LLM_POOL: "3", ENV_MASKING_LIMITS: MASKING_FILE, ENV_PROVIDER_PROFILE: "live"}, ManualClock(), telemetry
+    )
     assert result.harness is not None and result.reason == ""
     assert ("TRANSPORT_POOL_CONFIGURED", "service-start", {"transport": "llm", "workers": 3}) in telemetry.events
 
