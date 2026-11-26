@@ -32,11 +32,9 @@ const (
 	needSealedFacts    = "the sealed-facts source (snapshot reader, step facts, policy id)"
 	needRequestRead    = "a read of a confirmation request by its id (the store has Latest only)"
 	needRequestEvents  = "the Record events of the confirmation store (no confirm-request or confirm-event contract)"
-	needConfirmPolicy  = "the pack's confirmation terms (no accessor)"
-	needGraphReader    = "the pack's action-graph reader (plangraphs.Pack)"
+	needConfirmPolicy  = "the pack's confirmation expiry and the capability an intent confirms (the pack gives the approver requirement only)"
+	needGraphReader    = "the pack's action-graph reader (plangraphs.Pack: the pack names no graph of an intent node)"
 	needIntentSlots    = "the stored intent's slot reader (plangraphs.Intents)"
-	needPlanContexts   = "the plan contexts (plangraphs.PlanContexts)"
-	needRegistry       = "the pack's capability registry (no accessor)"
 	needRunnableAdapt  = "an intake.Runnable adapter over the pack's graph conditions"
 	needHandoffAdapter = "an intake.Handoffs adapter over the pack's handoff routes"
 )
@@ -102,7 +100,7 @@ func buildDecisions(in decisionInputs) (decisionParts, error) {
 	}
 	add("Intents", intentsMissing)
 	add("Confirmations", []string{needRequestRead, needRequestEvents, needConfirmPolicy})
-	add("Planner", []string{needGraphReader, needIntentSlots, needPlanContexts, needRegistry})
+	add("Planner", []string{needGraphReader, needIntentSlots}) // the plan contexts (planContextsFromRequest) and the registry (Pack.Registry) are built; the graph reader and the slot reader are not
 	add("Recorder", recMissing)
 	add(gapServiceRunnable, []string{needRunnableAdapt})
 	add(gapServiceHandoffs, []string{needHandoffAdapter})

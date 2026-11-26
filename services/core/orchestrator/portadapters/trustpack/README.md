@@ -44,3 +44,7 @@ cd services/core && go test -race -count=1 -p 2 ./orchestrator/portadapters/trus
 ```
 
 They run on the real `packs/fintech_v1.json` and its graph files, with every expectation read independently by the test (`helpers_test.go`), a synthetic tenant, and changed copies of the pack (`testing/fstest`) for refusals. No mock of the pack. The Remedies port is a spy. 54 hand mutants, all killed (`status/TRU-adapters-capabilities-scope-authority.md`).
+
+## Accessors of the final composition (A550, A551; STM-01)
+
+`Pack.ConfirmationRequirements()` is what the pack's CONFIRM rules ask of the approver, by capability (SELF, MAKER_CHECKER or ROLE:<role>); `Pack.Registry()` is a new capability registry built from the verified bytes on every call. Both read only the bytes the Pack was built from, return copies, name no id of any pack, and refuse the whole answer (`ErrPack`) when the data is not sound; a nil or zero Pack is `ErrConfig`. A pack that failed verification is never a Pack, so it yields none. Tests: `accessors_test.go`.
