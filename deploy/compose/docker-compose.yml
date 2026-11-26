@@ -235,6 +235,8 @@ services:
       NOEMA_MODEL_ADDR: ":8081"
       # Worker threads of the provider transport (UND-12). The Architect's initial value; tune from measured load. The service holds no default.
       NOEMA_MODEL_LLM_POOL_SIZE: "16"
+      # Which provider transport the service builds (A679, A695): "live" here in every profile. Absent refuses the start. "replay" is chosen only by a later ruling, in a bench or test file, never here.
+      NOEMA_MODEL_PROVIDER_PROFILE: "live"
       # NOEMA_MODEL_EVIDENCE_POOL_SIZE: "8" is the Architect's initial value for the evidence link. Nothing builds the evidence transport yet, so the
       # service does not read it; it is set here, as an active value, when the evidence link is composed.
     # The listener requires a client certificate (the image sets uvicorn's --ssl-* options, noema#555). The model holds its server key, the CA certificate and its own health-check client

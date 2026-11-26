@@ -1,0 +1,20 @@
+{
+  "clarification_id": "clr_8Slot1",
+  "slot": "when",
+  "question_key": "fin.clarify.when",
+  "options": [
+    {
+      "option_id": "opt_1",
+      "label": "NGN 20,000.00 at 07:12 to account ending 2144"
+    },
+    {
+      "option_id": "opt_2",
+      "label": "NGN 20,000.00 at 08:03 to account ending 8891"
+    }
+  ],
+  "allow_none": true,
+  "none_option_id": "opt_none",
+  "expires_at": "2026-10-01T09:57:04Z",
+  "round": 1,
+  "candidate_set_version": 1
+}

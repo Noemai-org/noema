@@ -17,10 +17,12 @@ func underDir(dir, prefix string) bool {
 
 // candidateFields are the only names a candidates-API response may carry (REQ-CTX-006), compared
 // case-insensitively with underscores removed, so CandidateID, candidate_id and candidateId are one name.
+// A676 (interim): candidates-response.v2 carries counterpartyref and recipientmatch and no name of any kind. counterpartydisplay stays allowed only for v1, whose consumers have not moved yet; it is
+// removed here when the last of them does (a test in tools/contracts compares this list with both contracts).
 var candidateFields = map[string]bool{
 	"candidates": true, "candidateid": true, "resourceref": true, "amountminor": true, "currency": true,
 	"occurredat": true, "counterpartydisplay": true, "accountlast4": true, "direction": true,
-	"beneficiaryaliasmatch": true,
+	"beneficiaryaliasmatch": true, "counterpartyref": true, "recipientmatch": true,
 }
 
 func normaliseField(name string) string {
