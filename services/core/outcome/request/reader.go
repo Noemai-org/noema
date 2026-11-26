@@ -76,9 +76,6 @@ func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verif
 	if f.Receipt.TenantID != tenantID || f.Receipt.GrantID != grantID {
 		return verifier.Request{}, ErrMismatch
 	}
-	if !clean(f.CapabilityID) || !clean(f.IntentID) || !clean(f.PlanHash) || !clean(f.GrantIntentHash) || !clean(f.DecisionIntentHash) {
-		return verifier.Request{}, ErrIncomplete
-	}
 	if f.Receipt.LogicalAction != f.CapabilityID || f.GrantIntentHash != f.DecisionIntentHash {
 		return verifier.Request{}, ErrMismatch
 	}
