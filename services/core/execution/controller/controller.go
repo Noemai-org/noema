@@ -25,6 +25,8 @@ type Controller struct {
 	Ledger   Ledger
 	Out      Dispatcher
 	IDs      IDs
+	// StepParams says which params of the plan step the receipt carries (A709). Nil: no receipt carries step_params.
+	StepParams StepParamPolicy
 	// Boundary is called at every step boundary. Production leaves it nil; the crash harness returns ErrCrash.
 	Boundary func(Point) error
 }
