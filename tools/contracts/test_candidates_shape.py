@@ -24,7 +24,8 @@ def norm(name: str) -> str:
 class Shape(unittest.TestCase):
     def test_the_candidate_properties_are_exactly_the_lints_allowed_names(self):
         props = {norm(k) for k in RESPONSE["$defs"]["Candidate"]["properties"]}
-        allowed = lint_fields() - {"candidates"}
+        # A676: the lint also allows v2's two names (counterparty_ref, recipient_match); v2 is compared in test_candidates_shape_v2.py.
+        allowed = lint_fields() - {"candidates", "counterpartyref", "recipientmatch"}
         self.assertEqual(props, allowed)
 
     def test_the_response_list_name_is_allowed_by_the_lint(self):

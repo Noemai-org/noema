@@ -1,0 +1,287 @@
+{
+  "schema_version": "2.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "candidates": [
+    {
+      "candidate_id": "cand_001",
+      "resource_ref": "fin.transaction:TX88001",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T23:00:00Z",
+      "counterparty_ref": "cp_1",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_002",
+      "resource_ref": "fin.transaction:TX88002",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T22:00:00Z",
+      "counterparty_ref": "cp_2",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_003",
+      "resource_ref": "fin.transaction:TX88003",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T21:00:00Z",
+      "counterparty_ref": "cp_3",
+      "recipient_match": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_004",
+      "resource_ref": "fin.transaction:TX88004",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T20:00:00Z",
+      "counterparty_ref": "cp_4",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_005",
+      "resource_ref": "fin.transaction:TX88005",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T19:00:00Z",
+      "counterparty_ref": "cp_5",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_006",
+      "resource_ref": "fin.transaction:TX88006",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T18:00:00Z",
+      "counterparty_ref": "cp_6",
+      "recipient_match": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_007",
+      "resource_ref": "fin.transaction:TX88007",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T17:00:00Z",
+      "counterparty_ref": "cp_7",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_008",
+      "resource_ref": "fin.transaction:TX88008",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T16:00:00Z",
+      "counterparty_ref": "cp_8",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_009",
+      "resource_ref": "fin.transaction:TX88009",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T15:00:00Z",
+      "counterparty_ref": "cp_9",
+      "recipient_match": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_010",
+      "resource_ref": "fin.transaction:TX88010",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T14:00:00Z",
+      "counterparty_ref": "cp_10",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_011",
+      "resource_ref": "fin.transaction:TX88011",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T13:00:00Z",
+      "counterparty_ref": "cp_11",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_012",
+      "resource_ref": "fin.transaction:TX88012",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T12:00:00Z",
+      "counterparty_ref": "cp_12",
+      "recipient_match": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_013",
+      "resource_ref": "fin.transaction:TX88013",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T11:00:00Z",
+      "counterparty_ref": "cp_13",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_014",
+      "resource_ref": "fin.transaction:TX88014",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T10:00:00Z",
+      "counterparty_ref": "cp_14",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_015",
+      "resource_ref": "fin.transaction:TX88015",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:00:00Z",
+      "counterparty_ref": "cp_15",
+      "recipient_match": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_016",
+      "resource_ref": "fin.transaction:TX88016",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T08:00:00Z",
+      "counterparty_ref": "cp_16",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_017",
+      "resource_ref": "fin.transaction:TX88017",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T07:00:00Z",
+      "counterparty_ref": "cp_17",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_018",
+      "resource_ref": "fin.transaction:TX88018",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T06:00:00Z",
+      "counterparty_ref": "cp_18",
+      "recipient_match": {
+        "numerator": 2,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_019",
+      "resource_ref": "fin.transaction:TX88019",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T05:00:00Z",
+      "counterparty_ref": "cp_19",
+      "recipient_match": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_020",
+      "resource_ref": "fin.transaction:TX88020",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T04:00:00Z",
+      "counterparty_ref": "cp_20",
+      "recipient_match": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    }
+  ]
+}

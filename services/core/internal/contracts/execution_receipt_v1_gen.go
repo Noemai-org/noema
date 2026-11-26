@@ -7,25 +7,59 @@ import (
 	"fmt"
 )
 
+// ExecutionReceiptV1StepParamsValue is generated from execution-receipt.v1.json#/properties/step_params/additionalProperties.
+type ExecutionReceiptV1StepParamsValue json.RawMessage
+
+func (u ExecutionReceiptV1StepParamsValue) MarshalJSON() ([]byte, error) {
+	if len(u) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(u), nil
+}
+
+func (u *ExecutionReceiptV1StepParamsValue) UnmarshalJSON(b []byte) error {
+	if isNull(b) {
+		*u = append((*u)[:0], b...)
+		return nil
+	}
+	var v0 string
+	if json.Unmarshal(b, &v0) == nil {
+		*u = append((*u)[:0], b...)
+		return nil
+	}
+	var v1 int64
+	if json.Unmarshal(b, &v1) == nil {
+		*u = append((*u)[:0], b...)
+		return nil
+	}
+	var v2 bool
+	if json.Unmarshal(b, &v2) == nil {
+		*u = append((*u)[:0], b...)
+		return nil
+	}
+	return fmt.Errorf("contracts: ExecutionReceiptV1StepParamsValue: matches none of its alternatives")
+}
+
 // ExecutionReceiptV1 is generated from execution-receipt.v1.json.
 // SoT §43.3 and PERD §27. Produced by Execution; it never writes SUCCEEDED (that word belongs to Outcome). A timeout or silence is OUTCOME_UNKNOWN with no acknowledgement; an ACKNOWLEDGED receipt carries the target's ac...
 type ExecutionReceiptV1 struct {
-	SchemaVersion   CommonV1SchemaVersion `json:"schema_version"`
-	TenantId        CommonV1TenantId      `json:"tenant_id"`
-	CorrelationId   CommonV1CorrelationId `json:"correlation_id"`
-	ReceiptId       CommonV1ReceiptId     `json:"receipt_id"`
-	GrantId         CommonV1GrantId       `json:"grant_id"`
-	IdempotencyKey  string                `json:"idempotency_key"`
-	LogicalAction   CommonV1PackId        `json:"logical_action"`
-	Attempt         CommonV1PositiveInt   `json:"attempt"`
-	DispatchedAt    CommonV1Timestamp     `json:"dispatched_at"`
-	TransportResult *string               `json:"transport_result"`
-	ExternalAck     *string               `json:"external_ack"`
-	ExecutionState  EnumsV1ExecutionState `json:"execution_state"`
-	Sig             CommonV1Sig           `json:"sig"`
+	SchemaVersion   CommonV1SchemaVersion                         `json:"schema_version"`
+	TenantId        CommonV1TenantId                              `json:"tenant_id"`
+	CorrelationId   CommonV1CorrelationId                         `json:"correlation_id"`
+	ReceiptId       CommonV1ReceiptId                             `json:"receipt_id"`
+	GrantId         CommonV1GrantId                               `json:"grant_id"`
+	IdempotencyKey  string                                        `json:"idempotency_key"`
+	LogicalAction   CommonV1PackId                                `json:"logical_action"`
+	Attempt         CommonV1PositiveInt                           `json:"attempt"`
+	DispatchedAt    CommonV1Timestamp                             `json:"dispatched_at"`
+	TransportResult *string                                       `json:"transport_result"`
+	ExternalAck     *string                                       `json:"external_ack"`
+	ExecutionState  EnumsV1ExecutionState                         `json:"execution_state"`
+	StepParams      *map[string]ExecutionReceiptV1StepParamsValue `json:"step_params,omitempty"`
+	Sig             CommonV1Sig                                   `json:"sig"`
 }
 
-var ExecutionReceiptV1Shape = objectShape{name: "ExecutionReceiptV1", props: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "receipt_id": true, "grant_id": true, "idempotency_key": true, "logical_action": true, "attempt": true, "dispatched_at": true, "transport_result": true, "external_ack": true, "execution_state": true, "sig": true}, required: []string{"schema_version", "tenant_id", "correlation_id", "receipt_id", "grant_id", "idempotency_key", "logical_action", "attempt", "dispatched_at", "transport_result", "external_ack", "execution_state", "sig"}, nonNull: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "receipt_id": true, "grant_id": true, "idempotency_key": true, "logical_action": true, "attempt": true, "dispatched_at": true, "execution_state": true, "sig": true}, closed: true}
+var ExecutionReceiptV1Shape = objectShape{name: "ExecutionReceiptV1", props: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "receipt_id": true, "grant_id": true, "idempotency_key": true, "logical_action": true, "attempt": true, "dispatched_at": true, "transport_result": true, "external_ack": true, "execution_state": true, "step_params": true, "sig": true}, required: []string{"schema_version", "tenant_id", "correlation_id", "receipt_id", "grant_id", "idempotency_key", "logical_action", "attempt", "dispatched_at", "transport_result", "external_ack", "execution_state", "sig"}, nonNull: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "receipt_id": true, "grant_id": true, "idempotency_key": true, "logical_action": true, "attempt": true, "dispatched_at": true, "execution_state": true, "step_params": true, "sig": true}, closed: true}
 
 func (t *ExecutionReceiptV1) UnmarshalJSON(b []byte) error {
 	raw, err := ExecutionReceiptV1Shape.check(b)
