@@ -6,6 +6,7 @@ import (
 
 	verifierport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/verifier"
 	"github.com/Noemai-org/noema/services/core/outcome/request"
+	"github.com/Noemai-org/noema/services/core/outcome/store"
 	outcomeverifier "github.com/Noemai-org/noema/services/core/outcome/verifier"
 )
 
@@ -30,17 +31,61 @@ type outcomeRequests struct {
 
 var _ verifierport.Requests = (*outcomeRequests)(nil)
 
-// newOutcomeRequests builds the router over one Reader for each tenant.
+// newOutcomeRequests builds the router over one Reader for each tenant. A missing seam or an empty set gives nil.
 func newOutcomeRequests(readers map[string]request.Reader, s outcomeRequestSeams) *outcomeRequests {
-	return nil
+	if len(readers) == 0 || s.Signatures == nil || s.Outcomes == nil || s.IDs == nil {
+		return nil
+	}
+	by := make(map[string]request.GrantRequests, len(readers))
+	for tenant, rd := range readers {
+		if tenant == "" || rd == nil {
+			return nil
+		}
+		by[tenant] = request.GrantRequests{Reader: rd, Signatures: s.Signatures, Outcomes: s.Outcomes, IDs: s.IDs}
+	}
+	return &outcomeRequests{byTenant: by}
 }
 
-// buildOutcomeRequests builds the Requests over the outcome pools of slice 1's parts, or returns nil and the gap lines.
+// buildOutcomeRequests builds the Requests over the outcome pools of slice 1's parts, or returns nil and the gap lines. Each gap is fixed text and carries no value.
 func buildOutcomeRequests(parts *executionParts, s outcomeRequestSeams) (verifierport.Requests, []string) {
-	return nil, nil
+	if parts == nil {
+		return nil, []string{"outcome requests: execution not configured"}
+	}
+	var gaps []string
+	for _, c := range []struct {
+		missing bool
+		gap     string
+	}{
+		{s.Signatures == nil, "outcome requests: signature check missing"},
+		{s.Outcomes == nil, "outcome requests: pack outcomes missing"},
+		{s.IDs == nil, "outcome requests: verification ids missing"},
+	} {
+		if c.missing {
+			gaps = append(gaps, c.gap)
+		}
+	}
+	if len(gaps) > 0 {
+		return nil, gaps
+	}
+	readers := make(map[string]request.Reader, len(parts.OutcomePools))
+	for tenant, pool := range parts.OutcomePools {
+		readers[tenant] = store.Reader{Pool: pool}
+	}
+	o := newOutcomeRequests(readers, s)
+	if o == nil {
+		return nil, []string{"outcome requests: no tenant has an outcome login"}
+	}
+	return o, nil
 }
 
-// For implements verifierport.Requests.
+// For implements verifierport.Requests: the grant is read through the reader of the tenant named, and no other (INV-12). A nil router, an empty tenant or an unknown one is refused before any read.
 func (o *outcomeRequests) For(ctx context.Context, tenantID, grantID string) (outcomeverifier.Request, error) {
-	return outcomeverifier.Request{}, errors.New("cmd/core: not built")
+	if o == nil || tenantID == "" {
+		return outcomeverifier.Request{}, ErrNoOutcomeForTenant
+	}
+	src, ok := o.byTenant[tenantID]
+	if !ok {
+		return outcomeverifier.Request{}, ErrNoOutcomeForTenant
+	}
+	return src.For(ctx, tenantID, grantID)
 }
