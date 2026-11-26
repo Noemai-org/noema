@@ -246,7 +246,7 @@ func TestAReferenceWithLongDigitRunsIsMasked(t *testing.T) {
 func TestTheOwnerQueueIsReadFromTheReceiptsStepParams(t *testing.T) {
 	queue := func(v string) rowreader.Rows {
 		rows := goodRows()
-		rows.Executions[0].StepParams = map[string]json.RawMessage{"owner_queue": json.RawMessage(v), "other": json.RawMessage(`"SYNTH_QUEUE"`)}
+		rows.Executions[0].StepParams = map[string]json.RawMessage{"owner_queue": json.RawMessage(v), "other": json.RawMessage(`"SYNTH_QUEUE"`), "": json.RawMessage(`"SYNTH_QUEUE"`)}
 		return rows
 	}
 	f := newWorld(t, queue(`"SYNTH_QUEUE"`)).facts(t)
@@ -383,10 +383,32 @@ func TestAReaderRefusalIsAnErrorWithNoFact(t *testing.T) {
 		if !errors.Is(err, want) || len(f.Facts) != 0 || w.p.calls != 0 || w.l.calls != 0 {
 			t.Errorf("%v: facts %+v err %v, payment calls %d, locale calls %d", want, f, err, w.p.calls, w.l.calls)
 		}
+		if err != nil && err.Error() != want.Error() {
+			t.Errorf("%v: the typed refusal's text changed to %q", want, err.Error())
+		}
 		for _, v := range []string{tenantA, decision, corr} {
 			if err != nil && strings.Contains(err.Error(), v) {
 				t.Errorf("%v: the error names %q", want, v)
 			}
+		}
+	}
+	// An error of the reader that is not one of the typed refusals (a driver's, which can name a server, a login or a row) is ErrRead with a fixed text; the cause stays reachable.
+	boom := errors.New("pq: login " + tenantA + " refused for " + decision + " on " + corr)
+	w := newWorld(t, rowreader.Rows{})
+	w.r.err = boom
+	if _, err := w.s.Facts(context.Background(), explanation.Subject{TenantID: tenantA, PrincipalID: principal}, decision); !errors.Is(err, rowreader.ErrRead) || !errors.Is(err, boom) ||
+		err.Error() != rowreader.ErrRead.Error() {
+		t.Errorf("an untyped reader error: %v", err)
+	}
+}
+
+// An outcome id that is not a pack identifier is a mismatch, never a value the template key is built from (INV-13).
+func TestAnOutcomeThatIsNotAPackIdentifierIsRefused(t *testing.T) {
+	for _, bad := range []string{"Bad Outcome", "outcome", "syn.Outcome", "syn.outcome.case opened", "syn..x"} {
+		rows := goodRows()
+		rows.Executions[0].OutcomeID = bad
+		if f, err := newWorld(t, rows).s.Facts(context.Background(), explanation.Subject{TenantID: tenantA, PrincipalID: principal}, decision); !errors.Is(err, rowreader.ErrMismatch) || len(f.Facts) != 0 {
+			t.Errorf("outcome %q: %+v %v", bad, f, err)
 		}
 	}
 }
