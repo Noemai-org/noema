@@ -1,0 +1,61 @@
+# tushe-fixture-load (ENV-16; DEC-2026-11-04 R12 and R17): loads seeded synthetic fixtures into the Tushe environment for the benchmark and the acceptance runs. By hand only, from `main` only,
+# in the `tushe-fixture` GitHub Environment (main-only; the Founder is its required reviewer, so the job waits for the Founder's review before any step runs). It reads no secret outside that
+# Environment, and records every run in its step summary (the commit, the run, the scenario key, the seed and who dispatched it; never a credential).
+#
+# What is built and what is not (status/ENV-16.md): the governance half is built and tested. The load itself is NOT: the Tushe specification v1.0 states a control plane (seed, reset, scenario) as a
+# capability but no endpoint, and delta v1.2 and v1.3 name none for loading fixtures. The step says NOT RUN and exits 3, which fails the job: it is never a pass. The load step, and the names of the
+# secrets it reads from this Environment, are added in the pull request that has the endpoint from a Tushe document (and the secret names listed in `.env.example`, where check_secret_refs reads them).
+# Never reachable from a runtime profile: no Compose file names this workflow, the Environment or a fixture setting (the guard test checks it).
+name: tushe-fixture-load
+on:
+  workflow_dispatch:
+    inputs:
+      scenario_key:
+        description: "The scenario key of the fixture set (letters, digits, dot, dash, underscore)"
+        type: string
+        required: true
+      seed:
+        description: "The seed (digits only; the same scenario key and seed give the same Tushe state)"
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: tushe-fixture-load
+  cancel-in-progress: false
+jobs:
+  load:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: tushe-fixture
+    env:
+      SCENARIO_KEY: ${{ inputs.scenario_key }}
+      SEED: ${{ inputs.seed }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # The whole string is checked with `case`, never a line at a time (the lesson of noema#577).
+      - name: Validate the inputs
+        run: |
+          set -eu
+          case "$SCENARIO_KEY" in ''|*[!A-Za-z0-9_.-]*) echo "scenario_key may hold only letters, digits, dot, dash and underscore"; exit 2 ;; esac
+          [ "${#SCENARIO_KEY}" -le 64 ] || { echo "scenario_key must be at most 64 characters"; exit 2; }
+          case "$SEED" in ''|*[!0-9]*) echo "seed must be digits only"; exit 2 ;; esac
+          [ "${#SEED}" -le 18 ] || { echo "seed must have at most 18 digits"; exit 2; }
+      - name: Record the run
+        run: |
+          {
+            echo "### tushe-fixture-load"
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- run: \`$GITHUB_RUN_ID\`"
+            echo "- scenario key: \`$SCENARIO_KEY\`"
+            echo "- seed: \`$SEED\`"
+            echo "- dispatched by: \`$GITHUB_ACTOR\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Load the fixtures (NOT RUN until a Tushe document states the endpoint)
+        run: |
+          echo "NOT RUN: no Tushe document states the endpoint that loads fixtures (specification v1.0 names a control plane without one; delta v1.2 and v1.3 name none). This is not a pass."
+          echo "NOT RUN: the load was not made. See status/ENV-16.md." >> "$GITHUB_STEP_SUMMARY"
+          exit 3
