@@ -3,6 +3,7 @@ package candidaterank
 import (
 	"errors"
 	"math/big"
+	"regexp"
 	"sort"
 	"time"
 )
@@ -70,8 +71,13 @@ type Candidate struct {
 	RecipientBP int64
 	AliasMatch  bool
 	Direction   string
+	// ResourceRef is the candidate's opaque resource reference (`<vertical>.<kind>:<id>`, as in the candidates read). It takes no part in the score; the payload names it as the resolved target
+	// of an AUTO_RESOLVED set (A725). It may be empty; a value that is not a reference is refused.
 	ResourceRef string
 }
+
+// resourceRefShape is common.v1 ResourceRef. A reference of any other shape could carry a name or free text into the Record, so Rank refuses it.
+var resourceRefShape = regexp.MustCompile(`\A[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}\z`)
 
 // Target is what the customer described: the values the candidates are compared to. A part the customer did not say is absent, and its feature is 0.
 type Target struct {
@@ -227,10 +233,11 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 		scaled   int64
 		at       time.Time
 		features Features
+		ref      string
 	}
 	rows := make([]row, 0, len(cands))
 	for _, cand := range cands {
-		if cand.ID == "" || seen[cand.ID] || cand.AmountMinor < 0 || cand.RecipientBP < 0 || cand.RecipientBP > UnitBP || cand.OccurredAt.IsZero() {
+		if cand.ID == "" || seen[cand.ID] || cand.AmountMinor < 0 || cand.RecipientBP < 0 || cand.RecipientBP > UnitBP || cand.OccurredAt.IsZero() || (cand.ResourceRef != "" && !resourceRefShape.MatchString(cand.ResourceRef)) {
 			return Resolution{}, ErrCandidates
 		}
 		seen[cand.ID] = true
@@ -238,7 +245,7 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 			AmountBP: c.AmountFeatureBP(t, cand), RecipientBP: cand.RecipientBP, TemporalBP: c.TemporalFeatureBP(t, cand),
 			RelationshipBP: RelationshipFeatureBP(cand), TypeDirectionBP: TypeDirectionFeatureBP(t, cand),
 		}
-		rows = append(rows, row{id: cand.ID, scaled: c.scaledScore(f), at: cand.OccurredAt, features: f})
+		rows = append(rows, row{id: cand.ID, scaled: c.scaledScore(f), at: cand.OccurredAt, features: f, ref: cand.ResourceRef})
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].scaled != rows[j].scaled {
@@ -293,6 +300,7 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 	default:
 		res.State = AutoResolved
 		res.ResolvedID = rows[0].id
+		res.ResolvedRef = rows[0].ref
 	}
 	return res, nil
 }

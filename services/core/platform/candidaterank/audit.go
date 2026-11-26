@@ -14,7 +14,8 @@ type AuditPayload struct {
 	TopBP          int64    `json:"top_bp"`
 	SecondBP       int64    `json:"second_bp"`
 	MarginBP       int64    `json:"margin_bp"`
-	// ResolvedCandidateID is named only when the ranking resolved on its own (AUTO_RESOLVED); in every other state it is left out.
+	// ResolvedCandidateID and ResolvedTarget are named only when the ranking resolved on its own (AUTO_RESOLVED); in every other state they are left out. ResolvedTarget is the resolved
+	// candidate's own opaque resource reference (A725), not its counterparty_ref (an ordinal that means nothing outside one answer) and never a name; it is left out when the candidate carried none.
 	ResolvedCandidateID string           `json:"resolved_candidate_id,omitempty"`
 	ResolvedTarget      string           `json:"resolved_target,omitempty"`
 	Candidates          []AuditCandidate `json:"candidates"`
@@ -54,6 +55,7 @@ func (r Resolution) AuditPayload() AuditPayload {
 	}
 	if r.State == AutoResolved {
 		p.ResolvedCandidateID = r.ResolvedID
+		p.ResolvedTarget = r.ResolvedRef
 	}
 	for _, s := range r.Ranked {
 		p.Candidates = append(p.Candidates, AuditCandidate{
