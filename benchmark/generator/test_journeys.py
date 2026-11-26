@@ -1,4 +1,4 @@
-"""A652: the seeded J1 to J8 manifest for the front end (PERD §11.1; `benchmark/journeys/j1-j8.v1.json`, built by `benchmark/generator/journeys.py`).
+"""A654 (and A667): the seeded J1 to J8 manifest for the front end (PERD §11.1; `benchmark/journeys/j1-j8.v1.json`, built by `benchmark/generator/journeys.py`).
 
 The front end's Playwright journeys (REQ-UI-001: "J1-J8 flows") need the same eight situations every time: which generated cases, which principal says what, on which channel, with which fault plan. The manifest
 names them by the generator's seed, so it is reproducible (REQ-BEN-001) and a stale committed copy fails here. It holds what the customer says and the world it is said in; it holds no expectation, no oracle

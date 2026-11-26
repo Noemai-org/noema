@@ -1,4 +1,4 @@
-"""A652: the seeded J1 to J8 manifest for the front end (PERD §11.1; REQ-UI-001: "the Playwright suite SHALL pass for J1-J8 flows").
+"""A654 (and A667): the seeded J1 to J8 manifest for the front end (PERD §11.1; REQ-UI-001: "the Playwright suite SHALL pass for J1-J8 flows").
 
 `python -m benchmark.generator.journeys --out benchmark/journeys/j1-j8.v1.json [--seed N]` builds, from the generated suite of one seed, the cases each journey is run on: for each of the eight journeys the user stories it
 exercises (the PERD's own table) and one to three generated cases tagged with one of them (a journey with one is marked `thin`), chosen by a fixed rule (below). A case is listed with what the customer says (the utterances, the locale and the channel), who says it (the
