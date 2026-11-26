@@ -1,0 +1,653 @@
+{
+  "generator": {
+    "name": "noema-casegen",
+    "seed": 20261020,
+    "version": "1.3.3"
+  },
+  "journeys": [
+    {
+      "cases": [
+        {
+          "case_id": "BEN-CLEAN-0001",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_clean_0001.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth009",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the N2,500 wey I send Chidi dis morning?",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-CLEAN-0014",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_clean_0014.json",
+          "locale_mix": [
+            "en-NG"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth037",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Where is the 20k I sent to Ibrahim this morning?",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-CLEAN-0027",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_clean_0027.json",
+          "locale_mix": [
+            "pcm",
+            "en-NG"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth117",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Abeg where is the 30k wey I send Amina dis morning?",
+              "turn": 1
+            }
+          ]
+        }
+      ],
+      "journey": "J1",
+      "stories": [
+        "US-01"
+      ],
+      "thin": false,
+      "title": "Clean locate and explain"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-AMB-0001",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_amb_0001.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth109",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the N50,000 wey I send Funke dis morning?",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-AMB-0014",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_amb_0014.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth030",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the 20k wey I send Ngozi dis morning?",
+              "turn": 1
+            },
+            {
+              "text": "The one wey end for 3334",
+              "turn": 2
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-AMB-0019",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_amb_0019.json",
+          "locale_mix": [
+            "en-NG"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth019",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Where is the 10k I sent to Tunde this morning?",
+              "turn": 1
+            }
+          ]
+        }
+      ],
+      "journey": "J2",
+      "stories": [
+        "US-02"
+      ],
+      "thin": false,
+      "title": "Ambiguous counterparty"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-STATE-0001",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_ben_state_0001",
+          "known_facts_fixture": "fixtures/fx_state_0001.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth150",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the 5,000 naira wey I send Amina dis morning?",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0002",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_ben_state_0002",
+          "known_facts_fixture": "fixtures/fx_state_0002.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth141",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the 30k wey I send Bola dis morning?",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0021",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_ben_state_0021",
+          "known_facts_fixture": "fixtures/fx_state_0021.json",
+          "locale_mix": [
+            "en-NG"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth173",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Where is the 30k I sent to Chidi this morning?",
+              "turn": 1
+            }
+          ]
+        }
+      ],
+      "journey": "J3",
+      "stories": [
+        "US-03",
+        "US-14"
+      ],
+      "thin": false,
+      "title": "Systems disagree"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-TMO-0001",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            },
+            {
+              "at": "+00:00:31",
+              "event": "clock_advance:PT31S"
+            }
+          ],
+          "fault_plan": "fp_ben_tmo_0001",
+          "known_facts_fixture": "fixtures/fx_tmo_0001.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth049",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the 10k wey I send Bola dis morning?",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-TMO-0018",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            },
+            {
+              "at": "+00:00:31",
+              "event": "clock_advance:PT31S"
+            }
+          ],
+          "fault_plan": "fp_ben_tmo_0018",
+          "known_facts_fixture": "fixtures/fx_tmo_0018.json",
+          "locale_mix": [
+            "en-NG"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth002",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Where is the N50,000 I sent to Bola this morning?",
+              "turn": 1
+            }
+          ]
+        }
+      ],
+      "journey": "J4",
+      "stories": [
+        "US-06"
+      ],
+      "thin": false,
+      "title": "Silent success"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-TMO-0009",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            },
+            {
+              "at": "+00:05:00",
+              "event": "webhook:settlement_updated"
+            }
+          ],
+          "fault_plan": "fp_ben_tmo_0009",
+          "known_facts_fixture": "fixtures/fx_tmo_0009.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth042",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the 20k wey I send Emeka dis morning?",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-TMO-0010",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            },
+            {
+              "at": "+01:00:00",
+              "event": "watch_deadline:pass"
+            }
+          ],
+          "fault_plan": "fp_ben_tmo_0010",
+          "known_facts_fixture": "fixtures/fx_tmo_0010.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth001",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the 20k wey I send Seun dis morning?",
+              "turn": 1
+            }
+          ]
+        }
+      ],
+      "journey": "J5",
+      "stories": [
+        "US-17"
+      ],
+      "thin": false,
+      "title": "Pending settlement"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-POL-0007",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            },
+            {
+              "at": "+00:00:05",
+              "event": "webhook:reversal_posted"
+            },
+            {
+              "at": "+00:00:20",
+              "event": "confirm:ACCEPT"
+            }
+          ],
+          "fault_plan": "fp_ben_pol_0007",
+          "known_facts_fixture": "fixtures/fx_pol_0007.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth015",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "I wan make complaint for the 20k wey I send Emeka dis morning",
+              "turn": 1
+            }
+          ]
+        }
+      ],
+      "journey": "J6",
+      "stories": [
+        "US-18"
+      ],
+      "thin": true,
+      "title": "Confirmation that goes stale"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-AUTH-0012",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0012.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth161",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Abeg reverse the 5,000 naira wey I send Ngozi dis morning",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-0015",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0015.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth029",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Abeg put the 10k back for my balance",
+              "turn": 1
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-0016",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0016.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth122",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Abeg close the case for the 5,000 naira wey I send Tunde",
+              "turn": 1
+            }
+          ]
+        }
+      ],
+      "journey": "J7",
+      "stories": [
+        "US-10",
+        "US-22"
+      ],
+      "thin": false,
+      "title": "Prohibited request"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-SESS-0001",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            },
+            {
+              "at": "+02:00:00",
+              "event": "session_resume:same_channel"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_sess_0001.json",
+          "locale_mix": [
+            "pcm"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth178",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Wetin happen to the N2,500 wey I send Chidi dis morning?",
+              "turn": 1
+            },
+            {
+              "text": "The one wey end for 5619",
+              "turn": 2
+            }
+          ]
+        },
+        {
+          "case_id": "BEN-SESS-0007",
+          "channel": "text",
+          "events_timeline": [
+            {
+              "at": "+00:00",
+              "event": "session_start:synthetic"
+            },
+            {
+              "at": "+02:00:00",
+              "event": "session_resume:same_channel"
+            }
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_sess_0007.json",
+          "locale_mix": [
+            "en-NG"
+          ],
+          "pack_version": "fin@1.0.0",
+          "policy_version": "fin.pol@3.1",
+          "principal_id": "usr_synth045",
+          "roles": [
+            "customer"
+          ],
+          "utterances": [
+            {
+              "text": "Where is the N50,000 I sent to Emeka this morning?",
+              "turn": 1
+            },
+            {
+              "text": "The one ending 1746",
+              "turn": 2
+            }
+          ]
+        }
+      ],
+      "journey": "J8",
+      "stories": [
+        "US-11"
+      ],
+      "thin": false,
+      "title": "Abandon and resume"
+    }
+  ],
+  "label": "SYNTHETIC generated cases for the front end's J1 to J8 journeys: what the customer says and the world it is said in, no expectation and no oracle (INV-22, AGENT-25)",
+  "materialise": "python -m benchmark.generator generate --seed 20261020 --out DIR",
+  "perd": "PERD §11.1 (v1.22)",
+  "seed": 20261020
+}

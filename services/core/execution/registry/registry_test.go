@@ -30,7 +30,7 @@ func loadFintech(t testing.TB) *registry.Registry {
 	return r
 }
 
-func descriptors(t testing.TB) []contracts.CapabilityDescriptorV1 {
+func descriptors(t testing.TB) []contracts.CapabilityDescriptorV2 {
 	t.Helper()
 	b, err := os.ReadFile(fintechPack)
 	if err != nil {
@@ -102,29 +102,59 @@ func TestAllowedCapabilitiesGiveAHandleThatNamesThem(t *testing.T) {
 // REQ-CAP-001: a descriptor missing any field is refused; the whole pack fails to load.
 func TestAnIncompleteDescriptorFailsTheLoad(t *testing.T) {
 	good := descriptors(t)
-	mutators := map[string]func(*contracts.CapabilityDescriptorV1){
-		"no consequence profile": func(d *contracts.CapabilityDescriptorV1) { d.ConsequenceProfile = nil },
-		"no verification":        func(d *contracts.CapabilityDescriptorV1) { d.Verification = nil },
-		"no recovery list":       func(d *contracts.CapabilityDescriptorV1) { d.Recovery = nil },
-		"no limits":              func(d *contracts.CapabilityDescriptorV1) { d.Limits = nil },
-		"no idempotency":         func(d *contracts.CapabilityDescriptorV1) { d.Idempotency = nil },
-		"no authority":           func(d *contracts.CapabilityDescriptorV1) { d.Authority = nil },
-		"no compensation":        func(d *contracts.CapabilityDescriptorV1) { d.Compensation = nil },
-		"no expected outcome":    func(d *contracts.CapabilityDescriptorV1) { d.ExpectedOutcome = nil },
-		"no retry":               func(d *contracts.CapabilityDescriptorV1) { d.Retry = nil },
-		"no audit":               func(d *contracts.CapabilityDescriptorV1) { d.Audit = nil },
-		"no input schema":        func(d *contracts.CapabilityDescriptorV1) { d.InputSchema = nil },
+	mutators := map[string]func(*contracts.CapabilityDescriptorV2){
+		"no consequence profile": func(d *contracts.CapabilityDescriptorV2) { d.ConsequenceProfile = nil },
+		"no verification":        func(d *contracts.CapabilityDescriptorV2) { d.Verification = nil },
+		"no recovery list":       func(d *contracts.CapabilityDescriptorV2) { d.Recovery = nil },
+		"no limits":              func(d *contracts.CapabilityDescriptorV2) { d.Limits = nil },
+		"no idempotency":         func(d *contracts.CapabilityDescriptorV2) { d.Idempotency = nil },
+		"no authority":           func(d *contracts.CapabilityDescriptorV2) { d.Authority = nil },
+		"no expected outcome":    func(d *contracts.CapabilityDescriptorV2) { d.ExpectedOutcome = nil },
+		"no retry":               func(d *contracts.CapabilityDescriptorV2) { d.Retry = nil },
+		"no audit":               func(d *contracts.CapabilityDescriptorV2) { d.Audit = nil },
+		"no input schema":        func(d *contracts.CapabilityDescriptorV2) { d.InputSchema = nil },
 	}
 	for name, mutate := range mutators {
 		t.Run(name, func(t *testing.T) {
 			for _, i := range []int{0, len(good) - 1} { // an allowed one and a prohibited one
-				ds := append([]contracts.CapabilityDescriptorV1(nil), good...)
+				ds := append([]contracts.CapabilityDescriptorV2(nil), good...)
 				mutate(&ds[i])
 				if _, err := registry.New(ds); code(err) != registry.CodeIncomplete {
 					t.Errorf("descriptor %d (%s): New = %v, want an incomplete-descriptor refusal", i, ds[i].CapabilityId, err)
 				}
 			}
 		})
+	}
+}
+
+// REQ-CAP-004 (A647): an allowed capability declares its compensation and a prohibited one declares none, because it has no adapter and nothing to recover (BD-08).
+func TestAnAllowedCapabilityNeedsACompensationAndAProhibitedOneMustDeclareNone(t *testing.T) {
+	good := descriptors(t)
+	none := contracts.CapabilityDescriptorV2CompensationNONEREQUIRED
+	allowed, prohibited := -1, -1
+	for i := range good {
+		if good[i].Prohibited && prohibited < 0 {
+			prohibited = i
+		}
+		if !good[i].Prohibited && allowed < 0 {
+			allowed = i
+		}
+	}
+	if allowed < 0 || prohibited < 0 {
+		t.Fatal("the pack needs an allowed and a prohibited descriptor")
+	}
+	ds := append([]contracts.CapabilityDescriptorV2(nil), good...)
+	ds[allowed].Compensation = nil
+	if _, err := registry.New(ds); code(err) != registry.CodeIncomplete {
+		t.Errorf("an allowed capability with no compensation: New = %v, want an incomplete-descriptor refusal", err)
+	}
+	ds = append([]contracts.CapabilityDescriptorV2(nil), good...)
+	ds[prohibited].Compensation = &none
+	if _, err := registry.New(ds); code(err) != registry.CodeSafetyBlock {
+		t.Errorf("a prohibited capability that declares a compensation: New = %v, want INTERNAL_SAFETY_BLOCK", err)
+	}
+	if _, err := registry.New(good); err != nil {
+		t.Errorf("the pack as it is: %v", err)
 	}
 }
 
@@ -147,12 +177,13 @@ func TestAMonetaryWriteThatIsNotProhibitedFailsTheLoad(t *testing.T) {
 	}()
 	for i := range ds {
 		if ds[i].Prohibited && strings.HasPrefix(ds[i].RiskClass, "R4") {
-			ds[i].Prohibited = false
+			none := contracts.CapabilityDescriptorV2CompensationNONEREQUIRED
+			ds[i].Prohibited, ds[i].Compensation = false, &none // unmarked, as an allowed capability would be: it declares a compensation
 			checked++
 			if _, err := registry.New(ds); code(err) != registry.CodeSafetyBlock {
 				t.Fatalf("%s with prohibited=false: New = %v, want INTERNAL_SAFETY_BLOCK", ds[i].CapabilityId, err)
 			}
-			ds[i].Prohibited = true
+			ds[i].Prohibited, ds[i].Compensation = true, nil
 		}
 	}
 }

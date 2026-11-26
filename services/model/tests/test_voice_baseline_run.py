@@ -819,3 +819,35 @@ def test_only_the_audio_of_an_accepted_item_is_written_so_an_out_of_bounds_one_l
     clock = Clock()
     root_report, root = run_with_store(tmp_path, [synthetic("u1"), synthetic("u2")], Stt(clock, []), ShortThenLongTts(clock), bounds=(5.0, 15.0))
     assert root_report["skipped_out_of_bounds"] == 1 and sorted(p.name for p in (root / "synthetic").iterdir()) == ["u2.pcm"]
+
+
+class OneBigChunkTts(Tts):
+    """Streams a single ten-second chunk (48 kHz PCM16), larger than the allowance left, then would stream a second one."""
+
+    def __init__(self, clock: Clock) -> None:
+        super().__init__(clock)
+        self.pulled, self.closed = 0, False
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        if request.text != "send ten thousand naira":
+            async for chunk in super().synthesize(request):
+                yield chunk
+            return
+        self.requests.append(request.text)
+        try:
+            for index in range(2):
+                self.pulled += 1
+                yield AudioChunk(index, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 480000)  # ten seconds in one chunk
+        finally:
+            self.closed = True
+
+
+@POSIX
+def test_a_single_chunk_larger_than_the_remaining_allowance_stops_the_run_with_no_file_and_no_speech_to_text_call(tmp_path: Path) -> None:
+    clock = Clock()
+    stt, tts = Stt(clock, []), OneBigChunkTts(clock)
+    report, root = run_with_store(tmp_path, [small("u1")], stt, tts, budget_minutes=5 / 60)  # 5 s allowed; the first chunk alone is 10 s
+    assert report["ended"] == "budget_exhausted" and stt.calls == 0
+    assert tts.pulled == 1 and tts.closed  # the oversized chunk was refused on arrival; the stream was closed and a second chunk never asked for
+    assert report["budget"]["generation_s"] == 0.0  # type: ignore[index]  # nothing of it is counted as accepted
+    assert list(root.iterdir()) == []  # no speaker folder, no partial file

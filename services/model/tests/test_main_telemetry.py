@@ -90,6 +90,8 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
     from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL, ENV_MASKING_LIMITS
     from tests.support import MASKING_FILE
 
+    from noema_model.providers.llm.profile import ENV_PROVIDER_PROFILE
+
     bare = create_app(environ={})
     assert bare.state.harness is None
     answer = TestClient(bare).get("/readyz")
@@ -98,12 +100,12 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
 
     path = tmp_path / "harness.json"
     path.write_text(json.dumps(raw_config(providers=("alpha",))))
-    ready = create_app(environ={ENV_CONFIG: str(path), ENV_LLM_POOL: "2", ENV_MASKING_LIMITS: MASKING_FILE})
+    ready = create_app(environ={ENV_CONFIG: str(path), ENV_LLM_POOL: "2", ENV_MASKING_LIMITS: MASKING_FILE, ENV_PROVIDER_PROFILE: "live"})
     assert isinstance(ready.state.harness, Harness)
     assert TestClient(ready).get("/readyz").status_code == 200
 
     path.write_text("{}")
-    broken = create_app(environ={ENV_CONFIG: str(path), ENV_MASKING_LIMITS: MASKING_FILE})
+    broken = create_app(environ={ENV_CONFIG: str(path), ENV_MASKING_LIMITS: MASKING_FILE, ENV_PROVIDER_PROFILE: "live"})
     assert broken.state.harness is None and TestClient(broken).get("/readyz").status_code == 503
 
 

@@ -62,3 +62,21 @@ type EventFeed interface {
 	// the sequence, a repeated or lower sequence, or the page limit reached is an error, never a silent truncation.
 	ReadFeed(ctx context.Context, after int64, limit, maxPages int) ([]FeedEvent, error)
 }
+
+// LifecycleStates folds a payout's transition log into the current state of each lifecycle: the toState of the last row of that lifecycle (delta v1.3 section 3: the log is oldest first and
+// a state is "fold the transitions and take toState"). Lifecycles are folded on their own and never from one another: Tushe's response of 7 Oct 2026 section 4.1 says the three lifecycles are
+// written independently and not synchronised, so a lifecycle with no row has no entry rather than a state borrowed from another. The names and the states are Tushe's own strings, kept raw
+// and mapped to nothing here (A310). A log that is not strictly increasing on seq, or a row with no lifecycle or no toState, is MALFORMED and yields no states, never a partial fold.
+// An empty log yields no states and no error: what "no log" means is the caller's to decide.
+func LifecycleStates(p TransitionPage) (map[string]string, error) {
+	out := map[string]string{}
+	var last int64
+	for i, row := range p.Items {
+		if row.Seq <= 0 || (i > 0 && row.Seq <= last) || row.Lifecycle == "" || row.ToState == "" {
+			return nil, &ReadError{Failure: ReadMalformed, RawCode: "TRANSITION_LOG_ROW", RawHash: p.RawHash}
+		}
+		last = row.Seq
+		out[row.Lifecycle] = row.ToState
+	}
+	return out, nil
+}
