@@ -1,7 +1,20 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "pack_id": "fin",
   "label": "SYNTHETIC",
   "ambiguity_absolute_floor_bp": 7000,
-  "clock_at_risk_remaining_bp": 2500
+  "clock_at_risk_remaining_bp": 2500,
+  "confirmation_ttl_ceiling_ms": 600000,
+  "escalation_reasons": [
+    {"classification": "CONTRADICTORY_STATE", "reason_code": "fin.reason.contradictory_state"},
+    {"classification": "EXECUTION_OUTCOME_UNKNOWN", "reason_code": "fin.reason.execution_outcome_unknown"}
+  ],
+  "allowed_under_freeze": [
+    "fin.cap.create_escalation_case",
+    "fin.cap.record_investigation_evidence",
+    "fin.cap.route_to_internal_owner"
+  ],
+  "anchor_entities": [
+    {"event": "complaint_logged", "entity": "complaint_ref", "field": "effective_at"}
+  ]
 }

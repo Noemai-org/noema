@@ -185,3 +185,44 @@ test("REQ-UI-001: refetch with a final answer does not reopen the stream", async
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+
+test("A715: an oversized SSE frame falls back to authoritative polling without reopening SSE", async () => {
+  const address = Object.values(networkInterfaces()).flat().find((entry) => entry?.internal && entry.family === "IPv4")?.address;
+  assert.ok(address);
+  const terminal = await fixture("investigation-response/completed_with_answer");
+  const paths = [];
+  const server = createServer((request, response) => {
+    paths.push(request.url);
+    if (request.url === `/v1/conversations/${id}/events`) {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(":" + "x".repeat(65_537) + "\\n\\n");
+      return;
+    }
+    if (request.url === `/v1/investigations/${id}`) {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(terminal));
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  server.listen(0, address);
+  await once(server, "listening");
+  try {
+    const states = [];
+    await reconnectOnce({
+      baseUrl: `http://${address}:${server.address().port}`,
+      conversationRef: id,
+      investigationId: id,
+      sessionToken: "synthetic-session",
+      maxFrameBytes: 65_536,
+      maxResponseBytes: 65_536,
+      onEvent: () => assert.fail("oversized frame must never be delivered"),
+      onState: (value) => states.push(value),
+    });
+    assert.deepEqual(states, [terminal]);
+    assert.deepEqual(paths, [`/v1/conversations/${id}/events`, `/v1/investigations/${id}`]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

@@ -14,6 +14,7 @@ services:
     entrypoint: ["python", "-m", "uvicorn", "model_cost.model_app:app", "--host", "0.0.0.0", "--port", "8081", "--no-access-log"]
     environment:
       BENCH_OUT: /bench-out
+      NOEMA_MODEL_PROVIDER_PROFILE: "live"  # A695: the live bench run; the base file sets the same value
       PYTHONPATH: /bench
     volumes:
       - ${NOEMA_BENCH_OUT:?set by make bench-model-up}/cost:/bench-out/cost

@@ -36,14 +36,14 @@ test("REQ-UI-002 US-18: confirmation shows the supplied action, masked target an
   assert.ok(!html.includes(card.policy_version));
 });
 
-test("REQ-UI-002: expired cards disable their controls and explain the change", async () => {
-  for (const [component, name] of [[ClarificationCard, "clarification_four_options"], [ConfirmationCard, "confirmation"]]) {
-    const html = render(component, await fixture(name), after);
+test("REQ-UI-002: a device clock ahead of core time cannot disable a valid card", async () => {
+  for (const [component, name, callback] of [[ClarificationCard, "clarification_four_options", "onChoice"], [ConfirmationCard, "confirmation", "onResponse"]]) {
+    const card = { ...await fixture(name), expires_at: "2026-11-13T15:00:00Z" };
+    const html = renderToStaticMarkup(createElement(component, { card, now: after, [callback]: () => "accepted" }));
     assert.deepEqual(scanVisibleText(html), []);
-    assert.ok(html.includes("This has changed. Let me check again."));
+    assert.doesNotMatch(html, /This has changed\. Let me check again\./);
     const buttons = html.match(/<button\b[^>]*>/g) ?? [];
-    assert.ok(buttons.length > 0);
-    assert.ok(buttons.every((button) => /\bdisabled(?:=|\s|>)/.test(button)));
+    assert.ok(buttons.some((button) => !/\bdisabled(?:=|\s|>)/.test(button)), name);
   }
 });
 

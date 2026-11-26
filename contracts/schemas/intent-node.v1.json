@@ -189,6 +189,10 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "action_graph": {
+      "description": "A645, A647 (interim): the id of the action graph (action-graph.v2) whose write capability an admitted intent of this node confirms. Optional; absent means the node leads to no graph. packcheck checks that the pack declares a graph with this id. The core reads it from the pack and never from a setting or from code (INV-14).",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
     }
   },
   "required": [

@@ -84,3 +84,33 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: none for this change; row 12 on a real run waits for IL's #924 (the second artifact and the stack workflow arguments).
 - Do not touch: `benchmark-heldout`, the oracle.
+
+# Session 2026-11-24 · BEN-23 · A652: the seeded J1 to J8 manifest for the front end
+
+## Session summary
+- What changed: `benchmark/generator/journeys.py` (the builder), `benchmark/journeys/j1-j8.v1.json` and its README, `benchmark/generator/test_journeys.py` (10 tests).
+- Why: A652 asks BO to supply the seeded J1 to J8 manifest to FE (REQ-UI-001, PERD §11.1). It names, per journey, the user stories (the PERD's table) and one to three generated cases with the principal, utterances, channel, fixture, fault plan, timeline and versions, and no expectation, oracle reference or ground truth (INV-22). It is reproducible by the generator's seed; a stale committed copy fails a test.
+- J1 and J4 use the G1 pair's inputs, so the front end and the G1 run read the same cases. **J6 is thin: one case**, because the suite holds exactly one US-18 case; strengthening it waits until after G1 (changing the generator moves the manifest digest the G1 inputs record).
+- Risks, and how they are contained: SYNTHETIC; the manifest holds the generator's seed as an eight-digit number, which the digit-run rule flags if the file is ever scanned (the same seed is already in committed G1 inputs); a test strips it before it checks the rest.
+- Tests added (REQ-BEN-001, REQ-UI-001): 10. Seen failing first (import error); a mutant that adds `expected` to a case fails 2. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: FE reads `benchmark/journeys/j1-j8.v1.json` and materialises the cases with the generator.
+- Open questions (owner): whether FE needs a second case for J6 before G1 (FE, the Architect).
+- Do not touch: the generator's cases before G1.
+
+# Session 2026-11-24 · BEN-23 · A604: the offline labelled set for `requested_remedy`
+
+## Session summary
+- What changed: `benchmark/compile_acceptance/remedy_labelled.v1.json` (28 synthetic phrasings: 14 en-NG and 14 Pidgin, 14 explicit asks and 14 not, 7 in every cell; three marked borderline with the reason), a strict reader `remedy_labelled.py` (`load`, `parse`), and `test_remedy_labelled.py`.
+- Why: A604. Live run 7 asserted a remedy on two status questions (G-A, G-B) and missed it on an explicit resend (G-E); the compiler's fix needs a set it was not written against.
+- Label rule: explicit_ask is true iff the customer asks the bank to do something for them (resend, refund, reverse, escalate, cancel, send again). Questions about where the money is, whether it arrived, why it is pending, whether to send again, or a request to be told something are false. `asks_for` is a human-readable kind, not a capability id.
+- Kept out of the goldens and the held-out set: the test fails if any text equals or contains a golden or a G1 input, or uses a golden or G1 counterparty name. The set carries no oracle and no capability id.
+- Risks, and how they are contained: the labels are one reader's judgement. The three borderline items are named so a result can be reported with and without them. The set is small (28): a rate from it is a smoke measure, not evidence for any gate.
+- Tests added (REQ-INT-003, A604): `test_remedy_labelled.py` (shape, balance, uniqueness, no digit run of five or more, no overlap with goldens or G1 inputs, a closed reader). Mutation checks: a golden text inserted, and the Pidgin asks moved to en-NG, each fail tests.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 uses `load(Path("benchmark/compile_acceptance/remedy_labelled.v1.json"))` to score the compiler's gate offline with the replay provider, and reports the false-assertion and the miss counts separately, with and without the borderline items.
+- Do not touch: the goldens, the held-out set (INV-22), or any threshold (AGENT-16).
+- Split (A652, 24 Nov): this PR is the labelled set only. The SYNTHETIC boundary recordings and their generator were taken out (a revert commit, no history rewritten) and go in their own PR, regenerated on `main` after noema#932 merges. The generator work is kept on the branch `feat/BEN-23-boundary-recordings-a604` (commit `b2aee73a`).

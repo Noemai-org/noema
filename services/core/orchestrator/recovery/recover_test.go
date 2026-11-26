@@ -329,25 +329,23 @@ func TestNoDispatchRefuses(t *testing.T) {
 }
 
 // INV-12, AGENT-10, A149, A490 (interim, relayed): the one recovery constructor builds the session from the stored row alone. Tenant and principal are the row's, role and
-// authn reference are the stored principal_role and authn_ref, the principal type is the edge's single mapping of that role, and AssertedBy stays empty (the verified issuer is not stored).
+// authn reference are the stored principal_role and authn_ref, the principal type is the edge's single mapping of that role, and AssertedBy is the stored asserted_by (A584, migration 0039), never a default.
 func TestRecoverySessionComesOnlyFromTheRow(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		ten, prn := rapid.StringMatching(`ten_[0-9A-Za-z]{2,32}`).Draw(t, "tenant"), rapid.StringMatching(`prn_[0-9A-Za-z]{2,32}`).Draw(t, "principal")
 		role := rapid.SampledFrom([]string{"customer", "ops", "approver", "audit"}).Draw(t, "role")
 		ref := rapid.StringMatching(`ses_[0-9a-f]{32}`).Draw(t, "authn_ref")
-		s, err := recovery.NewRecoverySession(recovery.Candidate{TenantID: ten, PrincipalRef: prn}, investigations.RecordedSession{PrincipalID: prn, PrincipalRole: role, AuthnRef: ref})
+		iss := rapid.StringMatching(`[a-z][a-z0-9_-]{0,31}`).Draw(t, "asserted_by")
+		s, err := recovery.NewRecoverySession(recovery.Candidate{TenantID: ten, PrincipalRef: prn}, investigations.RecordedSession{PrincipalID: prn, PrincipalRole: role, AuthnRef: ref, AssertedBy: iss})
 		if err != nil {
 			t.Fatal(err)
 		}
 		pt, _ := session.PrincipalTypeOf(role)
-		if want := (orchestrator.Session{TenantID: ten, PrincipalID: prn, Role: role, AuthnRef: ref, PrincipalType: pt}); s != want {
+		if want := (orchestrator.Session{TenantID: ten, PrincipalID: prn, Role: role, AuthnRef: ref, PrincipalType: pt, AssertedBy: iss}); s != want {
 			t.Fatalf("session %+v, want %+v", s, want)
 		}
-		if s.AssertedBy != "" {
-			t.Fatal("AssertedBy was invented: the verified issuer is not stored")
-		}
 	})
-	good := investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "customer", AuthnRef: authnRef}
+	good := investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "customer", AuthnRef: authnRef, AssertedBy: issuer}
 	ok := recovery.Candidate{TenantID: tenantA, PrincipalRef: principal}
 	for name, c := range map[string]struct {
 		c  recovery.Candidate
@@ -358,12 +356,12 @@ func TestRecoverySessionComesOnlyFromTheRow(t *testing.T) {
 		"no principal":        {recovery.Candidate{TenantID: tenantA}, good},
 		"newline tenant":      {recovery.Candidate{TenantID: "ten_A\nB", PrincipalRef: principal}, good},
 		"blank in principal":  {recovery.Candidate{TenantID: tenantA, PrincipalRef: "prn A"}, good},
-		"no role":             {ok, investigations.RecordedSession{PrincipalID: principal, AuthnRef: authnRef}},
-		"no authn ref":        {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "customer"}},
-		"role outside A1":     {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "admin", AuthnRef: authnRef}},
-		"role in other case":  {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "Customer", AuthnRef: authnRef}},
-		"authn ref malformed": {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "customer", AuthnRef: "ses_zz"}},
-		"principal differs":   {ok, investigations.RecordedSession{PrincipalID: "prn_OTHER", PrincipalRole: "customer", AuthnRef: authnRef}},
+		"no role":             {ok, investigations.RecordedSession{PrincipalID: principal, AuthnRef: authnRef, AssertedBy: issuer}},
+		"no authn ref":        {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "customer", AssertedBy: issuer}},
+		"role outside A1":     {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "admin", AuthnRef: authnRef, AssertedBy: issuer}},
+		"role in other case":  {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "Customer", AuthnRef: authnRef, AssertedBy: issuer}},
+		"authn ref malformed": {ok, investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "customer", AuthnRef: "ses_zz", AssertedBy: issuer}},
+		"principal differs":   {ok, investigations.RecordedSession{PrincipalID: "prn_OTHER", PrincipalRole: "customer", AuthnRef: authnRef, AssertedBy: issuer}},
 	} {
 		if _, err := recovery.NewRecoverySession(c.c, c.rs); err == nil {
 			t.Errorf("%s: expected a refusal", name)
@@ -379,7 +377,7 @@ func TestRecoverNeverResumesALegacyRowAndCountsIt(t *testing.T) {
 	w.rows[invID].inv = orchestrator.Investigation{ID: invID, State: "AWAITING_VERIFICATION", Version: 7}
 	w.rows[invID].decision = dec
 	w.rows[invID].role, w.rows[invID].authn = "", "" // a legacy row: both columns are NULL
-	w.rows["inv_BB22"] = &row{tenant: tenantA, principal: principal, role: "customer", authn: authnRef, corr: "corr_BB22", recev: "recev_BB22",
+	w.rows["inv_BB22"] = &row{tenant: tenantA, principal: principal, role: "customer", authn: authnRef, issuer: issuer, corr: "corr_BB22", recev: "recev_BB22",
 		inv: orchestrator.Investigation{ID: "inv_BB22", State: "AWAITING_VERIFICATION", Version: 7}, decision: dec}
 	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(tctx(), tenantA)
 	if err != nil {
@@ -406,6 +404,89 @@ func TestRecoverNeverResumesALegacyRowAndCountsIt(t *testing.T) {
 	}
 }
 
+// A584, A592 PR B, INV-12, AGENT-10: a row that holds a role and an authn reference but no verified issuer (a row from before migration 0039, or one whose Start carried none) is
+// refused by the one recovery constructor, and so is a stored issuer outside the contract's asserted_by shape. No default and no placeholder is ever put in its place.
+func TestRecoverySessionRefusesARowWithNoIssuer(t *testing.T) {
+	c := recovery.Candidate{TenantID: tenantA, PrincipalRef: principal}
+	for name, iss := range map[string]string{
+		"empty": "", "upper case": "Enterprise_IDP", "leading digit": "1idp", "blank inside": "enterprise idp",
+		"newline": "enterprise_idp\n", "leading blank": " enterprise_idp", "non ascii": "idp\u00e9",
+	} {
+		rs := investigations.RecordedSession{PrincipalID: principal, PrincipalRole: "customer", AuthnRef: authnRef, AssertedBy: iss}
+		if s, err := recovery.NewRecoverySession(c, rs); err == nil {
+			t.Errorf("%s: expected a refusal, got %+v", name, s)
+		}
+	}
+}
+
+// A584, A592 PR B, A490: a row with a role and an authn reference but no issuer is never resumed. The sweep names it REFUSED and counts it in Report.Refused (not in
+// NoRecordedSession, which is the pre-0036 case); no port is called for it, the row does not move, and a row with an issuer in the same pass is still resumed.
+func TestRecoverRefusesARowWithNoIssuerAndCountsIt(t *testing.T) {
+	w := newWorld()
+	dec := orchestrator.Decision{ID: decisionID, Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{grantID}, IntentRef: intentRef}
+	w.rows[invID].inv = orchestrator.Investigation{ID: invID, State: "AWAITING_VERIFICATION", Version: 7}
+	w.rows[invID].decision = dec
+	w.rows[invID].issuer = "" // role and authn_ref are stored; asserted_by is NULL
+	w.rows["inv_BB22"] = &row{tenant: tenantA, principal: principal, role: "customer", authn: authnRef, issuer: issuer, corr: "corr_BB22", recev: "recev_BB22",
+		inv: orchestrator.Investigation{ID: "inv_BB22", State: "AWAITING_VERIFICATION", Version: 7}, decision: dec}
+	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(tctx(), tenantA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outcomeOf(rep, invID); got != recovery.Refused {
+		t.Fatalf("row with no issuer: outcome %q, want %q", got, recovery.Refused)
+	}
+	if got := outcomeOf(rep, "inv_BB22"); got != recovery.Resumed {
+		t.Fatalf("the row with an issuer: outcome %q, want %q", got, recovery.Resumed)
+	}
+	if rep.Refused != 1 || rep.NoRecordedSession != 0 {
+		t.Fatalf("the sweep counted %d refused and %d without a session, want 1 and 0", rep.Refused, rep.NoRecordedSession)
+	}
+	if w.rows[invID].inv.State != "AWAITING_VERIFICATION" || w.rows[invID].inv.Version != 7 {
+		t.Fatalf("the refused row moved: %+v", w.rows[invID].inv)
+	}
+	for port, ss := range w.sessions {
+		for _, s := range ss {
+			if s.AssertedBy != issuer || s.PrincipalID != principal {
+				t.Fatalf("port %s saw a session with no stored issuer or an invented one: %+v", port, s)
+			}
+		}
+	}
+}
+
+// A584, A592 PR B: when the only row has no issuer, no port of the resume path is reached at all, and an issuer is never made up (INV-12).
+func TestRecoverNeverReachesAPortForARowWithNoIssuer(t *testing.T) {
+	w := newWorld()
+	w.rows[invID].inv = orchestrator.Investigation{ID: invID, State: "AWAITING_VERIFICATION", Version: 7}
+	w.rows[invID].decision = orchestrator.Decision{ID: decisionID, Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{grantID}, IntentRef: intentRef}
+	w.rows[invID].issuer = ""
+	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(tctx(), tenantA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcomeOf(rep, invID) != recovery.Refused || rep.Refused != 1 {
+		t.Fatalf("report %+v", rep)
+	}
+	if len(w.sessions) != 0 {
+		t.Fatalf("a port was reached for a row with no issuer: %+v", w.sessions)
+	}
+}
+
+// A584, A592 PR B: the startup pass carries each tenant's refused count, so a row with no issuer stays visible to the caller.
+func TestStartupPassCarriesTheRefusedNoIssuerCount(t *testing.T) {
+	w := newWorld()
+	w.rows[invID].issuer = ""
+	w.rows["inv_BB22"] = &row{tenant: tenantB, principal: "prn_BB22", role: "customer", authn: authnRef, corr: "corr_BB22", recev: "recev_BB22", inv: orchestrator.Investigation{ID: "inv_BB22", State: "RECEIVED"}}
+	w.rows["inv_CC33"] = &row{tenant: tenantB, principal: "prn_BB22", role: "customer", authn: authnRef, corr: "corr_CC33", recev: "recev_CC33", inv: orchestrator.Investigation{ID: "inv_CC33", State: "RECEIVED"}}
+	out, err := w.activity(t, recovery.NoDispatch{}).StartupPass(tctx(), []string{tenantA, tenantB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out[tenantA].Refused != 1 || out[tenantB].Refused != 2 {
+		t.Fatalf("per-tenant refused counts %d and %d, want 1 and 2", out[tenantA].Refused, out[tenantB].Refused)
+	}
+}
+
 // A490, A149: a row resumes under its stored role and no other. A customer row is a customer, an approver row an approver; the principal type is the edge's mapping; every port of
 // the resume path sees exactly that session. Property: whatever the stored role, no value from anywhere else reaches the session.
 func TestRecoverResumesUnderTheStoredRole(t *testing.T) {
@@ -424,7 +505,7 @@ func TestRecoverResumesUnderTheStoredRole(t *testing.T) {
 			t.Fatalf("report %+v", rep)
 		}
 		pt, _ := session.PrincipalTypeOf(role)
-		want := orchestrator.Session{TenantID: tenantA, PrincipalID: principal, Role: role, AuthnRef: ref, PrincipalType: pt}
+		want := orchestrator.Session{TenantID: tenantA, PrincipalID: principal, Role: role, AuthnRef: ref, PrincipalType: pt, AssertedBy: issuer}
 		if len(w.sessions) == 0 {
 			t.Fatal("no port was reached")
 		}
@@ -510,7 +591,7 @@ func TestRecoverSessionReadFailureIsFailed(t *testing.T) {
 func TestStartupPassAggregatesTheNoSessionCount(t *testing.T) {
 	w := newWorld()
 	w.rows[invID].role, w.rows[invID].authn = "", ""
-	w.rows["inv_BB22"] = &row{tenant: tenantB, principal: "prn_BB22", role: "customer", authn: authnRef, corr: "corr_BB22", recev: "recev_BB22", inv: orchestrator.Investigation{ID: "inv_BB22", State: "RECEIVED"}}
+	w.rows["inv_BB22"] = &row{tenant: tenantB, principal: "prn_BB22", role: "customer", authn: authnRef, issuer: issuer, corr: "corr_BB22", recev: "recev_BB22", inv: orchestrator.Investigation{ID: "inv_BB22", State: "RECEIVED"}}
 	w.rows["inv_CC33"] = &row{tenant: tenantB, principal: "prn_BB22", corr: "corr_CC33", recev: "recev_CC33", inv: orchestrator.Investigation{ID: "inv_CC33", State: "RECEIVED"}}
 	w.rows["inv_DD44"] = &row{tenant: tenantB, principal: "prn_BB22", corr: "corr_DD44", recev: "recev_DD44", inv: orchestrator.Investigation{ID: "inv_DD44", State: "RECEIVED"}}
 	out, err := w.activity(t, recovery.NoDispatch{}).StartupPass(tctx(), []string{tenantA, tenantB})
@@ -540,7 +621,7 @@ func TestNoRequestDerivedValueReachesEitherPath(t *testing.T) {
 		if outcomeOf(rep, invID) != recovery.Resumed {
 			t.Fatalf("report %+v", rep)
 		}
-		want := orchestrator.Session{TenantID: tenantA, PrincipalID: w.rows[invID].principal, Role: "customer", AuthnRef: authnRef, PrincipalType: "customer"}
+		want := orchestrator.Session{TenantID: tenantA, PrincipalID: w.rows[invID].principal, Role: "customer", AuthnRef: authnRef, PrincipalType: "customer", AssertedBy: issuer}
 		for port, ss := range w.sessions {
 			for _, s := range ss {
 				if s != want {

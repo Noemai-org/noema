@@ -7,7 +7,9 @@ every machine (INV-21).
 
 `Normaliser` is the pipeline's `Normalise` seam, built per request with the request's reference instant (the canonical input's `received_at`, the core's own clock, so replay gives the same
 window). Its values win over a model's (REQ-INT-003) and nothing is invented: an amount, a time or a name that the customer's own words do not hold is left unread, never taken from the
-model. v0 reads digits only ("20k", "20,000", "20 thousand naira"); numeral words are UND-06's.
+model. It reads digits ("20k", "20,000", "20 thousand naira") and, from UND-06 slice 1 (ruling A634), numeral words ("twenty thousand naira", "one hundred and fifty thousand"): a sequence of words that does
+not make one number (wrong order, a repeated or ascending scale, a dangling joiner, an unknown word) is left unread, never repaired (INV-02). A word that marks an amount as uncertain ("about 20k") sets
+`amount_uncertain`, and a direction may be a phrase of up to three words ("sent me" is money received, EC-A20).
 """
 
 import hashlib
@@ -35,7 +37,9 @@ _DIRECTIONS = frozenset({"OUTGOING", "INCOMING"})
 _CODE = re.compile(r"[A-Z]{3}")
 _CLOCK = re.compile(r"([0-9]{2}):([0-9]{2})")
 _LETTERS = re.compile(r"[^\W\d_]+")
-_TOP = frozenset({"lexicon_id", "version", "mark", "note", "utc_offset_minutes", "currency", "multipliers", "relative_times", "directions"})
+_PRECEDING_WORD = re.compile(r"([^\W\d_]+)\s*$")
+_TOP = frozenset({"lexicon_id", "version", "mark", "note", "utc_offset_minutes", "currency", "multipliers", "relative_times", "directions", "numerals", "uncertain_words", "joiners"})
+_MAX_PHRASE_WORDS = 3
 
 
 def _int(value: Any, where: str, *, low: int, high: int) -> int:
@@ -85,6 +89,9 @@ class Lexicon:
     multipliers: Mapping[str, int]
     times: Mapping[str, RelativeTime]
     directions: Mapping[str, str]
+    numerals: Mapping[str, int]
+    uncertain_words: frozenset[str]
+    joiners: frozenset[str]
     digest: str
     amount_pattern: "re.Pattern[str]"
 
@@ -136,17 +143,25 @@ class Lexicon:
             where = f"lexicon.directions[{index}]"
             _marked(item, where)
             reject_unknown(item, frozenset({"word", "value", "mark"}), where)
-            word = _word(item, "word", where)
-            if word in directions or item.get("value") not in _DIRECTIONS:
-                raise ConfigError(f"{where}: a word is named twice, or its value is not OUTGOING or INCOMING")
+            word = " ".join(_word(item, "word", where, spaces=True).split())
+            if word in directions or item.get("value") not in _DIRECTIONS or len(word.split()) > _MAX_PHRASE_WORDS:
+                raise ConfigError(f"{where}: a word is named twice, it is longer than {_MAX_PHRASE_WORDS} words, or its value is not OUTGOING or INCOMING")
             directions[word] = str(item["value"])
+        numerals: dict[str, int] = {}
+        for index, item in enumerate(_items(src, "numerals")):
+            where = f"lexicon.numerals[{index}]"
+            _marked(item, where)
+            reject_unknown(item, frozenset({"word", "value", "mark"}), where)
+            word = _word(item, "word", where)
+            if word in numerals or word in multipliers:
+                raise ConfigError(f"{where}: a word is named twice, or it is also a multiplier")
+            numerals[word] = _int(item.get("value"), f"{where}.value", low=1, high=90)
+        uncertain = _plain_words(src, "uncertain_words", forbidden=(numerals, multipliers))
+        joiners = _plain_words(src, "joiners", forbidden=(numerals, multipliers, uncertain))
         minor = _int(currency.get("minor_per_major"), "lexicon.currency.minor_per_major", low=1, high=10**6)
         digest = hashlib.sha256(json.dumps(src, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        return cls(require_str(src, "lexicon_id", "lexicon"), require_str(src, "version", "lexicon"), offset, code, minor, currency_words, multipliers, times, directions, digest,
-                   _amount_pattern(currency_words, tuple(multipliers)))
-
-
-_MERGE_SECTIONS = (("multipliers", "word"), ("times", "phrase"), ("directions", "word"))
+        return cls(require_str(src, "lexicon_id", "lexicon"), require_str(src, "version", "lexicon"), offset, code, minor, currency_words, multipliers, times, directions, numerals,
+                   frozenset(uncertain), frozenset(joiners), digest, _amount_pattern(currency_words, tuple(multipliers)))
 
 
 def merge_lexicons(parts: Sequence[Lexicon]) -> Lexicon:
@@ -161,19 +176,26 @@ def merge_lexicons(parts: Sequence[Lexicon]) -> Lexicon:
     multipliers: dict[str, int] = {}
     times: dict[str, RelativeTime] = {}
     directions: dict[str, str] = {}
+    numerals: dict[str, int] = {}
     for part in parts:
-        for target, source, what in ((multipliers, part.multipliers, "word"), (times, part.times, "phrase"), (directions, part.directions, "word")):
+        for target, source, what in ((multipliers, part.multipliers, "word"), (times, part.times, "phrase"), (directions, part.directions, "word"), (numerals, part.numerals, "numeral")):
             for key, value in source.items():
                 if target.setdefault(key, value) != value:  # type: ignore[arg-type]
                     raise ConfigError(f"lexicon {part.lexicon_id}: a {what} is defined with another meaning in another lexicon")
+    uncertain = frozenset(w for part in parts for w in part.uncertain_words)
+    joiners = frozenset(w for part in parts for w in part.joiners)
+    # A word may be one kind of word only: two lexicons may not make the same word a numeral in one and a multiplier or a marker in another.
+    kinds = (frozenset(numerals), frozenset(multipliers), uncertain, joiners)
+    if sum(len(k) for k in kinds) != len(frozenset().union(*kinds)):
+        raise ConfigError("lexicon: a word is a numeral, a multiplier, an uncertainty word or a joiner in one lexicon and another kind in another")
     for section, merged_section in (("multipliers", multipliers), ("relative_times", times), ("directions", directions)):
         if not merged_section:  # a supplemental file may omit a section; the merged lexicon may not (C1's and Codex's finding on noema#901). Names the section only, never a value
             raise ConfigError(f"lexicon.{section}: the merged lexicon holds no entry; a pack's lexicons must together hold a non-empty list")
     words = tuple(sorted({w for part in parts for w in part.currency_words}, key=lambda w: (-len(w), w)))
     ids = [part.lexicon_id for part in parts]
     digest = hashlib.sha256("\n".join(part.digest for part in parts).encode()).hexdigest()
-    return Lexicon("+".join(ids), "+".join(part.version for part in parts), first.utc_offset_minutes, first.currency_code, first.minor_per_major, words, multipliers, times, directions, digest,
-                   _amount_pattern(words, tuple(multipliers)))
+    return Lexicon("+".join(ids), "+".join(part.version for part in parts), first.utc_offset_minutes, first.currency_code, first.minor_per_major, words, multipliers, times, directions, numerals,
+                   uncertain, joiners, digest, _amount_pattern(words, tuple(multipliers)))
 
 
 _REF = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*")
@@ -219,6 +241,20 @@ def _items(src: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
     return [require_mapping(v, f"lexicon.{key}[]") for v in value]
 
 
+def _plain_words(src: Mapping[str, Any], key: str, *, forbidden: Sequence[Mapping[str, Any] | frozenset[str] | set[str] | list[str]]) -> list[str]:
+    """A section of single marked words with no value (the uncertainty words, the joiners). A word is named once and is not a numeral, a multiplier or a word of another such section."""
+    words: list[str] = []
+    for index, item in enumerate(_items(src, key)):
+        where = f"lexicon.{key}[{index}]"
+        _marked(item, where)
+        reject_unknown(item, frozenset({"word", "mark"}), where)
+        word = _word(item, "word", where)
+        if word in words or any(word in other for other in forbidden):
+            raise ConfigError(f"{where}: a word is named twice, or it is a numeral, a multiplier or a word of another section")
+        words.append(word)
+    return words
+
+
 def _amount_pattern(currency_words: tuple[str, ...], multipliers: tuple[str, ...]) -> "re.Pattern[str]":
     currency = "|".join(re.escape(w) for w in currency_words)
     multiplier = "|".join(re.escape(w) for w in sorted(multipliers, key=lambda w: (-len(w), w)))
@@ -242,11 +278,11 @@ class Normaliser:
 
     def normalise(self, inp: PipelineInput, proposal: Proposal) -> NormalisedSlots:
         text = _squash(inp.text)
-        amount = self._amount(proposal, text)
+        amount, uncertain = self._amount(proposal, text)
         return NormalisedSlots(
             amount_minor=amount,
             currency=self._lexicon.currency_code if amount is not None else None,
-            amount_uncertain=False,
+            amount_uncertain=uncertain and amount is not None,
             window=self._window(proposal, text),
             counterparty_surface=self._counterparty(proposal, text),
             expected_direction=self._direction(text),
@@ -261,17 +297,101 @@ class Normaliser:
         surface = _squash(mention.surface_form)
         return surface if surface and len(surface) <= MAX_SURFACE and surface in text else None
 
-    def _amount(self, proposal: Proposal, text: str) -> int | None:
+    def _amount(self, proposal: Proposal, text: str) -> tuple[int | None, bool]:
+        """The amount in minor units and whether the customer said it was not exact. Digits first, then numeral words; anything else is unread (INV-02)."""
         surface = self._said(proposal, "amount", text)
-        match = self._lexicon.amount_pattern.fullmatch(surface) if surface else None
+        if not surface:
+            return None, False
+        tokens = surface.split()
+        uncertain = False
+        while tokens and tokens[0] in self._lexicon.uncertain_words:  # "roughly 20k": the marker is the customer's, the amount is what follows
+            tokens, uncertain = tokens[1:], True
+        core = " ".join(tokens)
+        if not core:
+            return None, False
+        major = self._digits(core)
+        if major is None:
+            major = self._spoken(core)
+        if major is None:
+            return None, False
+        value = major * self._lexicon.minor_per_major
+        if value != value.to_integral_value() or value > MAX_SAFE_INT:
+            return None, False
+        return int(value), uncertain or self._marked_uncertain(core, text)
+
+    def _digits(self, core: str) -> Decimal | None:
+        match = self._lexicon.amount_pattern.fullmatch(core)
         if match is None:
             return None
         with localcontext() as context:
             context.prec = 80
-            value = Decimal(match.group("number").replace(",", "")) * self._lexicon.multipliers.get(match.group("multiplier") or "", 1) * self._lexicon.minor_per_major
-            if value != value.to_integral_value() or value > MAX_SAFE_INT:
+            return Decimal(match.group("number").replace(",", "")) * self._lexicon.multipliers.get(match.group("multiplier") or "", 1)
+
+    def _spoken(self, core: str) -> Decimal | None:
+        """Numeral words to one whole number, or nothing. Small words build a group under a thousand (twenty five; one hundred and fifty), a scale of a thousand or more closes the group, and scales must fall
+        (twenty thousand five hundred, never five hundred thousand thousand). A word that is not in the lexicon, an order that is not a number, or a joiner that is not between a hundred and its remainder
+        makes the whole thing unread: the lexicon never repairs and never takes the nearest number."""
+        lex = self._lexicon
+        tokens: list[str] = []
+        for chunk in core.split():  # a hyphen joins two words ("twenty-five") and is nothing else: a leading, trailing or doubled one (a sign, "-twenty thousand") leaves the amount unread, as "-20k" is
+            parts = chunk.split("-")
+            if len(parts) > 1 and not all(part in lex.numerals or part in lex.multipliers for part in parts):  # between numeral words only, never a currency word or an unknown one
                 return None
-            return int(value)
+            tokens.extend(parts)
+        if tokens and tokens[-1] in lex.currency_words:
+            tokens.pop()
+        if tokens and tokens[0] in lex.currency_words:
+            tokens.pop(0)
+        if not tokens:
+            return None
+        total, hundreds, small = 0, 0, 0
+        last_scale = MAX_SAFE_INT
+        after_hundred = joining = False
+        for token in tokens:
+            if joining and token not in lex.numerals:  # a joiner is followed by a numeral word: never by a scale, another joiner, a currency word or anything else
+                return None
+            if token in lex.joiners:
+                if not after_hundred:
+                    return None
+                after_hundred, joining = False, True
+                continue
+            joining = False
+            if token in lex.numerals:
+                value = lex.numerals[token]
+                if (value < 10 and small not in (0, 20, 30, 40, 50, 60, 70, 80, 90)) or (value >= 10 and small != 0):
+                    return None
+                small += value
+                after_hundred = False
+            elif token in lex.multipliers:
+                scale = lex.multipliers[token]
+                if scale == 100:
+                    if not 1 <= small <= 9 or hundreds:
+                        return None
+                    hundreds, small, after_hundred = small, 0, True
+                elif scale >= 1000:
+                    group = hundreds * 100 + small
+                    if group == 0 or scale >= last_scale:
+                        return None
+                    total += group * scale
+                    hundreds, small, last_scale, after_hundred = 0, 0, scale, False
+                else:
+                    return None
+            else:
+                return None
+        if joining:
+            return None
+        total += hundreds * 100 + small
+        return Decimal(total) if total > 0 else None
+
+    def _marked_uncertain(self, core: str, text: str) -> bool:
+        """The customer's own word just before the amount ("I sent about 20k") marks it as not exact. Any place the amount is written counts, so a doubt anywhere widens the search, never narrows it."""
+        start = text.find(core)
+        while start != -1:
+            before = _PRECEDING_WORD.search(text[:start])
+            if before is not None and before.group(1) in self._lexicon.uncertain_words:
+                return True
+            start = text.find(core, start + 1)
+        return False
 
     def _window(self, proposal: Proposal, text: str) -> tuple[datetime, datetime] | None:
         surface = self._said(proposal, "when", text)
@@ -282,7 +402,19 @@ class Normaliser:
         return midnight + timedelta(minutes=phrase.start_minute), midnight + timedelta(minutes=phrase.end_minute)
 
     def _direction(self, text: str) -> str | None:
-        found = {self._lexicon.directions[w] for w in _LETTERS.findall(text) if w in self._lexicon.directions}
+        """The one direction the customer's words give, or nothing. A phrase wins over its own words ("sent me" is money received, EC-A20, not "sent": money sent), longest first."""
+        words = _LETTERS.findall(text)
+        found: set[str] = set()
+        index = 0
+        while index < len(words):
+            for length in range(_MAX_PHRASE_WORDS, 0, -1):
+                value = self._lexicon.directions.get(" ".join(words[index:index + length]))
+                if value is not None:
+                    found.add(value)
+                    index += length
+                    break
+            else:
+                index += 1
         return next(iter(found)) if len(found) == 1 else None
 
     @staticmethod

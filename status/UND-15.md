@@ -55,3 +55,63 @@ State (2026-11-19): the loader, the labels and the lookup of the recordings are 
 - Open questions (Architect): the text of SR's conditions to be committed (docs#211); whether `fixture.labels` should also pin the question ids.
 - Files to read first: `benchmark/compile_acceptance/fixtures.py`, `replay.py`, the README section "Committed fixtures".
 - Do not touch: the committed fixture files (regenerate from a run, never edit by hand).
+
+# Session 2026-11-24 · UND-15 · the replay transport under providers/ (A619)
+
+## Session summary
+- What changed (PR: noema#938): `services/model/noema_model/providers/llm/replay.py` (`ReplayTransport`, `ReplayMiss`, `ReplayFixturesRefused`), `services/model/tests/test_replay_transport.py`, a README section. No new dependency, no change to the benchmark package, the live runner, a golden, an input, a threshold or a prompt.
+- Why: A619 (interim, relayed): wait for a passing run, no hand-over of run 7, build the provider class under `providers/` only. The class is the replay provider that A604 needs to fix the A603 gate offline.
+- Design: a Transport, not an adapter, so the real adapters and the harness are unchanged above it. The key is the SHA-256 of the request bytes (the recorded `request_sha256`; the parsed request cannot be turned back into those bytes, A261 silence 2). It does not import `benchmark/` (the model service never does): it carries its own small strict reader, and the strict loader of the benchmark package stays the validator of the committed set.
+- Tests added (REQ-INT-002, REQ-TST-004, AGENT-12, AGENT-14, AGENT-25, INV-29): 28, including the real `OpenAIDecisions` adapter getting a choice answer (with its probabilities, abstain included) and a yes/no gate answer from a recording, a miss on a changed request, a socket guard, link/size/strict-JSON/duplicate/extra-entry refusals, and an import-boundary test. 13 hand mutants, 11 killed at first; two (NaN and a duplicate key inside a recording) were pinned by a test added before the green; one (the lstat size check) is equivalent to the bounded read.
+- Debt entries: none. Conflicts raised: none.
+
+## Silences
+1. The gate has no recording yet. The committed run (44521380842) predates the A603 gate; no recording holds a gate question. A604 (fix the gate against BO's labelled set with the replay provider) needs recordings of the labelled phrasings, which come from a live call (a few cents) or from hand-written SYNTHETIC replies; hand-written replies test the threshold logic and not the model. Not decided here.
+2. A symlink is checked with `lstat` before the open; the fixtures are committed repository data, not a secret, so the check-then-open gap is accepted.
+3. The key function equals `ReplayStore.lookup_bytes` of the benchmark package (`"sha256:" + hexdigest`); no test imports the benchmark package from the model service.
+
+## Pre-work for the next agent
+- Exact next step: the profile switch (bench and test profiles select `ReplayTransport` by configuration; refuse to start in the demo profile) once the Architect answers the `services/` allowlist question; reduce the next PASSING run for the G1 fixtures.
+- Files to read first: `providers/llm/replay.py`, `tests/test_replay_transport.py`.
+- Do not touch: the committed fixture files.
+
+
+# Session 2026-11-25 · UND-15 · the profile switch and the demo-profile refusal (A635, A619)
+
+## Session summary
+- What changed (PR: noema#972): `services/model/noema_model/providers/llm/profile.py` (new: `select_transport`, `ProfileRefused`, `Selection`, the closed profile set, `REPLAY_EVIDENCE_LABEL`), `services/model/noema_model/harness/assemble.py` (one call site), `services/model/tests/test_provider_profile.py`, a README section. No new dependency, nothing in the core, no change to a golden, an input, a threshold or the replay transport.
+- Why: the row's Done-when asks for a test that the service refuses to start with the replay provider in the demo profile, and that a request with no recording fails closed (the second already holds in #938).
+- Rule: `NOEMA_PROFILE` (closed set `dev, ci, bench, demo, test`); a replay only by configuration (`NOEMA_MODEL_REPLAY_FIXTURES_DIR`) and only in `bench` and `test`; every other profile refuses it; unknown profile refuses the start; unreadable fixtures refuse the start and never fall back to live; no replay setting is the live transport as before.
+- Risks, and how they are contained: a deployment that never set the profile is unchanged (live). A replay can never be selected without an explicit bench or test profile. A refusal names a code only.
+- Tests added (REQ-INT-002, REQ-TST-004, AGENT-12, AGENT-16, INV-29): 33, every profile and setting combination, the refusal text carries no value, a socket guard on the replay path, the service-level refusal (assembly and `/readyz`), a read of the module's imports.
+- Hand mutants: 8 run, 8 killed (demo allowed, unknown profile accepted, no profile accepted, dev and ci allowed, fallback to live on unreadable fixtures, an empty setting read as live, a default to replay, the label dropped).
+- Debt entries: none. Conflicts raised: none.
+
+## Silences
+1. The PERD defines no demo-profile refusal beyond the row ("refused in the demo profile"); this implements exactly that. It does not refuse a live credential, the evil provider or the hostility proxy in the demo profile (the evil provider and the hostility proxy already refuse every profile but bench, and ci and test for the proxy).
+2. `NOEMA_MODEL_REPLAY_FIXTURES_DIR` is a new setting (A330; A635 approved the switch, not the name).
+3. The evidence label is exposed as a constant and an event; carrying it into the Record's evidence belongs to the G1 wiring.
+
+## Pre-work for the next agent
+- Exact next step: the A604 gate fix against SYNTHETIC boundary replies once #932 has merged (recordings regenerated at the merged head); reduce the next passing run for the G1 fixtures.
+- Files to read first: `providers/llm/profile.py`, `tests/test_provider_profile.py`.
+- Do not touch: the committed fixture files.
+
+
+# Session 2026-11-25 (second) · UND-15 · rework for A679 (the provider profile name and values)
+
+## Session summary
+- What changed (PR: noema#972; supersedes the section above where they differ): A679 (DEC-2026-11-25-architect-rulings-a673-a684) names the setting `NOEMA_MODEL_PROVIDER_PROFILE` with the values `live` and `replay`; absent refuses the start; the demo profile refuses `replay`. `providers/llm/profile.py` now requires it (absent, empty, padded, upper-case or any other value refuses), `live` builds the live transport, `replay` serves the recorded set. `NOEMA_PROFILE` stays the environment profile and identifies `demo`. `NOEMA_MODEL_REPLAY_FIXTURES_DIR` keeps its name (A679 does not rename it).
+- Behaviour change: a harness configuration with no provider profile no longer starts (it did start live before). Four existing model tests that assemble a live harness now name `live`.
+- Ambiguities, taken the safer way (not decided here): A679 is silent on `dev` and `ci` (replay stays refused there, as before); on `live` with a fixtures directory also set (refused as a contradiction); and on where "absent refuses" is checked (where the transport is chosen, so a service with no harness configuration is not ready, as before).
+- Tests: 57 in `test_provider_profile.py` (REQ-INT-002, REQ-TST-004, AGENT-12, AGENT-16, INV-29); the whole model suite passes.
+- Hand mutants on the new logic: 12 run, 12 killed (absent defaults to live, absent defaults to replay, unknown provider value accepted, case-insensitive match, demo allowed, dev and ci allowed, live with fixtures accepted, replay also builds a live transport, unknown environment profile accepted, replay with no environment profile accepted, unreadable fixtures fall back to live, the provider value in the refusal text).
+- Debt entries: none. Conflicts raised: none.
+
+## Silences
+1. No compose, deploy or CI file sets `NOEMA_MODEL_HARNESS_CONFIG` today, so no deployed model reaches the transport choice; the day one does, `NOEMA_MODEL_PROVIDER_PROFILE` must be set with it. Those files are outside this card's allowlist and are listed in the PR.
+
+## Pre-work for the next agent
+- Exact next step: whoever mounts the harness configuration in compose adds `NOEMA_MODEL_PROVIDER_PROFILE` (`live`, or `replay` with `NOEMA_PROFILE: bench` and the fixtures directory in the bench model) in the same change; then the A604 gate fix once #932 has merged.
+- Files to read first: `providers/llm/profile.py`, `tests/test_provider_profile.py`.
+- Do not touch: the committed fixture files.

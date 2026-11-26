@@ -18,6 +18,9 @@ export default defineConfig({
   expect: { timeout: 60_000 },
   use: {
     baseURL: target.origin,
+    screenshot: "off",
+    video: "off",
+    trace: "off",
     actionTimeout: 60_000,
     navigationTimeout: 60_000,
     launchOptions: { executablePath: browser },

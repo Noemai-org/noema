@@ -28,13 +28,23 @@ import (
 
 // Pack is a verified pack: the bytes each digest covers and the ids the manifest names (`<id>@<version>`, as the files carry them).
 type Pack struct {
-	Pack              []byte
-	EvidenceMapping   []byte
-	ReconRules        []byte
+	Pack            []byte
+	EvidenceMapping []byte
+	ReconRules      []byte
+	// PriorityRouting is the verified bytes of the priority routing member (PCK-09), nil when the manifest lists none.
+	PriorityRouting   []byte
 	EvidenceMappingID string
 	ReconRuleSetID    string
 	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
 	ActionGraphs map[string][]byte
+	// InjectionPatterns holds the verified bytes of the injection-screen pattern file the manifest pins (A645), and InjectionPatternsID the id the manifest expects of it. A file that is not pinned
+	// and verified is never here. A manifest below version 4 may list none (A664, interim): then both are empty and the pack carries no pattern data, so no screen can be built from it (the injection
+	// package has no empty Detector). The wiring passes these bytes to injection.Parse and never re-reads the file (A664 round 2). A551: read-only, derived from the verified bytes, no industry term.
+	InjectionPatterns   []byte
+	InjectionPatternsID string
+	// Limits holds the verified bytes of each limits file the manifest pins (A544), by the path the manifest pins. Which file is which, and what it holds, is the caller's: this package
+	// names none of them. A limits file that is not pinned is never here, and a folder of limits files with one unpinned refuses the pack (ErrUnlisted).
+	Limits map[string][]byte
 }
 
 // The kinds of refusal. Callers compare with errors.Is.
@@ -50,7 +60,7 @@ var (
 	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules` or `action_graph`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`, `limits`, `injection_patterns` or `priority_routing`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -73,7 +83,15 @@ const (
 	kindMapping  = "evidence_mapping"
 	kindRules    = "recon_rules"
 	kindGraph    = "action_graph"
-	kindManifest = "manifest"
+	kindLimits   = "limits"
+	kindPatterns = "injection_patterns"
+	kindPriority = "priority_routing"
+
+	// limitsFromVersion is the first manifest version that must list the limits files (A579, interim).
+	limitsFromVersion = 3
+	// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the A579 pattern, the version after the limits files' 3).
+	patternsFromVersion = 4
+	kindManifest        = "manifest"
 )
 
 var (
@@ -111,8 +129,9 @@ type manifestDoc struct {
 	Label      *string `json:"label"`
 	Note       *string `json:"note"`
 	Expected   *struct {
-		MappingID *string `json:"evidence_mapping_id"`
-		RulesID   *string `json:"recon_rule_set_id"`
+		MappingID  *string `json:"evidence_mapping_id"`
+		RulesID    *string `json:"recon_rule_set_id"`
+		PatternsID *string `json:"injection_patterns_id"`
 	} `json:"expected"`
 	Files []manifestFile `json:"files"`
 }
@@ -127,7 +146,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	if err != nil {
 		return Pack{}, refuse(ErrConfig, "")
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }() // read-only handle: nothing is flushed, so a close error cannot change what was read
 	raw, err := readPlain(root, manifest, maxBytes, ErrManifest, kindManifest)
 	if err != nil {
 		return Pack{}, err
@@ -139,6 +158,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	listed := map[string]bool{manifest: true}
 	bytesOf := map[string][]byte{}
 	graphs := map[string][]byte{}
+	limits := map[string][]byte{}
 	for _, f := range doc.Files {
 		listed[*f.Path] = true
 	}
@@ -151,9 +171,12 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 		if hex.EncodeToString(sum[:]) != *f.Sha256 {
 			return Pack{}, refuse(ErrHash, *f.Kind)
 		}
-		if *f.Kind == kindGraph {
+		switch *f.Kind {
+		case kindGraph:
 			graphs[*f.Path] = data
-		} else {
+		case kindLimits:
+			limits[*f.Path] = data
+		default:
 			bytesOf[*f.Kind] = data
 		}
 	}
@@ -162,7 +185,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 			return Pack{}, err
 		}
 	}
-	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules],
+	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules], PriorityRouting: bytesOf[kindPriority],
 		EvidenceMappingID: *doc.Expected.MappingID, ReconRuleSetID: *doc.Expected.RulesID}
 	if err := checkIDs(p); err != nil {
 		return Pack{}, err
@@ -170,7 +193,18 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 	if err := checkGraphs(p.Pack, graphs); err != nil {
 		return Pack{}, err
 	}
+	// A664 (interim): a manifest below patternsFromVersion that lists no patterns serves none (nil bytes, empty id); a listed file is checked against its expected id like every other.
+	patternsID := ""
+	if doc.Expected.PatternsID != nil {
+		patternsID = *doc.Expected.PatternsID
+		id, ver, _, err := members(bytesOf[kindPatterns], "pack_id", "")
+		if err != nil || id+"@"+ver != patternsID {
+			return Pack{}, refuse(ErrID, kindPatterns)
+		}
+	}
+	p.InjectionPatterns, p.InjectionPatternsID = bytesOf[kindPatterns], patternsID
 	p.ActionGraphs = graphs
+	p.Limits = limits
 	return p, nil
 }
 
@@ -207,7 +241,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindLimits && k != kindPatterns && k != kindPriority {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++
@@ -216,7 +250,19 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		}
 		paths[*f.Path] = true
 	}
-	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 {
+	if perKind[kindPack] != 1 || perKind[kindMapping] != 1 || perKind[kindRules] != 1 || perKind[kindPriority] > 1 {
+		return manifestDoc{}, bad
+	}
+	// A579 (interim; SOT-C-33): a manifest of version 3 or later lists its limits files, and a pack whose manifest does not is refused. There is no opt-in.
+	if *doc.Version >= limitsFromVersion && perKind[kindLimits] == 0 {
+		return manifestDoc{}, bad
+	}
+	// A645, A664 (interim; the A579 pattern): the injection patterns are listed exactly once from manifest version patternsFromVersion and none or once below it, always together with their expected id
+	// and never one without the other. There is no opt-in for a gated version.
+	if n := perKind[kindPatterns]; n > 1 || (*doc.Version >= patternsFromVersion && n != 1) || (n == 1) != (doc.Expected.PatternsID != nil) {
+		return manifestDoc{}, bad
+	}
+	if id := doc.Expected.PatternsID; id != nil && (!idRe.MatchString(*id) || len(*id) > maxIDLen) {
 		return manifestDoc{}, bad
 	}
 	return doc, nil
@@ -279,7 +325,7 @@ func readPlain(root *os.Root, rel string, maxBytes int64, notUsable error, kind 
 	if err != nil {
 		return nil, refuse(notUsable, kind)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only handle, as above
 	fi, err := f.Stat()
 	if err != nil || !fi.Mode().IsRegular() {
 		return nil, refuse(notUsable, kind)
@@ -317,7 +363,7 @@ func scan(root *os.Root, dir, prefix, kind string, listed map[string]bool, of fu
 		return refuse(ErrFile, kind)
 	}
 	entries, err := d.ReadDir(-1)
-	d.Close()
+	_ = d.Close() // read-only directory handle; the ReadDir error below is the one that counts
 	if err != nil {
 		return refuse(ErrFile, kind)
 	}

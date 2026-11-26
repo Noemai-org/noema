@@ -73,6 +73,8 @@ volumes:
   postgres_data: {}
   # The grant key files the core loads: written once by grant-keys-init at mode 0400 owned by the core's user (SEC-09, INV-29). Only that step writes it; only the core mounts it, read-only.
   grant_keys: {}
+  # The core's model-client private key, copied once by core-tls-init at mode 0400 owned by the core's user (A667). Only that step writes it; only the core mounts it, read-only.
+  core_client_key: {}
 
 services:
   postgres:
@@ -156,6 +158,30 @@ services:
       - ./grant-keys/init.py:/init/init.py:ro
       - grant_keys:/out
 
+  # One-shot, as root, no network (A667): the core refuses its model-client private key unless it is a regular file it owns at mode 0400, and Compose can only bind the host file (mode 0600, the host
+  # user), so the 24 Nov stack-check ended with the core exiting at start. This copies the key into the core_client_key volume owned by the core's user (65532) at mode 0400 and checks it by reading
+  # it as that user. The core's reader is unchanged. It holds the one host file and nothing else, prints the file name and never the key; if it fails the core does not start.
+  core-tls-init:
+    image: *python_image
+    profiles: *run_profiles
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_READ_SEARCH, SETUID, SETGID]
+    environment:
+      CORE_TLS_SRC: /in/core-client.key
+      CORE_TLS_OUT: /out
+      CORE_TLS_UID: "65532"
+      CORE_TLS_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    volumes:
+      - ./core-tls/init.py:/init/init.py:ro
+      - ./secrets/tls/core-client.key:/in/core-client.key:ro
+      - core_client_key:/out
+
   core:
     image: noema-core:dev
     build:
@@ -164,6 +190,8 @@ services:
     networks: *core_networks
     depends_on:
       grant-keys-init:
+        condition: service_completed_successfully
+      core-tls-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
@@ -181,7 +209,7 @@ services:
       NOEMA_MODEL_URL: "https://model:8081"
       NOEMA_MODEL_TLS_CA_FILE: /run/tls/ca.crt
       NOEMA_MODEL_TLS_CERT_FILE: /run/tls/core-client.crt
-      NOEMA_MODEL_TLS_KEY_FILE: /run/tls/core-client.key
+      NOEMA_MODEL_TLS_KEY_FILE: /run/tls-key/core-client.key
       # The largest answer the core's client reads from the model service, in bytes: no default in the core (AGENT-16), so it is set here. 65536 is the value the Founders gave on
       # 15 Nov 2026 (relayed, not yet in a decision record); the core refuses to build its client without it.
       NOEMA_MODEL_MAX_RESPONSE_BYTES: "65536"
@@ -190,7 +218,7 @@ services:
       - grant_keys:/run/grant-keys:ro
       - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
       - ./secrets/tls/core-client.crt:/run/tls/core-client.crt:ro
-      - ./secrets/tls/core-client.key:/run/tls/core-client.key:ro
+      - core_client_key:/run/tls-key:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/core", "-healthcheck"]
       interval: 3s
@@ -207,6 +235,8 @@ services:
       NOEMA_MODEL_ADDR: ":8081"
       # Worker threads of the provider transport (UND-12). The Architect's initial value; tune from measured load. The service holds no default.
       NOEMA_MODEL_LLM_POOL_SIZE: "16"
+      # Which provider transport the service builds (A679, A695): "live" here in every profile. Absent refuses the start. "replay" is chosen only by a later ruling, in a bench or test file, never here.
+      NOEMA_MODEL_PROVIDER_PROFILE: "live"
       # NOEMA_MODEL_EVIDENCE_POOL_SIZE: "8" is the Architect's initial value for the evidence link. Nothing builds the evidence transport yet, so the
       # service does not read it; it is set here, as an active value, when the evidence link is composed.
     # The listener requires a client certificate (the image sets uvicorn's --ssl-* options, noema#555). The model holds its server key, the CA certificate and its own health-check client
