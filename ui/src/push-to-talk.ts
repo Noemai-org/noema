@@ -2,13 +2,18 @@ import { createElement as h, useEffect, useRef, useState } from "react";
 import { encodePcm16Mono, startPcmCapture } from "./pcm-capture.js";
 
 export { encodePcm16Mono };
+export const MAX_PUSH_TO_TALK_RECORDING_MS = 30_000;
 type Props = { onPcm?: (bytes: Uint8Array) => void; maxRecordingMs?: number };
 
 // No sink means no capture; the host integrates voice only when it exists.
-export function PushToTalk({ onPcm, maxRecordingMs }: Props) {
+// A host may impose a shorter duration, but cannot extend the A715 30-second UI cap.
+export function PushToTalk({ onPcm, maxRecordingMs = MAX_PUSH_TO_TALK_RECORDING_MS }: Props) {
   const controller = useRef<AbortController | null>(null);
   const [active, setActive] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const recordingLimitMs = Number.isSafeInteger(maxRecordingMs) && maxRecordingMs > 0
+    ? Math.min(maxRecordingMs, MAX_PUSH_TO_TALK_RECORDING_MS)
+    : 0;
   const end = () => {
     controller.current?.abort();
     controller.current = null;
@@ -33,14 +38,14 @@ export function PushToTalk({ onPcm, maxRecordingMs }: Props) {
     };
   }, []);
   const begin = async () => {
-    if (!onPcm || typeof maxRecordingMs !== "number" || !Number.isSafeInteger(maxRecordingMs) || maxRecordingMs <= 0 || maxRecordingMs > 2_147_483_647 || controller.current) return;
+    if (!onPcm || recordingLimitMs <= 0 || controller.current) return;
     const current = new AbortController();
     controller.current = current;
     setUnavailable(false);
     try {
       await startPcmCapture(onPcm, current.signal, () => {
         if (controller.current === current) { controller.current = null; setActive(false); setUnavailable(true); }
-      }, maxRecordingMs);
+      }, recordingLimitMs);
       if (!current.signal.aborted && controller.current === current) setActive(true);
     } catch {
       if (!current.signal.aborted && controller.current === current) { controller.current = null; setUnavailable(true); }
@@ -48,7 +53,7 @@ export function PushToTalk({ onPcm, maxRecordingMs }: Props) {
   };
   return h("div", null,
     h("button", {
-      type: "button", disabled: !onPcm || typeof maxRecordingMs !== "number" || !Number.isSafeInteger(maxRecordingMs) || maxRecordingMs <= 0 || maxRecordingMs > 2_147_483_647, "aria-pressed": active,
+      type: "button", disabled: !onPcm || recordingLimitMs <= 0, "aria-pressed": active,
       onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
