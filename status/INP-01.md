@@ -104,7 +104,7 @@ SR's asks for the build stand: any prior-turn text given to a model is masked (n
   - EL's note 2: design 3 aligned with decision 6; test 1 reworded (compiled alone); the "Not built" row no longer lists a void at admit; the header names A680.
   - EL's earlier finding: design 4 says "under the chain's correlation id (decision 7)".
   - The question for the Steward is replaced by a pointer to A680 (quoted exactly) and the Steward's draft, PERD v1.30 (Proposed).
-  - Points 6, 7 and 8 are marked "safer default taken, for the Architect to confirm": A666 covered only the five original points.
+  - (Superseded by A712: points 6 and 7 stand, point 8 was rejected.) Points 6, 7 and 8 are marked "safer default taken, for the Architect to confirm": A666 covered only the five original points.
 - Rulings read before editing: A320 and A404 (INP-01), A666, A680 (and A688 on the v1.30 approval), A312 (the model for A680). A698 (pack version) was read and is not touched: this note changes no pack and no contract.
 - Tests added: none (note only). Debt entries: none. Conflicts raised: none. Docs-only, SYNTHETIC examples only (none added).
 - Open (owner Architect; answered by A712: points 6 and 7 stand, point 8 rejected): confirm points 6, 7 and 8. SR's read of design 6 and design 8 is advisable before code, not a merge gate for a note.
