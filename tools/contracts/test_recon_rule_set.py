@@ -23,9 +23,9 @@ class ReconRuleSetV1(unittest.TestCase):
         self.assertIn("convergence_window_seconds", defs["SingleValued"]["properties"])
         self.assertNotIn("window_seconds", json.dumps(self.schema).replace("convergence_window_seconds", "").replace("within_seconds", ""))
 
-    def test_the_window_is_a_whole_number_of_at_least_one_with_no_ceiling_of_its_own(self):
+    def test_the_window_is_a_whole_number_of_at_least_zero_with_no_ceiling_of_its_own(self):
         w = self.schema["$defs"]["ConvergenceWindowSeconds"]
-        self.assertEqual((w["type"], w["minimum"]), ("integer", 1))
+        self.assertEqual((w["type"], w["minimum"]), ("integer", 0))
         self.assertNotIn("maximum", w)
 
     def test_it_is_required_from_version_2_and_not_allowed_in_version_1(self):

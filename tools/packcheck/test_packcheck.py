@@ -966,11 +966,18 @@ class ReconRuleSet(unittest.TestCase):
                 self.assertTrue(found and all(c == "recon_rules" for c, _ in found), (section, i, found))
                 self.assertIn("convergence_window_seconds", " ".join(m for _, m in found))
 
-    def test_a_window_is_a_whole_number_of_seconds_of_at_least_one(self):
-        for bad in (0, -1, 1.5, "60", None, True, [60]):
+    def test_a_window_is_a_whole_number_of_seconds_of_at_least_zero(self):
+        for bad in (-1, 1.5, "60", None, True, [60]):
             doc = rules_file(2, 60)
             doc["incompatible"][0]["convergence_window_seconds"] = bad
             self.assertTrue(self.problems(doc), repr(bad))
+
+    def test_a_window_of_zero_is_valid_in_version_2_it_means_no_lag_allowed(self):
+        """A708 (REQ-RES-005): zero is a declared window with no tolerance, the fail-closed value, and is not the absence of the member."""
+        doc = rules_file(2, 60)
+        doc["incompatible"][0]["convergence_window_seconds"] = 0
+        doc["single_valued"][0]["convergence_window_seconds"] = 0
+        self.assertEqual(self.problems(doc), [])
 
     def test_version_1_declares_no_window(self):
         doc = rules_file(1)
