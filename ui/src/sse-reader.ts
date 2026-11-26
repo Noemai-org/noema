@@ -7,6 +7,9 @@ const encoder = new TextEncoder();
 export class StreamProtocolError extends Error {
   constructor() { super("This update is unavailable."); this.name = "StreamProtocolError"; }
 }
+export class StreamFrameTooLargeError extends StreamProtocolError {
+  constructor() { super(); this.name = "StreamFrameTooLargeError"; }
+}
 export class StreamInterruptedError extends Error {
   constructor() { super("This update was interrupted."); this.name = "StreamInterruptedError"; }
 }
@@ -26,7 +29,7 @@ function deliver(frame: Frame, receive: Receiver): void {
 
 function line(frame: Frame, text: string, newlineBytes: number, maxFrameBytes: number, receive: Receiver): void {
   frame.size += encoder.encode(text).byteLength + newlineBytes;
-  if (frame.size > maxFrameBytes) throw invalid();
+  if (frame.size > maxFrameBytes) throw new StreamFrameTooLargeError();
   if (text === "") {
     deliver(frame, receive);
     frame.name = "";
@@ -61,7 +64,7 @@ export async function readEventStream(response: Response, receive: Receiver, max
   const consume = (part: string, done: boolean) => {
     const firstEnd = part.search(/[\r\n]/u);
     const prefix = firstEnd < 0 ? part : part.slice(0, firstEnd);
-    if (frame.size + encoder.encode(pending).byteLength + encoder.encode(prefix).byteLength > maxFrameBytes) throw invalid();
+    if (frame.size + encoder.encode(pending).byteLength + encoder.encode(prefix).byteLength > maxFrameBytes) throw new StreamFrameTooLargeError();
     pending += part;
     for (;;) {
       const end = pending.search(/[\r\n]/u);
@@ -70,7 +73,7 @@ export async function readEventStream(response: Response, receive: Receiver, max
       line(frame, pending.slice(0, end), newline, maxFrameBytes, receive);
       pending = pending.slice(end + newline);
     }
-    if (frame.size + encoder.encode(pending).byteLength > maxFrameBytes) throw invalid();
+    if (frame.size + encoder.encode(pending).byteLength > maxFrameBytes) throw new StreamFrameTooLargeError();
   };
   try {
     for (;;) {
