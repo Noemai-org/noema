@@ -79,6 +79,10 @@ services:
       NOEMA_INJECTION_MAX_DOCUMENT_BYTES: "65536"
       NOEMA_INJECTION_MAX_DEPTH: "8"
       NOEMA_INJECTION_FIELD_CAP: "256"
+      # The evidence login (A722, A594; docs/decisions/DEC-2026-11-26-architect-rulings-a721-a737.md): the DSN directory follows the existing per-tenant DSN-directory pattern; the key overlap is 2.
+      # NOEMA_EVIDENCE_KEY_FILE has no value here: no ruling names the path of the core-evidence key file (IL provisions it, A536), so the screen is a named gap on /readyz until it is set.
+      NOEMA_EVIDENCE_DSN_DIR: /run/evidence-dsn
+      NOEMA_EVIDENCE_KEY_MAX_ACTIVE: "2"
       # The bench settings with no default in code (A356, interim, relayed; docs/decisions/DEC-2026-11-19-architect-rulings-a341-a357.md): the Architect's values, for the bench profile only. They collect
       # the settings of A319, A320, A330 and A345; a setting the core does not read yet is inert until its lane merges. Changing a number here is a ruling, not an edit (AGENT-16).
       NOEMA_STORE_TIMEOUT_MS: "1000"

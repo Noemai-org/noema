@@ -395,7 +395,7 @@ type composeDeps struct {
 	WorkerActivities func() *workflows.EscalateActivities
 	// Pack is the one source of the manifest-verified pack for the whole composition (A548, INV-16): the same call the TrustAdapters source makes, so the pack is loaded and verified once.
 	Pack PackSource
-	// Verified is the same single load as Pack, with the pinned bytes the injection screen reads (A722). Nil means the screen has no pack.
+	// Verified is the same single load as Pack (A722), with the pinned bytes the injection screen reads: the screen carries this pack and loads none of its own. Nil means the screen has no pack.
 	Verified VerifiedSource
 	// WireTrust builds the Trust inputs and the decisions over the pack and the shared Trust logins (compose_trust_wiring.go). Nil means the composition builds none of them.
 	WireTrust func(trustWiringIn) (trustWired, error)
@@ -407,13 +407,15 @@ type composeDeps struct {
 // activities, are added here as each merges and never from a fake; until then the Trust adapter source gives only the clock, so a process asked for Trust starts without it and /readyz names each adapter
 // it lacks (UnbuiltAdaptersError), and a configured worker without activities is not started (A442). Nothing is dialled here.
 func productionDeps() composeDeps {
-	pack := memoPackSource(productionPack) // loaded and verified once: the adapter source and the wiring share the one answer (A548, INV-16)
+	verified := memoVerified(loadVerified) // loaded and verified once: the adapter source, the wiring and the injection screen share the one answer (A548, A722, INV-16)
+	pack := memoPackSource(packFromVerified(verified))
 	return composeDeps{
 		LoadKeys:         loadGrantKeys,
 		TrustAdapters:    trustAdaptersSource(pack),
 		WorkerDial:       dialTemporal,
 		WorkerActivities: func() *workflows.EscalateActivities { return nil },
 		Pack:             pack,
+		Verified:         verified,
 		WireTrust:        wireTrustInputs,
 	}
 }

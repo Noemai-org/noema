@@ -137,30 +137,80 @@ func newInjectionScreen(v packload.Pack, lim injection.Limits, log *slog.Logger,
 	}, nil
 }
 
-// buildInjectionScreen builds the screen from the environment: the five limits, then the pack's pattern bytes through the manifest (the same settings and the same loader as the rest of the
-// composition: every file is pinned by its SHA-256). An absent limit, or no complete pack setting, is a named gap; an invalid limit, a pack that does not load or patterns the limits
-// refuse stop the process (A704, A469). It dials nothing.
-func buildInjectionScreen(env Env, _ VerifiedSource, log *slog.Logger, rec injection.Recorder) (injectionScreen, error) {
+// buildInjectionScreen builds the screen from the environment and the composition's one verified pack (A722: the screen carries it and loads none of its own): the five limits, the evidence
+// login's three settings, then the pack's pinned pattern bytes. An absent limit or evidence setting, or a pack that is not configured, is a named gap; an invalid setting, a pack that does
+// not load or patterns the limits refuse stop the process (A704, A469). It dials nothing and asks the verified source only once the settings are complete.
+func buildInjectionScreen(env Env, verified VerifiedSource, log *slog.Logger, rec injection.Recorder) (injectionScreen, error) {
 	lim, missing, err := injectionLimitsFrom(env)
 	if err != nil {
 		return injectionScreen{}, err
 	}
-	if len(missing) > 0 {
-		return injectionScreen{Missing: missing}, nil
-	}
-	dir, manifest, bound := env.Getenv(EnvPackDir), env.Getenv(EnvPackManifest), env.Getenv(EnvPackMaxBytes)
-	if dir == "" || manifest == "" || bound == "" {
-		return injectionScreen{Missing: []string{needInjectionPatterns}}, nil
-	}
-	maxBytes, err := packBound(env, bound)
+	_, evMissing, err := evidenceSettingsFrom(env)
 	if err != nil {
 		return injectionScreen{}, err
 	}
-	v, err := packload.Load(dir, manifest, maxBytes)
+	if missing = append(missing, evMissing...); len(missing) > 0 {
+		return injectionScreen{Missing: missing}, nil
+	}
+	if verified == nil {
+		return injectionScreen{Missing: []string{needInjectionPatterns}}, nil
+	}
+	v, err := verified(env)
+	if errors.Is(err, errPackNotConfigured) {
+		return injectionScreen{Missing: []string{needInjectionPatterns}}, nil
+	}
 	if err != nil {
-		return injectionScreen{}, fmt.Errorf("cmd/core: %s: the pack cannot be loaded: %w", EnvPackDir, err)
+		return injectionScreen{}, err
 	}
 	return newInjectionScreen(v, lim, log, rec)
+}
+
+// The evidence login's three settings (A722, A536, A594): the directory of the per-tenant DSN files, the key file of the core-evidence identity, and how many keys of it may be mounted at
+// once. They have no default in code (AGENT-16); the bench numbers are in the bench Compose file only. Nothing here dials or reads them: the Record port that uses them is a later lane's.
+const (
+	EnvEvidenceDSNDir       = "NOEMA_EVIDENCE_DSN_DIR"
+	EnvEvidenceKeyFile      = "NOEMA_EVIDENCE_KEY_FILE"
+	EnvEvidenceKeyMaxActive = "NOEMA_EVIDENCE_KEY_MAX_ACTIVE"
+)
+
+// evidenceSettings are the evidence login's three settings once all are given.
+type evidenceSettings struct {
+	DSNDir       string
+	KeyFile      string
+	KeyMaxActive int
+}
+
+// evidenceSettingsFrom reads the three settings. An absent one is named in missing (in the order of the constants); a present overlap that is not a whole positive number is an error that
+// names the setting and never the value, whatever else is missing (A469).
+func evidenceSettingsFrom(env Env) (set evidenceSettings, missing []string, err error) {
+	get := func(name string) string {
+		if env.Getenv == nil {
+			return ""
+		}
+		return env.Getenv(name)
+	}
+	var given [3]bool
+	set.DSNDir, set.KeyFile = get(EnvEvidenceDSNDir), get(EnvEvidenceKeyFile)
+	given[0], given[1] = set.DSNDir != "", set.KeyFile != ""
+	if given[2] = get(EnvEvidenceKeyMaxActive) != ""; given[2] {
+		n, err := wholeNumber(env, EnvEvidenceKeyMaxActive, "")
+		if err != nil {
+			return evidenceSettings{}, nil, err
+		}
+		if int64(int(n)) != n {
+			return evidenceSettings{}, nil, fmt.Errorf("cmd/core: %s must be a whole positive number", EnvEvidenceKeyMaxActive)
+		}
+		set.KeyMaxActive = int(n)
+	}
+	for i, name := range []string{EnvEvidenceDSNDir, EnvEvidenceKeyFile, EnvEvidenceKeyMaxActive} {
+		if !given[i] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return evidenceSettings{}, missing, nil
+	}
+	return set, nil, nil
 }
 
 // annotate names what the screen lacks on the adapters that read it (the Evidence read, the Policies read and Clocks), when they are still unbuilt. A built screen adds nothing.
@@ -177,21 +227,4 @@ func (s injectionScreen) annotate(w *trustWired) {
 			w.Reasons[a] = append(w.Reasons[a], s.Missing...)
 		}
 	}
-}
-
-// The three evidence login settings (A722). Stub: nothing reads them yet.
-const (
-	EnvEvidenceDSNDir       = "NOEMA_EVIDENCE_DSN_DIR"
-	EnvEvidenceKeyFile      = "NOEMA_EVIDENCE_KEY_FILE"
-	EnvEvidenceKeyMaxActive = "NOEMA_EVIDENCE_KEY_MAX_ACTIVE"
-)
-
-type evidenceSettings struct {
-	DSNDir       string
-	KeyFile      string
-	KeyMaxActive int
-}
-
-func evidenceSettingsFrom(env Env) (evidenceSettings, []string, error) {
-	return evidenceSettings{}, nil, nil
 }

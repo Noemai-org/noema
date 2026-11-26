@@ -35,38 +35,8 @@ func packBound(env Env, given string) (int64, error) {
 	return wholeNumber(env, EnvPackMaxBytes, " of bytes")
 }
 
-// productionPack is the production PackSource.
-func productionPack(env Env) (*trustpack.Pack, error) {
-	if env.Getenv == nil {
-		return nil, errPackNotConfigured // an environment that cannot be asked gives no setting: a named gap, never a value invented
-	}
-	dir, manifest, bound := env.Getenv(EnvPackDir), env.Getenv(EnvPackManifest), env.Getenv(EnvPackMaxBytes)
-	if dir == "" && manifest == "" && bound == "" {
-		return nil, errPackNotConfigured
-	}
-	maxBytes, err := packBound(env, bound)
-	if err != nil {
-		return nil, err // an invalid present value is fatal whatever else is missing (A571)
-	}
-	var missing []string
-	for _, s := range []struct{ name, value string }{{EnvPackDir, dir}, {EnvPackManifest, manifest}, {EnvPackMaxBytes, bound}} {
-		if s.value == "" {
-			missing = append(missing, s.name)
-		}
-	}
-	if len(missing) > 0 {
-		return nil, &packSettingsGap{Missing: missing}
-	}
-	verified, err := packload.Load(dir, manifest, maxBytes)
-	if err != nil {
-		return nil, fmt.Errorf("cmd/core: %s: the pack cannot be loaded: %w", EnvPackDir, err)
-	}
-	pack, err := trustpack.LoadVerified(verified.Pack, verified.ActionGraphs)
-	if err != nil {
-		return nil, refused("Trust pack", err)
-	}
-	return pack, nil
-}
+// productionPack is the production PackSource: the Trust pack built from one verified load.
+func productionPack(env Env) (*trustpack.Pack, error) { return packFromVerified(loadVerified)(env) }
 
 // VerifiedSource gives the manifest-verified pack with the bytes of every file the manifest pins (A722): the same one load that the Trust pack is built from, so a consumer of the pinned
 // bytes (the injection screen) never loads the pack again. An unset or partly set pack is errPackNotConfigured (a named gap); anything else is fatal.
