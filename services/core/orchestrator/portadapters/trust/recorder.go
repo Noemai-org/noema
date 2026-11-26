@@ -50,6 +50,7 @@ var (
 	recDecisionRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
 	recHashRe     = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
 	recRequestRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
+	recTurnRe     = regexp.MustCompile(`\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z`) // the client's request ID of the turn (A581): a lower-case UUID
 )
 
 // TxBeginner opens a transaction as the tenant's own database login (the composition holds one pool per tenant, as noema#535 does). The adapter commits or rolls it back.
@@ -202,6 +203,16 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	if digest != r.BasisDigest {
 		return recorder.Request{}, ErrBasisDigest
 	}
+	// A663, A581, A590 (interim, relayed): an ESCALATE whose basis is incomplete has no sealed snapshot and no policy to take facts from. It is recorded with its basis null and keyed by the
+	// turn and the verified principal; the facts are not asked. Only such an ESCALATE names a turn, and it must (a well-formed one), or nothing is opened.
+	early := r.Decision.Outcome() == decide.Escalate && !r.Decision.HasCompleteBasis()
+	if r.TurnID != "" && !early || early && !recTurnRe.MatchString(r.TurnID) {
+		return recorder.Request{}, fmt.Errorf("%w: only an early ESCALATE names a turn, and it names a well-formed one", ErrRecordRequest)
+	}
+	if early {
+		return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), Decision: r.Decision, Evaluated: r.Evaluated,
+			TurnID: r.TurnID, TurnPrincipalID: r.PrincipalID}, nil
+	}
 	if (r.ConfirmationEventID == "") != (r.ConfirmationPlanHash == "") || (r.ConfirmationEventID != "" && r.ConfirmationPlanHash != r.PlanHash) {
 		return recorder.Request{}, ErrPlanHash
 	}
@@ -266,15 +277,19 @@ func newRequest(c *intake.NewConfirmationRequest) *recorder.NewConfirmationReque
 		ConfirmationBindingEvidenceHash: c.ConfirmationBindingEvidenceHash, PlanHash: c.PlanHash, PolicyVersion: c.PolicyVersion, Requirement: c.Requirement, RequesterID: c.RequesterID, ExpiresAt: c.ExpiresAt}
 }
 
-// declinedShape is A470 and A507 (interim, relayed, not yet committed): only a REJECT for DECLINED_BY_APPROVER may name the confirmation request it rests on, and the name has the shape
+// declinedShape is A470, A507 and A542 (interim, relayed, not yet committed): a REJECT for DECLINED_BY_APPROVER MUST name its declined request, and only a REJECT for DECLINED_BY_APPROVER may name the confirmation request it rests on, and the name has the shape
 // of a confirmation request id. Any other decision that names one is refused before a transaction opens (INV-03: no other outcome rests on a confirmation); the Writer then checks that the
 // request is the tenant's and the decision's intent's.
 func declinedShape(r intake.RecordRequest) error {
-	if r.DeclinedRequestID == "" {
+	declined := r.Decision.Outcome() == decide.Reject && hasReason(r.Decision, "DECLINED_BY_APPROVER")
+	if !declined {
+		if r.DeclinedRequestID != "" {
+			return fmt.Errorf("%w: only a decline by the approver names a declined request", ErrRecordRequest)
+		}
 		return nil
 	}
-	if r.Decision.Outcome() != decide.Reject || !hasReason(r.Decision, "DECLINED_BY_APPROVER") {
-		return fmt.Errorf("%w: only a decline by the approver names a declined request", ErrRecordRequest)
+	if r.DeclinedRequestID == "" {
+		return fmt.Errorf("%w: a decline by the approver names the request it rests on (A542)", ErrRecordRequest)
 	}
 	if !recRequestRe.MatchString(r.DeclinedRequestID) {
 		return fmt.Errorf("%w: the declined request id is malformed", ErrRecordRequest)

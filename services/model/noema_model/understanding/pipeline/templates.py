@@ -17,3 +17,9 @@ SLOT_MENTIONS_V1 = PromptTemplate(
         "If a field is not mentioned, set present to false and leave the text fields empty."
     ),
 )
+
+
+# UND-18 (ruling A603, interim). The two fixed sentences of a gated optional slot. They name no slot, no value and no example (INV-14, A533): which slot is gated, and at what threshold,
+# is pack data (`understanding.slot_gates`). One wording for every gate; nothing here is tuned against a golden.
+SLOT_GATE_V1 = "Does the customer explicitly ask for something to be done for them?"
+SLOT_PICK_V1 = "Which one of these does the customer ask to be done? Choose exactly one of the listed options."

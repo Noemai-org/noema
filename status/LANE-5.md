@@ -37,3 +37,49 @@ A mount, a login name or a key identity that differs from A554 is a CONFLICT blo
 
 ## Out of scope
 The mounts (IL), the ports' integration in the composition root (EL), `EnvTrust*` settings, the Outcome verdict logic.
+
+---
+
+# Session 2026-11-24 · LANE-5 slice 3 (C2)
+
+## Session summary
+- What changed (PR links): noema#950, `services/core/outcome/request` (new): `request.Build(Inputs) (verifier.Request, error)`, the Outcome request builder (A547, A620, A635; all interim). Red `f5c0cad2e` (tests only); green follows the red CI read.
+- Why: lane 5 slice 3. The write path's Verifier port (`orchestrator/portadapters/verifier`) asks a `Requests` source for the verification request of a grant. Nothing built it. This is the pure part of that source; the Record reader that supplies its inputs is slice 4.
+- What it does: from the receipt row's facts, the stored plan's facts, what the caller expects (tenant, intent, intent hash, plan hash), the pack's outcome definition and the capability's retry safety, it returns the request or a typed refusal. It reads nothing, writes nothing, owns no clock and decides no verdict.
+- Refusals (each a fixed text naming no value): receipt unsigned (no document, key id or signature); signature not found VALID by the caller's check; state no Execution produces; ACKNOWLEDGED with no external acknowledgement (an HTTP 200 alone is not an outcome); tenant, intent, intent hash or plan hash differing between the receipt, the plan and the expected values; no plan step, or two, of the executed capability; a binding the inputs cannot supply (an empty value is never bound); a missing identifier or definition.
+- INV-07: a receipt that is not ACKNOWLEDGED binds nothing from the acknowledgement, whether or not the row carries one, so the verifier cannot reach ACHIEVED on it. `QueryableByKey` is true only for the retry safety QUERYABLE_BY_KEY.
+- Not built, with owners: the pack's declaration of which plan param feeds which predicate variable (the pack has none today, so the caller passes `Bindings`; Architect/C2 pack follow-up); a pending condition (`Definition.Pending` is nil: the outcome-definition contract has no member for it); the signature check itself (the caller runs `receiptsig` and passes the result: the verifier checks again); the mapping of the Execution receipt row and the plan row into `Inputs` (EL's composition, with slice 4's reader).
+- Risks, and how they are contained: a binding mapping wrong in the composition gives a verifier verdict of UNKNOWN (an unbound predicate), never a success, because the verifier reads the target itself.
+- Tests added: `request_test.go`: valid build, retry-safety mapping, determinism over 1,000 seeded shuffles, unsigned and unverified receipts, the success claim with no acknowledgement, tenant/intent/hash mismatches, states, unknown receipts binding nothing from the acknowledgement, unsupplied bindings, the plan step, incomplete input, and an import guard (no clock, no I/O, no other power).
+- Regression cases added: the same file.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: slice 4, the Record reader for the receipt, the plan and the SLA (tenant-bound, a missing row is not found); then EL maps its rows to `request.Inputs` and implements `verifierport.Requests`.
+- Open questions (owner): where the pack declares the predicate-variable sources (Architect); whether a pending condition belongs in the outcome definition (Architect).
+- Files to read first: `services/core/outcome/request/request.go`, `services/core/outcome/verifier/types.go`, `services/core/orchestrator/portadapters/verifier/port.go`.
+- Do not touch: `outcome/verifier` (OUT-01), `trust/`, `execution/`.
+
+---
+
+# Session 2026-11-25 · LANE-5 slice 2 · the Execution side per tenant (A547, A550, A666)
+
+Written by C1 from `DEC-2026-11-23-architect-rulings-a542-a553` (A547, A550) and A666 (interim, relayed: "start lane 5 slice 2 now"). Slice 1 (`execution.go`, noema#917) and slice 3 (the Outcome request builder, noema#950) are merged.
+
+## What slice 2 is
+`cmd/core/execution_side.go`: `buildExecutionSide(env, parts, seams)` takes slice 1's `executionParts` (the receipt ring and one execution pool for each tenant) and the seams other lanes own, and builds for each tenant a `controller.Controller` over `ledger.Ledger` (as that tenant's `execution_rw` login, Record events appended in the spend transaction under the `core-execution` signer), `ledger.StoreBinder`, the receipt ring, the grant key verifier, the dispatcher and the revalidator. A tenant router makes one `orchestrator.Executor` of the per-tenant `executorport.Port`s. `WritePorts(journal)` returns `orchestrator.WritePorts` or, for each part still missing, one fixed gap line for `/readyz`. It is a function EL calls from the composition root (out of scope here): it touches no existing file.
+
+## Seams (owned by other lanes, passed in; a nil seam is a named gap, never a stand-in)
+Clock, IDs (`ID(prefix)` and `ReceiptID()`), Dispatcher and Revalidator (the bridge over the case adapter: `cmd/core` may not import `adapters`), Intents and Plans (`ledger.IntentSource`, `ledger.PlanSource`), Keys (the grant key verifier: HMAC, E1), Verifier (`verifierport.Port`: needs slice 4's request reader), Bindings (the Trust adapter), and the Journal (EL, noema#907).
+
+## Settings this slice adds (no default, AGENT-16) [OPEN: not in A554]
+`NOEMA_EXECUTION_ROLLBACK_TIMEOUT_MS` (Ledger.RollbackTimeout, A24) and `NOEMA_EXECUTION_EXECUTE_TIMEOUT_MS` (the Executor port's bound for one grant). `NOEMA_DB_SERIALIZATION_ATTEMPTS` is the existing ledger setting. Absent is a named gap; present and invalid is an error naming the setting and never the value.
+
+## Plan
+Files: `cmd/core/execution_side.go`, `cmd/core/execution_side_test.go`, this file. Tests first: a complete build gives one controller per tenant wired to that tenant's own pool and the one ring; each missing seam or setting gives no Executor and one fixed gap line; an invalid setting is an error that does not echo the value; the tenant router sends a grant only to its own tenant's port and refuses an unknown or empty tenant before any call (INV-12, INV-03); the Controller built keeps no `Boundary` (the crash harness hook) and the execute port refuses a context with no deadline. Faults: every missing part, an invalid timeout, a tenant with no controller. Record events: none are written here; the spend, receipt and void events are the Ledger's, tested in `execution/ledger` and `execution/e2e`.
+
+## Acceptance
+- One controller per tenant, each over that tenant's own execution pool.
+- A partial composition builds no Executor (a Controller that cannot do everything dispatches nothing).
+- No message holds a DSN, a login, a key or a setting value.

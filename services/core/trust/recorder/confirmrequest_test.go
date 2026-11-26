@@ -344,7 +344,7 @@ func TestTheRequestIDIsMintedByTheWriterAndMustBeInTheContractsForm(t *testing.T
 }
 
 // REQ-TRU-009 (the order): a REJECT DECLINED_BY_APPROVER decision is a decision like any other for the writer: stored with its reason code, no grant, no step, no request, no spend.
-// (T13 does not return it yet: status/TRU-07-confirm-t13.md.)
+// (T13 does not return it yet: status/TRU-07-confirm-t13.md.) A597: it names the declined request.
 func TestARejectDeclinedByTheApproverIsStoredWithItsReasonCodeAndNoGrant(t *testing.T) {
 	w := newWorld(t)
 	b := evaluatedWith(t, "evs_01ABC", "3.1")
@@ -359,7 +359,9 @@ func TestARejectDeclinedByTheApproverIsStoredWithItsReasonCodeAndNoGrant(t *test
 	if d, err = b.Attach(d); err != nil {
 		t.Fatal(err)
 	}
+	declined := w.openRequest(t) // A597: a decline rests on the request it declined
 	r := request(t, d, b)
+	r.DeclinedRequestID = declined
 	res, err := w.write(t, r, true)
 	if err != nil {
 		t.Fatal(err)
@@ -374,7 +376,9 @@ func TestARejectDeclinedByTheApproverIsStoredWithItsReasonCodeAndNoGrant(t *test
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`) + w.spends(t) + len(w.eventsOf(t, "CONFIRMATION_REQUESTED", "GRANT_ISSUED")); n != 0 {
 		t.Errorf("%d grants, spends or request events for a declined decision", n)
 	}
-	again, err := w.write(t, request(t, d, b), true)
+	repeat := request(t, d, b)
+	repeat.DeclinedRequestID = declined
+	again, err := w.write(t, repeat, true)
 	if err != nil || again.Record.DecisionId != res.Record.DecisionId {
 		t.Errorf("the repeat: %v, decision %s (stored %s)", err, again.Record.DecisionId, res.Record.DecisionId)
 	}
@@ -413,7 +417,7 @@ func TestAStoredConfirmAnswersItsTupleAndStateOnlyAndAnotherOutcomeOfNoConfirmat
 		t.Errorf("an ALLOW that rests on no confirmation, on the tuple of a stored CONFIRM: err %v, want ErrDecisionConflict", err)
 	}
 	b := evaluatedWith(t, "evs_01ABC", "3.1")
-	reason, rerr := decide.Core("DECLINED_BY_APPROVER")
+	reason, rerr := decide.Core("NOT_AUTHORIZED") // a REJECT that rests on NO confirmation: not a decline (A597: a decline names its request, confirmation_state_test.go)
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
@@ -526,8 +530,8 @@ func TestAConfirmationRequestBindsTheCompositeOfEveryPolicyVersionOfTheBasis(t *
 		if _, has := p["policy_set_hash"]; has {
 			t.Errorf("%s: the event carries the interim policy_set_hash member: %v", name, p["policy_set_hash"])
 		}
-		if res.Record.PolicyVersion != "fin.pol@3.1" {
-			t.Errorf("%s: the decision record binds %q, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
+		if res.Record.PolicyVersion == nil || *res.Record.PolicyVersion != "fin.pol@3.1" {
+			t.Errorf("%s: the decision record binds %v, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
 		}
 	}
 }

@@ -63,29 +63,29 @@ type DecisionRecordV2ReasonCodesItem string
 // DecisionRecordV2 is generated from decision-record.v2.json.
 // SoT §43.2 and PERD REQ-TRU-001. Produced by Trust; exactly one of seven outcomes. Written durably before any grant (SoT §48). Rules carried by the schema: CLARIFY carries a clarification and no other outcome does; WAI...
 type DecisionRecordV2 struct {
-	SchemaVersion         string                                  `json:"schema_version"`
-	TenantId              CommonV1TenantId                        `json:"tenant_id"`
-	CorrelationId         CommonV1CorrelationId                   `json:"correlation_id"`
-	DecisionId            CommonV1DecisionId                      `json:"decision_id"`
-	IntentId              CommonV1IntentId                        `json:"intent_id"`
-	IntentHash            CommonV1Hash                            `json:"intent_hash"`
-	DispositionDecisionId Opt[CommonV1DecisionId]                 `json:"disposition_decision_id,omitzero"`
-	Outcome               EnumsV1DecisionOutcome                  `json:"outcome"`
-	ReasonCodes           []DecisionRecordV2ReasonCodesItem       `json:"reason_codes"`
-	Authority             DecisionRecordV2Authority               `json:"authority"`
-	EvidenceSnapshotId    CommonV1SnapshotId                      `json:"evidence_snapshot_id"`
-	PolicyVersion         string                                  `json:"policy_version"`
-	PackVersion           string                                  `json:"pack_version"`
-	EvidenceFreshness     []DecisionRecordV2EvidenceFreshnessItem `json:"evidence_freshness"`
-	Clarification         *ClarificationV1                        `json:"clarification,omitempty"`
-	ReevaluateAt          *CommonV1Timestamp                      `json:"reevaluate_at,omitempty"`
-	EvaluatedAt           CommonV1Timestamp                       `json:"evaluated_at"`
-	IssuedAt              CommonV1Timestamp                       `json:"issued_at"`
-	ExpiresAt             CommonV1Timestamp                       `json:"expires_at"`
-	Sig                   CommonV1Sig                             `json:"sig"`
+	SchemaVersion         string                                   `json:"schema_version"`
+	TenantId              CommonV1TenantId                         `json:"tenant_id"`
+	CorrelationId         CommonV1CorrelationId                    `json:"correlation_id"`
+	DecisionId            CommonV1DecisionId                       `json:"decision_id"`
+	IntentId              CommonV1IntentId                         `json:"intent_id"`
+	IntentHash            CommonV1Hash                             `json:"intent_hash"`
+	DispositionDecisionId Opt[CommonV1DecisionId]                  `json:"disposition_decision_id,omitzero"`
+	Outcome               EnumsV1DecisionOutcome                   `json:"outcome"`
+	ReasonCodes           []DecisionRecordV2ReasonCodesItem        `json:"reason_codes"`
+	Authority             DecisionRecordV2Authority                `json:"authority"`
+	EvidenceSnapshotId    *CommonV1SnapshotId                      `json:"evidence_snapshot_id"`
+	PolicyVersion         *string                                  `json:"policy_version"`
+	PackVersion           string                                   `json:"pack_version"`
+	EvidenceFreshness     *[]DecisionRecordV2EvidenceFreshnessItem `json:"evidence_freshness"`
+	Clarification         *ClarificationV1                         `json:"clarification,omitempty"`
+	ReevaluateAt          *CommonV1Timestamp                       `json:"reevaluate_at,omitempty"`
+	EvaluatedAt           CommonV1Timestamp                        `json:"evaluated_at"`
+	IssuedAt              CommonV1Timestamp                        `json:"issued_at"`
+	ExpiresAt             CommonV1Timestamp                        `json:"expires_at"`
+	Sig                   CommonV1Sig                              `json:"sig"`
 }
 
-var DecisionRecordV2Shape = objectShape{name: "DecisionRecordV2", props: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "decision_id": true, "intent_id": true, "intent_hash": true, "disposition_decision_id": true, "outcome": true, "reason_codes": true, "authority": true, "evidence_snapshot_id": true, "policy_version": true, "pack_version": true, "evidence_freshness": true, "clarification": true, "reevaluate_at": true, "evaluated_at": true, "issued_at": true, "expires_at": true, "sig": true}, required: []string{"schema_version", "tenant_id", "correlation_id", "decision_id", "intent_id", "intent_hash", "outcome", "reason_codes", "authority", "evidence_snapshot_id", "policy_version", "pack_version", "evidence_freshness", "evaluated_at", "issued_at", "expires_at", "sig"}, nonNull: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "decision_id": true, "intent_id": true, "intent_hash": true, "outcome": true, "reason_codes": true, "authority": true, "evidence_snapshot_id": true, "policy_version": true, "pack_version": true, "evidence_freshness": true, "clarification": true, "reevaluate_at": true, "evaluated_at": true, "issued_at": true, "expires_at": true, "sig": true}, closed: true}
+var DecisionRecordV2Shape = objectShape{name: "DecisionRecordV2", props: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "decision_id": true, "intent_id": true, "intent_hash": true, "disposition_decision_id": true, "outcome": true, "reason_codes": true, "authority": true, "evidence_snapshot_id": true, "policy_version": true, "pack_version": true, "evidence_freshness": true, "clarification": true, "reevaluate_at": true, "evaluated_at": true, "issued_at": true, "expires_at": true, "sig": true}, required: []string{"schema_version", "tenant_id", "correlation_id", "decision_id", "intent_id", "intent_hash", "outcome", "reason_codes", "authority", "evidence_snapshot_id", "policy_version", "pack_version", "evidence_freshness", "evaluated_at", "issued_at", "expires_at", "sig"}, nonNull: map[string]bool{"schema_version": true, "tenant_id": true, "correlation_id": true, "decision_id": true, "intent_id": true, "intent_hash": true, "outcome": true, "reason_codes": true, "authority": true, "pack_version": true, "clarification": true, "reevaluate_at": true, "evaluated_at": true, "issued_at": true, "expires_at": true, "sig": true}, closed: true}
 
 func (t *DecisionRecordV2) UnmarshalJSON(b []byte) error {
 	raw, err := DecisionRecordV2Shape.check(b)
@@ -107,9 +107,6 @@ func (t DecisionRecordV2) MarshalJSON() ([]byte, error) {
 	a := alias(t)
 	if a.ReasonCodes == nil {
 		a.ReasonCodes = []DecisionRecordV2ReasonCodesItem{}
-	}
-	if a.EvidenceFreshness == nil {
-		a.EvidenceFreshness = []DecisionRecordV2EvidenceFreshnessItem{}
 	}
 	return json.Marshal(a)
 }

@@ -13,6 +13,7 @@ The compile acceptance run (UND-16; noema#546; ruling A198). It runs the five go
 | `replay.py` | UND-15, the loader, the labels and the lookup of the recordings (below); no provider class |
 | `fixtures.py` | UND-15, the reduction of a run's recordings to committed fixtures and the strict reader of them (below) |
 | `__main__.py` | the command, below |
+| `remedy_labelled.v1.json`, `remedy_labelled.py` | A604: an offline set of 28 synthetic phrasings (en-NG and Pidgin), labelled by whether the customer explicitly asks for something to be done, for measuring the `requested_remedy` decision before any live run. Not the goldens, not the held-out set (INV-22). The strict reader is `load(path)` |
 | `leakscan.allow` | the two line patterns of a real output the leak scan would otherwise take for a number (epoch times and cost counts) |
 
 ## Diagnostics of a failed call (A359)
@@ -62,7 +63,7 @@ A live reply has not been parsed by this code: the first live run is that eviden
 
 ## Tests
 
-`python -m unittest discover -s benchmark -t . -p 'test_*.py'` (the benchmark job) and `cd services/model && pytest tests/test_compile_acceptance_build.py tests/test_compile_acceptance_pool.py` (the model job). `test_pool.py` holds the pool to the pipeline's five concurrent calls plus one spare (`POOL_SIZE` in `build.py`; UND-16).
+`python -m unittest discover -s benchmark -t . -p 'test_*.py'` (the benchmark job) and `cd services/model && pytest tests/test_compile_acceptance_build.py tests/test_compile_acceptance_pool.py` (the model job). `test_pool.py` holds the pool to the pipeline's six concurrent calls (five, and the slot gate of UND-18) plus one spare (`POOL_SIZE` in `build.py`; UND-16).
 
 
 ## `summary.md` (UND-16, run #6)

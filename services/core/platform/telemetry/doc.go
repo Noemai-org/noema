@@ -4,6 +4,7 @@
 //
 // Must never: log a secret, a full account number, raw audio or an unredacted transcript (AGENT-13).
 //
-// This is an empty boundary package created by PLT-01. Its contents arrive with the tasks named in
-// the README of the PERD §64.2 tree; nothing is built here yet.
+// REC-02 slice 1 (standard library only): the W3C trace context (Tracer, TraceContext, ParseTraceparent), the correlation chain in the context (WithTrace, WithCorrelation), the
+// bound logger (Logger), the outgoing headers (Inject) and the edge middleware that starts a new trace per request and never reads a caller's traceparent (Tracer.Middleware).
+// The OpenTelemetry SDK, an exporter, metrics and the log linter are not here yet.
 package telemetry

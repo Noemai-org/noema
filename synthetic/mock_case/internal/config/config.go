@@ -32,6 +32,11 @@ type Config struct {
 	// the tenant, and the single RuntimeToken then opens nothing. Empty means the legacy single runtime credential.
 	TenantTokens map[string]string
 
+	// WebhookTarget and WebhookSecret (MOCK_CASE_WEBHOOK_TARGET_URL and MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE, A682) let the bench control API deliver a webhook to the relay. Both or neither.
+	// The secret is mock-case's own SYNTHETIC signing key, not Tushe's, and is never the runtime or the bench token.
+	WebhookTarget string
+	WebhookSecret string
+
 	Queues          []string
 	DefaultQueue    string
 	Priorities      []string
@@ -102,7 +107,38 @@ func Load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 	if c.TenantTokens, err = loadTenantTokens(getenv, readFile, c.RuntimeToken, c.BenchToken); err != nil {
 		return nil, err
 	}
+	if err = loadWebhook(getenv, readFile, c); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// loadWebhook reads the two webhook settings (A682): the target URL and the file of the signing secret, both or neither. The secret must differ from every credential mock-case holds,
+// so the key that signs a delivery can never also open a listener. Its value is never in an error.
+func loadWebhook(getenv func(string) string, readFile func(string) ([]byte, error), c *Config) error {
+	target, secretFile := getenv("MOCK_CASE_WEBHOOK_TARGET_URL"), getenv("MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE")
+	if target == "" && secretFile == "" {
+		return nil
+	}
+	if target == "" || secretFile == "" {
+		return errors.New("set both MOCK_CASE_WEBHOOK_TARGET_URL and MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE, or neither")
+	}
+	secret, err := readSecret(getenv, readFile, "MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE")
+	if err != nil {
+		return err
+	}
+	for name, v := range map[string]string{"runtime token": c.RuntimeToken, "bench token": c.BenchToken} {
+		if secret == v {
+			return fmt.Errorf("the webhook signing secret must differ from the %s", name)
+		}
+	}
+	for tenant, v := range c.TenantTokens {
+		if secret == v {
+			return fmt.Errorf("the webhook signing secret must differ from the credential of tenant %s", tenant)
+		}
+	}
+	c.WebhookTarget, c.WebhookSecret = target, secret
+	return nil
 }
 
 func readSecret(getenv func(string) string, readFile func(string) ([]byte, error), env string) (string, error) {

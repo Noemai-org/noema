@@ -21,3 +21,5 @@ Checks a pack before it is loaded (PCK-01, PCK-02, PCK-04; SoT 15.4, REQ-CAP-001
 
 - #59 adds the `understanding` and `matcher_ref` checks; they are not on `main` until it merges.
 - The Go predicate evaluator (T6.1) must pass the same corpus.
+
+**`trust_routing` (A544).** `packcheck validate` also reads the pack's `limits/trust_limits.json` (next to the pack file, in the folder of its name) and checks that the routing it names is the pack's own: an escalation reason is a catalogue code produced by a state mapping, a phase's is one produced by a clock mapping, a capability allowed under a freeze is declared and not prohibited, an anchor event is a pack clock's and its entity has an evidence descriptor, and no classification, phase or event is routed twice. It checks no value for being right.

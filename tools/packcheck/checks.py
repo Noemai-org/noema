@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import unicodedata
+import zoneinfo
 from fractions import Fraction
 from pathlib import Path
 
@@ -187,6 +188,54 @@ def check_capabilities(pack: dict) -> list[Problem]:
     return out
 
 
+def check_compensation(pack: dict) -> list[Problem]:
+    """REQ-CAP-004 (A631, A647): recovery is declared, never improvised. A REVERSIBLE or COMPENSABLE capability declares a compensation; an IRREVERSIBLE one declares ESCALATE_ONLY and
+    nothing else; an INVERSE_CAPABILITY names a capability that is itself registered, not prohibited and not the capability itself; a prohibited capability declares no compensation and
+    has no adapter (BD-08, REQ-CAP-002). The shape (the three values, the mapping that goes with an inverse) is capability-descriptor.v2's."""
+    out: list[Problem] = []
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    for cid, c in caps.items():
+        if c["prohibited"]:
+            if "compensation" in c or "inverse_mapping" in c:
+                out.append(("compensation", f"{cid}: a prohibited capability declares no compensation and has no adapter"))
+            continue
+        declared = c.get("compensation")
+        irreversibility = (c.get("consequence_profile") or {}).get("irreversibility")
+        if declared is None:
+            out.append(("compensation", f"{cid}: a {irreversibility or 'registered'} capability needs a declared compensation"))
+            continue
+        if irreversibility == "IRREVERSIBLE" and declared != "ESCALATE_ONLY":
+            out.append(("compensation", f"{cid}: an IRREVERSIBLE capability declares ESCALATE_ONLY and nothing else (it declares {declared})"))
+        if declared == "INVERSE_CAPABILITY":
+            inverse = (c.get("inverse_mapping") or {}).get("capability_id")
+            if inverse == cid:
+                out.append(("compensation", f"{cid}: the inverse capability is itself"))
+            elif inverse not in caps:
+                out.append(("compensation", f"{cid}: the inverse capability {inverse!r} is not registered in the pack"))
+            elif caps[inverse]["prohibited"]:
+                out.append(("compensation", f"{cid}: the inverse capability {inverse} is prohibited"))
+    return out
+
+
+def check_tenant_zone(pack: dict) -> list[Problem]:
+    """A647, A650 (REQ-DATA-002): `tenant_zone` is an IANA zone name the tz database knows. The synthetic tenant uses Africa/Lagos. Fails closed: with no tz database to ask, a zone is refused."""
+    zone = pack.get("tenant_zone")
+    if zone is None:
+        return []
+    try:
+        zoneinfo.ZoneInfo(zone)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
+        return [("tenant_zone", f"tenant_zone {zone!r} is not an IANA zone name the tz database knows")]
+    return []
+
+
+def check_graph_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """A645, A647: an intent node's `action_graph` names a graph the pack declares."""
+    known = {g["graph_id"] for g in graphs.values()}
+    return [("graph_link", f"{n['node_id']}: action_graph {n['action_graph']!r} is not a graph the pack declares")
+            for n in pack["intent_nodes"] if "action_graph" in n and n["action_graph"] not in known]
+
+
 def predicates_of(pack: dict, graphs: dict[str, dict]):
     for o in pack["outcome_definitions"]:
         yield f"{o['outcome_id']}.success_predicate", o["success_predicate"]
@@ -246,6 +295,34 @@ def check_write_when(pack: dict) -> list[Problem]:
         if t != predicate.BOOL:
             out.append(("predicate", f"{where}: must be Boolean, found {t[0]}"))
     return out
+
+
+def check_write_when_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """REQ-TRU-004, REQ-CAP-001 (SR's request on noema#935; INV-01): the Writes rule reads an intent node with no `write_when` as never writing, so the pack data alone decides the
+    direction that draws less scrutiny. A node whose `action_graph` calls an allowed capability that writes (a risk class above R0) therefore carries a `write_when`. A node with no
+    graph, or a graph that only reads, needs none. A graph the pack does not declare is `graph_link`'s to refuse."""
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    by_id = {g["graph_id"]: g for g in graphs.values()}
+    out: list[Problem] = []
+    for n in pack["intent_nodes"]:
+        graph = by_id.get(n.get("action_graph"))
+        if graph is None or "write_when" in n:
+            continue
+        writers = sorted({node["capability_id"] for node in graph["nodes"]
+                          if node["capability_id"] in caps and not caps[node["capability_id"]]["prohibited"] and RANK.get(caps[node["capability_id"]]["risk_class"], 0) >= 1})
+        if writers:
+            out.append(("write_when", f"{n['node_id']}: its action graph {graph['graph_id']} calls {', '.join(writers)}, which write, so the node needs a write_when (a node with none is read as never writing)"))
+    return out
+
+
+def check_recon_rules(doc: object) -> list[Problem]:
+    """A659 (interim, relayed, not yet committed; REQ-RES-005): the pack's rules file is a `recon-rule-set.v1` document. From version 2 each compared pair and each single-valued field
+    declares `convergence_window_seconds` (at least 1); version 1 declares none. A message names the place and the rule, never a value of the document. That a window equals the smaller
+    freshness limit of its pair (A641) is not checked here: it needs the evidence mapping's entity-to-source link."""
+    schemas = validate.load_schemas()
+    errs = validate.validator_for("recon-rule-set", schemas, validate.make_registry(schemas)).iter_errors(doc)
+    found = sorted({(("/".join(map(str, e.absolute_path)) or "(root)"), e.message if e.validator == "required" else f"fails {e.validator}") for e in errs})
+    return [("recon_rules", f"{where}: {what}") for where, what in found[:20]]
 
 
 def check_subject_slot(pack: dict) -> list[Problem]:
@@ -539,6 +616,33 @@ def check_understanding(pack: dict, pack_dir: Path, conformance: bool = False) -
     codes = [loc["code"] for loc in und["locales"]]
     for code in sorted({c for c in codes if codes.count(c) > 1}):
         out.append(("understanding", f"duplicate locale {code}"))
+    return out + check_slot_gates(pack, und)
+
+
+def check_slot_gates(pack: dict, und: dict) -> list[Problem]:
+    """UND-18 (A603, interim; AGENT-16): `understanding.slot_gates` gates OPTIONAL slots that have a closed list of values (a `vocabulary`, or `references`). The threshold range is the
+    schema's (integer basis points, 1 to 10000). Here: the slot exists in some node, no declaration of it is required, every declaration has a closed list, and a slot is gated once.
+    A gate on a required slot would let doubt drop a value the node cannot do without; one without a closed list has nothing to pick from."""
+    out: list[Problem] = []
+    gates = und.get("slot_gates") or []
+    declared: dict[str, list[dict]] = {}
+    for node in pack["intent_nodes"]:
+        for slot in node.get("slots", []):
+            declared.setdefault(slot["name"], []).append(slot)
+    names = [g["slot"] for g in gates]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        out.append(("understanding", f"slot gate on {name} is declared twice"))
+    for name in dict.fromkeys(names):
+        slots = declared.get(name)
+        if not slots:
+            out.append(("understanding", f"slot gate on {name}: no node declares such a slot"))
+            continue
+        if sum(1 for node in pack["intent_nodes"] if any(s["name"] == name for s in node.get("slots", []))) > 1:
+            out.append(("understanding", f"slot gate on {name}: the slot is declared by more than one node; a gate belongs to one node"))
+        if any(s.get("required") is True for s in slots):
+            out.append(("understanding", f"slot gate on {name}: the slot is required in a node; only an optional slot may be gated"))
+        if any(s.get("vocabulary") is None and s.get("references") is None for s in slots):
+            out.append(("understanding", f"slot gate on {name}: the slot has no closed list of values to pick from"))
     return out
 
 
@@ -619,9 +723,19 @@ MANIFEST_KINDS = {
     "evidence_mapping": ("fintech/evidence_mapping", "*.json"),
     "recon_rules": ("fintech/recon_rules", "*.json"),
     "action_graph": ("fintech/graph", "*.json"),  # A510
+    "limits": ("fintech/limits", "*.json"),  # A544: every limits file of the folder is pinned
+    "injection_patterns": ("fintech/context", "*.json"),  # A645, A664: exactly one from manifest version 4, none or one below it, always with its expected id
+    "priority_routing": ("fintech/routing", "*.json"),  # PCK-09, A644: at most one
 }
 # The kinds the manifest lists exactly once. `action_graph` is listed once for each path the pack file names in `action_graph_files` (A510), and for no other.
+# `injection_patterns` is not here: A645 pins the injection-screen patterns too, with `expected.injection_patterns_id`, and A664 (interim, the A579 pattern) makes it required only from manifest
+# version MANIFEST_INJECTION_FROM_VERSION: exactly one file from that version, none or one below it (see `_injection_problems`).
 SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
+# `limits` is listed once for each file of the pack's limits folder (A544) and may be listed for none: the kind is additive.
+MANIFEST_INJECTION_FROM_VERSION = 4  # A664 (interim): the first manifest version that must list the injection patterns
+# `priority_routing` is listed at most once (PCK-09, A644); the pack that lists it is held to its schema and to the pack's own phases and queues.
+OPTIONAL_KINDS = ("priority_routing",)
+PRIORITY_ROUTING_SCHEMA = ROOT / "packs/schemas/priority_routing.v1.json"
 WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -682,6 +796,35 @@ def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Prob
     return out
 
 
+MANIFEST_LIMITS_FROM_VERSION = 3  # A579 (interim): the first manifest version that must list the limits files
+
+
+def _injection_problems(doc) -> list[Problem]:
+    """A664 (interim; the A579 pattern): from manifest version MANIFEST_INJECTION_FROM_VERSION the manifest lists exactly one `injection_patterns` file and names `expected.injection_patterns_id`; below it
+    both may be absent. The file and its id go together at every version, and no manifest lists two files of the kind. A manifest below the gate that lists none carries no pattern data, and the core then
+    builds no screen from the pack (there is no empty Detector). The schema says the same; this names the version and the rule."""
+    if not isinstance(doc, dict):
+        return []
+    version, files, expected = doc.get("version"), doc.get("files"), doc.get("expected")
+    if not isinstance(version, int) or isinstance(version, bool) or not isinstance(files, list):
+        return []  # the schema names these
+    listed = sum(1 for f in files if isinstance(f, dict) and f.get("kind") == "injection_patterns")
+    named = isinstance(expected, dict) and "injection_patterns_id" in expected
+    gated = version >= MANIFEST_INJECTION_FROM_VERSION
+    out: list[Problem] = []
+    if gated and listed != 1:
+        out.append(("manifest", f"a manifest of version {version} must list exactly one injection_patterns file (A664); it lists {listed}"))
+    elif not gated and listed > 1:
+        out.append(("manifest", f"a manifest of version {version} lists none or one injection_patterns file (A664); it lists {listed}"))
+    if listed and not named:
+        out.append(("manifest", "the manifest lists an injection_patterns file but names no expected.injection_patterns_id"))
+    elif named and not listed:
+        out.append(("manifest", "the manifest names expected.injection_patterns_id but lists no injection_patterns file"))
+    elif gated and not named:
+        out.append(("manifest", f"a manifest of version {version} must name expected.injection_patterns_id (A664)"))
+    return out
+
+
 def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
     evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
@@ -700,6 +843,13 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
         if why:
             out.append(("manifest", f"{_shown(f['path'])} {why}"))
             named.add(("files", str(i), "path"))
+    # A579 (interim; SOT-C-33): a manifest of version 3 or later lists its limits files; there is no opt-in. The schema says the same; this names the version.
+    version = doc.get("version") if isinstance(doc, dict) else None
+    if isinstance(version, int) and not isinstance(version, bool) and version >= MANIFEST_LIMITS_FROM_VERSION and isinstance(raw, list) \
+            and not any(isinstance(f, dict) and f.get("kind") == "limits" for f in raw):
+        out.append(("manifest", f"a manifest of version {version} must list its limits files (A579); it lists none"))
+        named.add(("files",))
+    out += _injection_problems(doc)
     errs = sorted(validate.StrictValidator(validate.load_strict(MANIFEST_SCHEMA)).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
     errs = [e for e in errs if tuple(map(str, e.absolute_path)) not in named]
     if errs or out:
@@ -709,6 +859,9 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     for kind, entries in by_kind.items():
         if kind in SINGLE_KINDS and len(entries) != 1:
             out.append(("manifest", f"the manifest must list exactly one {kind} file, it lists {len(entries)}"))
+        if kind in OPTIONAL_KINDS and len(entries) > 1:
+            out.append(("manifest", f"the manifest must list at most one {kind} file, it lists {len(entries)}"))
+
     seen: set[str] = set()
     readable: dict[str, Path] = {}
     for f in files:
@@ -745,6 +898,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
         base = root / folder
         if not base.is_dir():
             continue
+        if kind == "injection_patterns" and not by_kind[kind] and doc["version"] < MANIFEST_INJECTION_FROM_VERSION:
+            continue  # A664: a manifest below the gate that lists none carries no pattern data; the loader serves nothing it does not pin and does not scan for the kind either
         for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
             if folder == "":
                 dirnames[:] = []  # the pack folder itself: only its own files, not the whole tree
@@ -762,7 +917,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
                 out.append(("manifest", f"{rel}{suffix} is a {kind} file and is not listed in the manifest"))
     out += _graph_set_problems(by_kind["action_graph"], readable.get("pack"))
     expected = doc["expected"]
-    for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id")):
+    for kind, id_key, want_key in (("evidence_mapping", "mapping_id", "evidence_mapping_id"), ("recon_rules", "ruleset_id", "recon_rule_set_id"),
+                                   ("injection_patterns", "pack_id", "injection_patterns_id")):
         path = readable.get(kind)
         if path is None:
             continue
@@ -777,8 +933,113 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             out.append(("manifest", f"{rel} carries no usable {id_key} and integer version"))
         elif carried != expected[want_key]:
             out.append(("manifest", f"{rel} carries {carried}, the manifest expects {want_key} {expected[want_key]}"))
+        if kind == "recon_rules":
+            out += [("manifest", f"{rel} is not a valid rule set: {m}") for _, m in check_recon_rules(body)]
         if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
             out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
+    out += _priority_routing_problems(readable.get("priority_routing"), readable.get("pack"), root)
+    return out
+
+
+def _priority_routing_problems(member: Path | None, pack_file: Path | None, root: Path) -> list[Problem]:
+    """PCK-09 (A644, A616): the priority routing member is valid against its schema (priority HIGH|NORMAL|LOW, a non-empty owner queue, nothing unknown), and every phase it
+    routes is one the verified pack names in predicate_variables.sla_phase and every queue is one of the pack's routing_allowlist. A660: every phase of sla_phase
+    (the clock statuses; a test ties the list to trust/clocks) must have an entry."""
+    if member is None:
+        return []
+    rel = member.relative_to(root).as_posix() if not member.is_symlink() else member.name
+    try:
+        body = validate.load_strict(member)
+    except (ValueError, UnicodeDecodeError) as exc:
+        return [("manifest", f"{rel} (priority_routing) is not valid JSON: {str(exc)[:100]}")]
+    errs = sorted(validate.StrictValidator(validate.load_strict(PRIORITY_ROUTING_SCHEMA)).iter_errors(body), key=lambda e: list(map(str, e.absolute_path)))
+    if errs:
+        return [("manifest", f"{rel} (priority_routing) {'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}") for e in errs]
+    if pack_file is None:
+        return []
+    try:
+        pack = json.loads(pack_file.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return []  # the pack file's own problems are reported elsewhere; its phases and queues cannot be read
+    phases = ((pack.get("predicate_variables") or {}).get("sla_phase") or {}).get("values") if isinstance(pack, dict) else None
+    queues = pack.get("routing_allowlist") if isinstance(pack, dict) else None
+    out: list[Problem] = []
+    for phase, e in body["phases"].items():
+        if not isinstance(phases, list) or phase not in phases:
+            out.append(("manifest", f"{rel} (priority_routing): phase {phase!r} is not one the pack's sla_phase names"))
+        if not isinstance(queues, list) or e["owner_queue"] not in queues:
+            out.append(("manifest", f"{rel} (priority_routing): phase {phase!r} routes to {e['owner_queue']!r}, which is not in the pack's routing_allowlist"))
+    for phase in phases if isinstance(phases, list) else []:
+        if phase not in body["phases"]:
+            out.append(("manifest", f"{rel} (priority_routing): the pack's sla_phase {phase!r} has no entry"))
+    return out
+
+
+def check_limits_schema(limits: dict) -> list[Problem]:
+    """A609 (interim; AGENT-15, AGENT-16): the shipped trust-limits file is validated against the trust-limits.v2 JSON Schema itself, so a file without the ceiling, a v1-shaped file and a
+    file with an unknown member fail here whatever the hand-written routing rules say. The message names the member, never a value."""
+    schemas = validate.load_schemas()
+    registry = validate.make_registry(schemas)
+    errs = validate.validator_for("trust-limits.v2", schemas, registry).iter_errors(limits)
+    return [("trust_limits", f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:140]}") for e in errs]
+
+
+def check_trust_routing(pack: dict, limits: dict) -> list[Problem]:
+    """A544 (interim; PERD v1.23 23.1, 23.3, 23.5, REQ-RES-002): the routing members of the pack's trust-limits document name only what the pack declares. An escalation reason of a classification
+    is a catalogue code the pack produces from a state mapping, a clock phase's is one it produces from a clock mapping, a capability allowed under a freeze is a declared capability that is not
+    prohibited, and an anchor event is one a pack clock names, read from an entity the pack's evidence descriptors declare, at a field that descriptor declares as a Timestamp (A575). A classification, a phase or an event is routed at most once.
+    No value is checked for being right: a value the documents do not state is not in the file (AGENT-16), and is an open decision, not a check."""
+    out: list[Problem] = []
+
+    def bad(msg: str) -> None:
+        out.append(("trust_routing", msg))
+
+    if limits.get("schema_version") != "2.0":  # A596 (interim): trust-limits is v2 and a v1 file has no compatibility path
+        bad(f"schema_version {limits.get('schema_version')!r} is not 2.0: the pack's trust-limits document is trust-limits.v2 and a v1 file is refused (A596)")
+    if limits.get("pack_id") != pack["pack_id"]:
+        bad(f"pack_id {limits.get('pack_id')!r} is not the pack's {pack['pack_id']!r}")
+    produced = {r["code"]: r.get("produced_by") for r in pack["reason_catalogue"]}
+
+    def reason(code: str, producer: str, where: str) -> None:
+        if code not in produced:
+            bad(f"{where}: reason code {code!r} is not in the pack's catalogue")
+        elif produced[code] != producer:
+            bad(f"{where}: reason code {code!r} is produced by {produced[code]}, not {producer}")
+
+    def once(keys: list, what: str) -> None:
+        for k in sorted({k for k in keys if keys.count(k) > 1}):
+            bad(f"{what} {k!r} is routed twice")
+
+    entries = limits.get("escalation_reasons", [])
+    once([e["classification"] for e in entries], "classification")
+    for e in entries:
+        reason(e["reason_code"], "STATE_MAPPING", f"escalation_reasons[{e['classification']}]")
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    for cid in limits.get("allowed_under_freeze", []):
+        if cid not in caps:
+            bad(f"allowed_under_freeze: capability {cid!r} is not declared by the pack")
+        elif caps[cid]["prohibited"]:
+            bad(f"allowed_under_freeze: capability {cid!r} is prohibited")
+    phases = limits.get("phase_routes", [])
+    once([e["phase"] for e in phases], "phase")
+    for e in phases:
+        reason(e["reason_code"], "CLOCK_MAPPING", f"phase_routes[{e['phase']}]")
+    anchors = limits.get("anchor_entities", [])
+    once([e["event"] for e in anchors], "event")
+    events = {c["anchor_event"] for c in pack.get("clocks", [])}
+    descriptors = {d["entity"]: d for d in pack.get("evidence_descriptors", [])}
+    for e in anchors:
+        if e["event"] not in events:
+            bad(f"anchor_entities: event {e['event']!r} is not the anchor event of any pack clock")
+        if e["entity"] not in descriptors:
+            bad(f"anchor_entities: entity {e['entity']!r} has no evidence descriptor in the pack")
+            continue
+        # A575 (interim): the field a clock's anchor is read from is a field the entity's descriptor declares, and a Timestamp.
+        declared = descriptors[e["entity"]].get("fields", {})
+        if e["field"] not in declared:
+            bad(f"anchor_entities: field {e['field']!r} is not declared by the descriptor of entity {e['entity']!r}")
+        elif declared[e["field"]].get("type") != "Timestamp":
+            bad(f"anchor_entities: field {e['field']!r} of entity {e['entity']!r} is a {declared[e['field']].get('type')}, not a Timestamp")
     return out
 
 
@@ -802,10 +1063,19 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs) + check_write_when(pack) + check_subject_slot(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
+    # A544: the pack's trust-limits document sits in the pack's own folder (`fintech_v1.json` is of `fintech/`); a pack with none (a conformance pack) has no routing to check.
+    limits_path = pack_path.parent / pack_path.stem.rsplit("_v", 1)[0] / "limits" / "trust_limits.json"
+    if limits_path.is_file():
+        try:
+            limits = validate.load_strict(limits_path)
+        except ValueError as exc:
+            problems.append(("trust_routing", str(exc)))
+        else:
+            problems += check_limits_schema(limits) + check_trust_routing(pack, limits)
     if templates == "enforce":
         problems += check_templates(pack, pack_path.parent)
     return problems

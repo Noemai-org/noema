@@ -1,0 +1,11 @@
+{
+  "clock_id": "fin.clock.complaint_resolution",
+  "label": "SYNTHETIC",
+  "phase": "RUNNING",
+  "started_at": 1790000000,
+  "deadline_at": 1790259200,
+  "elapsed": 3600,
+  "remaining": 255600,
+  "priority_raised": false,
+  "reroute": false
+}
