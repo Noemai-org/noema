@@ -53,26 +53,27 @@ type AnswerInput struct {
 	ApproverID string
 	Roles      []string
 	Response   confirm.Response
+	// ApproverKind is the actor kind of the Record event of the answer: the role the session gave the answerer (a principal kind of the Record's actors table, such as approver or
+	// customer), never a request field (INV-12, A724).
+	ApproverKind string
 	// There is no time field: answered_at is the database's now() (A368 (ii)). The store records the roles as the session gave them and does not re-check eligibility: the route is the check.
 }
 
-// RequestedEvent, ReceivedEvent and ExpiredEvent are what the Record gets (CONFIRMATION_REQUESTED, CONFIRMATION_RECEIVED, CONFIRMATION_EXPIRED).
+// ReceivedEvent and ExpiredEvent are what the Record gets (CONFIRMATION_RECEIVED, CONFIRMATION_EXPIRED). CONFIRMATION_REQUESTED is the Recorder's: its Writer appends it in the
+// transaction of the CONFIRM decision (A552), so this store never does.
 type (
-	RequestedEvent struct {
-		TenantID, CorrelationID, RequestID, BindingHash, Requirement, Supersedes string
-	}
 	ReceivedEvent struct {
-		TenantID, CorrelationID, RequestID, EventID, ApproverID string
-		Accepted                                                bool
+		TenantID, CorrelationID, RequestID, EventID, ApproverID, ApproverKind string
+		Accepted                                                              bool
 	}
 	ExpiredEvent struct{ TenantID, CorrelationID, RequestID string }
 )
 
-// RequestEvents appends the Record events of the path. The store calls it before it commits: if the append fails, nothing is stored.
+// RequestEvents appends the Record events of the path in the store's own transaction (A710, A724): the store passes its transaction, so the event and the row commit together or not at
+// all. If the append fails, nothing is stored.
 type RequestEvents interface {
-	Requested(ctx context.Context, e RequestedEvent) error
-	Received(ctx context.Context, e ReceivedEvent) error
-	Expired(ctx context.Context, e ExpiredEvent) error
+	Received(ctx context.Context, tx pgx.Tx, e ReceivedEvent) error
+	Expired(ctx context.Context, tx pgx.Tx, e ExpiredEvent) error
 }
 
 // Requests stores confirmation requests and answers (migration 0032) as the Trust login of one tenant.
@@ -238,7 +239,7 @@ func (r Requests) Expire(ctx context.Context, tenantID, requestID string) error 
 		}
 		return nil // recorded before
 	}
-	if err := r.Events.Expired(ctx, ExpiredEvent{TenantID: tenantID, CorrelationID: correlation, RequestID: requestID}); err != nil {
+	if err := r.Events.Expired(ctx, tx, ExpiredEvent{TenantID: tenantID, CorrelationID: correlation, RequestID: requestID}); err != nil {
 		return fmt.Errorf("trustpg2: record CONFIRMATION_EXPIRED: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -300,7 +301,7 @@ func (r Requests) Answer(ctx context.Context, a AnswerInput) (string, error) {
 		}
 		return stored, nil
 	}
-	if err := r.Events.Received(ctx, ReceivedEvent{TenantID: a.TenantID, CorrelationID: correlation, RequestID: a.RequestID, EventID: event, ApproverID: a.ApproverID,
+	if err := r.Events.Received(ctx, tx, ReceivedEvent{TenantID: a.TenantID, CorrelationID: correlation, RequestID: a.RequestID, EventID: event, ApproverID: a.ApproverID, ApproverKind: a.ApproverKind,
 		Accepted: a.Response == confirm.Accept}); err != nil {
 		return "", fmt.Errorf("trustpg2: record CONFIRMATION_RECEIVED: %w", err)
 	}

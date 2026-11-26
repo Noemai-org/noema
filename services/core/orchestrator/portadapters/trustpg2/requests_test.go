@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
@@ -35,7 +36,7 @@ type reqSink struct {
 
 var errReqSink = errors.New("the Record refused the append")
 
-func (s *reqSink) Requested(_ context.Context, e trustpg2.RequestedEvent) error {
+func (s *reqSink) Requested(_ context.Context, _ pgx.Tx, e trustpg2.RequestedEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail {
@@ -45,7 +46,7 @@ func (s *reqSink) Requested(_ context.Context, e trustpg2.RequestedEvent) error 
 	return nil
 }
 
-func (s *reqSink) Received(_ context.Context, e trustpg2.ReceivedEvent) error {
+func (s *reqSink) Received(_ context.Context, _ pgx.Tx, e trustpg2.ReceivedEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail {
@@ -55,7 +56,7 @@ func (s *reqSink) Received(_ context.Context, e trustpg2.ReceivedEvent) error {
 	return nil
 }
 
-func (s *reqSink) Expired(_ context.Context, e trustpg2.ExpiredEvent) error {
+func (s *reqSink) Expired(_ context.Context, _ pgx.Tx, e trustpg2.ExpiredEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail {
