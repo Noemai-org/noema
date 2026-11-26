@@ -700,3 +700,52 @@ func TestTheGeneratedMoneyTypeRefusesTheNonIntegerAndOffEnumWireForms(t *testing
 		t.Fatalf("the generated money type refuses a good value: %v", err)
 	}
 }
+
+// A689 round 2 (Codex P2-1 and P2-2, SR): the request's amount range is held to the same contract as a candidate's amount, before the source is called. MoneyV1MinorAmount is only an int64, so
+// both bounds are checked against the contract's maximum (read from money.v1.json, the same bound as the answer's), and the currency through the generated money.v1 currency type: USD, EUR and GBP
+// are refused (the POC set is NGN), and so are an empty and a lower-case code. A refusal is the existing fixed-text refusal of the request (ErrRequest), and the counting source double sees no call.
+func TestARangeAboveTheContractsMaximumOrInAnotherCurrencyIsRefusedBeforeTheSource(t *testing.T) {
+	max := moneyMaximum(t)
+	rng := func(lo, hi int64, cur string) contracts.CandidatesRequestV1 {
+		req := request()
+		req.Filters.AmountRange = &contracts.CandidatesRequestV1AmountRange{MinMinor: contracts.MoneyV1MinorAmount(lo), MaxMinor: contracts.MoneyV1MinorAmount(hi), Currency: contracts.MoneyV1CurrencyCode(cur)}
+		return req
+	}
+	refused := map[string]contracts.CandidatesRequestV1{
+		"min above the maximum":          rng(max+1, max+1, "NGN"),
+		"max above the maximum":          rng(0, max+1, "NGN"),
+		"both far above the maximum":     rng(max*2, max*2, "NGN"),
+		"min 1 and max the int64 limit":  rng(1, 1<<62, "NGN"),
+		"min negative":                   rng(-1, 5, "NGN"),
+		"max negative":                   rng(0, -1, "NGN"),
+		"USD":                            rng(1, 5, "USD"),
+		"EUR":                            rng(1, 5, "EUR"),
+		"GBP":                            rng(1, 5, "GBP"),
+		"an empty currency":              rng(1, 5, ""),
+		"a lower-case currency":          rng(1, 5, "ngn"),
+		"a currency of the wrong length": rng(1, 5, "NG"),
+		"a zero range in USD":            rng(0, 0, "USD"),
+	}
+	for name, req := range refused {
+		s := world()
+		resp, err := reader(t, s).Read(context.Background(), req)
+		if !errors.Is(err, candidates_api.ErrRequest) || len(resp.Candidates) != 0 || resp.TenantId != "" || len(s.got) != 0 {
+			t.Errorf("%s: err = %v, candidates = %d, source calls = %d; want ErrRequest, nothing and no call", name, err, len(resp.Candidates), len(s.got))
+		}
+		if err != nil && (strings.Contains(err.Error(), "USD") || strings.Contains(err.Error(), "EUR") || strings.Contains(err.Error(), "9007")) {
+			t.Errorf("%s: the error carries a value: %q", name, err.Error())
+		}
+	}
+	for name, req := range map[string]contracts.CandidatesRequestV1{
+		"the maximum itself":     rng(0, max, "NGN"),
+		"both at the maximum":    rng(max, max, "NGN"),
+		"one below the maximum":  rng(max-1, max, "NGN"),
+		"a small range in NGN":   rng(1, 5, "NGN"),
+		"a range of exactly one": rng(1, 1, "NGN"),
+	} {
+		s := world()
+		if _, err := reader(t, s).Read(context.Background(), req); err != nil || len(s.got) != 1 {
+			t.Errorf("%s: err = %v, source calls = %d; want it accepted with one call", name, err, len(s.got))
+		}
+	}
+}
