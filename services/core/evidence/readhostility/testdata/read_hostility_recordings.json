@@ -1,0 +1,1371 @@
+{
+  "_provenance": {
+    "label": "SYNTHETIC. Faulted reads of a transaction (ledger, switch, destination) for the Evidence read path (EVD-05, the hostility-proxy part, A717; REQ-CTX-008).",
+    "method": "The real hostility proxy (benchmark/hostility_proxy, config/routes.standin.json), over a real connection, with one fault from a real fault plan (seed 17), in front of a test-only upstream that answers in the stand-in's wire shape. Nothing is written by hand. An exchange with outcome dropped had no answer; hold_ms is the hold the effect asks for.",
+    "regenerate": "NOEMA_RECORD_READ_HOSTILITY=1 go test ./internal/proxy -run TestReadHostilityExchanges (from benchmark/hostility_proxy). That test regenerates the file in memory and fails if the committed copy differs."
+  },
+  "exchanges": [
+    {
+      "scenario": "ledger__baseline",
+      "read": "ledger",
+      "family": "baseline",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "",
+      "params": null,
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__http_500",
+      "read": "ledger",
+      "family": "http_500",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "HTTP_5XX",
+      "params": {
+        "status": 500
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 500,
+        "content_type": "application/json",
+        "body": "{\"error\":\"upstream failure\"}\n"
+      }
+    },
+    {
+      "scenario": "ledger__service_unavailable",
+      "read": "ledger",
+      "family": "service_unavailable",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "SERVICE_UNAVAILABLE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 503,
+        "content_type": "application/json",
+        "body": "{\"error\":\"service unavailable\"}\n"
+      }
+    },
+    {
+      "scenario": "ledger__http_429_retry_after",
+      "read": "ledger",
+      "family": "http_429_retry_after",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "retry_after": "7",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "ledger__http_429_no_retry_after",
+      "read": "ledger",
+      "family": "http_429_no_retry_after",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "HTTP_429",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "ledger__truncated_body",
+      "read": "ledger",
+      "family": "truncated_body",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "MALFORMED_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at"
+      }
+    },
+    {
+      "scenario": "ledger__invalid_json",
+      "read": "ledger",
+      "family": "invalid_json",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "INVALID_JSON",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false,}"
+      }
+    },
+    {
+      "scenario": "ledger__wrong_content_type",
+      "read": "ledger",
+      "family": "wrong_content_type",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__empty_body_success",
+      "read": "ledger",
+      "family": "empty_body_success",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "EMPTY_BODY_SUCCESS",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "ledger__drift_add",
+      "read": "ledger",
+      "family": "drift_add",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false,\"unexpected_field\":\"synthetic_extra_value\"}"
+      }
+    },
+    {
+      "scenario": "ledger__drift_remove",
+      "read": "ledger",
+      "family": "drift_remove",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "entries"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__drift_rename",
+      "read": "ledger",
+      "family": "drift_rename",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "rename",
+        "field": "entries"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries_renamed\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__drift_unknown_enum",
+      "read": "ledger",
+      "family": "drift_unknown_enum",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "unknown_enum",
+        "field": "posting_status"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"UNKNOWN_ENUM_VALUE\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__clock_skew_ahead",
+      "read": "ledger",
+      "family": "clock_skew_ahead",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": 900
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:25:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__clock_skew_behind",
+      "read": "ledger",
+      "family": "clock_skew_behind",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": -900
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T06:55:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__latency",
+      "read": "ledger",
+      "family": "latency",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "LATENCY",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__near_timeout_before",
+      "read": "ledger",
+      "family": "near_timeout_before",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "NEAR_TIMEOUT_BEFORE",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__near_timeout_after",
+      "read": "ledger",
+      "family": "near_timeout_after",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "NEAR_TIMEOUT_AFTER",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger__timeout_before_commit",
+      "read": "ledger",
+      "family": "timeout_before_commit",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "TIMEOUT_BEFORE_COMMIT",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "dropped",
+      "hold_ms": 150,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "ledger__timeout_after_commit",
+      "read": "ledger",
+      "family": "timeout_after_commit",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "TIMEOUT_AFTER_COMMIT",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "dropped",
+      "hold_ms": 150,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "ledger__drop_response",
+      "read": "ledger",
+      "family": "drop_response",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "DROP_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "dropped",
+      "hold_ms": 0,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "ledger__stale_read",
+      "read": "ledger",
+      "family": "stale_read",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "STALE_READ",
+      "params": {
+        "seconds": 5
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/ledger-entries"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "served": "stale",
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_1\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"PENDING\",\"transaction_ref\":\"TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__baseline",
+      "read": "switch",
+      "family": "baseline",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "",
+      "params": null,
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__http_500",
+      "read": "switch",
+      "family": "http_500",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_5XX",
+      "params": {
+        "status": 500
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 500,
+        "content_type": "application/json",
+        "body": "{\"error\":\"upstream failure\"}\n"
+      }
+    },
+    {
+      "scenario": "switch__service_unavailable",
+      "read": "switch",
+      "family": "service_unavailable",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SERVICE_UNAVAILABLE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 503,
+        "content_type": "application/json",
+        "body": "{\"error\":\"service unavailable\"}\n"
+      }
+    },
+    {
+      "scenario": "switch__http_429_retry_after",
+      "read": "switch",
+      "family": "http_429_retry_after",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "retry_after": "7",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "switch__http_429_no_retry_after",
+      "read": "switch",
+      "family": "http_429_no_retry_after",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_429",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "switch__truncated_body",
+      "read": "switch",
+      "family": "truncated_body",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "MALFORMED_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "scenario": "switch__invalid_json",
+      "read": "switch",
+      "family": "invalid_json",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "INVALID_JSON",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false,}"
+      }
+    },
+    {
+      "scenario": "switch__wrong_content_type",
+      "read": "switch",
+      "family": "wrong_content_type",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__empty_body_success",
+      "read": "switch",
+      "family": "empty_body_success",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "EMPTY_BODY_SUCCESS",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "switch__drift_add",
+      "read": "switch",
+      "family": "drift_add",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false,\"unexpected_field\":\"synthetic_extra_value\"}"
+      }
+    },
+    {
+      "scenario": "switch__drift_remove",
+      "read": "switch",
+      "family": "drift_remove",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "semantic_status"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__drift_rename",
+      "read": "switch",
+      "family": "drift_rename",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "rename",
+        "field": "semantic_status"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status_renamed\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__drift_unknown_enum",
+      "read": "switch",
+      "family": "drift_unknown_enum",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "unknown_enum",
+        "field": "semantic_status"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"UNKNOWN_ENUM_VALUE\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__clock_skew_ahead",
+      "read": "switch",
+      "family": "clock_skew_ahead",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": 900
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:25:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__clock_skew_behind",
+      "read": "switch",
+      "family": "clock_skew_behind",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": -900
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T06:55:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__latency",
+      "read": "switch",
+      "family": "latency",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "LATENCY",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__near_timeout_before",
+      "read": "switch",
+      "family": "near_timeout_before",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "NEAR_TIMEOUT_BEFORE",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__near_timeout_after",
+      "read": "switch",
+      "family": "near_timeout_after",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "NEAR_TIMEOUT_AFTER",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch__timeout_before_commit",
+      "read": "switch",
+      "family": "timeout_before_commit",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "TIMEOUT_BEFORE_COMMIT",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "dropped",
+      "hold_ms": 150,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "switch__timeout_after_commit",
+      "read": "switch",
+      "family": "timeout_after_commit",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "TIMEOUT_AFTER_COMMIT",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "dropped",
+      "hold_ms": 150,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "switch__drop_response",
+      "read": "switch",
+      "family": "drop_response",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "DROP_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "dropped",
+      "hold_ms": 0,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "switch__stale_read",
+      "read": "switch",
+      "family": "stale_read",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "STALE_READ",
+      "params": {
+        "seconds": 5
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/switch-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "served": "stale",
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"PENDING\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__baseline",
+      "read": "destination",
+      "family": "baseline",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "",
+      "params": null,
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__http_500",
+      "read": "destination",
+      "family": "http_500",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "HTTP_5XX",
+      "params": {
+        "status": 500
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 500,
+        "content_type": "application/json",
+        "body": "{\"error\":\"upstream failure\"}\n"
+      }
+    },
+    {
+      "scenario": "destination__service_unavailable",
+      "read": "destination",
+      "family": "service_unavailable",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "SERVICE_UNAVAILABLE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 503,
+        "content_type": "application/json",
+        "body": "{\"error\":\"service unavailable\"}\n"
+      }
+    },
+    {
+      "scenario": "destination__http_429_retry_after",
+      "read": "destination",
+      "family": "http_429_retry_after",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "retry_after": "7",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "destination__http_429_no_retry_after",
+      "read": "destination",
+      "family": "http_429_no_retry_after",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "HTTP_429",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "destination__truncated_body",
+      "read": "destination",
+      "family": "truncated_body",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "MALFORMED_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:"
+      }
+    },
+    {
+      "scenario": "destination__invalid_json",
+      "read": "destination",
+      "family": "invalid_json",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "INVALID_JSON",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false,}"
+      }
+    },
+    {
+      "scenario": "destination__wrong_content_type",
+      "read": "destination",
+      "family": "wrong_content_type",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__empty_body_success",
+      "read": "destination",
+      "family": "empty_body_success",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "EMPTY_BODY_SUCCESS",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "destination__drift_add",
+      "read": "destination",
+      "family": "drift_add",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false,\"unexpected_field\":\"synthetic_extra_value\"}"
+      }
+    },
+    {
+      "scenario": "destination__drift_remove",
+      "read": "destination",
+      "family": "drift_remove",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "credit_state"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__drift_rename",
+      "read": "destination",
+      "family": "drift_rename",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "rename",
+        "field": "credit_state"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state_renamed\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__drift_unknown_enum",
+      "read": "destination",
+      "family": "drift_unknown_enum",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "unknown_enum",
+        "field": "credit_state"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"UNKNOWN_ENUM_VALUE\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__clock_skew_ahead",
+      "read": "destination",
+      "family": "clock_skew_ahead",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": 900
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:25:00+01:00\",\"observed_at\":\"2026-10-01T09:55:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__clock_skew_behind",
+      "read": "destination",
+      "family": "clock_skew_behind",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": -900
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T06:55:00+01:00\",\"observed_at\":\"2026-10-01T09:25:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__latency",
+      "read": "destination",
+      "family": "latency",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "LATENCY",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__near_timeout_before",
+      "read": "destination",
+      "family": "near_timeout_before",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "NEAR_TIMEOUT_BEFORE",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__near_timeout_after",
+      "read": "destination",
+      "family": "near_timeout_after",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "NEAR_TIMEOUT_AFTER",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 150,
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination__timeout_before_commit",
+      "read": "destination",
+      "family": "timeout_before_commit",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "TIMEOUT_BEFORE_COMMIT",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "dropped",
+      "hold_ms": 150,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "destination__timeout_after_commit",
+      "read": "destination",
+      "family": "timeout_after_commit",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "TIMEOUT_AFTER_COMMIT",
+      "params": {
+        "delay_ms": 150
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "dropped",
+      "hold_ms": 150,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "destination__drop_response",
+      "read": "destination",
+      "family": "drop_response",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "DROP_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "dropped",
+      "hold_ms": 0,
+      "response": {
+        "status": 0,
+        "content_type": "",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "destination__stale_read",
+      "read": "destination",
+      "family": "stale_read",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "STALE_READ",
+      "params": {
+        "seconds": 5
+      },
+      "request": {
+        "path": "/standin/v1/transactions/TX1/destination-status"
+      },
+      "outcome": "answered",
+      "hold_ms": 0,
+      "served": "stale",
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"PENDING\",\"synthetic\":true,\"tenant_id\":\"ten_aa\",\"transaction_ref\":\"TX1\",\"unavailable\":false}"
+      }
+    }
+  ]
+}
