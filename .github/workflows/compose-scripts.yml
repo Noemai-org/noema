@@ -65,6 +65,12 @@ jobs:
       - name: core-keys init test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: python3 -I deploy/compose/core-keys/test_init.py
+      - name: core-tls init test (runner; A667)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/core-tls/test_init.py
+      - name: journey principals (A683)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: python3 -I deploy/compose/test_journey_principals.py
       - name: operator-dsn init test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: python3 -I deploy/compose/operator-dsn/test_init.py

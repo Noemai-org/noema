@@ -49,6 +49,14 @@ class PackV1UnderstandingRankingWeights(ContractModel):
     type_direction: PackV1ExactNumber
 
 
+class PackV1UnderstandingSlotGatesItem(ContractModel):
+    """PackV1UnderstandingSlotGatesItem Source: pack.v1.json#$defs/Understanding/properties/slot_gates/items"""
+
+    model_config = ConfigDict(extra="forbid")
+    slot: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
+    assertion_threshold_bp: Annotated[int, Field(ge=1, le=10000)]
+
+
 class PackV1UnderstandingStateFlags(ContractModel):
     """The flag each non-resolving ranking state raises. Source: pack.v1.json#$defs/Understanding/properties/state_flags"""
 
@@ -106,6 +114,7 @@ class PackV1Understanding(ContractModel):
     intent_unclear_flag: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     out_of_scope_flag: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     state_flags: PackV1UnderstandingStateFlags
+    slot_gates: Annotated[list[PackV1UnderstandingSlotGatesItem], Field(min_length=1)] | None = Field(default=None)
 
 
 class PackV1(ContractModel):
@@ -139,6 +148,7 @@ PackV1UnderstandingLocalesItem.model_rebuild()
 PackV1UnderstandingProposableFlagsItem.model_rebuild()
 PackV1UnderstandingRanking.model_rebuild()
 PackV1UnderstandingRankingWeights.model_rebuild()
+PackV1UnderstandingSlotGatesItem.model_rebuild()
 PackV1UnderstandingStateFlags.model_rebuild()
 PackV1CaseReasonsItem.model_rebuild()
 PackV1HandoffRoutesItem.model_rebuild()

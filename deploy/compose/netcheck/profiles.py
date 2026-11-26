@@ -131,6 +131,7 @@ NETWORKS = {
     "hostility-proxy-credentials": set(),
     "standin-credentials": set(),
     "grant-keys-init": set(),
+    "core-tls-init": set(),
     "trust-dsn-init": set(),
     "core-keys-init": set(),
     "operator-dsn-init": set(),
@@ -142,7 +143,7 @@ NETWORKS = {
     "policy-publish": {"data_net"},
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init"}
+SIDECARS = {"core-tls-init", "mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
@@ -162,12 +163,12 @@ EXTERNAL = {"provider_egress", "ui_publish_net", "tushe_egress"}
 # The services each profile must build, written out here (PERD section 65.1). A missing service fails, as does an extra one: a profile
 # that silently loses the core or the model, or gains a service, is a change somebody must make on purpose in this table too.
 EXPECTED_SERVICES = {
-    "dev": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init"},
-    "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
+    "dev": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init"},
+    "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
-    "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
+    "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
               "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "migrate", "tenants-create", "tenants-provision", "tenant-init", "policy-publish"},
-    "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials"},
+    "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
            "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
@@ -177,9 +178,9 @@ ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "host
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
 # The mTLS material between the core and the model service (noema#555), from deploy/compose/tls_local.sh: each side mounts its own key and the CA certificate, never the other's key.
-TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"},
+TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt"}, "core-tls-init": {"core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"},
               "temporal": {"ca.crt", "temporal.crt", "temporal.key"}}
-TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
 # The settings of the core's client of the model service (noema#555, noema#563): the core reads exactly these five and refuses to build its client unless all five are set (no default,
 # AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
 MODEL_CLIENT_SETTINGS = ("NOEMA_MODEL_URL", "NOEMA_MODEL_TLS_CA_FILE", "NOEMA_MODEL_TLS_CERT_FILE", "NOEMA_MODEL_TLS_KEY_FILE", "NOEMA_MODEL_MAX_RESPONSE_BYTES")
@@ -189,6 +190,12 @@ MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" 
 # them into the `grant_keys` volume, which the CORE mounts read-only and nothing else mounts (Codex and SR on noema#700). Names only.
 GRANT_KEY_SECRETS = {"grant_hmac_key_a": "grant.hmac.1.key", "grant_hmac_key_b": "grant.hmac.2.key"}
 GRANT_INIT, GRANT_VOLUME = "grant-keys-init", "grant_keys"
+# A667: the core refuses its model-client private key unless the file is a regular file it owns at mode 0400, and Compose can only bind the host file (mode 0600, the host user). The one-shot
+# `core-tls-init` is the ONLY service that mounts the host file `secrets/tls/core-client.key`; it copies it into the `core_client_key` volume (owner 65532, mode 0400), which the CORE mounts
+# read-only at /run/tls-key and nothing else mounts. The core's reader is not changed. Names and paths only.
+TLS_INIT, TLS_KEY_VOLUME, TLS_KEY_TARGET = "core-tls-init", "core_client_key", "/run/tls-key"
+TLS_KEY_SETTING = ("NOEMA_MODEL_TLS_KEY_FILE", "/run/tls-key/core-client.key")
+TLS_INIT_CAPS = {"CHOWN", "FOWNER", "DAC_READ_SEARCH", "SETUID", "SETGID"}
 # A356 (interim, relayed): the bench core's settings with no default in code, the Architect's values, and the per-tenant Trust login DSN files. The tenant login password is a file secret held by
 # postgres (init.sh makes the logins) and by the one-shot trust-dsn-init step ONLY; that step writes the DSN files into the trust_dsns volume, which the core mounts read-only and nothing else
 # mounts. NOEMA_TRUST_AT_RISK_BPS is not here: trustlimits reads it from the pack. Changing a number is a ruling, not an edit (AGENT-16). Names and numbers only.
@@ -515,7 +522,7 @@ def check(cfg, profile):
             # every three seconds: five-digit ports are digit runs, so a clean run would fail its own scan (Codex P1 on noema#591).
             bad.append(f"{profile}: the model's uvicorn must run with --no-access-log (its access log carries the client port, a digit run the leak scan would report)")
         for flag in ("privileged", "cap_add", "devices"):
-            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT, OPERATOR_INIT, TRUST_KEYS_INIT)):  # each one-shot adds exactly the set its own rule pins, checked by its own rule below
+            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT, OPERATOR_INIT, TRUST_KEYS_INIT, TLS_INIT)):  # each one-shot adds exactly the set its own rule pins, checked by its own rule below
                 bad.append(f"{profile}: {name} sets {flag}")
         for flag in ("pid", "ipc", "userns_mode"):
             if svc.get(flag) == "host":
@@ -588,6 +595,38 @@ def check(cfg, profile):
                 bad.append(f"{profile}: {GRANT_INIT} must mount {GRANT_VOLUME} writable exactly once (SEC-09)")
             if str(svc.get("user", "")) not in ("0:0", "0", "root"):
                 bad.append(f"{profile}: {GRANT_INIT} must run as root to set the key file owner (SEC-09)")
+        # A667: the core's model-client key. Only the one-shot mounts the host file; the core reads the copy from a volume that only the one-shot writes.
+        key_binds = [v for v in vols if str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] == "core-client.key"]
+        if key_binds and name != TLS_INIT:
+            bad.append(f"{profile}: {name} mounts core-client.key from the host; only {TLS_INIT} may, and the core reads the copy it makes (A667)")
+        kv = [v for v in vols if v.get("source") == TLS_KEY_VOLUME]
+        if kv and name not in ("core", TLS_INIT):
+            bad.append(f"{profile}: {name} mounts the {TLS_KEY_VOLUME} volume; only the core (read-only) and {TLS_INIT} may (INV-29, A667)")
+        if name == "core":
+            if len(kv) != 1 or not kv[0].get("read_only") or kv[0].get("target") != TLS_KEY_TARGET:
+                bad.append(f"{profile}: the core must mount the {TLS_KEY_VOLUME} volume exactly once, read-only, at {TLS_KEY_TARGET} (A667)")
+            if str((svc.get("environment") or {}).get(TLS_KEY_SETTING[0], "")) != TLS_KEY_SETTING[1]:
+                bad.append(f"{profile}: the core's {TLS_KEY_SETTING[0]} must be {TLS_KEY_SETTING[1]} (the file the init step writes; A667)")
+            if (svc.get("depends_on") or {}).get(TLS_INIT, {}).get("condition") != "service_completed_successfully":
+                bad.append(f"{profile}: the core must wait for {TLS_INIT} to complete successfully, or it starts with a key file it refuses (A667)")
+        if name == TLS_INIT:
+            if len(key_binds) != 1 or not key_binds[0].get("read_only") or key_binds[0].get("target") != "/in/core-client.key" or key_binds[0].get("type") != "bind":
+                bad.append(f"{profile}: {TLS_INIT} must bind the one host file core-client.key read-only at /in/core-client.key (A667)")
+            writable = [v for v in vols if v.get("source") == TLS_KEY_VOLUME and not v.get("read_only")]
+            if len(writable) != 1:
+                bad.append(f"{profile}: {TLS_INIT} must mount {TLS_KEY_VOLUME} writable exactly once (A667)")
+            if str(svc.get("user", "")) not in ("0:0", "0", "root"):
+                bad.append(f"{profile}: {TLS_INIT} must run as root to set the key file owner (A667)")
+            if svc.get("network_mode") != "none" or svc.get("networks"):
+                bad.append(f"{profile}: {TLS_INIT} must have no network (A667)")
+            if not svc.get("read_only"):
+                bad.append(f"{profile}: {TLS_INIT} must have a read-only root (A667)")
+            if set(svc.get("cap_drop") or []) != {"ALL"} or set(svc.get("cap_add") or []) != TLS_INIT_CAPS:
+                bad.append(f"{profile}: {TLS_INIT} must drop ALL capabilities and add back exactly {sorted(TLS_INIT_CAPS)}, never DAC_OVERRIDE (A667)")
+            if svc.get("secrets") or svc.get("ports"):
+                bad.append(f"{profile}: {TLS_INIT} holds a secret or publishes a port; it holds the one host file only (A667)")
+            if set(((svc.get("environment") or {}) if isinstance(svc.get("environment"), dict) else {}).get(k) for k in ("CORE_TLS_UID", "CORE_TLS_GID")) != {"65532"}:
+                bad.append(f"{profile}: {TLS_INIT} must write the file for user and group 65532, the core's (A667)")
         # A356: the tenant login password and the DSN files it makes.
         if TENANT_LOGIN_SECRET in held and name not in ("postgres", TRUST_DSN_INIT):
             bad.append(f"{profile}: {name} holds {TENANT_LOGIN_SECRET}; only postgres and {TRUST_DSN_INIT} may (INV-29, A356)")
@@ -785,7 +824,6 @@ def self_test(configs):
         "the model mounts the core's client key": ("dev", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/x/secrets/tls/core-client.key", "target": "/run/tls/core-client.key"})),
         "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
-        "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
         "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
         "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
         "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
@@ -802,6 +840,27 @@ def self_test(configs):
         "the model carries a grant key file setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "/x"})),
         "postgres mounts a grant key file": ("demo", lambda c: c["services"]["postgres"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/grant_hmac_key_b", "target": "/x"})),
         "the core is given a grant key secret": ("dev", lambda c: c["services"]["core"].update({"secrets": ["noema_core_password", "grant_hmac_key_a"]})),
+        # A667: the core's model-client key
+        "the core mounts the host client key again": ("dev", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/h/secrets/tls/core-client.key", "target": "/run/tls/core-client.key", "read_only": True})),
+        "the core's key setting points at the host path": ("ci", lambda c: c["services"]["core"]["environment"].update({"NOEMA_MODEL_TLS_KEY_FILE": "/run/tls/core-client.key"})),
+        "the core drops the key volume": ("dev", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not (isinstance(v, dict) and v.get("source") == "core_client_key")]})),
+        "the core mounts the key volume writable": ("ci", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if isinstance(v, dict) and v.get("source") == "core_client_key"]),
+        "the core mounts the key volume at another path": ("demo", lambda c: [v.update({"target": "/run/tls"}) for v in c["services"]["core"]["volumes"] if isinstance(v, dict) and v.get("source") == "core_client_key"]),
+        "the core does not wait for the key step": ("dev", lambda c: c["services"]["core"]["depends_on"].pop("core-tls-init")),
+        "the model mounts the key volume": ("dev", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "core_client_key", "target": "/k"})),
+        "the model mounts the host client key": ("ci", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/h/secrets/tls/core-client.key", "target": "/k", "read_only": True})),
+        "the key step mounts the volume read-only": ("dev", lambda c: [v.update({"read_only": True}) for v in c["services"]["core-tls-init"]["volumes"] if isinstance(v, dict) and v.get("source") == "core_client_key"]),
+        "the key step mounts the host key writable": ("ci", lambda c: [v.update({"read_only": False}) for v in c["services"]["core-tls-init"]["volumes"] if isinstance(v, dict) and str(v.get("source", "")).endswith("core-client.key")]),
+        "the key step mounts the host key at another path": ("dev", lambda c: [v.update({"target": "/in/other.key"}) for v in c["services"]["core-tls-init"]["volumes"] if isinstance(v, dict) and str(v.get("source", "")).endswith("core-client.key")]),
+        "the key step has a network": ("bench", lambda c: c["services"]["core-tls-init"].update({"network_mode": "bridge"})),
+        "the key step writable root": ("ci", lambda c: c["services"]["core-tls-init"].update({"read_only": False})),
+        "the key step runs as the core's user": ("demo", lambda c: c["services"]["core-tls-init"].update({"user": "65532:65532"})),
+        "the key step may override file permissions": ("dev", lambda c: c["services"]["core-tls-init"]["cap_add"].append("DAC_OVERRIDE")),
+        "the key step cannot read a key it does not own": ("dev", lambda c: c["services"]["core-tls-init"]["cap_add"].remove("DAC_READ_SEARCH")),
+        "the key step keeps every capability": ("ci", lambda c: c["services"]["core-tls-init"].update({"cap_drop": []})),
+        "the key step holds a secret": ("dev", lambda c: c["services"]["core-tls-init"].update({"secrets": [{"source": "noema_core_password", "target": "p"}]})),
+        "the key step writes for root": ("dev", lambda c: c["services"]["core-tls-init"]["environment"].update({"CORE_TLS_UID": "0"})),
+        "the key step is dropped": ("ci", lambda c: c["services"].pop("core-tls-init")),
         "the core drops the grant_keys volume": ("dev", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not (isinstance(v, dict) and v.get("source") == "grant_keys")]})),
         "the core mounts grant_keys writable": ("ci", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if isinstance(v, dict) and v.get("source") == "grant_keys"]),
         "the core does not wait for the key step": ("dev", lambda c: c["services"]["core"]["depends_on"].pop("grant-keys-init")),

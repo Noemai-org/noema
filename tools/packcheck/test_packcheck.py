@@ -994,3 +994,48 @@ class ReconRuleSet(unittest.TestCase):
         doc["incompatible"][0]["convergence_window_seconds"] = "SECRET-LOOKING-VALUE"
         for _, message in self.problems(doc):
             self.assertNotIn("SECRET-LOOKING-VALUE", message)
+
+
+class SlotGates(unittest.TestCase):
+    """UND-18 (A603, interim; AGENT-16). `understanding.slot_gates` names the OPTIONAL closed-vocabulary slots the model service asks first as a yes/no gate, each with the assertion
+    threshold in integer basis points (the Architect's interim 9000, a Founder decision to confirm). The threshold range is the schema's; what a gate may name is packcheck's: a slot that
+    exists, is optional and has a closed list of values, named once. All data is SYNTHETIC."""
+
+    GATE = {"slot": "requested_remedy", "assertion_threshold_bp": 9000}
+
+    def hits(self, gates):
+        base, _ = real()
+        if gates is None:
+            base["understanding"].pop("slot_gates", None)
+        else:
+            base["understanding"]["slot_gates"] = gates
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "understanding" and "gate" in m]
+
+    def test_the_real_pack_gates_the_optional_remedy_slot_at_the_interim_value(self):
+        base, _ = real()
+        self.assertEqual(base["understanding"]["slot_gates"], [self.GATE])
+        self.assertEqual(self.hits([self.GATE]), [])
+
+    def test_a_pack_without_gates_is_valid(self):
+        self.assertEqual(self.hits(None), [])
+
+    def test_a_gate_on_a_required_slot_is_refused(self):
+        self.assertTrue(any("required" in m for m in self.hits([{**self.GATE, "slot": "question_type"}])))
+
+    def test_a_gate_on_a_slot_without_a_closed_list_is_refused(self):
+        self.assertTrue(any("closed" in m for m in self.hits([{**self.GATE, "slot": "amount"}])))
+
+    def test_a_gate_on_a_slot_no_node_declares_is_refused(self):
+        self.assertTrue(any("no node" in m for m in self.hits([{**self.GATE, "slot": "no_such_slot"}])))
+
+    def test_a_gated_slot_name_declared_by_two_nodes_is_refused(self):
+        base, _ = real()
+        other = json.loads(json.dumps(next(n for n in base["intent_nodes"] if n["node_id"] == "fin.meta.out_of_scope")))
+        other["node_id"] = "fin.other.node"
+        other["slots"] = [{"name": "requested_remedy", "type": "Reference", "required": False, "references": "capability"}]
+        base["intent_nodes"].append(other)
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "understanding" and "gate" in m]
+        self.assertTrue(any("more than one node" in m for m in hits), hits)
+
+    def test_a_slot_gated_twice_is_refused(self):
+        self.assertTrue(any("twice" in m for m in self.hits([self.GATE, {**self.GATE, "assertion_threshold_bp": 8000}])))

@@ -20,7 +20,7 @@ import (
 
 func TestTheRequestIsATypedRequestAndNotAConversation(t *testing.T) {
 	want := map[string]string{
-		"Session": "intake.Session", "CorrelationID": "string", "IntentRef": "string", "EvidenceSnapshotID": "string", "EvidenceUnavailable": "bool",
+		"Session": "intake.Session", "CorrelationID": "string", "IntentRef": "string", "EvidenceSnapshotID": "string", "EvidenceUnavailable": "bool", "TurnID": "string",
 	}
 	rt := reflect.TypeOf(Request{})
 	got := map[string]string{}

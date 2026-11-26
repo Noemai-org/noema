@@ -37,8 +37,9 @@ var _ intake.Writes = (*Writes)(nil)
 // NewWrites builds the adapter. What cmd/core must pass:
 //
 //   - sw: the *KillSwitch of NewKillSwitch (the tenant's kill switch, read as the tenant's own trust_rw login; it is built only with the pack loaded).
-//   - rule: a WriteRule over the pack the process loaded, the same pack the other Trust adapters were built from. No such rule exists yet: the pack carries no field that classifies
-//     an intent node as read or write (status/STM-01-writes-adapter.md). Until it does, cmd/core cannot build this adapter, and the intake is not composed.
+//   - rule: a WriteRule over the pack the process loaded, the same pack the other Trust adapters were built from: *PackWriteRule of NewPackWriteRule over
+//     trustpack.Pack.WriteWhens() (the node's `write_when` predicate over the intent's slot values; A543, A364, A551). cmd/core builds both in compose_writes.go and builds nothing
+//     (a named gap) when the pack is absent or carries no write_when.
 //
 // A missing part is ErrConfig.
 func NewWrites(sw WritesSwitch, rule WriteRule) (*Writes, error) {

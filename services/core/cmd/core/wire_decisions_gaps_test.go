@@ -22,7 +22,7 @@ func TestConfirmationsAndPlannerAreNamedGapsWithTheirFixedReasons(t *testing.T) 
 	}
 	want := map[string][]string{
 		"Confirmations":    {needRequestRead, needRequestEvents, needConfirmPolicy},
-		"Planner":          {needGraphReader, needIntentSlots, needPlanContexts, needRegistry},
+		"Planner":          {needGraphReader, needIntentSlots},
 		gapServiceRunnable: {needRunnableAdapt},
 		gapServiceHandoffs: {needHandoffAdapter},
 	}

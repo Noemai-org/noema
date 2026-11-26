@@ -27,6 +27,8 @@ func (s *Server) benchRoutes() []route {
 		{"DELETE", "/control/v1/fault-plan", s.deletePlan},
 		{"GET", "/control/v1/clock", s.getClock},
 		{"POST", "/control/v1/clock/advance", s.advanceClock},
+		{"POST", "/control/v1/webhooks/deliver", s.deliverWebhook},
+		{"POST", "/control/v1/webhooks/{message_id}/replay", s.replayWebhook},
 		{"POST", "/control/v1/reset", s.reset},
 	}
 }
