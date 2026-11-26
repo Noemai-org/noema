@@ -129,7 +129,7 @@ class RealManifest(Base):
     def test_it_is_labelled_synthetic_and_lists_exactly_the_five_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing")}, LISTED)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing", "recipient_matcher")}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "limits"), LIMITS)  # A544
         self.assertEqual([f["path"] for f in doc["files"] if f["kind"] == "priority_routing"], ["fintech/routing/priority_routing.v1.json"])  # PCK-09, A644
@@ -153,6 +153,7 @@ class RealManifest(Base):
         listed = {f["path"] for f in self.load()["files"]}
         found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context", "fintech/routing") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
+        found |= {str(p.relative_to(PACKS)) for p in (PACKS / "fintech/lexicons").glob("recipient_matcher*.json")}  # A710: the folder also holds other lexicons; only the matcher's own name stem is of the kind
         self.assertEqual(found, listed)
 
     def test_the_core_does_not_hard_code_the_ids(self):

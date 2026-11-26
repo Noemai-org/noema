@@ -1,6 +1,6 @@
 {
  "label": "SYNTHETIC",
- "note": "Recipient matcher golden vectors (A710; REQ-AMB-003, INV-21). Every name is invented. Both the Go matcher (services/core/evidence/recipientmatch) and the Python reference (services/model/tests/test_matcher_vectors.py) load this file, build their matcher from packs/fintech/lexicons/recipient_matcher.json, and must give the same exact fraction (numerator over denominator, in lowest terms) for every case. The expected values were produced by the Python reference matcher (the authority); a Go result that differs is a Go defect. A phonetic case is scored with the voice-path tier enabled (the request has no phonetic member, so the production adapter never enables it). The data file's tiers, folding, nicknames and variants are the matcher's only name knowledge.",
+ "note": "Recipient matcher golden vectors (A710; REQ-AMB-003, INV-21). Every name is invented. Both the Go matcher (services/core/evidence/recipientmatch) and the Python reference (services/model/tests/test_matcher_vectors.py) load this file, build their matcher from packs/fintech/lexicons/recipient_matcher.json, and must give the same exact fraction (numerator over denominator, in lowest terms) for every case. The expected values were produced by the Python reference matcher (the authority); a Go result that differs is a Go defect. A phonetic case is scored with the voice-path tier enabled (the request has no phonetic member, so the production adapter never enables it). The data file's tiers, folding, nicknames and variants are the matcher's only name knowledge. A case with a dataset member is scored with that inline matcher data (every tier score distinct, so each tier is told apart) instead of the shipped file.",
  "version": 1,
  "data": "packs/fintech/lexicons/recipient_matcher.json",
  "cases": [
@@ -3833,6 +3833,3026 @@
     "numerator": 0,
     "denominator": 1
    }
+  },
+  {
+   "name": "distinct tiers: exact",
+   "dataset": "distinct_tiers",
+   "query": "Tunde",
+   "display": "Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: case",
+   "dataset": "distinct_tiers",
+   "query": "tunde",
+   "display": "TUNDE",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: diacritics",
+   "dataset": "distinct_tiers",
+   "query": "Adebayo",
+   "display": "Adébáyọ̀",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: dot below",
+   "dataset": "distinct_tiers",
+   "query": "Ṣade",
+   "display": "Sade",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: hooked d",
+   "dataset": "distinct_tiers",
+   "query": "Ɗanjuma",
+   "display": "Danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: hooked k",
+   "dataset": "distinct_tiers",
+   "query": "Ƙarami",
+   "display": "Karami",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: hooked b",
+   "dataset": "distinct_tiers",
+   "query": "Ɓello",
+   "display": "Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: hooked y",
+   "dataset": "distinct_tiers",
+   "query": "Ƴusuf",
+   "display": "Yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: apostrophe",
+   "dataset": "distinct_tiers",
+   "query": "Ja'afar",
+   "display": "Jaafar",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: curly apostrophe",
+   "dataset": "distinct_tiers",
+   "query": "Ja’afar",
+   "display": "Ja'afar",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: modifier apostrophe",
+   "dataset": "distinct_tiers",
+   "query": "Jaʼafar",
+   "display": "Jaafar",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: umlaut",
+   "dataset": "distinct_tiers",
+   "query": "Müller",
+   "display": "Muller",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: acute",
+   "dataset": "distinct_tiers",
+   "query": "José",
+   "display": "Jose",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: cedilla",
+   "dataset": "distinct_tiers",
+   "query": "François",
+   "display": "Francois",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: tilde",
+   "dataset": "distinct_tiers",
+   "query": "Núñez",
+   "display": "Nunez",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: fullwidth",
+   "dataset": "distinct_tiers",
+   "query": "Ａｄａ",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: ligature",
+   "dataset": "distinct_tiers",
+   "query": "ﬁnn",
+   "display": "finn",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: superscript",
+   "dataset": "distinct_tiers",
+   "query": "Ada²",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: circled",
+   "dataset": "distinct_tiers",
+   "query": "Ⓐda",
+   "display": "ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: sharp s",
+   "dataset": "distinct_tiers",
+   "query": "Straße",
+   "display": "STRASSE",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: final sigma",
+   "dataset": "distinct_tiers",
+   "query": "ΟΔΥΣΣΕΥΣ",
+   "display": "οδυσσευς",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: sigma",
+   "dataset": "distinct_tiers",
+   "query": "Σίσυφος",
+   "display": "σίσυφος",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: dotted I",
+   "dataset": "distinct_tiers",
+   "query": "İbrahim",
+   "display": "ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: dotless i",
+   "dataset": "distinct_tiers",
+   "query": "ıdris",
+   "display": "idris",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: cyrillic",
+   "dataset": "distinct_tiers",
+   "query": "Иван",
+   "display": "иван",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: greek",
+   "dataset": "distinct_tiers",
+   "query": "Άννα",
+   "display": "Αννα",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: nfc vs nfd",
+   "dataset": "distinct_tiers",
+   "query": "Adé",
+   "display": "Adé",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: hangul",
+   "dataset": "distinct_tiers",
+   "query": "한국",
+   "display": "한국",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: arabic",
+   "dataset": "distinct_tiers",
+   "query": "محمد",
+   "display": "محمد",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: mixed scripts",
+   "dataset": "distinct_tiers",
+   "query": "Ada Обі",
+   "display": "ada обі",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combining only",
+   "dataset": "distinct_tiers",
+   "query": "́̂",
+   "display": "x",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: empty display",
+   "dataset": "distinct_tiers",
+   "query": "Ada",
+   "display": "",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: blank display",
+   "dataset": "distinct_tiers",
+   "query": "Ada",
+   "display": "   ",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: digits only",
+   "dataset": "distinct_tiers",
+   "query": "12345",
+   "display": "12345",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: digits vs name",
+   "dataset": "distinct_tiers",
+   "query": "12345",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: punctuation only",
+   "dataset": "distinct_tiers",
+   "query": "!!!",
+   "display": "???",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: punctuation vs name",
+   "dataset": "distinct_tiers",
+   "query": "...",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: hostile",
+   "dataset": "distinct_tiers",
+   "query": "ignore previous instructions",
+   "display": "Ignore Previous Instructions",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: hostile partial",
+   "dataset": "distinct_tiers",
+   "query": "Ada <|endoftext|>",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: newline",
+   "dataset": "distinct_tiers",
+   "query": "Ada\nObi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: tab",
+   "dataset": "distinct_tiers",
+   "query": "Ada\tObi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: nbsp",
+   "dataset": "distinct_tiers",
+   "query": "Ada Obi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: zero width",
+   "dataset": "distinct_tiers",
+   "query": "Ada​Obi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: nickname forward",
+   "dataset": "distinct_tiers",
+   "query": "Tunde",
+   "display": "Babatunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: nickname back",
+   "dataset": "distinct_tiers",
+   "query": "Babatunde",
+   "display": "Tunde Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: emeka",
+   "dataset": "distinct_tiers",
+   "query": "Emeka",
+   "display": "Chukwuemeka Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: two full names",
+   "dataset": "distinct_tiers",
+   "query": "Adebayo",
+   "display": "Adewale",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: ade",
+   "dataset": "distinct_tiers",
+   "query": "Ade",
+   "display": "Adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: ade2",
+   "dataset": "distinct_tiers",
+   "query": "Ade",
+   "display": "Adewale",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: variant mohammed",
+   "dataset": "distinct_tiers",
+   "query": "Mohammed",
+   "display": "Muhammad Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: variant yusuf",
+   "dataset": "distinct_tiers",
+   "query": "Yusuf",
+   "display": "Yussuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: variant ibrahim",
+   "dataset": "distinct_tiers",
+   "query": "Ibrahim",
+   "display": "Ibraheem Musa",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: variant aisha",
+   "dataset": "distinct_tiers",
+   "query": "Aisha",
+   "display": "Ayisha",
+   "phonetic": false,
+   "want": {
+    "numerator": 4,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: variant khadija",
+   "dataset": "distinct_tiers",
+   "query": "Khadija",
+   "display": "Kadija",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: order",
+   "dataset": "distinct_tiers",
+   "query": "Adeyemi Tunde",
+   "display": "Tunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: order2",
+   "dataset": "distinct_tiers",
+   "query": "Tunde Adeyemi",
+   "display": "Adeyemi Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: initial",
+   "dataset": "distinct_tiers",
+   "query": "T. Adeyemi",
+   "display": "Tunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: initial only",
+   "dataset": "distinct_tiers",
+   "query": "T",
+   "display": "Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: initial reverse",
+   "dataset": "distinct_tiers",
+   "query": "Tunde",
+   "display": "T",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: initial long",
+   "dataset": "distinct_tiers",
+   "query": "Tu",
+   "display": "Tunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: partial 1/2",
+   "dataset": "distinct_tiers",
+   "query": "Tunde Adeyemi",
+   "display": "Tunde Bello",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: partial 1/3",
+   "dataset": "distinct_tiers",
+   "query": "Tunde Adeyemi Bello",
+   "display": "Tunde Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: partial 2/3",
+   "dataset": "distinct_tiers",
+   "query": "Tunde Adeyemi Bello",
+   "display": "Tunde Adeyemi Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: extra name tokens",
+   "dataset": "distinct_tiers",
+   "query": "Ada",
+   "display": "Ada Obi Stores Ltd",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: duplicate query tokens",
+   "dataset": "distinct_tiers",
+   "query": "Ada Ada",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: duplicate both",
+   "dataset": "distinct_tiers",
+   "query": "Ada Ada",
+   "display": "Ada Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: duplicate display",
+   "dataset": "distinct_tiers",
+   "query": "Ada",
+   "display": "Ada Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: three tokens one match",
+   "dataset": "distinct_tiers",
+   "query": "Ada Ada Ada",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: more than eight query",
+   "dataset": "distinct_tiers",
+   "query": "a b c d e f g h i j",
+   "display": "a b c d e f g h",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: more than eight display",
+   "dataset": "distinct_tiers",
+   "query": "Ada",
+   "display": "x1 x2 x3 x4 x5 x6 x7 x8 Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: nine tokens match ninth",
+   "dataset": "distinct_tiers",
+   "query": "i",
+   "display": "a b c d e f g h i",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: eight exactly",
+   "dataset": "distinct_tiers",
+   "query": "a b c d e f g h",
+   "display": "h g f e d c b a",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: alias plus exact",
+   "dataset": "distinct_tiers",
+   "query": "Tunde Adeyemi",
+   "display": "Babatunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: alias plus initial",
+   "dataset": "distinct_tiers",
+   "query": "Tunde A.",
+   "display": "Babatunde Adeyemi",
+   "phonetic": false,
+   "want": {
+    "numerator": 17,
+    "denominator": 30
+   }
+  },
+  {
+   "name": "distinct tiers: initial vs exact tie",
+   "dataset": "distinct_tiers",
+   "query": "Ade A",
+   "display": "Ade Adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: none",
+   "dataset": "distinct_tiers",
+   "query": "Chidi",
+   "display": "Ngozi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: query empty",
+   "dataset": "distinct_tiers",
+   "query": "",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: query none",
+   "dataset": "distinct_tiers",
+   "query": null,
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: query blank",
+   "dataset": "distinct_tiers",
+   "query": "   ",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: query punct",
+   "dataset": "distinct_tiers",
+   "query": "...",
+   "display": "Ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: both empty",
+   "dataset": "distinct_tiers",
+   "query": "",
+   "display": "",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: long names",
+   "dataset": "distinct_tiers",
+   "query": "Oluwaseyi Adebayo Chukwuemeka Babatunde Olatunde",
+   "display": "Olatunde Chukwuemeka Adebayo Oluwaseyi Babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: single letters",
+   "dataset": "distinct_tiers",
+   "query": "a",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: single letters differ",
+   "dataset": "distinct_tiers",
+   "query": "a",
+   "display": "b",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: initial of initial",
+   "dataset": "distinct_tiers",
+   "query": "a",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: hyphen",
+   "dataset": "distinct_tiers",
+   "query": "Ade-Bayo",
+   "display": "Ade Bayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: underscore",
+   "dataset": "distinct_tiers",
+   "query": "Ade_Bayo",
+   "display": "Ade Bayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: digits in name",
+   "dataset": "distinct_tiers",
+   "query": "Ada2 Obi",
+   "display": "Ada Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: possessive",
+   "dataset": "distinct_tiers",
+   "query": "Ada's",
+   "display": "Adas",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: sh s off",
+   "dataset": "distinct_tiers",
+   "query": "Shade",
+   "display": "Sade",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: sh s on",
+   "dataset": "distinct_tiers",
+   "query": "Shade",
+   "display": "Sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: ch c off",
+   "dataset": "distinct_tiers",
+   "query": "Chike",
+   "display": "Cike",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: ch c on",
+   "dataset": "distinct_tiers",
+   "query": "Chike",
+   "display": "Cike",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: ph f off",
+   "dataset": "distinct_tiers",
+   "query": "Philip",
+   "display": "Filip",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: ph f on",
+   "dataset": "distinct_tiers",
+   "query": "Philip",
+   "display": "Filip",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: ck k off",
+   "dataset": "distinct_tiers",
+   "query": "Nicky",
+   "display": "Nikky",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: ck k on",
+   "dataset": "distinct_tiers",
+   "query": "Nicky",
+   "display": "Nikky",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: kh k off",
+   "dataset": "distinct_tiers",
+   "query": "Khalid",
+   "display": "Kalid",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: kh k on",
+   "dataset": "distinct_tiers",
+   "query": "Khalid",
+   "display": "Kalid",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: gh g off",
+   "dataset": "distinct_tiers",
+   "query": "Ghana",
+   "display": "Gana",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: gh g on",
+   "dataset": "distinct_tiers",
+   "query": "Ghana",
+   "display": "Gana",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: dh d off",
+   "dataset": "distinct_tiers",
+   "query": "Dhaka",
+   "display": "Daka",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: dh d on",
+   "dataset": "distinct_tiers",
+   "query": "Dhaka",
+   "display": "Daka",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: q k off",
+   "dataset": "distinct_tiers",
+   "query": "Qasim",
+   "display": "Kasim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: q k on",
+   "dataset": "distinct_tiers",
+   "query": "Qasim",
+   "display": "Kasim",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: x ks off",
+   "dataset": "distinct_tiers",
+   "query": "Alex",
+   "display": "Aleks",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: x ks on",
+   "dataset": "distinct_tiers",
+   "query": "Alex",
+   "display": "Aleks",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: vowels dropped off",
+   "dataset": "distinct_tiers",
+   "query": "Bola",
+   "display": "Bla",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: vowels dropped on",
+   "dataset": "distinct_tiers",
+   "query": "Bola",
+   "display": "Bla",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: short key off",
+   "dataset": "distinct_tiers",
+   "query": "Ao",
+   "display": "Eu",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: short key on",
+   "dataset": "distinct_tiers",
+   "query": "Ao",
+   "display": "Eu",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: short key 2 off",
+   "dataset": "distinct_tiers",
+   "query": "Ab",
+   "display": "Eb",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: short key 2 on",
+   "dataset": "distinct_tiers",
+   "query": "Ab",
+   "display": "Eb",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: doubles off",
+   "dataset": "distinct_tiers",
+   "query": "Ammaa",
+   "display": "Ama",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: doubles on",
+   "dataset": "distinct_tiers",
+   "query": "Ammaa",
+   "display": "Ama",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: repeat off",
+   "dataset": "distinct_tiers",
+   "query": "Ssssam",
+   "display": "Sam",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: repeat on",
+   "dataset": "distinct_tiers",
+   "query": "Ssssam",
+   "display": "Sam",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: different off",
+   "dataset": "distinct_tiers",
+   "query": "Ada",
+   "display": "Obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: different on",
+   "dataset": "distinct_tiers",
+   "query": "Ada",
+   "display": "Obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: phonetic plus alias off",
+   "dataset": "distinct_tiers",
+   "query": "Tunde Shola",
+   "display": "Babatunde Sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: phonetic plus alias on",
+   "dataset": "distinct_tiers",
+   "query": "Tunde Shola",
+   "display": "Babatunde Sola",
+   "phonetic": true,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: empty key off",
+   "dataset": "distinct_tiers",
+   "query": "Aeiou",
+   "display": "Eioua",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: empty key on",
+   "dataset": "distinct_tiers",
+   "query": "Aeiou",
+   "display": "Eioua",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 000",
+   "dataset": "distinct_tiers",
+   "query": "t",
+   "display": "shola obi babatunde danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 001",
+   "dataset": "distinct_tiers",
+   "query": "emile adebayo ngozi straße",
+   "display": "emile babatunde straße strasse",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 002",
+   "dataset": "distinct_tiers",
+   "query": "tunde",
+   "display": "ngozi émile strasse sola muhammad",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 003",
+   "dataset": "distinct_tiers",
+   "query": "chidi ṣade",
+   "display": "emile obi a",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 004",
+   "dataset": "distinct_tiers",
+   "query": "emile sola t",
+   "display": "emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 005",
+   "dataset": "distinct_tiers",
+   "query": "yusuf sade adebayo ibraheem",
+   "display": "mohammed obi ṣade sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "distinct tiers: combination 006",
+   "dataset": "distinct_tiers",
+   "query": "babatunde straße émile strasse",
+   "display": "ngozi ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 007",
+   "dataset": "distinct_tiers",
+   "query": "shola",
+   "display": "ibraheem shola muhammad sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 008",
+   "dataset": "distinct_tiers",
+   "query": "ada sade sola ngozi",
+   "display": "ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 009",
+   "dataset": "distinct_tiers",
+   "query": "t",
+   "display": "emile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 010",
+   "dataset": "distinct_tiers",
+   "query": "chidi ṣade ṣade",
+   "display": "obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 011",
+   "dataset": "distinct_tiers",
+   "query": "ṣade sade ɗanjuma",
+   "display": "babatunde babatunde emile shola adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 012",
+   "dataset": "distinct_tiers",
+   "query": "emile ibraheem",
+   "display": "ɗanjuma chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 013",
+   "dataset": "distinct_tiers",
+   "query": "tunde",
+   "display": "ibrahim straße obi obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 014",
+   "dataset": "distinct_tiers",
+   "query": "sola babatunde straße",
+   "display": "tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 4,
+    "denominator": 15
+   }
+  },
+  {
+   "name": "distinct tiers: combination 015",
+   "dataset": "distinct_tiers",
+   "query": "ɗanjuma shola adebayo babatunde",
+   "display": "strasse",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 016",
+   "dataset": "distinct_tiers",
+   "query": "straße a sola",
+   "display": "t adebayo babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 9
+   }
+  },
+  {
+   "name": "distinct tiers: combination 017",
+   "dataset": "distinct_tiers",
+   "query": "sade yusuf",
+   "display": "ada danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 018",
+   "dataset": "distinct_tiers",
+   "query": "émile ṣade shola",
+   "display": "strasse ṣade ɗanjuma ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 019",
+   "dataset": "distinct_tiers",
+   "query": "t sola strasse tunde",
+   "display": "adebayo émile a ibraheem ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 020",
+   "dataset": "distinct_tiers",
+   "query": "ibrahim",
+   "display": "sola babatunde yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 021",
+   "dataset": "distinct_tiers",
+   "query": "shola muhammad ṣade muhammad",
+   "display": "yusuf danjuma emile chidi a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 022",
+   "dataset": "distinct_tiers",
+   "query": "obi danjuma",
+   "display": "mohammed ɗanjuma chidi t babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 20
+   }
+  },
+  {
+   "name": "distinct tiers: combination 023",
+   "dataset": "distinct_tiers",
+   "query": "sola obi ɗanjuma sade",
+   "display": "t sade strasse sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 024",
+   "dataset": "distinct_tiers",
+   "query": "t tunde",
+   "display": "sade tunde adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 025",
+   "dataset": "distinct_tiers",
+   "query": "straße chidi",
+   "display": "émile ibrahim ngozi ade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 026",
+   "dataset": "distinct_tiers",
+   "query": "mohammed",
+   "display": "straße",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 027",
+   "dataset": "distinct_tiers",
+   "query": "t strasse babatunde",
+   "display": "straße ade a straße t",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 028",
+   "dataset": "distinct_tiers",
+   "query": "chidi ɗanjuma",
+   "display": "ibrahim ada",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 029",
+   "dataset": "distinct_tiers",
+   "query": "shola",
+   "display": "ibrahim mohammed adebayo ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 030",
+   "dataset": "distinct_tiers",
+   "query": "ada yusuf ade strasse",
+   "display": "obi obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 031",
+   "dataset": "distinct_tiers",
+   "query": "ade",
+   "display": "t ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 032",
+   "dataset": "distinct_tiers",
+   "query": "danjuma ibrahim émile",
+   "display": "émile adebayo ngozi émile ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 033",
+   "dataset": "distinct_tiers",
+   "query": "danjuma ada ade",
+   "display": "sola t danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 034",
+   "dataset": "distinct_tiers",
+   "query": "strasse shola",
+   "display": "sola",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 035",
+   "dataset": "distinct_tiers",
+   "query": "danjuma danjuma ada",
+   "display": "obi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 036",
+   "dataset": "distinct_tiers",
+   "query": "tunde straße ngozi",
+   "display": "sade ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 037",
+   "dataset": "distinct_tiers",
+   "query": "babatunde a",
+   "display": "sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 038",
+   "dataset": "distinct_tiers",
+   "query": "danjuma",
+   "display": "danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 039",
+   "dataset": "distinct_tiers",
+   "query": "danjuma",
+   "display": "ada strasse t sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 040",
+   "dataset": "distinct_tiers",
+   "query": "yusuf mohammed",
+   "display": "obi babatunde straße yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 041",
+   "dataset": "distinct_tiers",
+   "query": "a muhammad babatunde",
+   "display": "ibrahim muhammad ɗanjuma chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 042",
+   "dataset": "distinct_tiers",
+   "query": "chidi",
+   "display": "mohammed straße ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 043",
+   "dataset": "distinct_tiers",
+   "query": "strasse strasse",
+   "display": "muhammad ɗanjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 044",
+   "dataset": "distinct_tiers",
+   "query": "ngozi obi ṣade a",
+   "display": "ɗanjuma adebayo tunde chidi t",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 12
+   }
+  },
+  {
+   "name": "distinct tiers: combination 045",
+   "dataset": "distinct_tiers",
+   "query": "shola shola shola strasse",
+   "display": "shola strasse ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 046",
+   "dataset": "distinct_tiers",
+   "query": "emile tunde a",
+   "display": "ngozi straße ɗanjuma ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 047",
+   "dataset": "distinct_tiers",
+   "query": "mohammed t émile ibrahim",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 048",
+   "dataset": "distinct_tiers",
+   "query": "a ibraheem",
+   "display": "muhammad ada ade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 6
+   }
+  },
+  {
+   "name": "distinct tiers: combination 049",
+   "dataset": "distinct_tiers",
+   "query": "chidi yusuf strasse yusuf",
+   "display": "a straße ɗanjuma t",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "distinct tiers: combination 050",
+   "dataset": "distinct_tiers",
+   "query": "ṣade danjuma",
+   "display": "adebayo babatunde a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 051",
+   "dataset": "distinct_tiers",
+   "query": "ngozi",
+   "display": "obi ada ngozi sade babatunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 052",
+   "dataset": "distinct_tiers",
+   "query": "ibrahim",
+   "display": "strasse shola ngozi ada emile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 053",
+   "dataset": "distinct_tiers",
+   "query": "émile straße",
+   "display": "sade a babatunde babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 054",
+   "dataset": "distinct_tiers",
+   "query": "ibrahim",
+   "display": "emile ade ngozi chidi mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 055",
+   "dataset": "distinct_tiers",
+   "query": "chidi muhammad",
+   "display": "ada ngozi ɗanjuma strasse emile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 056",
+   "dataset": "distinct_tiers",
+   "query": "ibraheem yusuf",
+   "display": "emile sola ade tunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 057",
+   "dataset": "distinct_tiers",
+   "query": "a",
+   "display": "yusuf mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 058",
+   "dataset": "distinct_tiers",
+   "query": "ṣade babatunde",
+   "display": "babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 059",
+   "dataset": "distinct_tiers",
+   "query": "t emile",
+   "display": "ngozi sade ɗanjuma sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 060",
+   "dataset": "distinct_tiers",
+   "query": "adebayo ibraheem",
+   "display": "ṣade ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 10
+   }
+  },
+  {
+   "name": "distinct tiers: combination 061",
+   "dataset": "distinct_tiers",
+   "query": "tunde ṣade",
+   "display": "ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 062",
+   "dataset": "distinct_tiers",
+   "query": "émile emile adebayo sola",
+   "display": "chidi ṣade babatunde chidi ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 063",
+   "dataset": "distinct_tiers",
+   "query": "chidi a ada",
+   "display": "tunde chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 064",
+   "dataset": "distinct_tiers",
+   "query": "émile",
+   "display": "yusuf ibraheem sola danjuma straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 065",
+   "dataset": "distinct_tiers",
+   "query": "strasse",
+   "display": "yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 066",
+   "dataset": "distinct_tiers",
+   "query": "ɗanjuma ibraheem",
+   "display": "t ngozi sola a",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 067",
+   "dataset": "distinct_tiers",
+   "query": "ɗanjuma tunde mohammed",
+   "display": "emile ibraheem chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 068",
+   "dataset": "distinct_tiers",
+   "query": "chidi babatunde émile",
+   "display": "ṣade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 069",
+   "dataset": "distinct_tiers",
+   "query": "chidi danjuma émile ibrahim",
+   "display": "a",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 070",
+   "dataset": "distinct_tiers",
+   "query": "obi",
+   "display": "mohammed babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 071",
+   "dataset": "distinct_tiers",
+   "query": "émile",
+   "display": "muhammad obi",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 072",
+   "dataset": "distinct_tiers",
+   "query": "adebayo ibrahim ade t",
+   "display": "t sola straße mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 4
+   }
+  },
+  {
+   "name": "distinct tiers: combination 073",
+   "dataset": "distinct_tiers",
+   "query": "babatunde",
+   "display": "yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 074",
+   "dataset": "distinct_tiers",
+   "query": "strasse adebayo strasse",
+   "display": "émile babatunde tunde shola yusuf",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 075",
+   "dataset": "distinct_tiers",
+   "query": "mohammed chidi muhammad",
+   "display": "ibrahim obi ṣade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 076",
+   "dataset": "distinct_tiers",
+   "query": "ṣade",
+   "display": "ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 077",
+   "dataset": "distinct_tiers",
+   "query": "sade adebayo",
+   "display": "ṣade t",
+   "phonetic": false,
+   "want": {
+    "numerator": 9,
+    "denominator": 20
+   }
+  },
+  {
+   "name": "distinct tiers: combination 078",
+   "dataset": "distinct_tiers",
+   "query": "ngozi adebayo ibrahim",
+   "display": "sola émile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 079",
+   "dataset": "distinct_tiers",
+   "query": "ade mohammed emile",
+   "display": "yusuf adebayo ngozi a",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 9
+   }
+  },
+  {
+   "name": "distinct tiers: combination 080",
+   "dataset": "distinct_tiers",
+   "query": "ibrahim émile",
+   "display": "yusuf ṣade ibrahim",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 081",
+   "dataset": "distinct_tiers",
+   "query": "ṣade ada",
+   "display": "t mohammed mohammed",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 082",
+   "dataset": "distinct_tiers",
+   "query": "émile yusuf ṣade",
+   "display": "ɗanjuma adebayo ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 083",
+   "dataset": "distinct_tiers",
+   "query": "sade emile",
+   "display": "adebayo chidi t danjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 084",
+   "dataset": "distinct_tiers",
+   "query": "babatunde mohammed ibraheem a",
+   "display": "adebayo",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 12
+   }
+  },
+  {
+   "name": "distinct tiers: combination 085",
+   "dataset": "distinct_tiers",
+   "query": "tunde sola",
+   "display": "ade sade",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 086",
+   "dataset": "distinct_tiers",
+   "query": "obi sola mohammed shola",
+   "display": "sade ṣade straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 087",
+   "dataset": "distinct_tiers",
+   "query": "ibraheem",
+   "display": "ada chidi ade obi straße",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 088",
+   "dataset": "distinct_tiers",
+   "query": "yusuf émile chidi",
+   "display": "t obi danjuma",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 089",
+   "dataset": "distinct_tiers",
+   "query": "sola",
+   "display": "muhammad ade t ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 090",
+   "dataset": "distinct_tiers",
+   "query": "strasse",
+   "display": "sade chidi babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 091",
+   "dataset": "distinct_tiers",
+   "query": "ade chidi danjuma babatunde",
+   "display": "obi ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 092",
+   "dataset": "distinct_tiers",
+   "query": "ade sade a",
+   "display": "babatunde ibraheem ɗanjuma shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 093",
+   "dataset": "distinct_tiers",
+   "query": "ɗanjuma strasse sade",
+   "display": "ade ibraheem strasse straße adebayo",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 094",
+   "dataset": "distinct_tiers",
+   "query": "ṣade yusuf",
+   "display": "a emile ibrahim ada",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 095",
+   "dataset": "distinct_tiers",
+   "query": "danjuma",
+   "display": "ṣade ibrahim ade ngozi shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 096",
+   "dataset": "distinct_tiers",
+   "query": "strasse a ibrahim tunde",
+   "display": "shola sola ṣade ngozi babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: combination 097",
+   "dataset": "distinct_tiers",
+   "query": "a ada",
+   "display": "émile",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 098",
+   "dataset": "distinct_tiers",
+   "query": "danjuma chidi",
+   "display": "shola tunde yusuf",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 099",
+   "dataset": "distinct_tiers",
+   "query": "émile",
+   "display": "émile chidi",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 100",
+   "dataset": "distinct_tiers",
+   "query": "ibraheem t ada",
+   "display": "obi strasse emile ada yusuf",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "distinct tiers: combination 101",
+   "dataset": "distinct_tiers",
+   "query": "ada",
+   "display": "straße emile yusuf tunde ibrahim",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 102",
+   "dataset": "distinct_tiers",
+   "query": "strasse",
+   "display": "yusuf t ngozi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 103",
+   "dataset": "distinct_tiers",
+   "query": "danjuma sade",
+   "display": "emile t",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 104",
+   "dataset": "distinct_tiers",
+   "query": "muhammad mohammed",
+   "display": "ibraheem émile shola ibraheem",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 105",
+   "dataset": "distinct_tiers",
+   "query": "ɗanjuma ibrahim sola chidi",
+   "display": "émile a straße babatunde shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 106",
+   "dataset": "distinct_tiers",
+   "query": "ibraheem ibraheem emile adebayo",
+   "display": "danjuma babatunde",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 107",
+   "dataset": "distinct_tiers",
+   "query": "yusuf",
+   "display": "ada danjuma muhammad",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 108",
+   "dataset": "distinct_tiers",
+   "query": "obi muhammad émile t",
+   "display": "yusuf ɗanjuma strasse sola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 109",
+   "dataset": "distinct_tiers",
+   "query": "a yusuf",
+   "display": "straße ibraheem",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 110",
+   "dataset": "distinct_tiers",
+   "query": "ada ibrahim",
+   "display": "ṣade shola",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 111",
+   "dataset": "distinct_tiers",
+   "query": "émile ade",
+   "display": "chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 112",
+   "dataset": "distinct_tiers",
+   "query": "tunde sola",
+   "display": "tunde tunde shola sade strasse",
+   "phonetic": true,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 113",
+   "dataset": "distinct_tiers",
+   "query": "strasse emile",
+   "display": "ṣade strasse ade babatunde ṣade",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 2
+   }
+  },
+  {
+   "name": "distinct tiers: combination 114",
+   "dataset": "distinct_tiers",
+   "query": "émile",
+   "display": "sola tunde ṣade obi babatunde",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 115",
+   "dataset": "distinct_tiers",
+   "query": "ada",
+   "display": "muhammad émile",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 116",
+   "dataset": "distinct_tiers",
+   "query": "émile sola",
+   "display": "chidi",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 117",
+   "dataset": "distinct_tiers",
+   "query": "strasse mohammed ngozi babatunde",
+   "display": "ɗanjuma ibraheem chidi a ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 118",
+   "dataset": "distinct_tiers",
+   "query": "ade ada",
+   "display": "sade ɗanjuma",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: combination 119",
+   "dataset": "distinct_tiers",
+   "query": "émile ibraheem ibraheem",
+   "display": "ade adebayo shola ade mohammed",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "initial of a two letter name",
+   "query": "T",
+   "display": "Tu",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: initial of a two letter name",
+   "dataset": "distinct_tiers",
+   "query": "T",
+   "display": "Tu",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "initial of a two letter name reverse",
+   "query": "Tu",
+   "display": "T",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: initial of a two letter name reverse",
+   "dataset": "distinct_tiers",
+   "query": "Tu",
+   "display": "T",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "initial of a longer name",
+   "query": "T",
+   "display": "Tun",
+   "phonetic": false,
+   "want": {
+    "numerator": 2,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: initial of a longer name",
+   "dataset": "distinct_tiers",
+   "query": "T",
+   "display": "Tun",
+   "phonetic": false,
+   "want": {
+    "numerator": 1,
+    "denominator": 3
+   }
+  },
+  {
+   "name": "two letters are not an initial",
+   "query": "Tu",
+   "display": "Tun",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: two letters are not an initial",
+   "dataset": "distinct_tiers",
+   "query": "Tu",
+   "display": "Tun",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "first vowel kept in the key off",
+   "query": "Obanks",
+   "display": "Abanks",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: first vowel kept in the key off",
+   "dataset": "distinct_tiers",
+   "query": "Obanks",
+   "display": "Abanks",
+   "phonetic": false,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "first vowel kept in the key on",
+   "query": "Obanks",
+   "display": "Abanks",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: first vowel kept in the key on",
+   "dataset": "distinct_tiers",
+   "query": "Obanks",
+   "display": "Abanks",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "same first vowel on",
+   "query": "Abanks",
+   "display": "Abanx",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: same first vowel on",
+   "dataset": "distinct_tiers",
+   "query": "Abanks",
+   "display": "Abanx",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "first vowel only differs on",
+   "query": "Ekanks",
+   "display": "Ikanks",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "distinct tiers: first vowel only differs on",
+   "dataset": "distinct_tiers",
+   "query": "Ekanks",
+   "display": "Ikanks",
+   "phonetic": true,
+   "want": {
+    "numerator": 0,
+    "denominator": 1
+   }
+  },
+  {
+   "name": "long keys equal on",
+   "query": "Philippa",
+   "display": "Filipa",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
+  },
+  {
+   "name": "distinct tiers: long keys equal on",
+   "dataset": "distinct_tiers",
+   "query": "Philippa",
+   "display": "Filipa",
+   "phonetic": true,
+   "want": {
+    "numerator": 3,
+    "denominator": 5
+   }
   }
- ]
+ ],
+ "datasets": {
+  "distinct_tiers": {
+   "matcher_id": "demo.matcher.distinct",
+   "version": "1.0.0",
+   "mark": "[synthetic seed]",
+   "note": "Recipient-name matcher data for the D5 composed matcher (DEC-2026-10-20). Every entry is a [synthetic seed]: invented for the POC, not reviewed by a native speaker (PERD REQ-INT-003 dependency), and the tier scores are starting values to be set by a benchmark run and a founder decision, not tuned values.",
+   "tiers": {
+    "mark": "[synthetic seed]",
+    "exact": "1",
+    "folded": "9/10",
+    "alias": "4/5",
+    "phonetic": "0.6",
+    "initial": "1/3"
+   },
+   "fold": {
+    "mark": "[synthetic seed]",
+    "map": {
+     "ɓ": "b",
+     "ɗ": "d",
+     "ƙ": "k",
+     "ƴ": "y",
+     "ʼ": "",
+     "’": "",
+     "'": ""
+    }
+   },
+   "nicknames": [
+    {
+     "nickname": "tunde",
+     "full_names": [
+      "babatunde",
+      "olatunde"
+     ],
+     "locale": "yo",
+     "mark": "[synthetic seed]"
+    },
+    {
+     "nickname": "bisi",
+     "full_names": [
+      "olabisi",
+      "abisola"
+     ],
+     "locale": "yo",
+     "mark": "[synthetic seed]"
+    },
+    {
+     "nickname": "femi",
+     "full_names": [
+      "oluwafemi",
+      "olufemi"
+     ],
+     "locale": "yo",
+     "mark": "[synthetic seed]"
+    },
+    {
+     "nickname": "kemi",
+     "full_names": [
+      "olukemi",
+      "oluwakemi"
+     ],
+     "locale": "yo",
+     "mark": "[synthetic seed]"
+    },
+    {
+     "nickname": "tope",
+     "full_names": [
+      "oluwatope",
+      "olutope"
+     ],
+     "locale": "yo",
+     "mark": "[synthetic seed]"
+    },
+    {
+     "nickname": "seun",
+     "full_names": [
+      "oluwaseun",
+      "olusegun"
+     ],
+     "locale": "yo",
+     "mark": "[synthetic seed]"
+    }
+   ],
+   "variants": [
+    {
+     "names": [
+      "mohammed",
+      "muhammad",
+      "mohamed",
+      "mohammad",
+      "muhammed"
+     ],
+     "locale": "ha",
+     "mark": "[synthetic seed]"
+    },
+    {
+     "names": [
+      "yusuf",
+      "yusuph",
+      "yussuf"
+     ],
+     "locale": "ha",
+     "mark": "[synthetic seed]"
+    },
+    {
+     "names": [
+      "aisha",
+      "aishat",
+      "ayisha"
+     ],
+     "locale": "ha",
+     "mark": "[synthetic seed]"
+    }
+   ],
+   "phonetic": {
+    "mark": "[synthetic seed]",
+    "min_key_length": 3,
+    "vowels": "aeiou",
+    "rules": [
+     [
+      "sh",
+      "s"
+     ],
+     [
+      "ch",
+      "c"
+     ],
+     [
+      "ph",
+      "f"
+     ],
+     [
+      "ck",
+      "k"
+     ],
+     [
+      "kh",
+      "k"
+     ],
+     [
+      "gh",
+      "g"
+     ],
+     [
+      "dh",
+      "d"
+     ],
+     [
+      "q",
+      "k"
+     ],
+     [
+      "x",
+      "ks"
+     ]
+    ]
+   }
+  }
+ }
 }

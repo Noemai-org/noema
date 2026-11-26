@@ -41,6 +41,7 @@ func shipped(t testing.TB) *recipientmatch.Matcher {
 
 type vector struct {
 	Name     string  `json:"name"`
+	Dataset  string  `json:"dataset"`
 	Query    *string `json:"query"`
 	Display  string  `json:"display"`
 	Phonetic bool    `json:"phonetic"`
@@ -52,27 +53,47 @@ type vector struct {
 
 func vectors(t testing.TB) []vector {
 	t.Helper()
+	cases, _ := vectorsAndMatchers(t)
+	return cases
+}
+
+// vectorsAndMatchers loads the shared vector file and one matcher per inline dataset it carries (a case with a dataset is scored with that data, whose tiers are all distinct).
+func vectorsAndMatchers(t testing.TB) ([]vector, map[string]*recipientmatch.Matcher) {
+	t.Helper()
 	raw, err := os.ReadFile(vectorsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Label string   `json:"label"`
-		Cases []vector `json:"cases"`
+		Label    string                     `json:"label"`
+		Datasets map[string]json.RawMessage `json:"datasets"`
+		Cases    []vector                   `json:"cases"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil || doc.Label != "SYNTHETIC" || len(doc.Cases) < 300 {
-		t.Fatalf("the vector file: %v, label %q, %d cases", err, doc.Label, len(doc.Cases))
+	if err := json.Unmarshal(raw, &doc); err != nil || doc.Label != "SYNTHETIC" || len(doc.Cases) < 500 || len(doc.Datasets) == 0 {
+		t.Fatalf("the vector file: %v, label %q, %d cases, %d datasets", err, doc.Label, len(doc.Cases), len(doc.Datasets))
 	}
-	return doc.Cases
+	ms := map[string]*recipientmatch.Matcher{"": shipped(t)}
+	for name, data := range doc.Datasets {
+		m, err := recipientmatch.Load(data)
+		if err != nil {
+			t.Fatalf("dataset %s: %v", name, err)
+		}
+		ms[name] = m
+	}
+	return doc.Cases, ms
 }
 
 // The parity acceptance: every vector gives the Python reference's exact fraction, in lowest terms, with the phonetic tier on or off as the case says.
 func TestEveryVectorGivesThePythonReferencesExactFraction(t *testing.T) {
-	m := shipped(t)
-	for _, v := range vectors(t) {
+	cases, matchers := vectorsAndMatchers(t)
+	for _, v := range cases {
 		q := ""
 		if v.Query != nil {
 			q = *v.Query
+		}
+		m, ok := matchers[v.Dataset]
+		if !ok {
+			t.Fatalf("%s: no dataset %q", v.Name, v.Dataset)
 		}
 		got, err := m.Score(q, v.Display, v.Phonetic)
 		if err != nil {
@@ -90,7 +111,7 @@ func TestEveryVectorGivesThePythonReferencesExactFraction(t *testing.T) {
 func TestThePortScoresWithThePhoneticTierOff(t *testing.T) {
 	m := shipped(t)
 	for _, v := range vectors(t) {
-		if v.Phonetic || v.Query == nil {
+		if v.Phonetic || v.Query == nil || v.Dataset != "" {
 			continue
 		}
 		got, err := m.Match(*v.Query, v.Display)
@@ -99,8 +120,8 @@ func TestThePortScoresWithThePhoneticTierOff(t *testing.T) {
 		}
 	}
 	// A pair the phonetic tier changes: the port does not apply it, Score with the flag does.
-	on, _ := m.Score("Shade", "Sade", true)
-	off, err := m.Match("Shade", "Sade")
+	on, _ := m.Score("Philip", "Filip", true)
+	off, err := m.Match("Philip", "Filip")
 	if err != nil || on == off || on.Numerator*off.Denominator <= off.Numerator*on.Denominator {
 		t.Errorf("phonetic on %+v, port %+v (%v): the tier must raise this pair when on and be absent through the port", on, off, err)
 	}

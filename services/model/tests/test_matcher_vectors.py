@@ -29,8 +29,11 @@ def test_the_vector_file_is_synthetic_and_names_the_pack_data_it_is_built_from()
 
 
 def test_every_vector_is_the_reference_matchers_exact_fraction_in_lowest_terms() -> None:
-    matcher = RecipientMatcher.from_file(DATA)
-    for case in _doc()["cases"]:
+    shipped = RecipientMatcher.from_file(DATA)
+    doc = _doc()
+    others = {name: RecipientMatcher(data) for name, data in doc.get("datasets", {}).items()}
+    for case in doc["cases"]:
+        matcher = others[case["dataset"]] if "dataset" in case else shipped
         got = matcher.score(case["query"], case["display"], phonetic=case["phonetic"])
         want = Fraction(case["want"]["numerator"], case["want"]["denominator"])
         assert got == want, case["name"]
@@ -42,9 +45,10 @@ def test_the_vectors_cover_every_tier_and_both_phonetic_modes() -> None:
     matcher = RecipientMatcher.from_file(DATA)
     seen: set[Fraction] = set()
     on_off_differ = False
-    cases = {c["name"]: c for c in _doc()["cases"]}
+    cases = {c["name"]: c for c in _doc()["cases"] if "dataset" not in c}
     for case in cases.values():
-        seen.add(matcher.score(case["query"], case["display"], phonetic=case["phonetic"]))
+        if "dataset" not in case:
+            seen.add(matcher.score(case["query"], case["display"], phonetic=case["phonetic"]))
     for name, case in cases.items():
         if name.endswith(" on") and cases[name[:-3] + " off"]["want"] != case["want"]:
             on_off_differ = True
