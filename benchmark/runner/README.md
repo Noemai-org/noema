@@ -54,3 +54,7 @@ A fault no producer has yet (today only one case: an injection into a case-syste
 ## Tests
 
 `make bench-test`. `FakeNoema` (`testdata.py`) is a stand-in for the core's public API, which does not exist yet; it injects no fault and records every request so a test can prove the runner never leaves the public API. `benchmark.oracle_client.live_check` runs the oracle client and the translated plans against a real mock-case and PostgreSQL.
+
+## Webhooks (A667, A682)
+
+`--webhook-payloads FILE` gives the runner a real `WebhookSender`: a JSON object of kind (`settlement_updated`, `reversal_posted`) to the object to deliver. The runner calls mock-case's bench control route `POST /control/v1/webhooks/deliver` with `{"message_id": "<case id>:<kind>", "payload": <object>}` and the bench credential (`--bench-credential-file`, required with the flag). mock-case signs with its own SYNTHETIC key and posts to the relay; the delivery counts only when the answer says `accepted: true`. A relay refusal, a 404 (mock-case has no webhook settings: both of its two settings, or neither) or a missing kind makes the case an ERROR. The runner invents no body: Tushe's event names and body members are not stated in any governing document (status/ENV-05.md, "Not stated", item 1), so the file is the caller's. `MockCaseWebhooks.replay` calls the replay route; no timeline kind uses it yet. Without the flag the two kinds stay undriven and `--support` says so.

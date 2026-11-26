@@ -33,3 +33,11 @@ class MockCaseControl:
 
     def clock(self) -> Json:
         return self._http.request("GET", "/control/v1/clock")[0]
+
+    def deliver_webhook(self, message_id: str, payload: Json) -> Json:
+        """mock-case signs `payload` with its own SYNTHETIC key and posts it to the configured relay (A682). The answer carries the relay's status and `accepted`."""
+        return self._http.request("POST", "/control/v1/webhooks/deliver", {"message_id": message_id, "payload": payload})[0]
+
+    def replay_webhook(self, message_id: str) -> Json:
+        """The same id and body again, with a fresh timestamp and signature (A682)."""
+        return self._http.request("POST", f"/control/v1/webhooks/{message_id}/replay", {})[0]

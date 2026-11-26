@@ -90,3 +90,16 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Test-first, seen failing in CI: the red commit `41c0b6af` (tests only, 3 failing by design) was pushed before the fix. Tests: the report blocks a confirm at the start and names it, blocks a driven kind at the start even with a sender, does not block a kill switch or a clock advance at the start, blocks by name every suite case the run refuses at the start, and the README count equals the one the report computes.
 - Risks, and how they are contained: none for the run; the report only gets stricter. Tests added (A667, A689): 4 new, plus 1 guard. Regression cases added: none. Debt entries: none. Conflicts raised: none.
 
+
+# Session 2026-11-26 · BEN-03 · A667, A682: the runner's WebhookSender for mock-case
+
+## Session summary
+- What changed: `benchmark/runner/webhooks.py` (`MockCaseWebhooks`, `read_payloads`), two methods on `MockCaseControl`, the `--webhook-payloads` flag (it also feeds `--support`), the runner README. Built on #979's port; it goes in its own PR after #979 merges.
+- Why: A682 and IL's endpoints (`POST /control/v1/webhooks/deliver`, `POST /control/v1/webhooks/{message_id}/replay`; status/ENV-05.md) give #979's `WebhookSender` a real transport.
+- Risks, and how they are contained: the object delivered for each kind is the caller's file, because no governing document states Tushe's body members; nothing is invented here. A relay that does not accept is an ERROR, never an OK.
+- Tests added (A667, A682): 9 in `test_webhooks.py`, on a real TCP server. Seen failing first (the red commit has no module).
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: IL says which members the relay's consumer needs in each body, so a payload file can be written; the runner then needs no change.
+- Do not touch: the mock-case routes.

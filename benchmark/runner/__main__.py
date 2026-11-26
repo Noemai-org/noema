@@ -25,6 +25,7 @@ from .request_log import RequestRecorder
 from .run import run_suite
 from .suite import SuiteError, load_suite
 from .support import report as support_report
+from .webhooks import MockCaseWebhooks, read_payloads
 
 FORBIDDEN = "benchmark-heldout"
 NO_LOADER = "no fixture loader is configured: Tushe's sandbox is not reachable from this build (--standin-url selects the Noema-side stand-in, labelled stand-in)"
@@ -86,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--only-file", type=Path, help="run only the case ids in this file, one per line (BEN-29)")
     p.add_argument("--standin-url", help="the Noema-side stand-in for the Tushe-held data (bench_net); with the bench credential it provides the fixture loader. Evidence from such a run is labelled stand-in")
     p.add_argument("--commit-sha", default=None)
+    p.add_argument("--webhook-payloads", type=Path, help="a JSON file of webhook kind to object (settlement_updated, reversal_posted); with it the runner delivers those events through mock-case's bench control routes (A682)")
     p.add_argument("--support", action="store_true", help="print which cases this build can run and what stops the rest, then exit")
     args = p.parse_args(argv)
 
@@ -114,11 +116,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {error}")
         return 2
     if args.support:
-        found = support_report(suite)
+        found = support_report(suite, webhooks=args.webhook_payloads is not None)
         print(f"{found['runnable']} of {found['total']} cases can run now ({found['blocked']} blocked; {found['without_faults_or_events']} need no fault and no event)")
         for reason, count in found["blocked_by"].items():
             print(f"  {count:4d}  {reason}")
         return 0
+    try:
+        payloads = read_payloads(args.webhook_payloads) if args.webhook_payloads else None
+    except (OSError, ValueError) as error:
+        print(f"refused: {error}")
+        return 2
+    if payloads is not None and not args.bench_credential_file:
+        print("--webhook-payloads needs --bench-credential-file: the webhook routes of mock-case take the bench credential")
+        return 2
     standin_credential, proxy_credential = service_credentials(args)
     if args.standin_url and not standin_credential:
         print("--standin-url needs --bench-credential-file (or --standin-credential-file): the stand-in's control route takes a bench credential, and without it the fixture loader would silently be missing")
@@ -136,7 +146,8 @@ def main(argv: list[str] | None = None) -> int:
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url, recorder=RequestRecorder()), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
                  fixtures=StandInFixtureLoader(args.standin_url, standin_credential) if args.standin_url and standin_credential else UnavailableFixtureLoader(NO_LOADER), sessions=sessions, run_id=args.run_id,
-                 admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
+                 admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir),
+                 webhooks=MockCaseWebhooks(MockCaseControl(args.bench_url, credential), payloads) if payloads is not None else None)
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
                         only=selected)
     counts = summary["counts"]

@@ -100,9 +100,9 @@ class Sender(unittest.TestCase):
 
 class Payloads(unittest.TestCase):
     def write(self, value: Any) -> Path:
-        d = tempfile.mkdtemp()
-        self.addCleanup(lambda: [p.unlink() for p in Path(d).iterdir()] and Path(d).rmdir())
-        path = Path(d) / "payloads.json"
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        path = Path(holder.name) / "payloads.json"
         path.write_text(json.dumps(value), encoding="utf-8")
         return path
 
@@ -110,7 +110,8 @@ class Payloads(unittest.TestCase):
         self.assertEqual(read_payloads(self.write(PAYLOADS)), PAYLOADS)
 
     def test_a_kind_the_runner_does_not_drive_an_empty_object_or_a_non_object_is_refused(self) -> None:
-        for bad in ({"forged_signature": {"a": 1}}, {"settlement_updated": {}}, {"settlement_updated": [1]}, ["settlement_updated"], {}):
+        bad_files: list[Any] = [{"forged_signature": {"a": 1}}, {"settlement_updated": {}}, {"settlement_updated": [1]}, ["settlement_updated"], {}]
+        for bad in bad_files:
             with self.assertRaises(ValueError, msg=str(bad)):
                 read_payloads(self.write(bad))
 
@@ -131,8 +132,15 @@ class Cli(unittest.TestCase):
             path = Path(d) / "p.json"
             path.write_text(json.dumps(PAYLOADS), encoding="utf-8")
             with_flag = report("--webhook-payloads", str(path))
-        self.assertIn("event: webhook", without)
-        self.assertNotIn("event: webhook", with_flag)
+        def blocked(text: str) -> int:
+            return sum(int(line.split()[0]) for line in text.splitlines() if line.strip().endswith("event: webhook"))
+
+        def runnable(text: str) -> int:
+            return int(text.split(" of ")[0])
+
+        self.assertGreater(blocked(without), 0)
+        self.assertLess(blocked(with_flag), blocked(without))  # the other webhook kinds (destination_credited, forged_signature, replayed) stay undriven
+        self.assertGreaterEqual(runnable(with_flag), runnable(without))
 
 
 if __name__ == "__main__":
