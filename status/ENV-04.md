@@ -366,3 +366,7 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 
 ## Session 2026-11-25 (second) · ENV-04 · noema#955 follow-up (A667)
 - The capture step makes the empty collector files in a stack-check only. A full run that never reached its collector is refused by the scan (exit 2, "refused: not found"), never passed on an empty file; a test runs the capture step in a full run (no file is made) and the real scanner with the full run's list (exit 2). A mutant that makes the files in every mode fails it.
+
+## Session 2026-11-25 · ENV-04 · A683: journey tokens (IL)
+- `make bench-journey-tokens`: `deploy/compose/journey_principals.py` reads the principals of the journeys manifest (noema#962, A652; 19 unique, all `customer`) and `bench_tokens.sh` issues one 15-minute token each. Tests first (red: no script): 8 tests, 7 of the script's mutants killed. Checked end to end on the real manifest from noema#962's branch with the real issuer: 19 token files, mode 0400 in a 0700 directory, each `exp - iat` = 900 s, one `customer` role, tenant `ten_alpha`. No token was printed or kept.
+- Not done: the stack workflow's browser step does not call it yet (the manifest is not on `main` until #962 merges; FE decides how its config reads `idp/tokens`).
