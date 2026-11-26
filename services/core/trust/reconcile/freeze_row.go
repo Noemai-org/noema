@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
+	"unicode"
 )
 
 // The freeze row (REQ-RES-002, INV-20): a contradiction is Recorded as CONTRADICTION_FREEZE_SET, and the freeze is lifted only by a Trust-recorded resolution or escalation, recorded as
@@ -30,7 +32,9 @@ type FreezeSet struct {
 	Labels    []string
 }
 
-// NewFreezeSet builds the row for a contradictory result. Anything else is ErrNotContradictory: a waiting result, an unknown outcome or a converged state never freezes.
+// NewFreezeSet builds the row for a contradictory result. Anything else is ErrNotContradictory: a waiting result, an unknown outcome or a converged state never freezes. The row is built from
+// the freezing set alone (Result.Contradictions): a pair still inside its window (Result.InWindow) is in neither Labels nor Evidence. Evidence is the union of the items that disagreed (both
+// ends of each freezing pair, whatever the matched rule uses) and the evidence the matched rule used.
 func NewFreezeSet(tenantID, target, rulesetID string, res Result) (FreezeSet, error) {
 	if res.Classification != ContradictoryState {
 		return FreezeSet{}, ErrNotContradictory
@@ -38,14 +42,21 @@ func NewFreezeSet(tenantID, target, rulesetID string, res Result) (FreezeSet, er
 	if tenantID == "" || target == "" || rulesetID == "" {
 		return FreezeSet{}, ErrFreezeFacts
 	}
-	set := FreezeSet{TenantID: tenantID, Target: target, RulesetID: rulesetID, RuleID: res.RuleID,
-		Evidence: append([]string(nil), res.Contributing...)}
-	labels := map[string]bool{}
+	set := FreezeSet{TenantID: tenantID, Target: target, RulesetID: rulesetID, RuleID: res.RuleID}
+	labels, evidence := map[string]bool{}, map[string]bool{}
 	for _, c := range res.Contradictions {
 		labels[c.Label] = true
+		evidence[c.A], evidence[c.B] = true, true
 	}
+	for _, id := range res.Contributing {
+		evidence[id] = true
+	}
+	delete(evidence, "")
 	for l := range labels {
 		set.Labels = append(set.Labels, l)
+	}
+	for id := range evidence {
+		set.Evidence = append(set.Evidence, id)
 	}
 	sort.Strings(set.Evidence)
 	sort.Strings(set.Labels)
@@ -69,12 +80,24 @@ type FreezeLift struct {
 	DecisionID string
 }
 
-// NewFreezeCleared builds the clearing event. It needs a decision that Trust recorded: a changed classification is not one, and neither is a missing decision id.
+// decisionPrefix is the prefix of a decision id (`<prefix>_<ULID>`, PERD 32.3).
+const decisionPrefix = "dec_"
+
+// decisionIDShape is the cheap check on a decision id: the dec_ prefix, something after it and no control character or space. That the decision exists, is the tenant's and names the target
+// is the Recorder's to check against the Record.
+func decisionIDShape(id string) bool {
+	if !strings.HasPrefix(id, decisionPrefix) || len(id) == len(decisionPrefix) {
+		return false
+	}
+	return strings.IndexFunc(id, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) < 0
+}
+
+// NewFreezeCleared builds the clearing event. It needs a decision that Trust recorded: a changed classification is not one, and neither is a missing or malformed decision id.
 func NewFreezeCleared(tenantID, target string, by ClearedBy, decisionID string) (FreezeLift, error) {
 	if by != ClearedByResolution && by != ClearedByEscalation {
 		return FreezeLift{}, ErrNotCleared
 	}
-	if decisionID == "" {
+	if !decisionIDShape(decisionID) {
 		return FreezeLift{}, ErrNotCleared
 	}
 	if tenantID == "" || target == "" {
@@ -112,7 +135,24 @@ type FreezeRecorder interface {
 	RecordFreezeCleared(ctx context.Context, c FreezeLift) error
 }
 
-// FreezeReader is the Record's answer for a target's freeze; an error is read as FreezeUnknown by the caller.
+// FreezeReader is the Record's answer for a target's freeze. Callers use ReadFreeze, never the port directly, so that an error cannot be read as "no freeze".
 type FreezeReader interface {
 	RecordedFreeze(ctx context.Context, tenantID, target string) (RecordedFreeze, error)
+}
+
+// ReadFreeze asks the reader and returns FreezeUnknown on any error (even if the reader returned a value with it), on a missing reader and on a value out of range. An adapter calls only this
+// (INV-20: doubt stays frozen).
+func ReadFreeze(ctx context.Context, r FreezeReader, tenantID, target string) RecordedFreeze {
+	if r == nil {
+		return FreezeUnknown
+	}
+	rec, err := r.RecordedFreeze(ctx, tenantID, target)
+	if err != nil {
+		return FreezeUnknown
+	}
+	switch rec {
+	case FreezeNone, FreezeRecorded, FreezeCleared:
+		return rec
+	}
+	return FreezeUnknown
 }
