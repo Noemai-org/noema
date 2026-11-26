@@ -943,7 +943,7 @@ def rules_file(version=1, window=None):
 
 class ReconRuleSet(unittest.TestCase):
     """A659 (interim, relayed, not yet committed; REQ-RES-005; AGENT-15): the pack's rules file is checked against `recon-rule-set.v1`. From version 2 every compared pair and every
-    single-valued field declares `convergence_window_seconds` (at least 1); version 1 declares none. That a window equals the smaller freshness limit of its pair (A641) is not
+    single-valued field declares `convergence_window_seconds` (at least 0, A708); version 1 declares none. That a window equals the smaller freshness limit of its pair (A641) is not
     checked here: it needs the evidence mapping's entity-to-source link, which is the rule set's data change (PCK-05)."""
 
     def problems(self, doc):

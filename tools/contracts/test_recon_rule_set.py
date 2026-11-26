@@ -1,5 +1,5 @@
 """A659 (interim, relayed, not yet committed; REQ-RES-005, REQ-RES-001; AGENT-15): recon-rule-set.v1 is the shape of the pack's reconciliation rule set. From version 2 each compared
-pair (`incompatible`) and each `single_valued` field declares `convergence_window_seconds`, a whole number of seconds of at least 1; in version 1 the member is not allowed. The
+pair (`incompatible`) and each `single_valued` field declares `convergence_window_seconds`, a whole number of seconds of at least 0 (A708); in version 1 the member is not allowed. The
 shape is the loader's (an unknown member is refused). That a window equals the smaller freshness limit of its pair (A641) is packcheck's, not the schema's. All data is SYNTHETIC."""
 import json
 import unittest

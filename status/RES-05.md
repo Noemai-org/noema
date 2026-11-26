@@ -29,3 +29,17 @@ Task state: green written; CI to be read. Owner: C2 (A640: C2 keeps the Reconcil
 - Fix: `Result.Contradictions` is the freezing set only (pairs outside their window or with none); the new `Result.InWindow` holds the pairs still inside their window, each with its deadline. When every pair is inside its window, `Contradictions` is empty and `Wait` is set; in a mixed result `Wait` is nil and the result is contradictory.
 - A second defect the new test found: with one pair expired and another inside its window, the rules no longer saw the waiting pair, so a rule that guards against it (the reversal rule) gave REVERSED_CONFIRMED, a verdict while a contradiction stood. The rules now see every disagreement as soon as one is outside its window.
 - #958 consumes `Result.Contradictions` and `Result.Contributing` only (`NewFreezeSet`), so it needs no change to use the fix; it gets it when it merges main. A mixed-pair test for the freeze row can be added to #958 after #949 merges.
+
+# Session 2026-11-26 · RES-05 · A708 (C1, interim, relayed)
+
+## Session summary
+- What changed: `recon-rule-set.v1.json` allows `convergence_window_seconds` 0 (minimum 0); the 0 fixture moved from invalid to valid; packcheck docstring and the contracts README carry the note; generated Go and Pydantic types regenerated. The loader already accepted 0 (a negative is refused): a new test pins a version 2 set with every window 0 (CONTRADICTORY_STATE at once, no wait).
+- Why: A708, REQ-RES-005 (0 is a window with no tolerance, fail closed).
+- Risks: loosening within v1 (A698); no safety threshold is changed (AGENT-16): no pack declares a window by this change.
+- Tests added: `tools/contracts/test_recon_rule_set.py`, `tools/packcheck/test_packcheck.py`, `trust/reconcile/window_test.go` (A708).
+- Regression cases added: the valid fixture `fin_version_2_window_zero.json` (red at `f4eb552ab`).
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: both Founders on the PR. PCK-05 (EL) declares real windows once decided.
+- Do not touch: `rules.v1.json` values.
