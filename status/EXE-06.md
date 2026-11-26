@@ -28,3 +28,21 @@ Built: `recorder.Writer.Write` refuses a request with steps with `ErrWritesDisab
 - Purpose: scope of EXE-06 for now: only the Trust-side refusal in `recorder.Writer.Write`; stop and report if a migration or a contract change is needed.
 - Receiver used it for: the slice above. A migration was not needed (the Trust login can read `tenant.kill_switch`), and no contract change (`WRITES_DISABLED` is already an errors.v3 code).
 - Evidence (PR or commit): local commits on `prep/exe06-killswitch`.
+
+## Session 2026-11-25 · EXE-06 slice 2: the control plane (C1; A633, A666)
+
+### Session summary
+- What changed (PR links): noema#980 (draft). `migrations/0042_kill_switch_control_plane.sql`, `execution/controlplane/` (`Switch.Set`, `Switch.Clear`), `platform/db/kill_switch_control_plane_test.go`, the policy pin in `tenant_row_security_test.go`, one row in `migrations/README.md`.
+- Why: REQ-EXE-008 (a control-plane operation; the Record names who changed the switch; a refused clear is on the Record), ruling A71, A633 and A666 ("as designed", migration 0042).
+- Design: the control plane's login is the tenant's admin emitter login that 0011 provisions; `kill_switch_apply_t` is the one runtime path that clears, and it takes the tenant from the login. The Go type runs the function and appends `KILL_SWITCH_CHANGED` (and for a clear `SECURITY_EVENT KILL_SWITCH_CLEARED`) in one transaction, so the Record and the switch change together; C-VERIFY's clear is `ErrForbidden` with `SECURITY_EVENT KILL_SWITCH_CLEAR_REFUSED`.
+- Risks, and how they are contained: (1) the database cannot tell a person from a process, so any process holding the tenant's admin login can clear; the listener's role check is the control and is not in this slice (named gap). (2) A second admin login mapped in the same tenant by the migrator would also clear; provisioning is the migrator's alone (`provision_emitter_login`). (3) The Record event is appended after the function call inside the transaction (the function returns the previous state for the payload); a failed append rolls the change back (test). (4) The migration adds two `tenant` policies for `record_append`; they match only an admin login's own tenant, and the pinned policy set test is extended, not weakened.
+- Tests added (REQ-EXE-008, REQ-OPS-002, REQ-AUD-001, INV-03, INV-11, INV-12, EC-E16): in `controlplane`: set, verifier set, clear with two events, refused clear, unidentified caller, failed append both directions, tenant with no login, the next Trust and Execution transaction sees the change, incomplete switch. In `platform/db`: the function sets and clears its own tenant and returns the previous state, no direct privilege, no other login class may call it, EXECUTE only for `record_emitter`.
+- Red: `2f05f64f` (tests and a stub that returns `ErrNotBuilt`; the function did not exist). One test passes on the red by design: the admin login has no direct privilege on `tenant` (a guard on an existing property).
+- Mutants (each of `switch.go`, each killed): the role check removed; the SECURITY_EVENT of a clear removed; the append error swallowed.
+- Regression cases added: none (not a bug fix). Debt entries: none new; see the open choices in the PR body. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: the ops listener (SEC-04 matrix, noema#505 route spelling) that maps a verified session to `controlplane.Caller` and calls `Switch`; EXE-10 (the running core learns the change without a restart); then PUS-06 end to end and OPS-03's drill. TST-03 is separate.
+- Open questions (owner): whether C-VERIFY's setting path should move to the function (Architect); whether the event payload members `previous` and `role` belong in the Record contract (Architect).
+- Files to read first: `migrations/0042_kill_switch_control_plane.sql`, `execution/controlplane/switch.go`, `migrations/0017_kill_switch_set_only.sql`, `migrations/0011_provision_emitter_login.sql`.
+- Do not touch: `trust/**` and `outcome/**` internals (SoT section 51); the guard test of 0017.

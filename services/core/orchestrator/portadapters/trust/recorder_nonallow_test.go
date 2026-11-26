@@ -32,7 +32,7 @@ func rnaRequest(t *testing.T, outcome string, withRequest bool) intake.RecordReq
 		d, err = res.Confirm(a)
 	case "REJECT":
 		var rc decide.ReasonCode
-		if rc, err = decide.Core("DECLINED_BY_APPROVER"); err == nil {
+		if rc, err = decide.Core("NOT_AUTHORIZED"); err == nil { // A542: not the approver's decline, which must name a stored request
 			d, err = res.Reject(a, rc)
 		}
 	case "UNKNOWN":

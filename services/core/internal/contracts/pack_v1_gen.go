@@ -21,9 +21,10 @@ type PackV1Understanding struct {
 	IntentUnclearFlag string                                   `json:"intent_unclear_flag"`
 	OutOfScopeFlag    string                                   `json:"out_of_scope_flag"`
 	StateFlags        PackV1UnderstandingStateFlags            `json:"state_flags"`
+	SlotGates         *[]PackV1UnderstandingSlotGatesItem      `json:"slot_gates,omitempty"`
 }
 
-var PackV1UnderstandingShape = objectShape{name: "PackV1Understanding", props: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true}, required: []string{"ranking", "proposable_flags", "locales", "material_flags", "intent_unclear_flag", "out_of_scope_flag", "state_flags"}, nonNull: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true}, closed: true}
+var PackV1UnderstandingShape = objectShape{name: "PackV1Understanding", props: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true, "slot_gates": true}, required: []string{"ranking", "proposable_flags", "locales", "material_flags", "intent_unclear_flag", "out_of_scope_flag", "state_flags"}, nonNull: map[string]bool{"ranking": true, "proposable_flags": true, "locales": true, "material_flags": true, "intent_unclear_flag": true, "out_of_scope_flag": true, "state_flags": true, "slot_gates": true}, closed: true}
 
 func (t *PackV1Understanding) UnmarshalJSON(b []byte) error {
 	raw, err := PackV1UnderstandingShape.check(b)
@@ -154,6 +155,29 @@ func (t *PackV1UnderstandingRankingWeights) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// PackV1UnderstandingSlotGatesItem is generated from pack.v1.json#$defs/Understanding/properties/slot_gates/items.
+type PackV1UnderstandingSlotGatesItem struct {
+	Slot                 string `json:"slot"`
+	AssertionThresholdBp int64  `json:"assertion_threshold_bp"`
+}
+
+var PackV1UnderstandingSlotGatesItemShape = objectShape{name: "PackV1UnderstandingSlotGatesItem", props: map[string]bool{"slot": true, "assertion_threshold_bp": true}, required: []string{"slot", "assertion_threshold_bp"}, nonNull: map[string]bool{"slot": true, "assertion_threshold_bp": true}, closed: true}
+
+func (t *PackV1UnderstandingSlotGatesItem) UnmarshalJSON(b []byte) error {
+	raw, err := PackV1UnderstandingSlotGatesItemShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias PackV1UnderstandingSlotGatesItem
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: PackV1UnderstandingSlotGatesItem: %w", err)
+	}
+	_ = raw
+	*t = PackV1UnderstandingSlotGatesItem(a)
+	return nil
+}
+
 // PackV1UnderstandingStateFlags is generated from pack.v1.json#$defs/Understanding/properties/state_flags.
 // The flag each non-resolving ranking state raises.
 type PackV1UnderstandingStateFlags struct {
@@ -266,10 +290,11 @@ type PackV1 struct {
 	PackId              CommonV1Vertical                          `json:"pack_id"`
 	PackVersion         CommonV1Semver                            `json:"pack_version"`
 	Name                string                                    `json:"name"`
+	TenantZone          *string                                   `json:"tenant_zone,omitempty"`
 	IntentNodes         []IntentNodeV1                            `json:"intent_nodes"`
 	TrustProfiles       []TrustProfileV1                          `json:"trust_profiles"`
 	OutcomeDefinitions  []OutcomeDefinitionV1                     `json:"outcome_definitions"`
-	Capabilities        []CapabilityDescriptorV1                  `json:"capabilities"`
+	Capabilities        []CapabilityDescriptorV2                  `json:"capabilities"`
 	EvidenceSources     []EvidenceSourceV1                        `json:"evidence_sources"`
 	Policy              PackV1Policy                              `json:"policy"`
 	Clocks              []ClockV1                                 `json:"clocks"`
@@ -283,7 +308,7 @@ type PackV1 struct {
 	Understanding       *PackV1Understanding                      `json:"understanding,omitempty"`
 }
 
-var PackV1Shape = objectShape{name: "PackV1", props: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, required: []string{"schema_version", "pack_id", "pack_version", "name", "intent_nodes", "trust_profiles", "outcome_definitions", "capabilities", "evidence_sources", "policy", "clocks", "reason_catalogue"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, closed: true}
+var PackV1Shape = objectShape{name: "PackV1", props: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, required: []string{"schema_version", "pack_id", "pack_version", "name", "intent_nodes", "trust_profiles", "outcome_definitions", "capabilities", "evidence_sources", "policy", "clocks", "reason_catalogue"}, nonNull: map[string]bool{"schema_version": true, "pack_id": true, "pack_version": true, "name": true, "tenant_zone": true, "intent_nodes": true, "trust_profiles": true, "outcome_definitions": true, "capabilities": true, "evidence_sources": true, "policy": true, "clocks": true, "reason_catalogue": true, "case_reasons": true, "action_graph_files": true, "routing_allowlist": true, "handoff_routes": true, "evidence_descriptors": true, "predicate_variables": true, "understanding": true}, closed: true}
 
 func (t *PackV1) UnmarshalJSON(b []byte) error {
 	raw, err := PackV1Shape.check(b)
@@ -313,7 +338,7 @@ func (t PackV1) MarshalJSON() ([]byte, error) {
 		a.OutcomeDefinitions = []OutcomeDefinitionV1{}
 	}
 	if a.Capabilities == nil {
-		a.Capabilities = []CapabilityDescriptorV1{}
+		a.Capabilities = []CapabilityDescriptorV2{}
 	}
 	if a.EvidenceSources == nil {
 		a.EvidenceSources = []EvidenceSourceV1{}

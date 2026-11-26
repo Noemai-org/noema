@@ -1,0 +1,263 @@
+{
+  "set_id": "remedy-labelled.v1",
+  "label": "SYNTHETIC. Invented phrasings, no real customer, account or transcript (AGENT-25).",
+  "ruling": "A604",
+  "purpose": "An offline set to measure the compiler's `requested_remedy` decision (UND-16, live run 7: G-A and G-B asserted a remedy on a status question, G-E missed an explicit resend) before any further live run. It is neither the goldens nor the held-out set: nothing in it may be added to either, and nothing from either may be added to it (INV-22).",
+  "rule": "explicit_ask is true if and only if the customer asks the bank to DO something for them (resend, refund, reverse, escalate, cancel, send again for me). A question about where the money is, whether it arrived, why it is pending, what a status means, whether it is safe to send again, or a polite request to be TOLD something, is false. `asks_for` is a human-readable kind, not a capability id. `borderline` items are the ones a careful reader could argue; report them apart from the clear ones.",
+  "held_out": false,
+  "goldens": false,
+  "items": [
+    {
+      "id": "RL-001",
+      "locale": "en-NG",
+      "text": "Where is the 15k I sent to Chinedu this afternoon?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-002",
+      "locale": "en-NG",
+      "text": "Did the transfer to Halima go through yesterday?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-003",
+      "locale": "en-NG",
+      "text": "What is the status of my payment to Femi?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-004",
+      "locale": "en-NG",
+      "text": "Has the 8k I paid to Ngozi been credited yet?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-005",
+      "locale": "en-NG",
+      "text": "Please tell me if the money I sent last night has reached Segun.",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": true,
+      "why": "Polite request, but what is asked for is information, not an action."
+    },
+    {
+      "id": "RL-006",
+      "locale": "en-NG",
+      "text": "I want to know why the transfer to Kayode is still pending.",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-007",
+      "locale": "en-NG",
+      "text": "Is it safe to send the money to Yetunde again, or should I wait?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": true,
+      "why": "Asks for advice about resending, not for the resend."
+    },
+    {
+      "id": "RL-008",
+      "locale": "en-NG",
+      "text": "Please resend the 12k to Adaeze, it never arrived.",
+      "explicit_ask": true,
+      "asks_for": "resend",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-009",
+      "locale": "en-NG",
+      "text": "Reverse the transfer I made to Musa this morning.",
+      "explicit_ask": true,
+      "asks_for": "reverse",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-010",
+      "locale": "en-NG",
+      "text": "I need a refund of the 30k I sent to Tosin by mistake.",
+      "explicit_ask": true,
+      "asks_for": "refund",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-011",
+      "locale": "en-NG",
+      "text": "Escalate my complaint about the missing payment to a supervisor.",
+      "explicit_ask": true,
+      "asks_for": "escalate",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-012",
+      "locale": "en-NG",
+      "text": "Send the money to Ifeoma again for me, the first one failed.",
+      "explicit_ask": true,
+      "asks_for": "resend",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-013",
+      "locale": "en-NG",
+      "text": "Cancel the pending transfer to Bayo and return the money.",
+      "explicit_ask": true,
+      "asks_for": "cancel",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-014",
+      "locale": "en-NG",
+      "text": "Please open a case for the transfer that did not reach Rotimi and have someone call me.",
+      "explicit_ask": true,
+      "asks_for": "escalate",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-015",
+      "locale": "pcm",
+      "text": "Wetin happen to the 5k wey I send Emeka yesterday?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-016",
+      "locale": "pcm",
+      "text": "Abeg, the money wey I send Chioma don reach?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-017",
+      "locale": "pcm",
+      "text": "Where my payment to Dayo dey? E don long.",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-018",
+      "locale": "pcm",
+      "text": "I wan know if the transfer to Zainab don enter.",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-019",
+      "locale": "pcm",
+      "text": "Why the money wey I send Obinna never land?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-020",
+      "locale": "pcm",
+      "text": "Make I resend am or I go wait small?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": true,
+      "why": "A question about what to do, not a request that the system resend."
+    },
+    {
+      "id": "RL-021",
+      "locale": "pcm",
+      "text": "The payment to Adaobi dey show pending, wetin that one mean?",
+      "explicit_ask": false,
+      "asks_for": null,
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-022",
+      "locale": "pcm",
+      "text": "Abeg resend the 10k to Lami for me, e no reach.",
+      "explicit_ask": true,
+      "asks_for": "resend",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-023",
+      "locale": "pcm",
+      "text": "Reverse the money wey I send Gbenga, I send am by mistake.",
+      "explicit_ask": true,
+      "asks_for": "reverse",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-024",
+      "locale": "pcm",
+      "text": "I want make una refund my 25k wey I send wrong person.",
+      "explicit_ask": true,
+      "asks_for": "refund",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-025",
+      "locale": "pcm",
+      "text": "Abeg escalate this matter to your supervisor now.",
+      "explicit_ask": true,
+      "asks_for": "escalate",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-026",
+      "locale": "pcm",
+      "text": "Just send am again to Sade for me, the first one fail.",
+      "explicit_ask": true,
+      "asks_for": "resend",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-027",
+      "locale": "pcm",
+      "text": "Cancel the transfer wey dey pending to Kunle and give me my money back.",
+      "explicit_ask": true,
+      "asks_for": "cancel",
+      "borderline": false,
+      "why": ""
+    },
+    {
+      "id": "RL-028",
+      "locale": "pcm",
+      "text": "Open complaint for the money wey never reach Titi, make person call me.",
+      "explicit_ask": true,
+      "asks_for": "escalate",
+      "borderline": false,
+      "why": ""
+    }
+  ]
+}

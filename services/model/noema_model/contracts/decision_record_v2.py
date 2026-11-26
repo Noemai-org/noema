@@ -47,10 +47,10 @@ class DecisionRecordV2(ContractModel):
     outcome: EnumsV1DecisionOutcome
     reason_codes: list[DecisionRecordV2ReasonCodesItem]
     authority: DecisionRecordV2Authority
-    evidence_snapshot_id: CommonV1SnapshotId
-    policy_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
+    evidence_snapshot_id: CommonV1SnapshotId | None
+    policy_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')] | None
     pack_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
-    evidence_freshness: list[DecisionRecordV2EvidenceFreshnessItem]
+    evidence_freshness: list[DecisionRecordV2EvidenceFreshnessItem] | None
     clarification: ClarificationV1 | None = Field(default=None)
     reevaluate_at: CommonV1Timestamp | None = Field(default=None)
     evaluated_at: CommonV1Timestamp

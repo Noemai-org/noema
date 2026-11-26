@@ -18,6 +18,11 @@
       "type": "string",
       "minLength": 1
     },
+    "tenant_zone": {
+      "description": "A647, A650 (interim; REQ-DATA-002): the tenant time zone as an IANA name, e.g. Africa/Lagos for the synthetic tenant. Optional. Every instant is stored in UTC; this is the zone a tenant-local date or window is read in. packcheck refuses a name the tz database does not know.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$"
+    },
     "intent_nodes": {
       "type": "array",
       "items": {
@@ -41,7 +46,7 @@
     "capabilities": {
       "type": "array",
       "items": {
-        "$ref": "https://contracts.noema.invalid/capability-descriptor.v1.json"
+        "$ref": "https://contracts.noema.invalid/capability-descriptor.v2.json"
       }
     },
     "evidence_sources": {
@@ -348,6 +353,30 @@
             "TOO_MANY_CANDIDATES"
           ],
           "additionalProperties": false
+        },
+        "slot_gates": {
+          "description": "Optional. The optional closed-vocabulary slots the model service asks first as one yes/no gate, each with the threshold, in integer basis points, at which the gate's yes counts (UND-18; ruling A603, interim). The slot is picked only when the gate passes, and then with no abstention; a doubt leaves the slot absent. The value is a Founder decision, never an agent's (AGENT-16). Which slots may be gated is packcheck's rule: optional, with a closed list of values, named once.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "slot": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "assertion_threshold_bp": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              }
+            },
+            "required": [
+              "slot",
+              "assertion_threshold_bp"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [

@@ -29,7 +29,7 @@ const (
 )
 
 func turnOf(tenant, corr, event string) inputgateway.Turn {
-	return inputgateway.Turn{Identity: inputgateway.Identity{TenantID: tenant, PrincipalID: "usr_synth1", PrincipalKind: "customer", SessionID: "ses_" + strings.Repeat("a", 32)},
+	return inputgateway.Turn{Identity: inputgateway.Identity{TenantID: tenant, PrincipalID: "usr_synth1", PrincipalKind: "customer", SessionID: "ses_" + strings.Repeat("a", 32), AssertedBy: "noema-poc-idp"},
 		CorrelationID: corr, RequestID: reqUID, Channel: "text", Text: "synthetic text", Input: inputgateway.Ref{EventID: event, ObjectRef: "req_01ARZ3NDEKTSV4RRFFQ69G5FAV"}}
 }
 
@@ -151,7 +151,7 @@ func TestAnAdmittedTurnRunsOnceAsTheIdentitysSession(t *testing.T) {
 	if r.turns[0] != want {
 		t.Fatalf("turn = %+v, want %+v", r.turns[0], want)
 	}
-	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "customer", AuthnRef: tn.SessionID, PrincipalType: "customer"}) { // A514: AssertedBy stays empty
+	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "customer", AuthnRef: tn.SessionID, PrincipalType: "customer", AssertedBy: "noema-poc-idp"}) { // A514: AssertedBy is the verified issuer
 		t.Fatalf("session = %+v", r.sess[0])
 	}
 	if st.req.InvestigationID != invA || st.req.CorrelationID != corrA || st.req.InputReceivedRef != "recev_AAA1" {
@@ -580,6 +580,42 @@ func TestATurnOfAPrincipalThatIsNotACustomerIsRefusedBeforeAnythingIsAsked(t *te
 		s.Shutdown()
 		if st.calls != 0 || r.count() != 0 {
 			t.Errorf("kind %q: the store was asked %d times and %d runs happened", kind, st.calls, r.count())
+		}
+	}
+}
+
+// INV-12, A514 (amended), A584, A592: the verified issuer of the authenticated session reaches the store through the Start seam, and the run is made for the same session.
+func TestTheStartPassesTheVerifiedIssuerToTheStoreAndTheRun(t *testing.T) {
+	st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
+	s := newStarter(t, cfg(2, 4), st, r, f)
+	tn := turnOf(tenA, corrA, "recev_AAA1")
+	tn.AssertedBy = "noema-other_idp-2"
+	if err := s.Start(t.Context(), tn); err != nil {
+		t.Fatal(err)
+	}
+	s.Shutdown()
+	if st.sess.AssertedBy != "noema-other_idp-2" {
+		t.Fatalf("the store was given issuer %q, want the turn's verified issuer", st.sess.AssertedBy)
+	}
+	if r.count() != 1 || r.sess[0].AssertedBy != "noema-other_idp-2" {
+		t.Fatalf("the run's session %+v, want the same verified issuer", r.sess)
+	}
+}
+
+// INV-12, AGENT-10, A584: a session without a verified issuer, or with one off the contract's asserted_by pattern, is not a session: the start is refused (fail closed) before the
+// store is asked, and nothing runs.
+func TestAnEmptyOrMalformedIssuerRefusesTheStartAndNothingIsStored(t *testing.T) {
+	for _, iss := range []string{"", "Noema", "1idp", "-idp", "idp idp", "idp.idp", "idp\n", "idp:x", " idp", "ID"} {
+		st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
+		s := newStarter(t, cfg(2, 4), st, r, f)
+		tn := turnOf(tenA, corrA, "recev_AAA1")
+		tn.AssertedBy = iss
+		if err := s.Start(t.Context(), tn); !errors.Is(err, ErrStartTurn) {
+			t.Errorf("issuer %q: err = %v, want ErrStartTurn", iss, err)
+		}
+		s.Shutdown()
+		if st.calls != 0 || r.count() != 0 {
+			t.Errorf("issuer %q: the store was asked %d times and %d runs happened", iss, st.calls, r.count())
 		}
 	}
 }

@@ -89,6 +89,7 @@ class IntentNodeV1(ContractModel):
     write_when: CommonV1Predicate | None = Field(default=None)
     subject_slot: CommonV1SlotName | None = Field(default=None)
     examples: list[Annotated[str, StringConstraints(min_length=1)]]
+    action_graph: CommonV1PackId | None = Field(default=None)
 
 
 IntentNodeV1Disambiguation.model_rebuild()

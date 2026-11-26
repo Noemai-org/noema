@@ -53,6 +53,21 @@ func (g FreezeGate) PermitTarget(frozen bool, capability, target string) (Permis
 	return p, nil
 }
 
+// ErrWaiting is returned when the reconciliation waits inside a convergence window: no write is allowed, not even one a freeze allows (A642).
+var ErrWaiting = errors.New("reconcile: the reconciliation waits inside a convergence window; no write is allowed")
+
+// PermitResult is PermitTarget for a reconciliation result: inside a convergence window nothing is permitted, and from the window's end the freeze's
+// own allow-list applies. The target is always required.
+func (g FreezeGate) PermitResult(res Result, capability, target string) (Permission, error) {
+	if target == "" {
+		return Permission{}, ErrNoTarget
+	}
+	if res.Waiting() {
+		return Permission{}, ErrWaiting
+	}
+	return g.PermitTarget(res.Frozen(), capability, target)
+}
+
 // Valid reports whether the Permission came from Permit.
 func (p Permission) Valid() bool { return p.valid }
 

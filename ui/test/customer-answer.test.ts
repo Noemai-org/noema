@@ -10,14 +10,13 @@ import { scanVisibleText } from "../build/js/privacy.js";
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`../../contracts/fixtures/valid/customer-answer/${name}.json`, import.meta.url), "utf8"));
 
-test("REQ-UI-001: customer answer displays the core's verification and case reference without deriving them", async () => {
+test("A570 REQ-UI-001: customer answer never renders a verification label", async () => {
   const supplied = parseCustomerAnswerV1(await fixture("case_opened_verified"));
   const without = parseCustomerAnswerV1(await fixture("not_yet_known"));
-  // Neither customer-answer fixture carries a verdict list.
   assert.equal("verdicts" in supplied, false);
   const verified = renderToStaticMarkup(createElement(CustomerAnswer, { answer: supplied }));
   assert.deepEqual(scanVisibleText(verified), []);
-  assert.match(verified, />Verified</i);
+  assert.doesNotMatch(verified, />Verified</i);
   assert.ok(verified.includes(supplied.case_ref_masked));
   const sameCaseUnverified = renderToStaticMarkup(createElement(CustomerAnswer, {
     answer: { ...supplied, done: { ...supplied.done, verified: false } },
