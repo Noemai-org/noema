@@ -98,7 +98,7 @@ class ManifestSchema(unittest.TestCase):
 
     def test_kinds_are_a_closed_list(self):
         kinds = schema()["properties"]["files"]["items"]["properties"]["kind"]["enum"]
-        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "limits", "pack", "recon_rules"])  # A510: the action graphs are pinned too; A544: the limits files; A645: the injection patterns
+        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "limits", "pack", "priority_routing", "recon_rules"])  # A510: the action graphs are pinned too; A544: the limits files; A645: the injection patterns; PCK-09 (A644): the priority routing member
 
     def test_the_action_graph_kind_may_repeat_and_an_old_manifest_without_it_still_validates(self):
         doc = good()

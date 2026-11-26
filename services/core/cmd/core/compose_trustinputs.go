@@ -29,9 +29,10 @@ import (
 // compose_trustinputs.go builds the six Trust inputs of lane 2 of the G1 final composition (STM-01; A537, A469, A475, interim, relayed, not yet committed): Ownership, Writes, Evidence,
 // Reconciler, Policies and Clocks. REQ-STM-001, REQ-TRU-001 to REQ-TRU-007, REQ-CTX-003, REQ-CTX-004; INV-11, INV-12, INV-14, INV-16, INV-19; AGENT-13, AGENT-16.
 //
-// Four are built: Ownership (the pack's ownership data only, one instance per served tenant), Evidence, Policies and Clocks (compose_clocks.go). Two are named gaps whatever is given, because
-// what they need is not on main and is not invented (AGENT-20): Writes (its rule is a predicate over slot values, which the admitted intent does not carry), Reconciler (the pack carries neither the
-// escalation reason of a classification nor the capabilities allowed under a freeze). A component whose part is absent is a gap too: the field stays nil, and /readyz names it by its TrustAdapters field name. A value that is present and invalid is an
+// Five are built: Writes (compose_writes.go: the tenant's kill switch and the pack's write_when rule; A684 step 1), Ownership (the pack's ownership data only, one instance per served
+// tenant), Evidence, Policies and Clocks (compose_clocks.go). One is a named gap whatever is given, because what it needs is not on main and is not invented (AGENT-20): Reconciler (the pack
+// carries neither the escalation reason of a classification nor the capabilities allowed under a freeze). A component whose part is absent is a gap too: the field stays nil, and /readyz names
+// it by its TrustAdapters field name. A value that is present and invalid is an
 // error. Nothing is dialled, and no error carries a tenant, a path or a word of the pack.
 
 // trustInputsIn is everything the builder takes: the verified pack (the trustpack.Pack and the bytes the manifest pinned), the per-tenant Trust logins, the Understanding parts main
@@ -59,6 +60,7 @@ type trustInputsIn struct {
 
 // trustInputs is what the builder made. A nil port is a gap, named in Gaps by its TrustAdapters field name, in the order of that struct.
 type trustInputs struct {
+	Writes    intake.Writes
 	Ownership intake.Ownership
 	Evidence  intake.Evidence
 	Policies  intake.Policies
@@ -128,6 +130,9 @@ func (l txLogins) TxFor(tenantID string) (trustport.SnapshotTx, error) {
 func buildTrustInputs(in trustInputsIn) (trustInputs, error) {
 	var out trustInputs
 	var err error
+	if out.Writes, err = buildWritesInput(in); err != nil {
+		return trustInputs{}, err
+	}
 	if out.Ownership, err = buildOwnershipInput(in); err != nil {
 		return trustInputs{}, err
 	}
@@ -151,6 +156,9 @@ func buildTrustInputs(in trustInputsIn) (trustInputs, error) {
 
 // fill sets the adapters that were built and leaves every other field of a as it was.
 func (t trustInputs) fill(a TrustAdapters) TrustAdapters {
+	if t.Writes != nil {
+		a.Writes = t.Writes
+	}
 	if t.Ownership != nil {
 		a.Ownership = t.Ownership
 	}

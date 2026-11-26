@@ -1,0 +1,13 @@
+{
+  "clock_id": "fin.clock.complaint_resolution",
+  "label": "SYNTHETIC",
+  "phase": "BREACHED",
+  "started_at": 1790000000,
+  "deadline_at": 1790259200,
+  "elapsed": 259200,
+  "remaining": 0,
+  "priority": "HIGH",
+  "priority_raised": false,
+  "reroute": true,
+  "owner_queue": "PAYMENTS_OPERATIONS"
+}

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg"
@@ -96,30 +98,36 @@ func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, ada
 	if err != nil {
 		return TrustParts{}, noop, err
 	}
-	pools, err := trustpg.NewPools(loginPool)
+	parts, err := buildTrustOver(records, adapters, timeout, keys, loginPool)
 	if err != nil {
 		closer()
-		return TrustParts{}, noop, fmt.Errorf("cmd/core: %s: %w", EnvTrustDSNDir, err)
+		return TrustParts{}, noop, err
+	}
+	return parts, closer, nil
+}
+
+// buildTrustOver builds the parts over a set of Trust logins the caller opened and closes (the composition opens one set and shares it, so a second lazy set is never made). It opens no
+// pool and reads no environment: the bound and the keys come from trustSettings.
+func buildTrustOver(records reconstruct.TenantDBs, adapters TrustAdapters, timeout time.Duration, keys *grants.Keys, loginPool map[string]*pgxpool.Pool) (TrustParts, error) {
+	pools, err := trustpg.NewPools(loginPool)
+	if err != nil {
+		return TrustParts{}, fmt.Errorf("cmd/core: %s: %w", EnvTrustDSNDir, err)
 	}
 	intents, err := trustpg.NewIntents(pools, timeout)
 	if err != nil {
-		closer()
-		return TrustParts{}, noop, err
+		return TrustParts{}, err
 	}
 	recs, err := trustpg.NewRecords(pools, timeout)
 	if err != nil {
-		closer()
-		return TrustParts{}, noop, err
+		return TrustParts{}, err
 	}
 	keyDispatches, err := trustpg.NewKeyDispatches(recordDBs{records})
 	if err != nil {
-		closer()
-		return TrustParts{}, noop, err
+		return TrustParts{}, err
 	}
 	dispatches, err := trustport.NewDispatches(keyDispatches, orchestrator.PERDMaxDispatchesPerKey)
 	if err != nil {
-		closer()
-		return TrustParts{}, noop, err
+		return TrustParts{}, err
 	}
 	svc := &intake.Service{
 		Ports: intake.Ports{
@@ -131,7 +139,7 @@ func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, ada
 		PackVersion: adapters.PackVersion,
 	}
 	port := trustport.Port{Evaluator: svc, Intents: intents, Records: recs}
-	return TrustParts{Trust: port, Bindings: port, Dispatches: dispatches, Keys: keys, Service: svc}, closer, nil
+	return TrustParts{Trust: port, Bindings: port, Dispatches: dispatches, Keys: keys, Service: svc}, nil
 }
 
 // trustSettings checks every setting Trust needs and loads the grant keys: the Record reader, the key loader, the two directories and the two numbers, each required with no default

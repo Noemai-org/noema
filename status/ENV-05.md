@@ -92,3 +92,30 @@ Date: 2026-11-07 · Owner: Integration Lead role agent (A10: the stand-in and th
 - Open questions (owner): the `core` check that was red before this push is not attributed by me; read its log at the new head.
 - Files to read first: services/core/adapters/synthetic_tushe/tushe_log_reader.go
 - Do not touch: the frozen Tushe specification.
+
+# Session 2026-11-25 · ENV-05 · A682: mock-case delivers webhooks through the relay path (IL)
+Built from the governing documents only (A682); stop and list what they do not state.
+
+## Built
+- `synthetic/mock_case/internal/webhook` (a signer and a sender, standard library only), two bench control routes (`POST /control/v1/webhooks/deliver`, `POST /control/v1/webhooks/{message_id}/replay`), two settings (`MOCK_CASE_WEBHOOK_TARGET_URL`, `MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE`, both or neither, the secret different from every credential mock-case holds), and the bench API description.
+- Tests first (red: no package): the signature equals the documented Standard Webhooks worked example; an independent verifier accepts a delivery; the exact body bytes are sent with their whitespace; a replay keeps the id and the body and takes a fresh timestamp; the same id with another body, a bad id, a non-object or oversize body, a redirect, a timeout, a bad secret or target are refused and nothing is sent; only the bench credential opens the routes; without the settings they answer 404 and send nothing; a relay refusal is reported with its status, not as acceptance. Eleven mutants of the sender and four of the routes: fifteen killed (the sixteenth, the route-level payload check, is covered by the sender's body check behind it).
+- The database-backed tests of the `api` package (route list against the description) could not run here (no PostgreSQL); I checked that the description and `BenchRoutes` list the same routes with a script, and CI runs the real test.
+
+## Stated
+| Item | Source |
+|---|---|
+| Standard Webhooks v1: HMAC-SHA-256 over the raw body plus a timestamp, five-minute tolerance, verified with an off-the-shelf library | response of 7 Oct 2026, 4.7 ("Signing is Standard Webhooks, verbatim") |
+| The same `webhook-id` on a replay, also the receiver's idempotency key | delta v1.3 section 1; response 4.7 |
+| A thin body that carries an id, a type and a URL | response 4.7 (members not named) |
+
+## Not stated: stop and list
+1. **The names and shapes of Tushe's event types and body members** (`id`, `type`, `URL` are described, not named). mock-case therefore invents none: the caller supplies the object.
+2. **The three header names.** The response says "Standard Webhooks, verbatim" and delta v1.3 names `webhook-id`; `webhook-timestamp` and `webhook-signature` come from the Standard Webhooks specification, not from a Tushe document.
+3. **Whether Tushe signs a replay again at the time of the replay.** Built as a fresh timestamp and signature (the five-minute window forces it), same id and same body.
+4. **Tushe's retry ladder (eight steps over about 28 hours), its 12-second timeout and the disabled-endpoint rule** are described, not specified as numbers a mock can honour; none is built. Timing and ordering faults stay in the hostility proxy (delta v1.3 section 1).
+5. **The signing secret's format and rotation overlap** (24 hours is stated; the format is Standard Webhooks'). Built: `whsec_` plus base64 or raw bytes, one secret, no rotation.
+6. **Where the relay lives in the bench profile.** The relay is in the `ci` profile only (netcheck `ONLY_IN`), and mock-case reaches it over `tushe_net`; no Compose or netcheck edge, no setting and no shared secret volume is added here. That wiring is a separate change (SR), and the `ci` profile's relay secret must be the one mock-case signs with.
+
+## Pre-work for the next agent
+- Exact next step: the Compose wiring (mock-case's two settings, one shared synthetic secret file for mock-case and the relay, the netcheck edge mock-case to relay on `tushe_net`), after a ruling on item 6.
+- Do not touch: the relay's verification (it is the receiver; the sender follows it).
