@@ -778,7 +778,7 @@ class IdMatch(Base):
                 self.edit(root, manifest, lambda d, k=kind, r=rel: entry(d, k).__setitem__("sha256", sha256(root / r)))
                 problems = self.check(manifest, root)
                 self.assertEqual(len(problems), 1, problems)
-                self.assertIn("@2", problems[0][1])
+                self.assertIn(f"@{doc['version']}", problems[0][1])  # the new version, which is the mapping's 4 and the rule set's 2
 
     def test_the_mappings_own_rule_set_reference_must_be_the_expected_rule_set(self):
         # fin.map.v1 says which rule set it feeds; that must be the rule set the manifest expects (one rule set in the pack).

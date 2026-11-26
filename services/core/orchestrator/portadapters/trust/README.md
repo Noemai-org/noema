@@ -72,7 +72,9 @@ It serves every outcome (A456, interim, relayed, not yet committed): an ALLOW ne
 
 The confirmation spend is the writer's and the database's, not a second path in this adapter: the adapter only passes the confirmation event and plan hash on, and `recorder.Writer` and the database's single-use constraint spend it (INV-17).
 
-**Open.** The production `StepFactSource` (target versions and the `reconcile.FreezeGate` permission per step) is not in this package: the sealed snapshot holds no version token, so it needs a source that is another lane's (T9 to T11).
+**StepFactSource (EXP-01; A550, A556, A706, A710).** `SealedSteps` is the production `StepFactSource`. Its version part, `TargetVersions`, takes the one item of the sealed snapshot whose source the pack's evidence mapping declares in `target_versions` (`fin.map.v1@3`) and whose source record is the id of the step's target, requires it KNOWN, reads its payload as the snapshot's tenant through the payload port (verified against the item's hash), and takes the token the mapping names, only from a payload marked `complete`. No item, two items, an item that is not KNOWN, a payload that is not the sealed one, an incomplete read, no token, a snapshot that is not intact, or a target that is not a resource reference is `ErrStepVersion` with no version. The token is never read from the request (INV-17).
+
+**Named gap: the freeze Permission (REQ-RES-002, INV-20).** A `Permission` can only come from `reconcile.FreezeGate.PermitResult` over the reconciliation of the target and the effective freeze (`EffectiveFrozen`, `ReadFreeze`, `FreezeReader`). Those are noema#958 (open) and a Record implementation of `FreezeReader` (C1 and EL). Until they exist `SealedSteps.StepFacts` returns `ErrStepPermission` with no facts, so `SealedFacts` fails and the Recorder writes nothing for the step. Wiring `SealedSteps` into the Recorder is the composition's (EL); with the gap open a composed Recorder refuses every write step. Tests: `stepfacts_test.go` (no database; every helper starts with `svf`; it loads the pack's real mapping).
 
 ## Writes (the intake's T3; STM-01 follow-up, ruling A342 relayed, not committed)
 

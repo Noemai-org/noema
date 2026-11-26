@@ -34,7 +34,7 @@ const (
 	ledger   = "fin.src.core_ledger"
 	sw       = "fin.src.switch"
 	dest     = "fin.src.destination"
-	expected = "fin.map.v1@2"
+	expected = "fin.map.v1@3"
 )
 
 var (
