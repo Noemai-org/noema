@@ -70,12 +70,15 @@ type decisionInputs struct {
 	Begin   trustport.TxBeginner
 	Facts   trustport.RecordFactSource
 	Entropy io.Reader
+	// PlanTextMaxBytes is the bound of every string a slot gives the Planner (plangraphs.Adapter.MaxTextBytes). No ruling or setting names a value: zero is the gap.
+	PlanTextMaxBytes int
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.
 type decisionParts struct {
 	Intents  intake.Intents
 	Recorder intake.Recorder
+	Planner  intake.Planner
 	Gaps     []decisionGap
 }
 
