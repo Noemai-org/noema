@@ -139,3 +139,14 @@ A write outside the escalation plan can no longer be recorded with grants throug
 ## Pre-work for the next agent
 - Exact next step: EL's escalation path on this branch (A508).
 - Do not touch: `services/core/migrations/`.
+
+# Session 2026-11-26 · TRU-10 (C1, noema#733: merge of main)
+
+## Session summary
+- What changed: merged `main` (clean); fixed what the merge broke. (1) `trust/recorder/recorder.go`: the two new returns (`ErrDispositionRequired`, `ErrDispositionWithoutSteps`) take `check()`'s new fourth value (the early-decision flag of noema#981). (2) `orchestrator/portadapters/trust/recorder_disposition_test.go`: `TestAReplayedEscalateReturnsTheStoredDispositionByTheSameDecisionKey` records its disposition for the intent hash of the action decision it later names (`escalateDisposition(t, 1)`), because A542 binds a disposition to the intent and its hash; the assertions are unchanged. (3) `orchestrator/portadapters/trustpg/world_test.go`: the disposition `world.write` records goes on its own correlation (`dispositionCorr`), so `DispositionFor` (noema#945) still finds none on the world's correlation; the Writer binds a disposition to intent and hash, not to a correlation.
+- Why: the two failing checks of 24 Nov were `core` (build) and `tests (1)`; the branch no longer built against `main` after #981, and #945's correlation tests assumed no ESCALATE on the world's correlation.
+- Tests: `go test` on `trust/recorder`, `orchestrator/portadapters/trust`, `orchestrator/portadapters/trustpg` and `adapters/outcome_e2e` pass locally against the merged head. No assertion weakened.
+- Conflicts raised: none. Debt: none.
+
+## Pre-work for the next agent
+- Exact next step: a fresh SR READY at the new head (a code push, A669); one non-author Founder.

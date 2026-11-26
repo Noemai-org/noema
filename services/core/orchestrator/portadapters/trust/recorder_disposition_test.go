@@ -199,12 +199,12 @@ func TestADispositionOfAnotherIntentIsRefusedThroughTheAdapter(t *testing.T) {
 // Record of the same ESCALATE returns the first's decision ID, writes no row and no event, and the action decision that names it is stored once with its link. REQ-TRU-010; INV-21, INV-25.
 func TestAReplayedEscalateReturnsTheStoredDispositionByTheSameDecisionKey(t *testing.T) {
 	w := newRecWorldWith(t, recorder.NewEscalationSet(recCap))
-	first, err := w.a.Record(recCtx(t), escalateDisposition(t, 40))
+	first, err := w.a.Record(recCtx(t), escalateDisposition(t, 1))
 	if err != nil || first.DecisionID == "" || len(first.GrantIDs) != 0 {
 		t.Fatalf("the first record: %+v, %v", first, err)
 	}
 	r0, g0, e0 := w.rows(t)
-	second, err := w.a.Record(recCtx(t), escalateDisposition(t, 40))
+	second, err := w.a.Record(recCtx(t), escalateDisposition(t, 1))
 	if err != nil || second.DecisionID != first.DecisionID || len(second.GrantIDs) != 0 {
 		t.Fatalf("the replay: %+v, %v; want the stored decision %q", second, err, first.DecisionID)
 	}

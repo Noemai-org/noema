@@ -434,11 +434,11 @@ func (w *Writer) check(r Request) (decide.Basis, string, bool, error) {
 	if r.DispositionDecisionID == "" && slices.ContainsFunc(r.Steps, func(s grants.Step) bool { return w.Escalation.Contains(s.CapabilityID) }) {
 		// An action decision with a step of the escalation plan links its disposition (REQ-TRU-010, INV-25; ruling A317 to A328, rescoped by A534, interim): the rule applies only to a decision
 		// whose steps include a capability of the injected set, so a write outside the plan (the complaint write) is an ALLOW with a grant and no disposition. Only an ALLOW reaches here with steps.
-		return decide.Basis{}, "", ErrDispositionRequired
+		return decide.Basis{}, "", false, ErrDispositionRequired
 	}
 	if len(r.Steps) == 0 && r.DispositionDecisionID != "" {
 		// Steps if and only if a disposition (A503): the link belongs to an escalation action decision, which has steps; the disposition decision itself names none.
-		return decide.Basis{}, "", ErrDispositionWithoutSteps
+		return decide.Basis{}, "", false, ErrDispositionWithoutSteps
 	}
 	if r.DispositionDecisionID != "" {
 		// An ESCALATE disposition authorises the escalation plan's write steps and nothing else (REQ-TRU-010, INV-25). The set is the pack's, injected; an empty set allows no step.

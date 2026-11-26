@@ -115,6 +115,10 @@ func step(t *testing.T) grants.Step {
 
 // disposition records the ESCALATE disposition of an action decision through the real Writer, as its own Trust decision with no step and no grant (A503), and returns its decision
 // ID. It is for the intent id with the intent hash h, the action decision's own (A542), against its own sealed snapshot, so it is another input than the action decision.
+// dispositionCorr is the correlation of the dispositions world.write records: the Writer binds a disposition to the intent and its hash (A542), not to a correlation, and the correlation
+// reads of noema#945 (DispositionFor) must find none on the world's own correlation.
+const dispositionCorr = "corr_DSP0001"
+
 func (w *world) disposition(t *testing.T, id string, h contracts.CommonV1Hash) string {
 	t.Helper()
 	b := basisAt(t, "evs_01DSP")
@@ -137,7 +141,7 @@ func (w *world) disposition(t *testing.T, id string, h contracts.CommonV1Hash) s
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: d, Evaluated: b})
+	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: dispositionCorr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: d, Evaluated: b})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		t.Fatalf("the disposition: %v", err)
