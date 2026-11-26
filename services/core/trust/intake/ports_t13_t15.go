@@ -152,6 +152,9 @@ type RecordRequest struct {
 	// requirement, the requester and the expiry. The Recorder mints the request ID and computes the binding hash itself (SoT 43.2a); a CONFIRM that names an already open
 	// request carries none, and so does every other decision.
 	ConfirmationRequest *NewConfirmationRequest
+	// TurnID is the client's request ID of the turn the request answers (A581, A590; interim, relayed): set by the intake from Request.TurnID, and only on an ESCALATE recorded with an
+	// incomplete basis, so that a replay of the same turn returns the stored decision and a new turn records a new one. Empty for every other decision.
+	TurnID string
 }
 
 // NewConfirmationRequest is a confirmation request to create, as plain values. The first eight are the binding of SoT 43.2a (confirm.BindingInput); the intake does not import

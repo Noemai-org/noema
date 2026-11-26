@@ -23,14 +23,21 @@ func Reconcile(rs *RuleSet, evidence []Evidence, now int64) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	contradictions := rs.findContradictions(byEntity)
+	all := rs.findContradictions(byEntity, now)
+	contradictions, waiting := splitByWindow(all, now)
 	env := predicate.Env{Now: now, Variables: map[string]predicate.Value{}, Entities: map[string][]predicate.Row{}}
 	for entity, refs := range byEntity {
 		for _, r := range refs {
 			env.Entities[entity] = append(env.Entities[entity], r.row)
 		}
 	}
-	for _, c := range contradictions {
+	// The rules see every disagreement as soon as one is outside its window: a rule that guards against a contradiction (a reversal that stands unless "reversal_conflict" holds) must not
+	// give a verdict because the pair it guards against is still inside its window while another pair has expired. Only when every disagreement is inside its window are they all set aside.
+	visible := contradictions
+	if len(contradictions) > 0 {
+		visible = all
+	}
+	for _, c := range visible {
 		env.Entities[entityContradiction] = append(env.Entities[entityContradiction],
 			predicate.Row{"label": predicate.Ref(c.Label), "a": predicate.Ref(c.A), "b": predicate.Ref(c.B)})
 	}
@@ -49,9 +56,66 @@ func Reconcile(rs *RuleSet, evidence []Evidence, now int64) (Result, error) {
 			break
 		}
 	}
+	var wait *Wait
+	if len(contradictions) == 0 && len(waiting) > 0 {
+		// Every disagreement is inside its window (A642): the answer waits, and it is never a verdict. No rule may speak while evidence disagrees: a terminal one would end the
+		// question about the money, and a settled-looking one (a pending settlement) would let the Trust intake go on. The result is always INSUFFICIENT_EVIDENCE, which the intake
+		// never lets go on (A659).
+		wait = waitOf(waiting)
+		matched = rs.fallback
+	}
 	contributing := rs.contributing(matched, items, byEntity, contradictions, unavailable)
+	until := validUntil(items, contributing, now)
+	if wait != nil {
+		contributing = withPairs(contributing, waiting)
+		until = validUntil(items, contributing, now)
+		if wait.Until < until {
+			until = wait.Until
+		}
+	}
 	return Result{Classification: matched.classification, RuleID: matched.id, Contributing: contributing,
-		Contradictions: contradictions, ValidUntil: validUntil(items, contributing, now)}, nil
+		Contradictions: contradictions, InWindow: waiting, ValidUntil: until, Wait: wait}, nil
+}
+
+// splitByWindow separates the disagreements outside any window (including those with no window: fail closed) from those still inside theirs. A
+// disagreement is inside its window while now is before its deadline; at the deadline it is a contradiction.
+func splitByWindow(all []Contradiction, now int64) (open, waiting []Contradiction) {
+	for _, c := range all {
+		if c.Deadline > 0 && now < c.Deadline {
+			waiting = append(waiting, c)
+		} else {
+			open = append(open, c)
+		}
+	}
+	return open, waiting
+}
+
+func waitOf(waiting []Contradiction) *Wait {
+	w := &Wait{Until: waiting[0].Deadline}
+	for _, c := range waiting {
+		if c.Deadline < w.Until {
+			w.Until = c.Deadline
+		}
+		w.Labels = append(w.Labels, c.Label)
+	}
+	sort.Strings(w.Labels)
+	return w
+}
+
+func withPairs(contributing []string, waiting []Contradiction) []string {
+	set := map[string]bool{}
+	for _, id := range contributing {
+		set[id] = true
+	}
+	for _, c := range waiting {
+		set[c.A], set[c.B] = true, true
+	}
+	out := make([]string, 0, len(set))
+	for id := range set {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (rs *RuleSet) index(items []Evidence) (map[string][]rowRef, []rowRef, error) {
@@ -97,7 +161,7 @@ func anyMatch(refs []rowRef, f factRef) bool {
 	return false
 }
 
-func (rs *RuleSet) findContradictions(byEntity map[string][]rowRef) []Contradiction {
+func (rs *RuleSet) findContradictions(byEntity map[string][]rowRef, now int64) []Contradiction {
 	var out []Contradiction
 	for _, sv := range rs.single {
 		rows := byEntity[sv.Entity]
@@ -105,7 +169,7 @@ func (rs *RuleSet) findContradictions(byEntity map[string][]rowRef) []Contradict
 			for j := i + 1; j < len(rows); j++ {
 				a, b := rows[i], rows[j]
 				if isKnown(a) && isKnown(b) && a.row[sv.Field] != b.row[sv.Field] {
-					out = append(out, Contradiction{Label: "conflict:" + sv.Entity, A: a.id, B: b.id})
+					out = append(out, Contradiction{Label: "conflict:" + sv.Entity, A: a.id, B: b.id, Deadline: deadlineOf(a, b, sv.ConvergenceWindowSeconds, now)})
 				}
 			}
 		}
@@ -117,7 +181,7 @@ func (rs *RuleSet) findContradictions(byEntity map[string][]rowRef) []Contradict
 		for _, a := range byEntity[m.A.Entity] {
 			for _, b := range byEntity[m.B.Entity] {
 				if matches(a, m.A) && matches(b, m.B) {
-					out = append(out, Contradiction{Label: m.Label, A: a.id, B: b.id})
+					out = append(out, Contradiction{Label: m.Label, A: a.id, B: b.id, Deadline: deadlineOf(a, b, m.ConvergenceWindowSeconds, now)})
 				}
 			}
 		}
@@ -126,6 +190,23 @@ func (rs *RuleSet) findContradictions(byEntity map[string][]rowRef) []Contradict
 		return strings.Join([]string{out[i].Label, out[i].A, out[i].B}, "\x00") < strings.Join([]string{out[j].Label, out[j].A, out[j].B}, "\x00")
 	})
 	return out
+}
+
+// deadlineOf is the end of a pair's convergence window: the earlier of the two facts' effective times plus the window, so the window never opens
+// later than the first fact (the shorter wait is the safer one). A pair with no window has no deadline (0): it is contradictory at once. So is a pair with a fact dated in the
+// future (A659, interim, relayed): a forward-dated fact must not buy a wait, and the instant is never clamped to now.
+func deadlineOf(a, b rowRef, windowSeconds, now int64) int64 {
+	if windowSeconds <= 0 {
+		return 0
+	}
+	t := a.row["effective_at"].I
+	if bt := b.row["effective_at"].I; bt < t {
+		t = bt
+	}
+	if a.row["effective_at"].I > now || b.row["effective_at"].I > now {
+		return 0
+	}
+	return t + windowSeconds
 }
 
 // findDuplicates clusters matching KNOWN rows that agree on the `same` fields and lie within the window of the

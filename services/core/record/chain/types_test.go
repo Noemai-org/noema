@@ -143,10 +143,10 @@ func TestTheCoreAcceptsExactlyTheRuntimeEmittersOfTheTable(t *testing.T) {
 }
 
 // The security kinds are typed here, not read from the schema or the writer: the seven earlier kinds, CONFIRMATION_REFUSED for a refused confirmation
-// reply (A362 to A376; REQ-AUD-001) and the two kill-switch kinds of PERD 32.2 (A430; REQ-EXE-008).
-func TestTheSecurityKindsAreTheSevenConfirmationRefusedAndTheKillSwitchPair(t *testing.T) {
+// reply (A362 to A376; REQ-AUD-001), the two kill-switch kinds of PERD 32.2 (A430; REQ-EXE-008) and FIELD_TRUNCATED for a truncated enterprise field (A664; REQ-CTX-005, REQ-CTX-007).
+func TestTheSecurityKindsAreTheSevenConfirmationRefusedTheKillSwitchPairAndFieldTruncated(t *testing.T) {
 	want := sortedCopy([]string{"INJECTION_DETECTED", "PRINCIPAL_OVERRIDE_ATTEMPT", "SIGNATURE_INVALID", "CROSS_SCOPE_ATTEMPT", "REQUEST_ID_REUSED",
-		"IDEMPOTENCY_COLLISION", "CHAIN_BREAK", "CONFIRMATION_REFUSED", "KILL_SWITCH_CLEARED", "KILL_SWITCH_CLEAR_REFUSED"})
+		"IDEMPOTENCY_COLLISION", "CHAIN_BREAK", "CONFIRMATION_REFUSED", "KILL_SWITCH_CLEARED", "KILL_SWITCH_CLEAR_REFUSED", "FIELD_TRUNCATED"})
 	if got := chain.SecurityKinds(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("security kinds %v, want %v", got, want)
 	}
