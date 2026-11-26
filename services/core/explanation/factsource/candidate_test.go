@@ -8,10 +8,8 @@ package factsource_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
