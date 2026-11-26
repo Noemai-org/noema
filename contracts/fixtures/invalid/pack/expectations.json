@@ -20,5 +20,14 @@
   "slot_gate_threshold_not_an_integer.json": "type",
   "slot_gate_without_threshold.json": "required",
   "slot_gate_extra_member.json": "additionalProperties",
-  "slot_gate_slot_name_not_snake_case.json": "pattern"
+  "slot_gate_slot_name_not_snake_case.json": "pattern",
+  "outcome_bindings_empty.json": "minItems",
+  "outcome_binding_extra_member.json": "additionalProperties",
+  "outcome_binding_without_outcome.json": "required",
+  "outcome_binding_without_retry_safety.json": "required",
+  "outcome_binding_retry_safety_unknown.json": "enum",
+  "outcome_binding_variables_empty.json": "minProperties",
+  "outcome_binding_source_unknown.json": "pattern",
+  "outcome_binding_plan_param_without_name.json": "pattern",
+  "outcome_binding_variable_name_upper_case.json": "pattern"
 }
