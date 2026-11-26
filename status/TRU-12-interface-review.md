@@ -18,3 +18,9 @@
 ## Pre-work for the next agent
 - Exact next step: SR and one non-author Founder read; the board status of TRU-12 moves only on merged evidence (the Steward).
 - Do not touch: `ports.go` members of `Request` without changing the guard and this note in the same PR.
+
+## Amendment 2026-11-25 (C1, TRU-10, A581, A590): one typed member, `Request.TurnID`
+- What: `intake.Request` gains `TurnID string`: the client's request ID of the turn the request answers, a lower-case UUID (canonical-input `request_id`), a typed value and no text. The guard `TestTheRequestIsATypedRequestAndNotAConversation` lists it.
+- Why: A581 and A590 key an early (null-basis) decision by the turn, the verified principal and the tenant, so a replay of the same turn returns the stored record and a new turn records a new one. Trust reads it only as that key, never as an instruction; it is shape-checked by the Recorder's adapter and the Writer and by the database (`decision_record_early_key_shape`).
+- Not changed: `Session`, the other members, the import-boundary guard. No utterance, transcript or conversation state enters Trust.
+- Signature: **signed, EL, 2026-11-25.** I read `intake.Request` with the new `TurnID string` in `trust/intake/ports.go` and the amended member-set guard: `TurnID` is a typed string, shape-checked to a lower-case UUID by the Recorder adapter, the Writer and the database (`decision_record_early_key_shape`), and Trust uses it only as the key of an early decision (A581, A590). It carries no utterance, transcript or conversation state, and `Session` and the import-boundary guard are unchanged. This is the Done-when re-signature for the member-set change of REQ-TRU-011; it is not an approval of the PR and I did not merge.

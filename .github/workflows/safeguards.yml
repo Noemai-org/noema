@@ -33,6 +33,11 @@ jobs:
       - name: Install the pinned YAML parser
         if: github.event.action != 'edited'
         run: python3 -m pip install --require-hashes "--only-binary=:all:" --no-deps -r tools/ci/requirements.lock
+      # A667 (MEM-02): the regression-link tests below run the real script, which builds the generated suite to see that a linked case exists, so this job needs the benchmark's pinned requirements
+      # (jsonschema), hash-checked like the benchmark job's. Without them the check fails (ImportError); it never passes unread.
+      - name: Install the benchmark's pinned requirements (the regression-link suite build)
+        if: github.event.action != 'edited'
+        run: python3 -m pip install --require-hashes -r benchmark/requirements.lock
       # Only the commits of this change: a pull request's commits (base..head) or the commits a push adds. gitleaks's
       # own default scans every ref, so an unrelated branch would fail every pull request. The range is printed.
       - name: Secret scan (gitleaks), the commits of this change only

@@ -3,7 +3,16 @@ import os
 import unittest
 from unittest import mock
 
-from tools.ci.check_regression_link import check, is_fix_pr, main
+from tools.ci import check_regression_link as script
+from tools.ci.check_regression_link import is_fix_pr, main
+
+KNOWN = frozenset({"BEN-AMB-0016", "BEN-CLEAN-0001", "BEN-TMO-0001"})  # the cases of a generated suite, as the workflow reads them from the PR's checkout
+
+
+def check(head_ref, title, body, changed_files, labels=(), allow_test_file=False, known=KNOWN):  # type: ignore[no-untyped-def]
+    """The script's `check` with the suite's case IDs supplied, which it requires (A652: a link to a case that is not in the suite is not a link)."""
+    return script.check(head_ref, title, body, changed_files, labels, allow_test_file, known_case_ids=known)
+
 
 FIX = "fix/EXE-09-void-guard"
 TESTS = ["services/core/outcome/store/grant_void_test.go", "benchmark/scoring/test_stats.py", "services/core/outcome/store/store.go"]
@@ -45,9 +54,9 @@ class Label(unittest.TestCase):
 
     def test_the_command_reads_the_labels_from_the_environment(self) -> None:
         env = {"HEAD_REF": "feat/EXE-09-x", "PR_TITLE": "EXE-09: add", "PR_BODY": body("nothing"), "CHANGED_FILES": "", "PR_LABELS": "P0\nfix"}
-        with mock.patch.dict(os.environ, env, clear=True):
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(script, "load_known_case_ids", return_value=KNOWN):
             self.assertEqual(1, main())
-        with mock.patch.dict(os.environ, {**env, "PR_LABELS": "P0"}, clear=True):
+        with mock.patch.dict(os.environ, {**env, "PR_LABELS": "P0"}, clear=True), mock.patch.object(script, "load_known_case_ids", return_value=KNOWN):
             self.assertEqual(0, main())
 
 
@@ -71,9 +80,9 @@ class Linking(unittest.TestCase):
 
     def test_the_command_enables_the_test_file_alternative_only_by_its_flag(self) -> None:
         env = {"HEAD_REF": FIX, "PR_TITLE": "EXE-09: fix", "PR_BODY": body("Regression case: benchmark/scoring/test_stats.py"), "CHANGED_FILES": "benchmark/scoring/test_stats.py"}
-        with mock.patch.dict(os.environ, env, clear=True):
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(script, "load_known_case_ids", return_value=KNOWN):
             self.assertEqual(1, main())
-        with mock.patch.dict(os.environ, {**env, "REGRESSION_ALLOW_TEST_FILE": "1"}, clear=True):
+        with mock.patch.dict(os.environ, {**env, "REGRESSION_ALLOW_TEST_FILE": "1"}, clear=True), mock.patch.object(script, "load_known_case_ids", return_value=KNOWN):
             self.assertEqual(0, main())
 
     def test_a_link_to_a_case_id_passes(self) -> None:
@@ -123,6 +132,54 @@ class Linking(unittest.TestCase):
 
     def test_a_malformed_case_id_fails(self) -> None:
         self.assertTrue(check(FIX, "EXE-09: fix", body("Regression case: BEN-16"), TESTS))
+
+
+class LinkedCaseExists(unittest.TestCase):
+    """A652 (REQ-MEM-002: "a linked new case ID"; both Founders): the case a fix links must exist in the generated suite of the PR's own checkout, which is where a case the PR adds is. A well-formed ID
+    that no suite holds names nothing."""
+
+    def test_a_case_id_the_suite_holds_passes(self) -> None:
+        self.assertEqual([], check(FIX, "EXE-09: fix", body("Regression case: BEN-AMB-0016"), TESTS))
+
+    def test_a_well_formed_id_that_no_suite_holds_fails_and_names_it(self) -> None:
+        got = check(FIX, "EXE-09: fix", body("Regression case: BEN-AMB-9999"), TESTS)
+        self.assertTrue(got and "BEN-AMB-9999" in got[0] and "no such case" in got[0], got)
+
+    def test_every_link_is_checked_not_only_the_first(self) -> None:
+        got = check(FIX, "EXE-09: fix", body("Regression case: BEN-AMB-0016\nRegression case: BEN-AMB-9999"), TESTS)
+        self.assertEqual(1, len(got), got)
+        self.assertIn("BEN-AMB-9999", got[0])
+
+    def test_an_unreadable_suite_fails_closed(self) -> None:
+        got = check(FIX, "EXE-09: fix", body("Regression case: BEN-AMB-0016"), TESTS, known=None)
+        self.assertTrue(got and "could not be read" in got[0], got)
+
+    def test_the_parameter_is_required_so_no_caller_can_forget_it(self) -> None:
+        with self.assertRaises(TypeError):
+            script.check(FIX, "EXE-09: fix", body("Regression case: BEN-AMB-0016"), TESTS)  # type: ignore[call-arg]
+
+    def test_a_pr_that_is_not_a_fix_never_reads_the_suite(self) -> None:
+        self.assertEqual([], check("feat/EXE-09-x", "EXE-09: add", body("nothing"), TESTS, known=None))
+
+    def test_the_test_file_alternative_does_not_need_the_suite(self) -> None:
+        self.assertEqual([], check(FIX, "EXE-09: fix", body("Regression case: benchmark/scoring/test_stats.py"), TESTS, allow_test_file=True, known=None))
+
+    def test_the_command_loads_the_suite_and_refuses_an_unknown_case(self) -> None:
+        env = {"HEAD_REF": FIX, "PR_TITLE": "EXE-09: fix", "PR_BODY": body("Regression case: BEN-AMB-9999"), "CHANGED_FILES": ""}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(script, "load_known_case_ids", return_value=KNOWN):
+            self.assertEqual(1, main())
+        with mock.patch.dict(os.environ, {**env, "PR_BODY": body("Regression case: BEN-AMB-0016")}, clear=True), mock.patch.object(script, "load_known_case_ids", return_value=KNOWN):
+            self.assertEqual(0, main())
+
+    def test_the_command_fails_closed_when_the_suite_cannot_be_loaded(self) -> None:
+        env = {"HEAD_REF": FIX, "PR_TITLE": "EXE-09: fix", "PR_BODY": body("Regression case: BEN-AMB-0016"), "CHANGED_FILES": ""}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(script, "load_known_case_ids", side_effect=ImportError("no jsonschema")):
+            self.assertEqual(1, main())
+
+    def test_the_command_does_not_load_the_suite_for_a_pr_that_is_not_a_fix(self) -> None:
+        env = {"HEAD_REF": "feat/EXE-09-x", "PR_TITLE": "EXE-09: add", "PR_BODY": body("nothing"), "CHANGED_FILES": ""}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(script, "load_known_case_ids", side_effect=AssertionError("must not be called")):
+            self.assertEqual(0, main())
 
 
 if __name__ == "__main__":
