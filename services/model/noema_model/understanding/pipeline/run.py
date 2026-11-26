@@ -110,7 +110,8 @@ async def run_pipeline(
     # 2. The independent steps, together. A rejection in any of them stops the turn, the screening included (A372): a screen that
     # did not run leaves no signal, and no signal must never read as 'screened and clean'.
     gathered = await asyncio.gather(
-        steps.enumerated_slots(harness, config.catalogue, node, inp),
+        steps.enumerated_slots(harness, config.catalogue, node, inp, config.slot_gates),
+        steps.gate_slots(harness, node, inp, config.slot_gates),
         steps.propose_flags(harness, config.proposable_flags, inp, config.native_yes_threshold),
         steps.detect_locale(harness, config.locales, inp),
         steps.slot_mentions(harness, node, inp),
@@ -130,9 +131,22 @@ async def run_pipeline(
         # A437: the utterance screen is the last of the five steps; if it is among the refusals it is named, whatever else was refused (the turn keeps the first refusal's code).
         not_run = (ScreenStage.UTTERANCE,) if isinstance(gathered[-1], HarnessRejection) else ()
         return _stopped(Outcome.REJECTED_AT_GATE, calls, errors=(rejections[0].code,), screen_not_run=not_run)
-    (slot_values, slot_probs, c_slots), (flags, flag_probs, c_flags), (locale, switching, locale_probs, c_locale), (
+    (slot_values, slot_probs, c_slots), (gate_passed, gate_probs, c_gate), (flags, flag_probs, c_flags), (locale, switching, locale_probs, c_locale), (
         mentions, c_mentions), (signals, c_screen) = gathered  # type: ignore[misc]
-    calls.extend(c for c in (c_slots, c_flags, c_locale, c_mentions, c_screen) if c is not None)
+    calls.extend(c for c in (c_slots, c_gate, c_flags, c_locale, c_mentions, c_screen) if c is not None)
+    slot_values, slot_probs = dict(slot_values), {**slot_probs, **gate_probs}
+
+    # 2b. Stage 2 of a gated slot (UND-18, A603): the pick, only for the gates that passed, with no abstention. A slot whose gate did not pass is absent: doubt abstains.
+    for slot in steps.gated_slots(node, config.slot_gates):
+        slot_values[slot.name] = None
+    if gate_passed:
+        try:
+            picked, pick_probs, pick_calls = await steps.pick_gated(harness, config.catalogue, node, inp, gate_passed)
+        except HarnessRejection as rejection:
+            return _rejected(rejection, calls)
+        calls.extend(pick_calls)
+        slot_values.update(picked)
+        slot_probs.update(pick_probs)
 
     raised = set(flags)
     if steps.required_reference_gaps(node, slot_values):
