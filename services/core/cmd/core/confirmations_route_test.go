@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -34,18 +35,24 @@ const (
 )
 
 type confRequests struct {
-	req    confirm.Request
-	found  bool
-	err    error
-	calls  int
-	tenant string
-	id     string
+	req     confirm.Request
+	expires time.Time // the store's expiry at full precision; zero means req.ExpiresAt seconds
+	expired bool      // the store's own verdict (A607, A612)
+	found   bool
+	err     error
+	calls   int
+	tenant  string
+	id      string
 }
 
-func (f *confRequests) Lookup(_ context.Context, tenant, id string) (confirm.Request, bool, error) {
+func (f *confRequests) Lookup(_ context.Context, tenant, id string) (confirm.StoredRequest, bool, error) {
 	f.calls++
 	f.tenant, f.id = tenant, id
-	return f.req, f.found, f.err
+	at := f.expires
+	if at.IsZero() {
+		at = time.Unix(f.req.ExpiresAt, 0).UTC()
+	}
+	return confirm.StoredRequest{Request: f.req, ExpiresAt: at, Expired: f.expired}, f.found, f.err
 }
 
 // confAnswers is a SYNTHETIC store with the first-answer-wins rule: one answer per request; the same approver with the same response again returns the stored event ID.
@@ -358,27 +365,36 @@ func TestTheWrongRequestIsRefused(t *testing.T) {
 	}
 }
 
-// An expired request is refused (409 CONFIRMATION_EXPIRED) and the reply is not recorded; the instant of expiry itself is still valid, a later one is not.
-func TestAnExpiredRequestIsRefused(t *testing.T) {
-	h, iss, clk, _, rc := confSetup(t, "MAKER_CHECKER")
-	auth := confToken(iss, session.RoleApprover, "prn_apr")
-	clk.Advance(120 * 1e9)
-	if rec := confPost(h, auth, confPath, confAnswer(confRequestID, "ACCEPT")); rec.Code != http.StatusAccepted {
-		t.Fatalf("at the expiry instant: %d", rec.Code)
-	}
-	clk.Advance(1e9)
-	rec := confPost(h, auth, confPath, confAnswer(confRequestID, "ACCEPT"))
-	if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONFIRMATION_EXPIRED" || len(rc.got) != 1 {
-		t.Errorf("after expiry: %d %s recorded %d", rec.Code, rec.Body.String(), len(rc.got))
+// A607, A612: the request's expiry is the DATABASE's verdict (confirm.StoredRequest.Expired: expires_at at or before the database's now, so a request exactly at its expiry is expired). A request
+// the store reports expired is refused 409 CONFIRMATION_EXPIRED and the reply is not recorded, whatever the application's clock says.
+func TestARequestTheStoreReportsExpiredIsRefusedWhateverTheApplicationClockSays(t *testing.T) {
+	h, iss, _, rq, rc := confSetup(t, "MAKER_CHECKER")
+	rq.expired = true // the application clock is at the start: the request is far from expiry by it
+	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
+	if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONFIRMATION_EXPIRED" || len(rc.got) != 0 || rc.calls != 0 {
+		t.Errorf("%d %s, recorded %d, store calls %d", rec.Code, rec.Body.String(), len(rc.got), rc.calls)
 	}
 }
 
-// A reply a fraction of a second after the expiry is late: the reply time is rounded up, never down.
-func TestASubSecondLateReplyIsExpired(t *testing.T) {
-	h, iss, clk, _, rc := confSetup(t, "MAKER_CHECKER")
+// A607: the route never rounds the application clock up against the database's expiry. The request expires at 120.9 s by the database; at 120.5 s the application clock is before it, and the
+// reply is not refused (the old rule rounded the reply time up to 121 s and refused it). Only the database says a request has expired.
+func TestTheRouteDoesNotRoundTheApplicationClockUpAgainstTheStoresExpiry(t *testing.T) {
+	h, iss, clk, rq, rc := confSetup(t, "MAKER_CHECKER")
+	rq.expires = apiEpoch.Add(120*time.Second + 900*time.Millisecond)
+	rq.req.ExpiresAt = apiEpoch.Unix() + 120 // the whole-second form of the same expiry
 	clk.Advance(120*1e9 + 5e8)
 	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
-	if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONFIRMATION_EXPIRED" || len(rc.got) != 0 {
+	if rec.Code != http.StatusAccepted || len(rc.got) != 1 {
+		t.Errorf("%d %s, recorded %d", rec.Code, rec.Body.String(), len(rc.got))
+	}
+}
+
+// A607 (A368 (iv)): a request that is not expired when it is read but is by the time the answer is stored is refused by the store; the route answers 409 CONFIRMATION_EXPIRED, not 503.
+func TestAnAnswerTheStoreRefusesAsExpiredIsA409(t *testing.T) {
+	h, iss, _, _, rc := confSetup(t, "MAKER_CHECKER")
+	rc.err = ErrConfirmationExpired
+	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
+	if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONFIRMATION_EXPIRED" {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -456,6 +472,7 @@ func TestARefusedAnswerLeavesOneFixedLogLine(t *testing.T) {
 		role              session.Role
 		sub, body         string
 		advance           time.Duration
+		dbExpired         bool
 		preAnswer         bool
 		code              int
 		msg, outcome      string
@@ -465,13 +482,14 @@ func TestARefusedAnswerLeavesOneFixedLogLine(t *testing.T) {
 		{name: "customer on ROLE:approver", requirement: "ROLE:approver", role: session.RoleCustomer, sub: "prn_other", body: confAnswer(confRequestID, "ACCEPT"), code: 403, msg: "confirmation answer refused: not eligible", outcome: "not_eligible"},
 		{name: "not yours", requirement: "SELF", role: session.RoleCustomer, sub: "prn_other", body: confAnswer(confRequestID, "ACCEPT"), code: 403, msg: "confirmation answer refused: not eligible", outcome: "not_eligible"},
 		{name: "wrong request", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: "prn_apr", body: confAnswer(other, "ACCEPT"), code: 403, msg: "confirmation answer refused: wrong request", outcome: "wrong_request"},
-		{name: "expired", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: "prn_apr", body: confAnswer(confRequestID, "ACCEPT"), advance: 121 * time.Second, code: 409, msg: "confirmation answer refused: expired", outcome: "expired"},
+		{name: "expired", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: "prn_apr", body: confAnswer(confRequestID, "ACCEPT"), dbExpired: true, code: 409, msg: "confirmation answer refused: expired", outcome: "expired"},
 		{name: "second answer", requirement: "MAKER_CHECKER", role: session.RoleApprover, sub: "prn_apr2", body: confAnswer(confRequestID, "DECLINE"), preAnswer: true, code: 409, msg: "confirmation answer refused: already answered", outcome: "already_answered"},
 	} {
 		var buf bytes.Buffer
 		iss := edgetest.NewIssuer(t)
 		clk := clock.NewManual(apiEpoch)
 		rq, rc := confRequest(c.requirement), &confAnswers{}
+		rq.expired = c.dbExpired
 		e := sessionEnv(t, iss)
 		e[edge.EnvTenants] = confTenant
 		cfg := confirmationRouteConfig{Requests: rq, Answers: rc, Clock: clk, Timeout: time.Second, Logger: slog.New(slog.NewJSONHandler(&buf, nil))}
@@ -518,3 +536,6 @@ func TestAnAcceptedAnswerAndANilLoggerLogNothing(t *testing.T) {
 		t.Errorf("nil logger: %d", rec.Code)
 	}
 }
+
+// A550: the store of confirmation requests is the route's request finder (the request-by-id read), checked at compile time.
+var _ ConfirmationRequests = trustpg2.Requests{}
