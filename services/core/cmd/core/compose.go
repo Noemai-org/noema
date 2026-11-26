@@ -65,6 +65,9 @@ type Components struct {
 	// UnderstandingUnbuilt names the Understanding settings that are missing when some are given (A486): /readyz names each after "interpreter" as "interpreter: NAME missing" (fixed text,
 	// no value). Not a component; empty when the Interpreter is built or none of its settings is given.
 	UnderstandingUnbuilt []string
+	// InjectionFailures counts noema_injection_record_failures_total (A704): a flagged payload whose Record event failed. It is not a component, and is nil while the injection screen is
+	// not built (a limit or the pack's patterns are missing, a named gap of the Trust adapters that read the screen).
+	InjectionFailures *recordFailureCounter
 }
 
 // Env is the process's configuration source, injected so that tests do not touch the real environment. Nothing read through it has a default (AGENT-16).
