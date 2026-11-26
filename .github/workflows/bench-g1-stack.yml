@@ -253,6 +253,13 @@ jobs:
             $compose logs --no-color --no-log-prefix "$svc" > "benchmark/out/service-logs/$svc.log" 2> "benchmark/out/service-logs/$svc.err" || collected=1
             [ -s "benchmark/out/service-logs/$svc.log" ] || collected=1
           done
+          # A stack-check whose start failed before the run step never made the two collector files, and the scan refuses a file it is told to read and cannot find (exit 2): the service logs were then not
+          # scanned, not uploaded and not shown, and the failure had no visible reason (the stack-check of 24 Nov). An empty file stands for "nothing was collected"; a real collector's file is
+          # never touched, and the job still fails on the start step.
+          # Only in a stack-check (A667's follow-up): a full run that never reached its collector must still fail the scan (exit 2, "refused: not found"), never pass it on an empty file.
+          if [ "$MODE" = stack-check ]; then
+            for f in mock-case.log mock-case-collector.err; do [ -e "benchmark/out/$f" ] || : > "benchmark/out/$f"; done
+          fi
           echo "collected=$collected" >> "$GITHUB_OUTPUT"
           exit 0
       # The second half of criterion 9 (Security Reviewer's first-dispatch condition 1 on noema#436): the core's own access log must show that the reconstruction handler ran for the control
@@ -390,6 +397,9 @@ jobs:
         run: |
           if [ "${SCAN:-missing}" = 0 ]; then
             for f in benchmark/out/joblog/*.log; do [ -f "$f" ] && { echo "::group::$(basename "$f")"; cat "$f"; echo "::endgroup::"; }; done
+            # A stack-check that fails has no other place to say why: the tail of the core's own log, from the file the scan has just read (the job-log scan reads it again here). Never in a full run.
+            [ "$MODE" = stack-check ] && [ -s benchmark/out/service-logs/core.log ] && { echo "::group::core.log, last 80 lines"; tail -n 80 benchmark/out/service-logs/core.log; echo "::endgroup::"; }
+            true
           else
             echo "The run output is not shown: the leak scan did not pass (exit ${SCAN:-missing}); the files are in the artifact only if it did."
           fi
