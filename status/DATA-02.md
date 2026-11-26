@@ -4,7 +4,7 @@ Updated 2026-11-26. Plan task DATA-02 (week 7, workstream SEC): "Money and time 
 
 ## State: pull request to follow (draft); tests pushed red first, one defect found and fixed
 
-- The Needs column lists UND-05, which `tasks.csv` still shows as In progress. A634 ties the money half to the UND-05 *lexicon*, which is on `main` (slice 4, UND-06 slice 1), and A650 ties the time half to the `tenant_zone` member, which noema#963 put on `main`. DATA-02 starts on those two conditions; the Steward decides whether UND-05's own row must be Done first.
+- Needs: A729 waives UND-05 as a Need of DATA-02 (on A634 and A650); plan v1.31 makes DATA-02's Needs PLT-03 only.
 - No task card exists for DATA-02; the allowlist used: `services/model/tests/test_money_time_properties.py`, `services/core/platform/clock/clock_property_test.go`, `services/core/internal/contracts/money_time_property_test.go` (all new, tests only), `services/model/noema_model/understanding/compiler/lexicon.py` (one fix, below), two READMEs and this file. No contract, pack, migration, workflow or dependency is touched (`hypothesis` and `pgregory.net/rapid` are already direct dependencies).
 
 ## Session 2026-11-26 · DATA-02
@@ -17,12 +17,13 @@ Updated 2026-11-26. Plan task DATA-02 (week 7, workstream SEC): "Money and time 
 - Hand mutants: see the PR body (killed and survived, with the argument for each survivor).
 - Debt entries: none. Conflicts raised: none.
 
-### Findings for others (no change made)
-1. **No money arithmetic exists in code.** M6 (addition only, one currency, a checked ceiling) and the M10 rows "addition crossing the ceiling" and "NGN plus another currency" have no function to test. Nobody invents it here (A634). Owner to decide whether a money helper is wanted before G3, or whether those rows stay with the adapters.
-2. **The Go generated decoder holds no bounds** (`tools/codegen/README.md`: the JSON Schema validator owns them), so `{"amount_minor": -1}` and `9007199254740992` decode in Go; the ceiling is held at `crypto.CanonicalJSON`. M4's table asks both decoders to reject. Whether a Go boundary validator is wired on every route is not checked here (C1, contracts, and EL, the API edge).
-3. **Two sources of the tenant's offset.** The lexicon carries `utc_offset_minutes` (a fixed offset) and the pack carries `tenant_zone` (an IANA name); no code reads `tenant_zone` yet (`services/core` has only the generated field). The test pins that they agree for `Africa/Lagos`; it does not say which is authoritative. A change of zone (GOV-08, the Founder's) must change both, or one source must go (Architect).
+### Answers of A729 (the four open questions of this task; DEC-2026-11-26-architect-rulings-a721-a737, interim)
+1. **UND-05 Need:** waived on A634 and A650.
+2. **Tenant offset:** the pack's `tenant_zone` is the AUTHORITY (OD-P-129); the lexicon's `utc_offset_minutes` must equal it. The test `test_the_lexicons_offset_equals_the_packs_tenant_zone_which_is_the_authority_over_a_century` pins it; a change of zone (GOV-08, the Founder's) changes the pack and the lexicon must follow.
+3. **Money arithmetic (M6):** no code exists and nothing is invented here; it stays OPEN until after G1 (OD-P-130). The M10 rows "addition crossing the ceiling" and "NGN plus another currency" have nothing to test until then.
+4. **Decoder bounds:** the generated Go decoder is shape-only by design (`tools/codegen/README.md`); every route validates request bodies against the JSON Schema (A655). **C1's confirmation is owed** that the conversation POST does; it is not DATA-02's.
 
 ## Pre-work for the next agent
-- Exact next step: SR reads the lexicon fix; the Steward decides the UND-05 Needs question and findings 1 to 3.
+- Exact next step: SR and Codex read the lexicon fix; C1 confirms the conversation POST validates against the JSON Schema (A729 item 4).
 - Files to read first: `services/model/tests/test_money_time_properties.py`, `services/model/noema_model/understanding/compiler/lexicon.py` (`_amount`, `_digits`, `_spoken`).
 - Do not touch: the generated contracts; `contracts/currencies.json`; the pack's numbers.

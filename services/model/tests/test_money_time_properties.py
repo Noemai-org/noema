@@ -190,7 +190,8 @@ def test_numeral_words_convert_exactly_and_never_to_a_neighbour(n: int, joiner: 
 # ---- A634, A650: instants are UTC; the tenant zone only decides a local day --------------------------------------------------------------------------------------------------------
 
 
-def test_the_lexicons_offset_agrees_with_the_packs_tenant_zone_over_a_century() -> None:
+def test_the_lexicons_offset_equals_the_packs_tenant_zone_which_is_the_authority_over_a_century() -> None:
+    # A729: the pack's `tenant_zone` is the authority for the tenant offset; the lexicon's fixed offset must equal it. If they differ, the lexicon is what is wrong.
     zone = ZoneInfo(TENANT_ZONE)
     assert TENANT_ZONE == "Africa/Lagos"  # A650, interim: the Founder may overrule (GOV-08)
 
