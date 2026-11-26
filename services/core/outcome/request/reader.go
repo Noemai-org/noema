@@ -3,6 +3,7 @@ package request
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/Noemai-org/noema/services/core/outcome/verifier"
 )
@@ -61,7 +62,51 @@ type GrantRequests struct {
 	IDs        IDs
 }
 
-// For reads the facts of the grant and builds the request, or refuses.
+// For reads the facts of the grant and builds the request, or refuses. The reader is a port that may be wrong, so what it returns is checked against the call: the tenant and the grant
+// are the caller's, the pack is asked for the GRANT's capability, and the receipt must have run that capability. The decision and the grant must share one intent hash. The signature is
+// checked on the receipt as stored and only VALID passes (Build). A fresh verification id is made for each call (it is the id of the verdict that follows, INV-04).
 func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verifier.Request, error) {
-	return verifier.Request{}, errors.New("request: not built")
+	if s.Reader == nil || s.Signatures == nil || s.Outcomes == nil || s.IDs == nil || !clean(tenantID) || !clean(grantID) {
+		return verifier.Request{}, ErrIncomplete
+	}
+	f, err := s.Reader.Load(ctx, tenantID, grantID)
+	if err != nil {
+		return verifier.Request{}, fmt.Errorf("request: read the grant: %w", err)
+	}
+	if f.Receipt.TenantID != tenantID || f.Receipt.GrantID != grantID {
+		return verifier.Request{}, ErrMismatch
+	}
+	if !clean(f.CapabilityID) || !clean(f.IntentID) || !clean(f.PlanHash) || !clean(f.GrantIntentHash) || !clean(f.DecisionIntentHash) {
+		return verifier.Request{}, ErrIncomplete
+	}
+	if f.Receipt.LogicalAction != f.CapabilityID || f.GrantIntentHash != f.DecisionIntentHash {
+		return verifier.Request{}, ErrMismatch
+	}
+	auth, err := s.Signatures.Check(ctx, f.Receipt)
+	if err != nil {
+		return verifier.Request{}, fmt.Errorf("request: check the receipt signature: %w", err)
+	}
+	out, err := s.Outcomes.For(ctx, tenantID, f.CapabilityID)
+	if err != nil {
+		return verifier.Request{}, fmt.Errorf("request: the pack's outcome: %w", err)
+	}
+	id, err := s.IDs.ID("vrf")
+	if err != nil {
+		return verifier.Request{}, fmt.Errorf("request: make the verification id: %w", err)
+	}
+	r := f.Receipt
+	return Build(Inputs{
+		VerificationID: id,
+		Receipt: Receipt{ReceiptID: r.ReceiptID, TenantID: r.TenantID, GrantID: r.GrantID, PrincipalID: r.PrincipalID, IdempotencyKey: r.IdempotencyKey, State: r.State,
+			RawStatus: r.RawStatus, ExternalAck: r.ExternalAck, Document: r.Document, SigKeyID: r.SigKeyID, SigValue: r.SigValue},
+		Authenticity: auth,
+		Plan: Plan{TenantID: tenantID, IntentID: f.IntentID, IntentHash: f.GrantIntentHash, PlanHash: f.PlanHash,
+			Steps: []Step{{CapabilityID: f.CapabilityID, Params: f.StepParams}}},
+		Expect:           Expect{TenantID: tenantID, IntentID: f.IntentID, IntentHash: f.DecisionIntentHash, PlanHash: f.PlanHash},
+		StepCapabilityID: f.CapabilityID,
+		Capability:       out.Capability,
+		Outcome:          out.Definition,
+		SubjectVariable:  out.SubjectVariable,
+		Bindings:         out.Bindings,
+	})
 }
