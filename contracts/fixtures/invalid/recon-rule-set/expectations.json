@@ -1,0 +1,22 @@
+{
+  "version_2_incompatible_without_window.json": "required",
+  "version_2_single_valued_without_window.json": "required",
+  "version_2_window_zero.json": "minimum",
+  "version_2_window_negative.json": "minimum",
+  "version_2_window_fractional.json": "type",
+  "version_2_window_text.json": "type",
+  "version_1_incompatible_with_window.json": "not",
+  "version_1_single_valued_with_window.json": "not",
+  "version_2_unknown_top_level_member.json": "additionalProperties",
+  "version_2_the_old_member_name.json": "additionalProperties",
+  "version_zero.json": "minimum",
+  "no_fallback.json": "required",
+  "fallback_with_a_condition.json": "additionalProperties",
+  "fallback_not_insufficient_evidence.json": "const",
+  "rule_classification_not_one_of_twelve.json": "enum",
+  "certainty_missing_a_classification.json": "minProperties",
+  "label_not_allowed.json": "enum",
+  "enum_field_without_values.json": "minItems",
+  "non_enum_field_with_values.json": "not",
+  "derived_not_duplicate.json": "const"
+}

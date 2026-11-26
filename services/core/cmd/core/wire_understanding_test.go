@@ -45,7 +45,9 @@ import (
 const undManifestRel = "fintech/manifest.v1.json"
 
 var undPackFiles = []string{"fintech_v1.json", undManifestRel, "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json",
-	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json"} // A510: the three action graphs are pinned by the manifest too
+	"fintech/graph/g1_investigate.json", "fintech/graph/g2_escalate.json", "fintech/graph/g3_complaint.json",
+	"fintech/limits/execution_limits.json", "fintech/limits/masking_limits.json", "fintech/limits/session_limits.json", "fintech/limits/trust_limits.json",
+	"fintech/context/injection_patterns.v1.json", "fintech/routing/priority_routing.v1.json"} // A510: the three action graphs, (A544) the four limits files and (A645) the injection patterns are pinned by the manifest too; PCK-09 (A644): so is the priority routing member
 
 // copyPack copies the real pack and its manifest into a fresh directory, so that a test can break one file of it.
 func copyPack(t *testing.T) string {
@@ -426,7 +428,7 @@ func TestTheMappingBuiltFromTheRealPackServesTheCaseSystemsLists(t *testing.T) {
 func TestAPackFileChangedAfterTheManifestStopsStartup(t *testing.T) {
 	m := newModelStub(t)
 	rec := undFakeRecorder(t, "ten_aa")
-	for _, rel := range []string{"fintech_v1.json", "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json"} {
+	for _, rel := range []string{"fintech_v1.json", "fintech/evidence_mapping/mapping.v1.json", "fintech/recon_rules/rules.v1.json", "fintech/context/injection_patterns.v1.json"} {
 		dir := copyPack(t)
 		appendTo(t, filepath.Join(dir, filepath.FromSlash(rel)), "\n")
 		p, err := buildUnd(t, undSettings(dir, m), rec)
@@ -600,7 +602,7 @@ func newUndWorld(t *testing.T, more envMap) *undWorld {
 	probe := &undProbe{port: parts.Interpreter}
 	route := edge.Route{Pattern: "GET /v1/investigations/probe", Roles: []session.Role{session.RoleCustomer, session.RoleOps}, Handler: http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		p, _ := session.FromContext(r.Context())
-		s := orchestrator.Session{TenantID: p.Tenant, PrincipalID: p.ID, Role: string(p.Role)}
+		s := orchestrator.Session{TenantID: p.Tenant, PrincipalID: p.ID, Role: string(p.Role), AuthnRef: p.AuthnRef, PrincipalType: p.PrincipalType, AssertedBy: p.AssertedBy} // a route that fills every member from the verified session (A514)
 		if probe.mutate != nil {
 			s = probe.mutate(s)
 		}
@@ -720,22 +722,26 @@ func TestAProposalThatNamesAnotherPrincipalIsSavedAsTheSessions(t *testing.T) {
 	}
 }
 
-// INV-12, AGENT-10: the identity is the verified session's and nothing else. With no session in the context nothing is called; with an orchestrator Session that is not the verified
-// one (another tenant, another principal, another role) nothing is called either. The refusal is one fixed error that names no tenant, principal or role.
-func TestWithoutTheVerifiedSessionNothingIsCompiled(t *testing.T) {
+// INV-12, AGENT-10, A514: the identity is the orchestrator Session's, which every caller fills from a verified source; the resolver reads no request context. A Session that is not whole
+// (no authentication reference, a malformed one, no role, a role outside the four, no principal type, a type that differs from the role) is refused with one fixed error that names no
+// tenant, principal or role, and nothing is called. (Tenant and principal are the orchestrator's: a Session of another tenant is resolved and then refused or served by that tenant's
+// own login, see TestAnUnknownTenantIsRefusedWithNoFallback.)
+func TestWithoutAWholeSessionNothingIsCompiled(t *testing.T) {
 	u := newUndWorld(t, nil)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	_, err := u.parts.Interpreter.Interpret(ctx, orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_88213", Role: "customer"},
 		orchestrator.Turn{InvestigationID: "inv_01ARZ3NDEKTSV4RRFFQ69G5FAA", CorrelationID: undCorr, Text: undText, RequestID: undRequestID})
 	if !errors.Is(err, ErrSessionUnavailable) {
-		t.Errorf("no session in the context: got %v; want ErrSessionUnavailable", err)
+		t.Errorf("a Session with no authentication reference or type: got %v; want ErrSessionUnavailable", err)
 	}
 	for name, mutate := range map[string]func(orchestrator.Session) orchestrator.Session{
-		"another tenant":    func(s orchestrator.Session) orchestrator.Session { s.TenantID = "ten_bb"; return s },
-		"another principal": func(s orchestrator.Session) orchestrator.Session { s.PrincipalID = "usr_other"; return s },
-		"another role":      func(s orchestrator.Session) orchestrator.Session { s.Role = "ops"; return s },
-		"no role":           func(s orchestrator.Session) orchestrator.Session { s.Role = ""; return s },
+		"another role":        func(s orchestrator.Session) orchestrator.Session { s.Role = "ops"; return s },
+		"no role":             func(s orchestrator.Session) orchestrator.Session { s.Role = ""; return s },
+		"a role outside four": func(s orchestrator.Session) orchestrator.Session { s.Role = "superuser"; return s },
+		"no reference":        func(s orchestrator.Session) orchestrator.Session { s.AuthnRef = ""; return s },
+		"a malformed ref":     func(s orchestrator.Session) orchestrator.Session { s.AuthnRef = "ses_short"; return s },
+		"no principal type":   func(s orchestrator.Session) orchestrator.Session { s.PrincipalType = ""; return s },
 	} {
 		u.probe.mutate = mutate
 		u.as(t, session.RoleCustomer, "ten_aa", "usr_88213")
@@ -746,7 +752,7 @@ func TestWithoutTheVerifiedSessionNothingIsCompiled(t *testing.T) {
 		}
 	}
 	if calls, _, _, _, _ := u.model.seen(); calls != 0 {
-		t.Errorf("the model service was called %d times with no verified session", calls)
+		t.Errorf("the model service was called %d times with no whole session", calls)
 	}
 	if u.intents(t, "ten_aa")+u.intents(t, "ten_bb") != 0 {
 		t.Error("an intent was saved")

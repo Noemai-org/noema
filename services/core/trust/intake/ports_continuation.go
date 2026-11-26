@@ -20,6 +20,9 @@ type RunnableQuery struct {
 	SnapshotID    string
 	// Facts are the caller's facts for the continuation (for example case_id), the same ones the plan request carries.
 	Facts map[string]string
+	// EvidencePacket is the evidence packet hash a graph precondition may read (A694). Optional: empty means none. It is the continuation's own packet, the value the plan request carries
+	// for the same step; a first evaluation has no verified result and leaves it empty. It is never defaulted from anything.
+	EvidencePacket string
 }
 
 // Runnable answers which steps of the intent node's action graph have their preconditions met on the current facts. The adapter calls the `runnable` package; the intake imports

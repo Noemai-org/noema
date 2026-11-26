@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Noemai-org/noema/services/core/edge/events"
 	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 )
@@ -49,6 +50,8 @@ func full() Components {
 		Gateway: &inputgateway.Gateway{},
 		// The confirmation route (POST /v1/confirmations/{id}, A341, noema#754) is part of the slice too.
 		Confirmations: &confirmationRouteConfig{},
+		// The events route (GET /v1/conversations/{conversation_ref}/events, EDG-02) is part of the slice too.
+		Events: &events.Handler{},
 	}
 }
 

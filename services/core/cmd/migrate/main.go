@@ -164,10 +164,13 @@ type stateError struct {
 func (e stateError) Error() string { return e.kind.Error() }
 func (e stateError) Unwrap() error { return e.kind }
 
+// say writes one diagnostic line to errw. The exit code and the result line carry the outcome, so a failed write to errw is reported nowhere else (it is the last channel).
+func say(errw io.Writer, line string) { _, _ = fmt.Fprintln(errw, line) }
+
 func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 	s, ok := parseArgs(args)
 	if !ok {
-		fmt.Fprintln(errw, "migrate: "+usage)
+		say(errw, "migrate: "+usage)
 		return exitCannot
 	}
 	line := logLine{Service: "migrate", Power: "migration", Event: "migrate", Applied: []string{}}
@@ -194,15 +197,15 @@ func run(args []string, out, errw io.Writer, clk clock.Clock) int {
 			if line.SQLState != "" {
 				suffix = " (SQLSTATE " + line.SQLState + ")"
 			}
-			fmt.Fprintln(errw, "migrate: "+sentence+suffix)
+			say(errw, "migrate: "+sentence+suffix)
 		}
 		b, merr := json.Marshal(line)
 		if merr != nil {
-			fmt.Fprintln(errw, "migrate: the result could not be written")
+			say(errw, "migrate: the result could not be written")
 			return exitCannot
 		}
 		if _, werr := fmt.Fprintln(out, string(b)); werr != nil && code == exitDone {
-			fmt.Fprintln(errw, "migrate: the result could not be written")
+			say(errw, "migrate: the result could not be written")
 			return exitCannot
 		}
 		return code

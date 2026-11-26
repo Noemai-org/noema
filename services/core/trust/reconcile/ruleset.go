@@ -27,11 +27,16 @@ type incompatible struct {
 	A      factRef  `json:"a"`
 	B      factRef  `json:"b"`
 	Unless *factRef `json:"unless"`
+	// ConvergenceWindowSeconds is the expected lag of this pair (REQ-RES-005): inside it a disagreement waits. Absent or 0 means no lag is allowed
+	// (fail closed). It is pack data, never loosened without a benchmark run (AGENT-16).
+	ConvergenceWindowSeconds int64 `json:"convergence_window_seconds"`
 }
 
 type singleValued struct {
 	Entity string `json:"entity"`
 	Field  string `json:"field"`
+	// ConvergenceWindowSeconds as for incompatible: the expected lag of two sources that must agree on this field.
+	ConvergenceWindowSeconds int64 `json:"convergence_window_seconds"`
 }
 
 type derivedSpec struct {
@@ -207,6 +212,9 @@ func (rs *RuleSet) checkMatrix(f rulesetFile) error {
 			return fmt.Errorf("%w: matrix labels must be present and unique (%q)", errRuleSet, m.Label)
 		}
 		seen[m.Label] = true
+		if m.ConvergenceWindowSeconds < 0 {
+			return fmt.Errorf("%w: pair %q has a negative convergence window", errRuleSet, m.Label)
+		}
 		refs := []factRef{m.A, m.B}
 		if m.Unless != nil {
 			refs = append(refs, *m.Unless)
@@ -218,6 +226,9 @@ func (rs *RuleSet) checkMatrix(f rulesetFile) error {
 		}
 	}
 	for _, sv := range f.SingleValued {
+		if sv.ConvergenceWindowSeconds < 0 {
+			return fmt.Errorf("%w: single-valued %s.%s has a negative convergence window", errRuleSet, sv.Entity, sv.Field)
+		}
 		if err := rs.checkRef(factRef{Entity: sv.Entity, Field: sv.Field}); err != nil {
 			return err
 		}

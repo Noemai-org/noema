@@ -1,9 +1,9 @@
-"""The study records of the voice subset: the consent register, the annotations and the subset report (VOI-06, REQ-VOI-004, REQ-VOI-005, AGENT-13).
+"""The study records of the voice subset: the speaker register, the annotations and the subset report (VOI-06, REQ-VOI-004, REQ-VOI-005, AGENT-13).
 
 The checks run on records, never on audio: audio is never in the repository, a fixture, a log or a PR (AGENT-13), and the Voice Engineer works from transcripts and annotations
 (docs/voice/recording-plan-DRAFT.md sections 5 and 6, a draft until the Founder signs it). Nothing here reads a file or the network; the caller passes the records.
 
-Every record is validated by type as well as by value, so one bad record is listed as a problem and never crashes the report or fails open. A session counts only with a consent in the register, a withdrawn consent leaves no session behind, every session has two distinct annotators and a locale of the five, and a
+Every record is validated by type as well as by value, so one bad record is listed as a problem and never crashes the report or fails open. A session counts only with a speaker in the register, a withdrawn speaker leaves no session behind, every session has two distinct annotators and a locale of the five, and a
 disagreement between the annotators is settled by a native-speaker tester and recorded. A session unusable because of a bystander stays in the denominator and is counted, never
 dropped. Every problem of every session is listed. The plan's minimum of 50 sessions is a floor a call cannot lower (AGENT-16). All data in the tests is SYNTHETIC (AGENT-25).
 """
@@ -21,10 +21,10 @@ _LOCALES = frozenset(locale.value for locale in Locale)
 
 
 @dataclass(frozen=True, slots=True)
-class ConsentRecord:
-    """One row of the consent register. A withdrawn consent means the recording and its derived copies are deleted within 7 days (plan section 5)."""
+class SpeakerRecord:
+    """One row of the speaker register. A withdrawn speaker means the recording and its derived copies are deleted within 7 days (plan section 5)."""
 
-    consent_ref: str
+    speaker_ref: str
     withdrawn: bool = False
 
 
@@ -40,7 +40,7 @@ class Resolution:
 @dataclass(frozen=True, slots=True)
 class AnnotatedSession:
     session_ref: str
-    consent_ref: str
+    speaker_ref: str
     locale: str
     script_id: str
     intended: Mapping[str, str] = field(repr=False)
@@ -81,23 +81,23 @@ def _locale_ok(locale: object) -> bool:
     return isinstance(locale, str) and locale in _LOCALES  # exact match: no case folding, no aliases
 
 
-def check_session(s: AnnotatedSession, register: Mapping[str, ConsentRecord]) -> list[str]:
+def check_session(s: AnnotatedSession, register: Mapping[str, SpeakerRecord]) -> list[str]:
     """Every problem of one session, in a fixed order; an empty list means the session may count. A value of the wrong type is a problem, never an exception."""
     if not isinstance(s, AnnotatedSession):
         return ["not an annotated session"]
     problems: list[str] = []
     if _blank(s.session_ref):
         problems.append("session_ref blank")
-    if _blank(s.consent_ref):
-        problems.append("consent_ref blank")
-    elif s.consent_ref not in register:
-        problems.append("consent_ref not in the register")
+    if _blank(s.speaker_ref):
+        problems.append("speaker_ref blank")
+    elif s.speaker_ref not in register:
+        problems.append("speaker_ref not in the register")
     else:
-        record = register[s.consent_ref]
-        if not isinstance(record, ConsentRecord) or record.consent_ref != s.consent_ref or type(record.withdrawn) is not bool:
-            problems.append("consent record malformed")  # fail closed: a flag that is not a real bool never counts as "not withdrawn"
+        record = register[s.speaker_ref]
+        if not isinstance(record, SpeakerRecord) or record.speaker_ref != s.speaker_ref or type(record.withdrawn) is not bool:
+            problems.append("speaker record malformed")  # fail closed: a flag that is not a real bool never counts as "not withdrawn"
         elif record.withdrawn:
-            problems.append("consent withdrawn: the recording and its copies must be deleted")
+            problems.append("speaker withdrawn: the recording and its copies must be deleted")
     if not _locale_ok(s.locale):
         problems.append("locale not one of the five")
     if _blank(s.annotator_a) or _blank(s.annotator_b) or _same_person(s.annotator_a, s.annotator_b):
@@ -125,7 +125,7 @@ def check_session(s: AnnotatedSession, register: Mapping[str, ConsentRecord]) ->
     return problems
 
 
-def subset_report(sessions: Sequence[AnnotatedSession], register: Mapping[str, ConsentRecord], *, min_sessions: int) -> SubsetReport:
+def subset_report(sessions: Sequence[AnnotatedSession], register: Mapping[str, SpeakerRecord], *, min_sessions: int) -> SubsetReport:
     """Whether the recorded subset may be used: enough sessions, at least one that can be analysed, and no session with a problem.
 
     Sessions lost to a bystander count toward `n` (the plan's denominator rule) and are reported in `n_unusable`; a subset of only such sessions is not ready.
