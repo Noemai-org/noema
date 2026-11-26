@@ -29,6 +29,7 @@ const (
 	grantID    = "grt_AA11"
 	intentRef  = "int_AA11"
 	authnRef   = "ses_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // SYNTHETIC
+	issuer     = "enterprise_idp"                       // SYNTHETIC: a verified issuer in the shape of the contract's asserted_by
 )
 
 var errCrash = errors.New("synthetic crash point: the process died here")
@@ -37,6 +38,7 @@ var errCrash = errors.New("synthetic crash point: the process died here")
 type row struct {
 	tenant, principal, corr, recev string
 	role, authn                    string // the stored principal_role and authn_ref; both empty is a legacy row (NULL columns)
+	issuer                         string // the stored asserted_by (migration 0039); empty is a row with no recorded issuer (NULL)
 	inv                            orchestrator.Investigation
 	decision                       orchestrator.Decision
 }
@@ -72,7 +74,7 @@ type readerCall struct {
 
 func newWorld() *world {
 	w := &world{rows: map[string]*row{}, spent: map[string]bool{}, sessions: map[string][]orchestrator.Session{}, verdicts: []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictACHIEVED}}
-	w.rows[invID] = &row{tenant: tenantA, principal: principal, role: "customer", authn: authnRef, corr: corrID, recev: recevID, inv: orchestrator.Investigation{ID: invID, State: "RECEIVED"}}
+	w.rows[invID] = &row{tenant: tenantA, principal: principal, role: "customer", authn: authnRef, issuer: issuer, corr: corrID, recev: recevID, inv: orchestrator.Investigation{ID: invID, State: "RECEIVED"}}
 	return w
 }
 
@@ -204,7 +206,7 @@ func (w *world) SessionOf(_ context.Context, s orchestrator.Session, id string) 
 	if r.role == "" || r.authn == "" {
 		return investigations.RecordedSession{}, investigations.ErrNoRecordedSession
 	}
-	return investigations.RecordedSession{PrincipalID: r.principal, PrincipalRole: r.role, AuthnRef: r.authn}, nil
+	return investigations.RecordedSession{PrincipalID: r.principal, PrincipalRole: r.role, AuthnRef: r.authn, AssertedBy: r.issuer}, nil
 }
 
 // Idle is the reader port over the store: every investigation of the tenant that is not in a state without exits. The double ignores the idle age (the database's

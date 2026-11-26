@@ -87,7 +87,7 @@
     "/control/v1/fault-plan": {
       "put": {
         "operationId": "putFaultPlan",
-        "summary": "Load a FaultPlan (PERD \u00a737.1, JSON); resets every fault counter; starts the simulated clock if the plan has a clock block",
+        "summary": "Load a FaultPlan (PERD §37.1, JSON); resets every fault counter; starts the simulated clock if the plan has a clock block",
         "requestBody": {
           "required": true,
           "content": {
@@ -187,6 +187,101 @@
           },
           "409": {
             "description": "CLOCK_NOT_SIMULATED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/control/v1/webhooks/deliver": {
+      "post": {
+        "operationId": "deliverWebhook",
+        "summary": "Deliver a webhook to the configured relay, signed with mock-case's own SYNTHETIC key (Standard Webhooks v1); the body is the object given",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "message_id": {
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "message_id",
+                  "payload"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the relay answered: its status and whether it accepted"
+          },
+          "404": {
+            "description": "WEBHOOK_NOT_CONFIGURED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "WEBHOOK_NOT_DELIVERED: mock-case refused the message or got no answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/control/v1/webhooks/{message_id}/replay": {
+      "post": {
+        "operationId": "replayWebhook",
+        "summary": "Send an earlier message again under the same webhook-id and its exact body, signed again at the time it is sent",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the relay answered: its status and whether it accepted"
+          },
+          "404": {
+            "description": "WEBHOOK_NOT_CONFIGURED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "WEBHOOK_NOT_DELIVERED: no message with this id was sent, or no answer",
             "content": {
               "application/json": {
                 "schema": {
