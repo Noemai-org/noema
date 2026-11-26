@@ -290,6 +290,9 @@ func TestTheBuilderImportsNoPowerAndNoIO(t *testing.T) {
 		}
 		for _, imp := range af.Imports {
 			p := strings.Trim(imp.Path.Value, `"`)
+			if p == "context" && f == "reader.go" { // the Reader port takes a context (slice 4); the pure builder, request.go, still may not
+				continue
+			}
 			if !allowed[p] {
 				t.Errorf("%s imports %q: not on the builder's list (no clock, no I/O, no other power)", f, p)
 			}
