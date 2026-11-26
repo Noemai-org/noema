@@ -353,6 +353,30 @@
             "TOO_MANY_CANDIDATES"
           ],
           "additionalProperties": false
+        },
+        "slot_gates": {
+          "description": "Optional. The optional closed-vocabulary slots the model service asks first as one yes/no gate, each with the threshold, in integer basis points, at which the gate's yes counts (UND-18; ruling A603, interim). The slot is picked only when the gate passes, and then with no abstention; a doubt leaves the slot absent. The value is a Founder decision, never an agent's (AGENT-16). Which slots may be gated is packcheck's rule: optional, with a closed list of values, named once.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "slot": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "assertion_threshold_bp": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              }
+            },
+            "required": [
+              "slot",
+              "assertion_threshold_bp"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [

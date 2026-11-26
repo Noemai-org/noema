@@ -67,6 +67,15 @@ class LiveFindings(unittest.TestCase):
         declared = {"core", "model", "ui", "postgres", "temporal", "trust-dsn-init-2"}
         self.assertEqual(matrix.live_findings("bench", declared, declared - {"trust-dsn-init-2"}), ["bench: trust-dsn-init-2 should be running and is not"])
 
+    def test_the_one_shot_core_tls_init_step_may_have_exited_in_every_run_profile_by_exact_name(self) -> None:  # A667, EL and SR on noema#971: it runs to completion (restart "no"), so the live matrix must not call it missing
+        base = {"core", "model", "ui", "postgres", "temporal"}
+        for profile in matrix.LIVE_PROFILES:
+            declared = base | {"core-tls-init"}
+            self.assertEqual(matrix.live_findings(profile, declared, base), [], profile)  # it ran and exited
+            declared = base | {"core-tls-init-2"}
+            self.assertEqual(matrix.live_findings(profile, declared, base), [f"{profile}: core-tls-init-2 should be running and is not"], profile)  # a longer name is not exempt
+        self.assertIn("core-tls-init", matrix.ONE_SHOT_NAMES)
+
     # A477 (interim): the bench settings of the gateway, the worker and recovery, with the ordering constraints the loaders enforce (the activity timeout and the recovery idle time must exceed the run
     # timeout, or a live run could be picked up twice). The table is checked by number against the resolved configuration, and in itself.
     def test_the_a477_values_are_in_the_table_and_obey_their_ordering(self) -> None:

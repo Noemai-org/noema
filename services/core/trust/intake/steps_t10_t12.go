@@ -408,7 +408,7 @@ func (e *evaluation) stepSet(ctx context.Context, authorized []string) ([]string
 		return nil, errStepNotAllowed
 	}
 	a := e.intent
-	ids, err := st.runnable.Runnable(ctx, RunnableQuery{TenantID: a.TenantID, IntentID: a.IntentID, IntentVersion: a.Version, IntentNode: a.IntentNode, SnapshotID: e.snapshotID, Facts: cloneStrings(st.facts)})
+	ids, err := st.runnable.Runnable(ctx, RunnableQuery{TenantID: a.TenantID, IntentID: a.IntentID, IntentVersion: a.Version, IntentNode: a.IntentNode, SnapshotID: e.snapshotID, Facts: cloneStrings(st.facts), EvidencePacket: st.packet})
 	if err != nil {
 		return nil, err
 	}

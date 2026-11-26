@@ -16,6 +16,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // BindingInput is the eight values a confirmation binds (SoT §43.2a). Every value is an identifier or a hash, so the
@@ -70,6 +71,14 @@ type Request struct {
 	Requirement string // SELF, MAKER_CHECKER or ROLE:<role>
 	RequesterID string
 	ExpiresAt   int64
+}
+
+// StoredRequest is a request as the store holds it (A607, A612): with its expiry to the precision the database keeps, and whether the DATABASE's own clock says it has expired, that is,
+// expires_at is at or before the database's now (a request exactly at its expiry is expired). The database's check is the authority: a caller never rounds its own clock against it.
+type StoredRequest struct {
+	Request   Request
+	ExpiresAt time.Time
+	Expired   bool
 }
 
 // Response is the approver's reply.
