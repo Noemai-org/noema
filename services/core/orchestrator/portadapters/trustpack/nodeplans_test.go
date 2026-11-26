@@ -157,6 +157,9 @@ func TestNodePlansReturnsACopy(t *testing.T) {
 	for id, np := range first {
 		np.Slots[0].Name = "MUTATED"
 		for i := range np.Steps {
+			if len(np.Steps[i].Preconditions) > 0 {
+				np.Steps[i].Preconditions[0] = "MUTATED"
+			}
 			np.Steps[i].Preconditions = append(np.Steps[i].Preconditions, "MUTATED")
 			if len(np.Steps[i].Postconditions) > 0 {
 				np.Steps[i].Postconditions[0] = "MUTATED"

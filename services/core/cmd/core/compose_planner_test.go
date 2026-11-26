@@ -95,6 +95,24 @@ func TestAParamTheNodeCannotBackIsLeftForThePlannerToRefuse(t *testing.T) {
 	}
 }
 
+// A slot the node declares twice has no declaration to trust: a param that names it keeps no kind and the planner refuses it.
+func TestASlotTheNodeDeclaresTwiceBacksNoParam(t *testing.T) {
+	plans := cplPlans()
+	np := plans[cplNode]
+	np.Slots = append(np.Slots, trustpack.PlanSlot{Name: "target", Type: "Reference"})
+	plans[cplNode] = np
+	g, err := packPlanGraphs{plans: plans}.ActionGraph(t.Context(), cplNode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := g.Slots["target"]; d.Kind != "" || d.ResourceKind != "" {
+		t.Errorf("a slot declared twice has the declaration %+v", d)
+	}
+	if p := g.Steps[0].Params[0]; p.SlotKind != "" {
+		t.Errorf("the param of a slot declared twice has the kind %q", p.SlotKind)
+	}
+}
+
 func TestThePackGraphOfAnUnknownNodeIsErrNoGraphAndADoneContextIsAnError(t *testing.T) {
 	if _, err := (packPlanGraphs{plans: cplPlans()}).ActionGraph(t.Context(), "synthetic.other"); !errors.Is(err, plangraphs.ErrNoGraph) {
 		t.Errorf("an unknown node: %v; want ErrNoGraph", err)
@@ -171,7 +189,8 @@ func TestTheStoredIntentsSlotsAreTypedFromTheStoredDocument(t *testing.T) {
 	a := cplAdmitted(t, map[string]any{
 		"target":  map[string]any{"type": "Resource", "status": "RESOLVED", "resolved_ref": cplRef},
 		"reason":  map[string]any{"type": "Reference", "value": "X"},
-		"pending": map[string]any{"type": "Resource", "status": "AMBIGUOUS", "candidates_ref": "cand_synthetic1"},
+		"pending": map[string]any{"type": "Resource", "status": "AMBIGUOUS", "resolved_ref": cplRef},
+		"unsure":  map[string]any{"type": "Reference", "status": "AMBIGUOUS", "value": "X"},
 		"amount":  map[string]any{"type": "Quantity", "status": "RESOLVED", "value": 500, "unit": "SYN"},
 		"who":     map[string]any{"type": "Party", "status": "RESOLVED", "surface_form": "synthetic"},
 	})
@@ -186,6 +205,7 @@ func TestTheStoredIntentsSlotsAreTypedFromTheStoredDocument(t *testing.T) {
 		"target":  {Resolved: true, Value: cplRef, Kind: plangraphs.SlotKindResource, ResourceKind: "synthetic.kind"},
 		"reason":  {Resolved: true, Value: "X", Kind: plangraphs.SlotKindReference},
 		"pending": {Kind: plangraphs.SlotKindResource},
+		"unsure":  {Kind: plangraphs.SlotKindReference},
 		// The shape of a Quantity, a Party or a TimeRef as a plan param is unstated (a Quantity's value without its unit would lose the currency): they are never offered as resolved.
 		"amount": {Kind: plangraphs.SlotKindQuantity},
 		"who":    {Kind: plangraphs.SlotKindParty},
@@ -372,20 +392,23 @@ func TestANegativeTextBoundIsFatalAndNamesNoValue(t *testing.T) {
 func TestThePlannerPlansThePacksGraphFromTheStoredIntent(t *testing.T) {
 	p := decPack(t)
 	node, np := cplEscalationPlan(t, p)
-	var target, enum trustpack.PlanSlot
-	for _, s := range np.Slots {
-		switch s.Type {
-		case "Resource":
-			target = s
-		case "Reference":
-			enum = s
+	first := np.Steps[0]
+	var mapParam, slotParam trustpack.PlanParam
+	for _, q := range first.Params {
+		switch {
+		case q.HasMap:
+			mapParam = q
+		case q.Slot != "":
+			slotParam = q
 		}
 	}
-	first := np.Steps[0]
-	var mapParam trustpack.PlanParam
-	for _, q := range first.Params {
-		if q.HasMap {
-			mapParam = q
+	var target, enum trustpack.PlanSlot
+	for _, s := range np.Slots {
+		switch s.Name {
+		case slotParam.Slot:
+			target = s
+		case mapParam.MapFrom:
+			enum = s
 		}
 	}
 	var key, code string
@@ -464,5 +487,57 @@ func TestTheDecisionsLaneBuildsThePlannerOnlyWithATextBound(t *testing.T) {
 	}
 	if _, err := buildDecisions(func() decisionInputs { x := in; x.PlanTextMaxBytes = -1; return x }()); err == nil {
 		t.Error("a negative bound was accepted")
+	}
+}
+
+// The bound is the one given: a resolved text longer than it is refused at planning (AGENT-13), and the same plan with a bound that holds it is made.
+func TestTheTextBoundGivenIsTheOneThePlannerEnforces(t *testing.T) {
+	p := decPack(t)
+	node, np := cplEscalationPlan(t, p)
+	first := np.Steps[0]
+	var mapParam, slotParam trustpack.PlanParam
+	for _, q := range first.Params {
+		switch {
+		case q.HasMap:
+			mapParam = q
+		case q.Slot != "":
+			slotParam = q
+		}
+	}
+	var target trustpack.PlanSlot
+	for _, s := range np.Slots {
+		if s.Name == slotParam.Slot {
+			target = s
+		}
+	}
+	var key string
+	for k := range mapParam.MapValues {
+		key = k
+		break
+	}
+	ref := target.ResourceKind + ":txn_synth1"
+	slots := map[string]any{slotParam.Slot: map[string]any{"type": "Resource", "status": "RESOLVED", "resolved_ref": ref}, mapParam.MapFrom: map[string]any{"type": "Reference", "value": key}}
+	doc := map[string]any{"tenant_id": cplTenant, "intent_id": cplIntent, "correlation_id": "cor_synthetic1", "intent_node": node, "status": "VALIDATED", "version": 1, "slots": slots}
+	canon, err := crypto.CanonicalJSON(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(canon)
+	a := intentstore.Admitted{TenantID: cplTenant, IntentID: cplIntent, Version: 1, IntentNode: node, CorrelationID: "cor_synthetic1", JSON: canon, IntentHash: "sha256:" + hex.EncodeToString(sum[:])}
+	admitted := cplSlotsOf(a)
+	admitted.TargetRef = ref
+	req := intake.PlanRequest{TenantID: cplTenant, IntentID: cplIntent, IntentVersion: 1, IntentHash: a.IntentHash, IntentNode: node, WriteRequired: true, Capabilities: []string{first.CapabilityID}}
+	bound := func(n int) intake.Planner {
+		pl, missing, err := buildPlanner(plannerInputs{Pack: p, Intents: cplIntentsFake{a: admitted}, Docs: cplDocsFake{a: a}, MaxTextBytes: n})
+		if err != nil || len(missing) != 0 || pl == nil {
+			t.Fatalf("buildPlanner(%d) = %v, %v, %v", n, pl, missing, err)
+		}
+		return pl
+	}
+	if _, err := bound(len(ref)-1).Plan(t.Context(), req); !errors.Is(err, intake.ErrPlanInvalid) {
+		t.Errorf("a text one byte over the bound: %v; want ErrPlanInvalid", err)
+	}
+	if _, err := bound(len(ref)).Plan(t.Context(), req); err != nil {
+		t.Errorf("a text at the bound: %v", err)
 	}
 }

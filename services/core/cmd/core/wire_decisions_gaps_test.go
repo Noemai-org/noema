@@ -1,9 +1,9 @@
 package main
 
 // STM-01 decisions lane, Confirmations and Planner (A537 interim, relayed, recorded in docs#229; A469, A486, A511, A531; REQ-TRU-009, REQ-TRU-002, REQ-STM-001; INV-03, INV-16,
-// AGENT-16). Neither is built: each is a gap whose reasons are fixed text that a test pins, so that a part that arrives has to change the test (and the lane) with it. The
-// Confirmations path lacks a read of a request by its id, the Record events of the confirmation store and the pack's confirmation terms. The Planner lacks the pack's action-graph
-// reader, the stored intent's slot reader, the plan contexts and the pack's capability registry (noema#896 merged: it does not change these). intake.Service.Runnable and
+// AGENT-16). The Confirmations path is not built: it lacks a read of a request by its id, the Record events of the confirmation store and the pack's confirmation terms. The Planner
+// is built from the pack's node plans, the stored intent's typed slots and the plan contexts (compose_planner.go) and lacks one thing: its slot-text bound, which no ruling or setting
+// gives a value (A330). Each gap's reasons are fixed text that a test pins, so that a part that arrives has to change the test (and the lane) with it. intake.Service.Runnable and
 // .Handoffs have no adapter, so the first evaluation plans the action graph's first steps as before (the intake's documented behaviour with no Runnable port). Every value is SYNTHETIC.
 
 import (
