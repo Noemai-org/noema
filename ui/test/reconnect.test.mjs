@@ -196,7 +196,7 @@ test("A715: an oversized SSE frame falls back to authoritative polling without r
     paths.push(request.url);
     if (request.url === `/v1/conversations/${id}/events`) {
       response.writeHead(200, { "content-type": "text/event-stream" });
-      response.end(":" + "x".repeat(65_537) + "\\n\\n");
+      response.end(":" + "x".repeat(65_537) + "\n\n");
       return;
     }
     if (request.url === `/v1/investigations/${id}`) {
