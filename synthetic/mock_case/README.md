@@ -42,6 +42,17 @@ The bench listener is bound to the one local address that shares a subnet with `
 
 The truth endpoint: `GET /truth/v1/state` (all cases, complaints, attachments), `/truth/v1/commands` (the command log: every command and every injected fault, with scenario, seed and fault-plan ID), `/truth/v1/digest` (a state hash and a fault-trace hash, to compare two replays in one call). Control: `PUT|GET|DELETE /control/v1/fault-plan`, `GET /control/v1/clock`, `POST /control/v1/clock/advance`, `POST /control/v1/reset`. There is no snapshot or restore (PERD §34.4).
 
+## Webhook delivery to the relay (A682)
+
+With `MOCK_CASE_WEBHOOK_TARGET_URL` (the relay's `POST /webhooks`) and `MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE` (mock-case's own SYNTHETIC signing secret, never Tushe's, and different from every credential mock-case holds) both set, the bench control API delivers webhooks through the relay path:
+
+| Route (bench credential only) | What it does |
+|---|---|
+| `POST /control/v1/webhooks/deliver` `{"message_id": "...", "payload": {...}}` | Signs and posts the payload object, byte for byte, under `webhook-id` = the message id. The id is the idempotency key: the same id with another body is refused here (422) and nothing is sent. Answers 200 with the relay's own status and `accepted`; a relay refusal is reported as it is, never as acceptance. |
+| `POST /control/v1/webhooks/{message_id}/replay` | Sends the same id and the exact body again, signed again at the time it is sent. An id never sent is 422. |
+
+Without the two settings both routes answer `404 WEBHOOK_NOT_CONFIGURED` and send nothing. **Scheme:** Standard Webhooks v1 (headers `webhook-id`, `webhook-timestamp`, `webhook-signature`; HMAC-SHA-256 over `<id>.<timestamp>.<body>`; `v1,<base64>`), the one Tushe's response of 7 Oct 2026 (4.7) names, checked against the documented worked example and an independent verifier in the tests. The signing timestamp is the wall clock, because the relay checks five minutes against its own clock; it is not the SYNTHETIC clock. mock-case invents no event shape: the payload is whatever object the caller gives. The relay must hold the same secret (`WEBHOOK_RELAY_SIGNING_SECRET_FILE`). Not logged in the command log (that log needs the database; see status/ENV-05.md).
+
 ## Reconciliation with the pack
 
 The pack's `case` entity (`packs/fintech_v1.json`; SoT §15.3 success predicate `case.status in ['OPEN','ROUTED']` and `case.created_by_intent == intent_id`) reads three things the first mock-case did not supply. **mock-case was the incomplete side, so mock-case changed and the pack did not.** The SoT predicate is normative; the PERD §34.4 `fin.case` shape is `[REC]` and says exact field names are fixed at Phase A.

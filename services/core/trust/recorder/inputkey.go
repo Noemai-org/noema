@@ -17,13 +17,17 @@ import (
 // The same tuple is the same input and has one decision; a new snapshot or another policy version is another input. In the database the tenant and the intent
 // hash are columns and the other three are members of the signed document: the unique index decision_record_input_state_key (migration 0034, which replaced 0027's state-blind
 // decision_record_input_key) is over exactly these and the confirmation state.
-type inputKey struct{ tenant, intentID, intentHash, snapshot, policy string }
+type inputKey struct {
+	tenant, intentID, intentHash, snapshot, policy string
+	// turn and principal are the key of an early decision (A581, A590; migration 0040): the client's request ID of the turn and the verified principal, with an empty snapshot and policy. They are empty for every other decision.
+	turn, principal string
+}
 
 // confirmation state (A366, migration 0034): the unique key decision_record_input_state_key is the tuple above and the state, the confirmation request the decision rests on ("" for none).
 
 // lockName is the text the advisory lock is taken on. Every member matches a contract pattern that has no "|", so two different tuples never give one name.
 func (k inputKey) lockName() string {
-	return strings.Join([]string{k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy}, "|")
+	return strings.Join([]string{k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, k.turn, k.principal}, "|")
 }
 
 // lookup reads the decision stored for the tuple, in the caller's transaction and as the caller's tenant login (forced row security; the tenant is also in the
@@ -41,8 +45,9 @@ func (w *Writer) lookup(ctx context.Context, tx pgx.Tx, k inputKey, state string
 	var sameVersions bool
 	err = tx.QueryRow(ctx, `SELECT json::text, outcome, policy_versions_json = $6::jsonb FROM decision_record
 		WHERE tenant_id = $1 AND (json ->> 'intent_id') = $2 AND intent_hash = $3 AND COALESCE(json ->> 'evidence_snapshot_id', '') = $4 AND COALESCE(json ->> 'policy_version', '') = $5
-		AND COALESCE(confirmation_request_id, '') = $7`,
-		k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, string(versions), state).Scan(&raw, &outcome, &sameVersions)
+		AND COALESCE(confirmation_request_id, '') = $7
+		AND COALESCE(turn_id, '') = $8 AND COALESCE(principal_id, '') = $9`,
+		k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, string(versions), state, k.turn, k.principal).Scan(&raw, &outcome, &sameVersions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Result{}, false, w.otherState(ctx, tx, k, r.Decision.Outcome(), state)
 	}
@@ -54,6 +59,10 @@ func (w *Writer) lookup(ctx context.Context, tx pgx.Tx, k inputKey, state string
 		return Result{}, false, fmt.Errorf("%sthe stored decision is not a decision-record.v2 document: %w", errPrefix, err)
 	}
 	if outcome != string(r.Decision.Outcome()) || !sameVersions || dispositionOf(rec) != r.DispositionDecisionID {
+		return Result{}, false, ErrDecisionConflict
+	}
+	if k.turn != "" && (rec.PackVersion != basis.PackVersion || !sameReasons(rec, r.Decision)) {
+		// A581: a replay of an early decision returns the stored record only when the pack version and the reasons are the same too (the outcome is compared above).
 		return Result{}, false, ErrDecisionConflict
 	}
 	rows, err := tx.Query(ctx, `SELECT json::text, sig_key_id, sig_value FROM decision_grant WHERE tenant_id = $1 AND decision_id = $2 ORDER BY (json ->> 'plan_step')::bigint, grant_id`, k.tenant, string(rec.DecisionId))
@@ -200,7 +209,8 @@ func (w *Writer) otherState(ctx context.Context, tx pgx.Tx, k inputKey, outcome 
 	var n int
 	err := tx.QueryRow(ctx, `SELECT count(*) FROM decision_record
 		WHERE tenant_id = $1 AND (json ->> 'intent_id') = $2 AND intent_hash = $3 AND COALESCE(json ->> 'evidence_snapshot_id', '') = $4 AND COALESCE(json ->> 'policy_version', '') = $5
-		AND outcome = $6 AND COALESCE(confirmation_request_id, '') <> $7`, k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, string(outcome), state).Scan(&n)
+		AND outcome = $6 AND COALESCE(confirmation_request_id, '') <> $7
+		AND COALESCE(turn_id, '') = $8 AND COALESCE(principal_id, '') = $9`, k.tenant, k.intentID, k.intentHash, k.snapshot, k.policy, string(outcome), state, k.turn, k.principal).Scan(&n)
 	if err != nil {
 		return fmt.Errorf("%sread the decisions of the input: %w", errPrefix, err)
 	}
@@ -208,4 +218,18 @@ func (w *Writer) otherState(ctx context.Context, tx pgx.Tx, k inputKey, outcome 
 		return ErrDecisionConflict
 	}
 	return nil
+}
+
+// sameReasons reports whether the stored record carries the reason codes of the decision, in the same order.
+func sameReasons(rec contracts.DecisionRecordV2, d decide.Decision) bool {
+	want := reasonCodes(d)
+	if len(rec.ReasonCodes) != len(want) {
+		return false
+	}
+	for i := range want {
+		if rec.ReasonCodes[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

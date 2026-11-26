@@ -29,6 +29,10 @@ type Request struct {
 	// be read. T9 decides what they mean (and records the evidence read from the snapshot); T10 to T12 work from the same snapshot; nothing before T9 looks at them.
 	EvidenceSnapshotID  string
 	EvidenceUnavailable bool
+	// TurnID is the client's request ID of the turn this request answers (a lower-case UUID, canonical-input request_id), a typed value and no text (A581, A590; interim, relayed). The
+	// intake uses it only as the key of an early decision: an ESCALATE reached before the evidence and the policy were evaluated is recorded under it. Empty is allowed; such an ESCALATE
+	// is then not recorded and the evaluation ends in UNKNOWN INTERNAL_ERROR (A578), as before.
+	TurnID string
 }
 
 // AdmittedIntent is what Trust needs of a stored, admitted Intent Object. The adapter reads it from the intent store and builds it; Trust does not parse the model's text.

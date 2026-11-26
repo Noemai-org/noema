@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from fractions import Fraction
+from types import MappingProxyType
 from typing import Protocol
 
 from noema_model.harness import CallRecord
+from noema_model.platform.config import ConfigError
 from noema_model.understanding.pipeline.catalogue import NodeCatalogue
 from noema_model.understanding.resolution import (
     Candidate,
@@ -76,6 +78,14 @@ class PipelineConfig:
     out_of_scope_flag: str
     native_yes_threshold: Fraction | None
     state_flags: Mapping[ResolutionState, str]
+    slot_gates: Mapping[str, int] = MappingProxyType({})
+    """UND-18 (A603): slot name to the threshold, in integer basis points, at which a gate's yes counts. Pack data; empty when the pack gates nothing."""
+
+    def __post_init__(self) -> None:
+        """A gate is keyed by the slot's name, so the name must belong to one node: the same optional slot name in a second node would silently receive this gate and its question (review P2 of noema#932)."""
+        for name in self.slot_gates:
+            if sum(1 for node in self.catalogue.nodes.values() if any(s.name == name for s in node.slots)) > 1:
+                raise ConfigError(f"slot_gates: the slot {name} is declared by more than one node; a gate belongs to one")
 
 
 @dataclass(frozen=True, slots=True)
