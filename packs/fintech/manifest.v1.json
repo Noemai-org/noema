@@ -4,7 +4,7 @@
   "label": "SYNTHETIC",
   "note": "The pack manifest of the fintech pack (PCK-02, ruling A333; settles the hash-pin of EVD-06, A320). It lists each pack file the core loads with its SHA-256 and names the evidence-mapping id and the reconciliation rule-set id the core expects, so the core hard-codes neither (INV-14). The core loads through it and refuses a mismatch. A path is relative to the pack directory (packs/). `expected` ids are `<id>@<version>` exactly as the file carries them (mapping_id and version, ruleset_id and version). Every file of a listed kind must be listed: an unlisted file is a packcheck failure. Hash-pinned now, signatures later (A320). Any edit to a listed file needs its SHA-256 updated here, in the same pull request: `sha256sum <file>` gives it. The action graphs the pack names (`action_graph_files`) are listed with kind `action_graph`, one entry each (A510, version 2): no graph is served unless it is pinned here, and a pinned graph the pack does not name is refused. The limits files of the pack (`fintech/limits/*.json`, kind `limits`, A544 interim, version 3) are pinned too, every file of the folder: a limit is data a Founder reviews (AGENT-16), so one changed after CI refuses the pack. The injection-screen patterns are listed with kind `injection_patterns` and `expected.injection_patterns_id` (A645, version 4): required, exactly one file, from manifest version 4; a manifest below version 4 lists none or one, and a manifest that lists none carries no pattern data (A664, interim). The priority routing member (kind `priority_routing`, at most one; PCK-09, ruling A644, interim, relayed, not yet committed) is pinned too: the priority and owner queue of each SLA phase, read by the evaluator. It is additive and carries no version gate, so a manifest of the earlier kinds is still valid. The recipient matcher's data (kind `recipient_matcher`, A710, A695, OD-P-117, version 5) is pinned too: the tiers, folding map, nickname and spelling-variant tables and phonetic rules of the recipient matcher, read by core's matcher and by the model service's reference matcher; required, exactly one file, from manifest version 5, none or one below it, and a manifest that lists none carries no matcher data. Not yet listed (no consumer yet): the language lexicons, templates, schemas.",
   "expected": {
-    "evidence_mapping_id": "fin.map.v1@2",
+    "evidence_mapping_id": "fin.map.v1@3",
     "recon_rule_set_id": "fin.recon.rules@1",
     "injection_patterns_id": "fin.ctx.injection_patterns@2"
   },
@@ -17,7 +17,7 @@
     {
       "kind": "evidence_mapping",
       "path": "fintech/evidence_mapping/mapping.v1.json",
-      "sha256": "a0550f6442fb3dc38e782deebf74e834f3e797595c5a39e6048edd7eb54a1fe8"
+      "sha256": "96886dae98e790b2160e281df51bdf65f998cc428bf69ecc3ffcd5285ba7c06b"
     },
     {
       "kind": "recon_rules",
