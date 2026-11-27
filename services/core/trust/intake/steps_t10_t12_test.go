@@ -958,3 +958,27 @@ func configuredService(f *fake) *Service {
 	n := noPorts{}
 	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Candidates: n, Ownership: n, Evidence: n, Reconciler: f, Policies: f, Clocks: f, Confirmations: &f13{}, Planner: &f13{}, Recorder: &f13{}, Dispatches: &f13{}}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 }
+
+// RES-05 (REQ-RES-005, INV-16, INV-20; interim, relayed): an answer that waits inside a convergence window ends T10 in WAIT, with INSUFFICIENT_EVIDENCE and the end of the window as the time
+// it is evaluated again; it is neither a verdict nor a freeze, and it never goes on.
+func TestT10AWaitingAnswerEndsInWaitUntilTheEndOfTheWindow(t *testing.T) {
+	f := &fake{rec: Reconciliation{Classification: reconcile.InsufficientEvidence, WaitUntil: tNow + 300}}
+	d, trace := run(t, newEv(t, f), decide.T10Reconciliation)
+	stopped(t, "waiting", d, trace, decide.T10Reconciliation, decide.Wait, []string{"INSUFFICIENT_EVIDENCE"}, decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass})
+	if d.ReevaluateAt() != tNow+300 {
+		t.Errorf("re-evaluated at %d, want %d", d.ReevaluateAt(), tNow+300)
+	}
+}
+
+// A waiting answer that cannot be a wait fails closed: an end that is not in the future, a classification other than INSUFFICIENT_EVIDENCE, or a freeze (a waiting answer is never frozen).
+func TestT10AWaitingAnswerThatIsNotAWaitFailsClosed(t *testing.T) {
+	for name, rec := range map[string]Reconciliation{
+		"an end that has passed":   {Classification: reconcile.InsufficientEvidence, WaitUntil: tNow},
+		"a settled classification": {Classification: reconcile.SuccessConfirmed, WaitUntil: tNow + 300},
+		"a frozen target":          {Classification: reconcile.InsufficientEvidence, WaitUntil: tNow + 300, Frozen: true},
+		"a negative end":           {Classification: reconcile.InsufficientEvidence, WaitUntil: -1},
+	} {
+		d, trace := run(t, newEv(t, &fake{rec: rec}), decide.T10Reconciliation)
+		failedClosed(t, name, d, trace, decide.T10Reconciliation)
+	}
+}

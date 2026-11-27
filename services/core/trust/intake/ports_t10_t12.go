@@ -24,6 +24,9 @@ type Reconciliation struct {
 	// EscalateReason is the pack reason code the pack maps the classification to when it maps it to ESCALATE (a contradiction, an unknown outcome),
 	// in the form `<vertical>.reason.<name>`; empty when the pack maps it to nothing.
 	EscalateReason string
+	// WaitUntil is the Unix second the answer waits until, when every disagreement is still inside its convergence window (reconcile.Result.Wait.Until, REQ-RES-005): the answer is neither a
+	// verdict nor a freeze, the classification is INSUFFICIENT_EVIDENCE and T10 ends in WAIT. Zero: the answer does not wait. Red stub: not read yet.
+	WaitUntil int64
 }
 
 // Reconciler reconciles the sealed evidence snapshot of a tenant. The snapshot is the one T9 sealed; the adapter reads it and applies the pack's rule set.

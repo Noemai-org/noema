@@ -119,7 +119,12 @@ func hashOf(t *testing.T, payload map[string]any) string {
 
 func build(t *testing.T, specs ...spec) *world {
 	t.Helper()
-	rs := ruleSet(t)
+	return buildWith(t, ruleSet(t), specs...)
+}
+
+// buildWith is build over a given rule set.
+func buildWith(t *testing.T, rs *reconcile.RuleSet, specs ...spec) *world {
+	t.Helper()
 	w := &world{st: &store{payloads: map[string][]byte{}}}
 	for i, s := range specs {
 		id, ref := "evd_"+string(rune('a'+i)), "pay_"+string(rune('a'+i))
@@ -370,3 +375,44 @@ func corrOf(context.Context) string { return "cor_SYNTHETIC" }
 type noAlert struct{}
 
 func (noAlert) ScreenFlagged(context.Context, payloadread.Flag) {}
+
+// windowedRuleSet is the real rule set with a convergence window on the pair of a failed switch and a credited destination (SYNTHETIC test value, never a pack value).
+func windowedRuleSet(t *testing.T, seconds int64) *reconcile.RuleSet {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(mustRead(t, packDir, "recon_rules", "rules.v1.json"), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range doc["incompatible"].([]any) {
+		if e := m.(map[string]any); e["label"] == "switch_failed_credit_credited" {
+			e["convergence_window_seconds"] = seconds
+		}
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := reconcile.ParseRuleSet(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rs
+}
+
+// A810 (RES-05; REQ-RES-005; interim, relayed): a disagreement still inside its window waits: the answer carries the end of the window, and the classification is the fallback. With no
+// window, or a window that has passed, it carries none.
+func TestADisagreementInsideItsWindowCarriesTheEndOfTheWindow(t *testing.T) {
+	got := classify(t, buildWith(t, windowedRuleSet(t, 600), ledgerPosted(), switchIs("REJECTED"), destIs("CREDITED")))
+	if want := read.Add(-time.Minute).Unix() + 600; got.WaitUntil != want || got.Classification != "INSUFFICIENT_EVIDENCE" {
+		t.Fatalf("got %+v, want INSUFFICIENT_EVIDENCE waiting until %d", got, want)
+	}
+}
+
+func TestADisagreementWithNoWindowOrAnExpiredOneDoesNotWait(t *testing.T) {
+	for name, rs := range map[string]*reconcile.RuleSet{"no window": ruleSet(t), "an expired window": windowedRuleSet(t, 1)} {
+		got := classify(t, buildWith(t, rs, ledgerPosted(), switchIs("REJECTED"), destIs("CREDITED")))
+		if got.WaitUntil != 0 || got.Classification != "CONTRADICTORY_STATE" {
+			t.Errorf("%s: got %+v, want CONTRADICTORY_STATE and no wait", name, got)
+		}
+	}
+}

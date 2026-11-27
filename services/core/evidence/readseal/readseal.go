@@ -30,7 +30,12 @@ type Transactions interface {
 }
 
 // Classified is the state reconciliation of one evidence set, as the snapshot records it.
-type Classified struct{ ReconciliationID, Classification string }
+type Classified struct {
+	ReconciliationID, Classification string
+	// WaitUntil is the Unix second the answer waits until when every disagreement is still inside its convergence window (reconcile.Result.Wait.Until, REQ-RES-005): the classification
+	// is then the fallback and the answer is neither a verdict nor a freeze. Zero means the answer does not wait. Red stub: not set yet.
+	WaitUntil int64
+}
 
 // Reconciler classifies the evidence items just read. It has no default: an adapter without one is not wired.
 type Reconciler interface {
