@@ -114,9 +114,9 @@ func buildGateway(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSou
 			return nil, nil, fmt.Errorf("cmd/core: the Input Gateway needs %s as well: all its settings or none", s)
 		}
 	}
-	maxActive, err := strconv.Atoi(env.Getenv(EnvEdgeKeyMaxActive))
-	if err != nil || maxActive < 1 {
-		return nil, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvEdgeKeyMaxActive)
+	maxActive, err := parseKeyOverlap(EnvEdgeKeyMaxActive, env.Getenv(EnvEdgeKeyMaxActive))
+	if err != nil {
+		return nil, nil, err
 	}
 	maxBody, err := strconv.ParseInt(env.Getenv(edge.EnvMaxBody), 10, 64)
 	if err != nil || maxBody < 1 {

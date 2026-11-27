@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
@@ -35,7 +36,7 @@ type reqSink struct {
 
 var errReqSink = errors.New("the Record refused the append")
 
-func (s *reqSink) Requested(_ context.Context, e trustpg2.RequestedEvent) error {
+func (s *reqSink) Requested(_ context.Context, _ pgx.Tx, e trustpg2.RequestedEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail {
@@ -45,7 +46,7 @@ func (s *reqSink) Requested(_ context.Context, e trustpg2.RequestedEvent) error 
 	return nil
 }
 
-func (s *reqSink) Received(_ context.Context, e trustpg2.ReceivedEvent) error {
+func (s *reqSink) Received(_ context.Context, _ pgx.Tx, e trustpg2.ReceivedEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail {
@@ -55,7 +56,7 @@ func (s *reqSink) Received(_ context.Context, e trustpg2.ReceivedEvent) error {
 	return nil
 }
 
-func (s *reqSink) Expired(_ context.Context, e trustpg2.ExpiredEvent) error {
+func (s *reqSink) Expired(_ context.Context, _ pgx.Tx, e trustpg2.ExpiredEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail {
@@ -202,7 +203,7 @@ func TestAnAnswerIsStoredOnceAndAReplayReturnsTheSameEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer", "ops"}, Response: confirm.Accept}
+	in := trustpg2.AnswerInput{TenantID: "ten_aa", ApproverKind: "approver", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer", "ops"}, Response: confirm.Accept}
 	ev1, err := w.a.Answer(reqCtx(t), in)
 	if err != nil || ev1 == "" {
 		t.Fatalf("Answer: %q %v", ev1, err)
@@ -255,7 +256,7 @@ func TestTwoConcurrentAnswersStoreOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
+	in := trustpg2.AnswerInput{TenantID: "ten_aa", ApproverKind: "approver", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
 	var wg sync.WaitGroup
 	evs := make([]string, 2)
 	errs := make([]error, 2)
@@ -286,7 +287,7 @@ func TestTwoApproversAnsweringAtOnceStoreTheFirstOnly(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, errs[i] = w.a.Answer(reqCtx(t), trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: id, ApproverID: approvers[i], Roles: []string{"reviewer"},
+			_, errs[i] = w.a.Answer(reqCtx(t), trustpg2.AnswerInput{TenantID: "ten_aa", ApproverKind: "approver", RequestID: id, ApproverID: approvers[i], Roles: []string{"reviewer"},
 				Response: confirm.Accept})
 		}()
 	}
@@ -312,7 +313,7 @@ func TestAnAnswerIsRefusedWithoutARecordOrWithoutItsRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
+	in := trustpg2.AnswerInput{TenantID: "ten_aa", ApproverKind: "approver", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
 	w.sink.fail = true
 	if _, err := w.a.Answer(reqCtx(t), in); err == nil {
 		t.Fatal("Answer succeeded although the Record refused the append")
@@ -429,7 +430,7 @@ func TestAnAnswerAfterTheExpiryOrTheSupersessionIsTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: first, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
+	in := trustpg2.AnswerInput{TenantID: "ten_aa", ApproverKind: "approver", RequestID: first, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
 	w.waitExpired(t, first)
 	if _, err := w.a.Answer(reqCtx(t), in); !errors.Is(err, trustpg2.ErrRequestExpired) {
 		t.Fatalf("an answer after the expiry: %v, want ErrRequestExpired", err)
@@ -457,7 +458,7 @@ func TestAReplayAfterTheExpiryReturnsTheStoredEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
+	in := trustpg2.AnswerInput{TenantID: "ten_aa", ApproverKind: "approver", RequestID: id, ApproverID: "prn_2", Roles: []string{"reviewer"}, Response: confirm.Accept}
 	ev, err := w.a.Answer(reqCtx(t), in)
 	if err != nil {
 		t.Fatal(err)

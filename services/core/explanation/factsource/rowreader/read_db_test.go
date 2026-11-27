@@ -15,10 +15,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
+	"github.com/Noemai-org/noema/services/core/explanation"
 	"github.com/Noemai-org/noema/services/core/explanation/factsource/rowreader"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/internal/sigfixture"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/db"
 )
 
@@ -340,5 +343,57 @@ func TestDBTheReaderRefusesWhatItCannotReadSafely(t *testing.T) {
 		if _, err := rowreader.NewReader(args.pools, args.d, args.slot); !errors.Is(err, rowreader.ErrConfig) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// A727, over the real store: a no-write ALLOW decision has its record's outcome and no grant, so no row of an execution; the Source then explains it from the record, a write with a
+// grant and a receipt but no verdict stays ErrNoVerdict, and the verdict row wins as soon as it exists. REQ-EXP-001, REQ-SEC-004; INV-04, INV-12.
+func (w *dbWorld) source(t *testing.T) *rowreader.Source {
+	t.Helper()
+	c := cfg()
+	c.NoWriteOutcome = noWriteOut
+	l := &localesFake{loc: contracts.ExplanationFactsV2LocaleEnNG}
+	s, err := rowreader.NewSource(c, w.reader, &paymentsFake{}, l, clock.NewManual(now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestDBANoWriteDecisionIsExplainedFromItsRecordAndAWriteIsNot(t *testing.T) {
+	w := newDBWorld(t)
+	rows, err := w.reader.Read(ctx(t), tenantA, decision)
+	if err != nil || rows.DecisionOutcome != "ALLOW" || len(rows.Executions) != 0 {
+		t.Fatalf("no-write rows: %+v %v", rows, err)
+	}
+	sub := explanation.Subject{TenantID: tenantA, PrincipalID: principal}
+	f, err := w.source(t).Facts(ctx(t), sub, decision)
+	if err != nil || string(f.OutcomeId) != noWriteOut || f.Classification != "EXECUTION_OUTCOME_UNKNOWN" || f.CorrelationId != corr {
+		t.Fatalf("no-write facts: %+v %v", f, err)
+	}
+	w.grant(t, tenantA, decision, grantOne, caseCap, corr)
+	if f, err := w.source(t).Facts(ctx(t), sub, decision); !errors.Is(err, rowreader.ErrNoVerdict) || len(f.Facts) != 0 {
+		t.Fatalf("a grant and no verdict: %+v %v", f, err)
+	}
+	w.receipt(t, tenantA, grantOne, receiptOne, "ACKNOWLEDGED", ack)
+	if f, err := w.source(t).Facts(ctx(t), sub, decision); !errors.Is(err, rowreader.ErrNoVerdict) || len(f.Facts) != 0 {
+		t.Fatalf("a receipt and no verdict: %+v %v", f, err)
+	}
+	w.verdict(t, tenantA, "ver_0001", receiptOne, caseOut, sealedAt.Add(time.Minute))
+	if f, err := w.source(t).Facts(ctx(t), sub, decision); err != nil || string(f.OutcomeId) != caseOut {
+		t.Fatalf("the verdict row: %+v %v", f, err)
+	}
+}
+
+// Another tenant's no-write record is not found for the other tenant's login, whoever names it: the same answer as for an absent decision, and no fact.
+func TestDBAnotherTenantsNoWriteRecordIsNotExplained(t *testing.T) {
+	w := newDBWorld(t)
+	f, err := w.source(t).Facts(ctx(t), explanation.Subject{TenantID: tenantB, PrincipalID: principal}, decision)
+	if !errors.Is(err, rowreader.ErrNotFound) || len(f.Facts) != 0 {
+		t.Fatalf("%+v %v", f, err)
+	}
+	_, absent := w.source(t).Facts(ctx(t), explanation.Subject{TenantID: tenantB, PrincipalID: principal}, "dec_nosuch01")
+	if absent == nil || err.Error() != absent.Error() {
+		t.Fatalf("foreign %v, absent %v: want the same answer", err, absent)
 	}
 }

@@ -22,7 +22,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
-            if git diff --name-only "$base" HEAD | grep -qE '^(services/model/|\.github/workflows/model\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+            if git diff --name-only "$base" HEAD | grep -qE '^(services/model/|benchmark/compile_acceptance/|benchmark/requirements\.lock|\.github/workflows/model\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
           else
             echo run=true >> "$GITHUB_OUTPUT"
           fi
@@ -37,6 +37,11 @@ jobs:
           /tmp/venv/bin/pip install --require-hashes -r requirements-dev.lock
           /tmp/venv/bin/python -m pytest
           /tmp/venv/bin/python -m mypy
+      - if: steps.changed.outputs.run == 'true'
+        # A733: the boundary recordings' generating test needs the model service's dependencies, so it runs here and not in the benchmark job. NOEMA_REQUIRE_MODEL_DEPS=1 makes a missing dependency a failure, not a skip.
+        run: |
+          /tmp/venv/bin/pip install --require-hashes -r benchmark/requirements.lock
+          NOEMA_REQUIRE_MODEL_DEPS=1 PYTHONPATH=services/model:. /tmp/venv/bin/python -m unittest benchmark.compile_acceptance.test_synthetic_boundary
       - if: steps.changed.outputs.run == 'true'
         run: docker build -t noema-model:ci services/model
       - if: steps.changed.outputs.run != 'true'
