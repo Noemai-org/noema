@@ -746,6 +746,13 @@ class OutcomeBindings(unittest.TestCase):
         self.assertEqual(got[self.CAP]["variables"], {"case_id": "PLAN_PARAM:case_id", "planned_queue": "PLAN_PARAM:owner_queue"})
         self.assertEqual(self.hits(base), [])
 
+    def test_the_complaint_outcome_binds_its_epoch_from_the_subjects_current_epoch(self):
+        """A740 (interim, relayed): EPOCH is the fourth source, the subject's current logical resolution epoch (the NextEpoch port)."""
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        self.assertEqual(b["variables"], {"subject_resource": "SUBJECT", "logical_resolution_epoch": "EPOCH"})
+        self.assertEqual(self.hits(base), [])
+
     def test_a_binding_names_the_capabilitys_own_outcome_and_retry_safety(self):
         base, _ = real()
         caps = {c["capability_id"]: c for c in base["capabilities"]}
