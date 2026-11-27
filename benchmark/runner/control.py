@@ -1,5 +1,6 @@
 """mock-case's control API (bench credential, bench_net only): reset between cases, load a fault plan, advance the simulated clock."""
 from typing import Any
+from urllib.parse import quote
 
 from benchmark.oracle_client.transport import HttpError, JsonClient
 
@@ -40,4 +41,4 @@ class MockCaseControl:
 
     def replay_webhook(self, message_id: str) -> Json:
         """The same id and body again, with a fresh timestamp and signature (A682)."""
-        return self._http.request("POST", f"/control/v1/webhooks/{message_id}/replay", {})[0]
+        return self._http.request("POST", f"/control/v1/webhooks/{quote(message_id, safe='')}/replay", {})[0]

@@ -1,8 +1,9 @@
 """The runner's WebhookSender (A667, A682): mock-case's bench control routes deliver a signed webhook to the relay. SYNTHETIC.
 
 The runner invents no event body. Tushe's event names and body members are not stated in any governing document (status/ENV-05.md, "Not stated", item 1), so the object for each kind comes from
-a file the caller gives (`--webhook-payloads`). The message id is `<case id>:<kind>`, so the same case and kind give the same id and the relay stores a repeat once."""
+a file the caller gives (`--webhook-payloads`). The message id is `<run id>:<case id>:<kind>` (A758), so the same run, case and kind give the same id and the relay stores a repeat once, and another run never meets an earlier run's id with a different body."""
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,10 @@ from .control import MockCaseControl
 from .drivers import WEBHOOKS
 
 Json = dict[str, Any]
+
+
+_ID_PART = re.compile(r"[A-Za-z0-9_.-]+")  # mock-case accepts `[A-Za-z0-9_.:-]{1,128}` for a whole id; the colon is the separator here, so no part holds one
+MAX_ID = 128
 
 
 class WebhookNotDelivered(Exception):
@@ -30,12 +35,16 @@ def read_payloads(path: Path) -> dict[str, Json]:
 
 
 class MockCaseWebhooks:
-    def __init__(self, control: MockCaseControl, payloads: dict[str, Json]) -> None:
-        self._control, self._payloads = control, payloads
+    def __init__(self, control: MockCaseControl, payloads: dict[str, Json], run_id: str) -> None:
+        if _ID_PART.fullmatch(run_id) is None:
+            raise ValueError("the run id must be letters, digits, underscore, dot or hyphen, for a webhook message id")
+        self._control, self._payloads, self._run_id = control, payloads, run_id
 
-    @staticmethod
-    def message_id(case_id: str, event: str) -> str:
-        return f"{case_id}:{event}"
+    def message_id(self, case_id: str, event: str) -> str:
+        parts = (self._run_id, case_id, event)
+        if not all(_ID_PART.fullmatch(part) for part in parts) or len(":".join(parts)) > MAX_ID:
+            raise WebhookNotDelivered("the run id, case id and kind do not make a valid webhook message id")
+        return ":".join(parts)
 
     def _accepted(self, answer: Json) -> None:
         if answer.get("accepted") is not True:

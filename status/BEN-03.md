@@ -103,3 +103,14 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 ## Pre-work for the next agent
 - Exact next step: IL says which members the relay's consumer needs in each body, so a payload file can be written; the runner then needs no change.
 - Do not touch: the mock-case routes.
+
+# Session 2026-11-27 · BEN-03 · A758: the webhook message id carries the run id, and the replay URL quotes it
+
+## Session summary
+- What changed (noema#1029): the message id is `<run id>:<case id>:<kind>` (`MockCaseWebhooks` now takes the run id; the CLI passes `--run-id`); the replay route quotes it (`quote(id, safe="")`, so the colons go as `%3A`). A run id or case id that cannot make a valid id (a colon, a space, a slash, or over 128 characters in all) is refused before anything is sent.
+- Why: A758. A repeat of one run still gives the same id and is stored once; another run never meets an earlier run's id.
+- Tests added (A758): the id format and its four-way distinctness, the quoted replay URL, and the refusals (seen failing first would need a red commit; here the change and the tests went in one commit, which the PR says).
+- Risks: none to the product. Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: SR or an independent reviewer reads #1029 at its new head.

@@ -7,6 +7,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from benchmark.runner.__main__ import main
 from benchmark.runner.control import MockCaseControl
@@ -48,8 +49,8 @@ class Fake:
 
 
 class Sender(unittest.TestCase):
-    def sender(self, fake: Fake, payloads: dict[str, Any] | None = None) -> MockCaseWebhooks:
-        return MockCaseWebhooks(MockCaseControl(fake.url, "bench-secret"), PAYLOADS if payloads is None else payloads)
+    def sender(self, fake: Fake, payloads: dict[str, Any] | None = None, run_id: str = "run-7") -> MockCaseWebhooks:
+        return MockCaseWebhooks(MockCaseControl(fake.url, "bench-secret"), PAYLOADS if payloads is None else payloads, run_id)
 
     def test_a_delivery_posts_the_given_object_with_the_bench_credential_a682(self) -> None:
         fake = Fake()
@@ -57,10 +58,10 @@ class Sender(unittest.TestCase):
         self.sender(fake).deliver("BEN-CLEAN-0001", "settlement_updated")
         method, path, body, auth = fake.seen[0]
         self.assertEqual((method, path), ("POST", "/control/v1/webhooks/deliver"))
-        self.assertEqual(body, {"message_id": "BEN-CLEAN-0001:settlement_updated", "payload": PAYLOADS["settlement_updated"]})
+        self.assertEqual(body, {"message_id": "run-7:BEN-CLEAN-0001:settlement_updated", "payload": PAYLOADS["settlement_updated"]})
         self.assertEqual(auth, "Bearer bench-secret")
 
-    def test_the_message_id_is_the_same_for_the_same_case_and_event_and_differs_between_them(self) -> None:
+    def test_the_message_id_is_run_case_kind_and_differs_between_runs_cases_and_kinds_a758(self) -> None:
         fake = Fake()
         self.addCleanup(fake.close)
         sender = self.sender(fake)
@@ -68,9 +69,11 @@ class Sender(unittest.TestCase):
         sender.deliver("BEN-A-0001", "settlement_updated")
         sender.deliver("BEN-A-0001", "reversal_posted")
         sender.deliver("BEN-B-0002", "settlement_updated")
+        self.sender(fake, run_id="run-8").deliver("BEN-A-0001", "settlement_updated")
         ids = [seen[2]["message_id"] for seen in fake.seen]
         self.assertEqual(ids[0], ids[1])
-        self.assertEqual(len(set(ids)), 3)
+        self.assertEqual(len(set(ids)), 4)
+        self.assertEqual(ids[0], "run-7:BEN-A-0001:settlement_updated")
 
     def test_a_kind_with_no_object_is_not_delivered_and_nothing_is_sent(self) -> None:
         fake = Fake()
@@ -91,11 +94,25 @@ class Sender(unittest.TestCase):
         with self.assertRaises(Exception):
             self.sender(fake).deliver("BEN-A-0001", "settlement_updated")
 
-    def test_a_replay_posts_to_the_message_id_route_and_needs_acceptance(self) -> None:
+    def test_a_replay_quotes_the_message_id_in_the_url_a758(self) -> None:
         fake = Fake()
         self.addCleanup(fake.close)
         self.sender(fake).replay("BEN-A-0001", "settlement_updated")
-        self.assertEqual(fake.seen[0][:2], ("POST", "/control/v1/webhooks/BEN-A-0001:settlement_updated/replay"))
+        message_id = "run-7:BEN-A-0001:settlement_updated"
+        self.assertEqual(fake.seen[0][:2], ("POST", f"/control/v1/webhooks/{quote(message_id, safe='')}/replay"))
+        self.assertIn("%3A", fake.seen[0][1])  # the colons are quoted, not sent raw
+
+    def test_a_run_id_or_case_id_that_cannot_make_a_message_id_is_refused_and_nothing_is_sent(self) -> None:
+        fake = Fake()
+        self.addCleanup(fake.close)
+        for bad in ("run:1", "run 1", "run/1", ""):
+            with self.assertRaises(ValueError, msg=bad):
+                self.sender(fake, run_id=bad)
+        sender = self.sender(fake)
+        for case_id in ("a:b", "a b", "a/../b", "x" * 130):
+            with self.assertRaises(WebhookNotDelivered, msg=case_id):
+                sender.deliver(case_id, "settlement_updated")
+        self.assertEqual(fake.seen, [])
 
 
 class Payloads(unittest.TestCase):

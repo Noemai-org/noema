@@ -147,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     env = RunEnv(api=PublicApi(args.api_url, recorder=RequestRecorder()), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
                  fixtures=StandInFixtureLoader(args.standin_url, standin_credential) if args.standin_url and standin_credential else UnavailableFixtureLoader(NO_LOADER), sessions=sessions, run_id=args.run_id,
                  admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir),
-                 webhooks=MockCaseWebhooks(MockCaseControl(args.bench_url, credential), payloads) if payloads is not None else None)
+                 webhooks=MockCaseWebhooks(MockCaseControl(args.bench_url, credential), payloads, args.run_id) if payloads is not None else None)
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
                         only=selected)
     counts = summary["counts"]
