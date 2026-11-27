@@ -9,3 +9,7 @@
 ## Pre-work for the next agent
 - Exact next step: `cmd/core` passes `limits.ConfirmationTTLCeilingMS()` as a `time.Duration` into `RecorderConfig.ConfirmationTTLCeiling`.
 - Do not touch: `platform/ceilings` (the bound of the bound).
+
+# Session 2026-11-27 · TRU-07 · A758 (C1, interim, relayed): whole-second comparison, clamp and the year 2400
+
+- The TTL is compared with the ceiling in whole seconds (`ceilingSeconds`: the ceiling in ms divided by 1000, clamped to `platform/ceilings` `MaxConfirmationTTLMillis` / 1000 = 600), never as a `time.Duration`: the product of a far-future expiry and `time.Second` wrapped, so a year 2400 expiry was written (red at `6fcd4777f`). Tests: the year 2400, a one hour ceiling held to 600 s, a 1500 ms ceiling read as 1 s. No threshold chosen: the bound is the one already in `platform/ceilings` (AGENT-16).
