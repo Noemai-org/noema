@@ -30,4 +30,10 @@ const (
 	// confirmations": "confirmation TTL 10 min", adopted by DEC-2026-10-17, OD-P-31; ruling A561, interim). A pack may shorten it and never lengthen it. It is the same number as the
 	// `maximum` of confirmation_ttl_ceiling_ms in trust-limits.v2; ceilings_test.go fails if the two ever differ.
 	MaxConfirmationTTLMillis = 600000
+
+	// MaxReceiptStepParams and MaxReceiptStepParamLength are the bounds of the execution receipt's `step_params` member: at most 8 params, each string at most 128 characters (ruling A709,
+	// interim, relayed: the schema sets maxProperties and maxLength). They are the `maxProperties` and the `maxLength` of execution-receipt.v1; ceilings_test.go fails if they ever differ.
+	// A hash is 71 characters, so a hashed value always fits.
+	MaxReceiptStepParams      = 8
+	MaxReceiptStepParamLength = 128
 )

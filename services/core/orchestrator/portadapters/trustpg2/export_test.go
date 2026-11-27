@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 )
 
@@ -24,6 +26,11 @@ type NewRequest struct {
 	// TTL is how long the request lives, counted by the DATABASE clock from the moment it is stored. There is no time field: the store never sends a time (A368 (ii)).
 	TTL        time.Duration
 	Supersedes string
+}
+
+// RequestedEvent is what a test sink gets for a request opened by Open (production never appends it here: the Recorder's Writer does, A552).
+type RequestedEvent struct {
+	TenantID, CorrelationID, RequestID, BindingHash, Requirement, Supersedes string
 }
 
 // Open stores a new request and returns its ID, for tests only. The Record event is appended inside the transaction, before the commit: if the append fails, nothing is stored.
@@ -54,9 +61,13 @@ func (r Requests) Open(ctx context.Context, n NewRequest) (string, error) {
 		hash, n.Requirement, n.RequesterID, n.TTL.Seconds(), n.Supersedes); err != nil {
 		return "", mapErr("store the request", err)
 	}
-	if err := r.Events.Requested(ctx, RequestedEvent{TenantID: n.TenantID, CorrelationID: n.CorrelationID, RequestID: id, BindingHash: hash, Requirement: n.Requirement,
-		Supersedes: n.Supersedes}); err != nil {
-		return "", fmt.Errorf("trustpg2: record CONFIRMATION_REQUESTED: %w", err)
+	if sink, ok := r.Events.(interface {
+		Requested(context.Context, pgx.Tx, RequestedEvent) error
+	}); ok {
+		if err := sink.Requested(ctx, tx, RequestedEvent{TenantID: n.TenantID, CorrelationID: n.CorrelationID, RequestID: id, BindingHash: hash, Requirement: n.Requirement,
+			Supersedes: n.Supersedes}); err != nil {
+			return "", fmt.Errorf("trustpg2: record CONFIRMATION_REQUESTED: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("trustpg2: commit: %w", err)

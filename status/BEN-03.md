@@ -67,3 +67,26 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval. The reader waits for noema#711, the delta file and the read-only key.
 - Do not touch: the row shape defaults (assumed until the delta file adopts them).
 
+
+# Session 2026-11-25 · BEN-03 · A667: the timeline drivers for two webhooks and a resume
+
+## Session summary
+- What changed: `benchmark/runner/drivers.py`, `env.py` (a `WebhookSender` port and `RunEnv.webhooks`), `run.py`, `support.py`, the runner README, and `test_event_drivers.py` (15 tests).
+- Driven now: `session_resume:same_channel` (the principal's token is asked for again and the later turns go to the same conversation with it; no clock move: offsets order events and are not waited for, as before) and `webhook:settlement_updated` and `webhook:reversal_posted` (only when the environment has a `WebhookSender`; each is delivered once, in timeline order, after the first input has settled). Every other kind still makes the case an ERROR (`EVENT_KIND_UNSUPPORTED`) and Noema is not called. A sender failure is `WEBHOOK_DELIVERY_FAILED` (the class of the failure, never its text). An event at the start of the timeline, where only a kill switch and a clock advance are driven, was silently dropped before; it is now `EVENT_AT_START_UNSUPPORTED`, refused before any side effect. None of the 320 generated cases has one.
+- **No transport is built, on purpose.** The environment has no interface that delivers a webhook to the core: the relay accepts only Tushe's signed deliveries (its signing secret and Tushe's payload shape are not shown to the runner), and mock-case's control API has reset, fault plan and clock only. Inventing a control endpoint or a payload would be a Tushe behaviour that has not been shown (AGENTS §14). So the runner has the driver and the port, and no sender: a webhook case stays an ERROR until the environment owner supplies one.
+- Effect on the suite (`python -m benchmark.runner --support`): 145 of 320 can run (143 before): the two resume cases (`BEN-SESS-0001`, `BEN-SESS-0007`; they are J8's cases). The 15 webhook cases stay blocked by faults and events no driver has (`DELAYED_REVERSAL` 8, `DELAYED_SETTLEMENT` 4, `LATE_EVENT` 3, `watch_deadline` 3, `process_restart` 2, `listener_down` 1), even with a sender.
+- Risks, and how they are contained: a resume that obtains the same cached token (the IdP provider reuses a token within its life) exercises "the same principal returns to the same conversation", not "a new session"; the test pins what is shown. The change makes no case more lenient: the only new passes are cases whose events are now driven.
+- Tests added (REQ-BEN-002, AGENT-12, A667): 15, seen failing first (5 failures, 6 errors). Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: A682 settles the transport: IL adds a mock-case control endpoint that delivers webhooks through the relay path, signed with mock-case's own SYNTHETIC key. When it exists, the runner gets a sender that calls it (one small PR: a `MockCaseControl` method and the flag); until then a webhook case stays an ERROR.
+- Open questions (Architect): (1) the interface: a control endpoint on mock-case, or a signed delivery to the relay (then the runner holds the signing secret: SR); (2) settled by A682: a resume does not move the simulated clock (a test pins it).
+- Do not touch: the held-out set and the oracle (INV-22).
+
+# Session 2026-11-25 · BEN-03 · A689: `--support` applies the start-position check
+
+## Session summary
+- What changed: `support.reasons_for` now adds `event at start: <kind>` for an event the run refuses at the start of the timeline (`EVENT_AT_START_UNSUPPORTED`), so `--support` says what a run would do. The runner README's count is recomputed with the CLI: **145 of 320 can run** (175 blocked; 119 need no fault and no event), unchanged: 26 cases carry an event at the start and every one was already blocked by another reason, so the fix changes the reasons table, not the count. With a webhook sender the count is still 145: all 15 cases that hold a driven webhook kind are also blocked by a fault or an event no driver has.
+- Test-first, seen failing in CI: the red commit `41c0b6af` (tests only, 3 failing by design) was pushed before the fix. Tests: the report blocks a confirm at the start and names it, blocks a driven kind at the start even with a sender, does not block a kill switch or a clock advance at the start, blocks by name every suite case the run refuses at the start, and the README count equals the one the report computes.
+- Risks, and how they are contained: none for the run; the report only gets stricter. Tests added (A667, A689): 4 new, plus 1 guard. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+

@@ -30,7 +30,7 @@ const (
 var pack = filepath.Join("..", "..", "..", "..", "..", "packs", "fintech")
 
 // expected is the identity and version the caller (the composition, from the pack manifest) expects of the mapping file: Parse refuses any other (the Security Reviewer's blocking finding on noema#589).
-const expected = "fin.map.v1@2"
+const expected = "fin.map.v1@3"
 
 // limits are what the composition reads from platform/config; the tests pick their own.
 var limits = mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}
@@ -122,7 +122,7 @@ func entry(kind, status string) map[string]any {
 
 func TestTheRealMappingLoadsAgainstTheRealRuleSetAndNamesItsVersion(t *testing.T) {
 	m := load(t)
-	if got := m.ID(); got != "fin.map.v1@2" {
+	if got := m.ID(); got != "fin.map.v1@3" {
 		t.Errorf("ID = %q", got)
 	}
 	if got := m.RuleSet(); got != ruleSet(t).ID() {
@@ -380,7 +380,7 @@ func TestARepeatedMemberAtAnyDepthIsRefused(t *testing.T) {
 	rs, src := ruleSet(t), sources(t)
 	good := string(realFile(t))
 	for name, data := range map[string]string{
-		"at the top": strings.Replace(good, `"version": 2,`, `"version": 2, "version": 3,`, 1),
+		"at the top": strings.Replace(good, `"version": 3,`, `"version": 3, "version": 4,`, 1),
 		"in a field": strings.Replace(good, `"value": "POSTED"}`, `"value": "POSTED", "value": "POSTED"}`, 1),
 		"in a map":   strings.Replace(good, `"SUCCESS": "SUCCESSFUL",`, `"SUCCESS": "SUCCESSFUL", "SUCCESS": "FAILED",`, 1),
 		"in a where": strings.Replace(good, `"entry_type": "DEBIT",`, `"entry_type": "DEBIT", "entry_type": "CREDIT",`, 1),
@@ -398,7 +398,7 @@ func TestARepeatedMemberAtAnyDepthIsRefused(t *testing.T) {
 
 func TestAMappingOfAnotherIdentityOrVersionThanTheCallerExpectsIsRefused(t *testing.T) {
 	rs, src := ruleSet(t), sources(t)
-	for _, want := range []string{"fin.map.v1@1", "fin.map.v2@1", "other@1", "fin.map.v1", "@2", "", "fin.map.v1@2 ", " fin.map.v1@2", "fin.map.v1@02"} {
+	for _, want := range []string{"fin.map.v1@1", "fin.map.v2@1", "other@1", "fin.map.v1", "@3", "", "fin.map.v1@2", "fin.map.v1@3 ", " fin.map.v1@3", "fin.map.v1@03"} {
 		if _, err := mapping.Parse(realFile(t), rs, src, want, limits, mapping.WithScope(packScope(t))); err == nil {
 			t.Errorf("expected %q: the real file loaded", want)
 		}
