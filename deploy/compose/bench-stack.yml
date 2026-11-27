@@ -72,8 +72,6 @@ services:
       # The most bytes the core reads of one evidence payload (noema#606). No default in the core (AGENT-16): this number is the Architect's, ruling A236 (interim, relayed; docs#187),
       # for the bench profile only and provisional; a production value goes through an [OPEN] entry. The core reads it only when its Trust-login DSN directory is set.
       NOEMA_PAYLOAD_MAX_BYTES: "262144"
-      # A705 (interim): the most bytes of any string a slot gives the Planner. Required, no default in the core (AGENT-16); the Architect rules 256 for the bench.
-      NOEMA_PLAN_TEXT_MAX_BYTES: "256"
       # The bench settings with no default in code (A356, interim, relayed; docs/decisions/DEC-2026-11-19-architect-rulings-a341-a357.md): the Architect's values, for the bench profile only. They collect
       # the settings of A319, A320, A330 and A345; a setting the core does not read yet is inert until its lane merges. Changing a number here is a ruling, not an edit (AGENT-16).
       NOEMA_STORE_TIMEOUT_MS: "1000"
