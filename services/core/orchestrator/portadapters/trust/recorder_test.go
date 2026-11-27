@@ -578,7 +578,7 @@ func newRecWorldWith(t *testing.T, escalation recorder.EscalationSet) *recWorld 
 	trust := testpg.TenantLogin(t, admin, dsn, "trust_rw", recTenant)
 	a, err := NewRecorderAdapter(RecorderConfig{Begin: recPool{trust}, Facts: newRecFacts(), Keys: keys, Escalation: escalation,
 		Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "recorder", nil, "core-trust")},
-		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute, TxTimeout: recTxTimeout})
+		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute, ConfirmationTTLCeiling: 10 * time.Minute, TxTimeout: recTxTimeout})
 	if err != nil {
 		t.Fatal(err)
 	}

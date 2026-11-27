@@ -72,6 +72,10 @@ func (w *Writer) checkRequest(r Request, basis decide.Basis) error {
 		return fmt.Errorf("%w: the requester is missing or not an identifier", ErrRequest)
 	case c.ExpiresAt <= w.Clock.Now().Unix():
 		return fmt.Errorf("%w: the confirmation request does not expire after now", ErrRequest)
+	case w.ConfirmationTTLCeiling <= 0:
+		return fmt.Errorf("%w: no confirmation TTL ceiling is configured", ErrRequest)
+	case time.Duration(c.ExpiresAt-w.Clock.Now().Unix())*time.Second > w.ConfirmationTTLCeiling:
+		return fmt.Errorf("%w: the confirmation request lives longer than the pack's TTL ceiling", ErrRequest)
 	}
 	if _, err := bindingOfRequest(c); err != nil {
 		return fmt.Errorf("%w: the binding cannot be computed: %v", ErrRequest, err)

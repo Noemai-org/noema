@@ -98,7 +98,9 @@ type RecorderConfig struct {
 	Entropy        io.Reader
 	GrantLifetime  time.Duration
 	RecordLifetime time.Duration
-	Escalation     recorder.EscalationSet
+	// ConfirmationTTLCeiling is the pack's `confirmation_ttl_ceiling_ms` as a duration (A561, A724). Zero: the Writer writes no CONFIRM request (fail closed).
+	ConfirmationTTLCeiling time.Duration
+	Escalation             recorder.EscalationSet
 	// TxTimeout bounds the whole of one Record (facts, transaction, write) by a time of the adapter's own, so that a caller with a distant deadline cannot hold a transaction
 	// open (AGENT-16). The earlier of this and the caller's deadline wins. It has no default: zero or negative is ErrConfig. Its value is the Architect's.
 	TxTimeout time.Duration
@@ -125,7 +127,7 @@ func NewRecorderAdapter(c RecorderConfig) (*RecorderAdapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrConfig, err)
 	}
-	w := &recorder.Writer{Keys: c.Keys, Issuer: issuer, Appender: c.Appender, Clock: c.Clock, IDs: c.IDs, Escalation: c.Escalation, RecordLifetime: c.RecordLifetime}
+	w := &recorder.Writer{Keys: c.Keys, Issuer: issuer, Appender: c.Appender, Clock: c.Clock, IDs: c.IDs, Escalation: c.Escalation, RecordLifetime: c.RecordLifetime, ConfirmationTTLCeiling: c.ConfirmationTTLCeiling}
 	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w, txTimeout: c.TxTimeout}, nil
 }
 

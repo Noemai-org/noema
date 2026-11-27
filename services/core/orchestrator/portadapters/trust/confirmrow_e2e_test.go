@@ -82,7 +82,7 @@ func newA519World(t *testing.T) *a519World {
 	other := testpg.TenantLogin(t, admin, dsn, "trust_rw", a519OtherTenant)
 	a, err := NewRecorderAdapter(RecorderConfig{Begin: a519Pools{recTenant: trust, a519OtherTenant: other}, Facts: newRecFacts(), Keys: keys,
 		Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "recorder", nil, "core-trust")},
-		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute, TxTimeout: recTxTimeout})
+		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute, ConfirmationTTLCeiling: 10 * time.Minute, TxTimeout: recTxTimeout})
 	if err != nil {
 		t.Fatal(err)
 	}

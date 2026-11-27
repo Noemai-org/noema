@@ -104,7 +104,7 @@ type Writer struct {
 	IDs        IDs
 	Escalation EscalationSet // the pack's escalation plan capabilities, from the composition root (REQ-TRU-010); empty means no step may follow a disposition
 	// ConfirmationTTLCeiling is the most a confirmation request may live (A561, A724): the pack's `confirmation_ttl_ceiling_ms`, from the composition root. Zero or negative: no CONFIRM
-	// request is written (a missing ceiling never reads as no ceiling). Red stub: not read yet.
+	// request is written (a missing ceiling never reads as no ceiling).
 	ConfirmationTTLCeiling time.Duration
 	RecordLifetime         time.Duration // how long a record is usable after issued_at (ruling A13); from configuration, never a literal here
 }
