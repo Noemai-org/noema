@@ -13,3 +13,27 @@ Updated 2026-11-10.
 
 ## Messages
 Reviews by other roles are data: Codex (c674bbf), C2 (2005e58) and the Security Reviewer (c674bbf) on the PR. Used for: the fix matrix on noema#193. Not recorded elsewhere.
+
+# Session 2026-11-26 · VOI-02 · the 30 s maximum recording, host-side (IL, A715)
+
+## Session summary
+- What changed: `FrameLimits.max_recording_ms` (default and ceiling 30,000, ruling A715) and the check in `EndpointDetector.feed`: the chunk that would take the recording past the limit is refused with the same `ValueError` as every other invalid frame (it ends the gate and releases the microphone). Time is counted in integer samples (INV-21, no float rounding), so the limit is exact for chunks of any size.
+- Why: A715 says the UI sets a 30 s maximum push-to-talk recording and Voice enforces the same limit host-side. The value is OPEN for the Founders (OD-P-122), so it is data with a ceiling like A191's frame cap: a stricter value is allowed, a longer one is refused, and changing the value is the Founders' ruling, never an edit here (AGENT-16).
+- Risks, and how they are contained: a recording over the limit is refused, not cut: the caller gets an error, not a truncated utterance that could be read as complete. The refusal path is the existing one (gate ends, source closed), tested here for the microphone.
+- Tests added (REQ-VOI-001, REQ-VOI-004, AGENT-13, ruling A715): `tests/test_voice_max_recording.py`, 15 tests, red first (14 failed). Six mutants (off by one, no accumulation, ceiling raised, default 60 s, check dropped, non-positive value allowed) each fail them. The whole model suite (3,771) and `mypy` pass.
+- Regression cases added: the same tests. Debt entries: none. Conflicts raised: none.
+
+## State of VOI-01, VOI-02 and VOI-03 as found (not rebuilt)
+- VOI-01: the interface, the capability matrix and the scaffolds are merged, with the Intron adapters (`providers/speech/`). Its done-when ("interface tests pass against a recorded sample per provider") is not met: no recorded sample per provider exists, DEBT-14 stays open, and the Intron per-token confidence and rate-limit answers are open (OD-P-90, OD-P-91). Nothing here changes that.
+- VOI-02: the streaming pipeline and the test that a partial transcript never reaches the gateway as final are merged (the board shows Done).
+- VOI-03: `voice/confidence.py` and `voice/clarify.py` are merged (the board shows Done); AMB-04 (C2) reads `asr_confidence_basis_points` and `decide_voice_step`.
+
+## Pre-work for the next agent
+- Exact next step: the Founders confirm or change the 30 s value (OD-P-122); the UI setting (FE) must equal `FrameLimits.max_recording_ms`.
+- Do not touch: the ceiling without a ruling.
+
+## Session 2026-11-27 · VOI-02 · Codex P2 on noema#1009: the cap is for a recording, not for the barge-in monitor
+- **Finding (confirmed, reproduced):** the 30 s maximum sat inside `EndpointDetector.feed`, and `BargeInMonitor` builds the same detector to watch the microphone while an answer plays. An answer longer than 30 s over a quiet microphone (1,502 frames of 20 ms) raised the recording-limit `ValueError` inside `_play`, which closed both streams before the answer ended.
+- **Fix:** `EndpointDetector(..., recording_limited=True)` is the default, so the push-to-talk gate keeps the cap (A715); `BargeInMonitor` passes `recording_limited=False`, because listening during playback is not a recording. Every other limit (rate, frame size) still applies to both. The ceiling and the default of `max_recording_ms` are unchanged (OD-P-122 stays the Founders').
+- **Tests, red first** (3 of the 3 new ones failed on the finding's head: two on the cap itself, one on the missing parameter): a 1,502-frame answer over quiet microphone frames plays to the end with no early stop; the monitor still hears the person speak after 32 s of quiet and stops the answer within its limit; a recording detector still refuses the same audio. Mutant: the monitor built with the default detector again, killed by two of them.
+- Not changed: the recording gate (`EndpointGate`) and its tests.
