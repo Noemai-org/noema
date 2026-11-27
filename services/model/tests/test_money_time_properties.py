@@ -337,3 +337,11 @@ def test_the_digit_reader_still_reads_a_run_at_the_limit(template: str) -> None:
 @pytest.mark.parametrize("template", ["{d}", "naira {d}", "{d}k", "{d}.5"])
 def test_a_quoted_amount_with_a_run_over_4300_characters_is_unread_at_the_seam(template: str) -> None:
     assert amount_of(template.format(d="9" * (LONG_RUN + 1))) is None
+
+
+def test_the_limit_counts_the_digits_and_not_the_commas_that_group_them() -> None:
+    normaliser = Normaliser(LEXICON, datetime(2026, 11, 14, 10, 0, tzinfo=UTC))
+    grouped = "9" + ",999" * ((LONG_RUN - 1) // 3)  # exactly 4300 digits, written with 1433 commas
+    assert len(grouped.replace(",", "")) == LONG_RUN and len(grouped) > LONG_RUN
+    assert normaliser._digits(grouped) is not None
+    assert normaliser._digits(grouped + ",999") is None  # 4303 digits

@@ -32,6 +32,9 @@ SKIPPED_CODE = "LEXICON_REF_WITHOUT_FILE"
 MARK = "[synthetic seed]"
 MAX_SAFE_INT = 9007199254740991
 MAX_SURFACE = 64
+# A758 (INV-02, INV-21): CPython refuses to turn an integer string of more than 4300 digits into an int (ValueError). A number written with more characters than this is unread, never an error; the model's
+# quote is already cut at MAX_SURFACE, so this guards the digit reader itself.
+MAX_DIGIT_RUN = 4300
 _MAX_OFFSET_MINUTES = 14 * 60
 _DIRECTIONS = frozenset({"OUTGOING", "INCOMING"})
 _CODE = re.compile(r"[A-Z]{3}")
@@ -323,7 +326,10 @@ class Normaliser:
         match = self._lexicon.amount_pattern.fullmatch(core)
         if match is None:
             return None
-        return Fraction(match.group("number").replace(",", "")) * self._lexicon.multipliers.get(match.group("multiplier") or "", 1)
+        number = match.group("number").replace(",", "")
+        if len(number) > MAX_DIGIT_RUN:  # unread, never an error (A758)
+            return None
+        return Fraction(number) * self._lexicon.multipliers.get(match.group("multiplier") or "", 1)
 
     def _spoken(self, core: str) -> Fraction | None:
         """Numeral words to one whole number, or nothing. Small words build a group under a thousand (twenty five; one hundred and fifty), a scale of a thousand or more closes the group, and scales must fall
