@@ -21,7 +21,7 @@ FORBIDDEN_FILE = ROOT / "packs" / "fintech" / "templates" / "en-NG.forbidden.jso
 FORBIDDEN = json.loads(FORBIDDEN_FILE.read_text())  # pack data (Architect decision A3); one source for this test and for the Go validator
 SLOT = re.compile(r"\{fact:([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)\}")
 # The slot inventory of noema#586 as approved (ruling A155): the fact kinds each outcome's templates hold, in the order the sentence holds them. The kinds the inventory marked [REC]
-# (payment.counterparty, case.team, case.clock) are not in the pack yet.
+# (case.team, case.clock) are not in the pack yet, and there is no recipient kind (A711, A676).
 GROUP_SLOTS = {
     "fin.outcome.exception.status_explained": ["payment.amount", "account", "payment.time"],
     "fin.outcome.exception.case_opened": ["case.ref"],

@@ -97,6 +97,10 @@ func versioned(t *testing.T, v int) *world {
 	if v >= 3 {
 		w = newLimitsWorld(t)
 	}
+	if v >= matcherFromVersion { // A710: a manifest of version 5 or later lists the matcher data too
+		w.write(matcherRel, matcherBody)
+		w.list = append(w.list, entry{kindMatcher, matcherRel, sum(matcherBody)})
+	}
 	w.ver = v
 	w.seal()
 	return w

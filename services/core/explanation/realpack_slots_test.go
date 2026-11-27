@@ -18,7 +18,7 @@ import (
 const exception = "fin.outcome.exception."
 
 // groupKinds is the slot inventory of noema#586 as approved: the fact kinds each outcome's templates hold, in the order the sentence holds them. Kinds the inventory marked [REC]
-// (payment.counterparty, case.team, case.clock) are not in the pack yet.
+// (case.team, case.clock) are not in the pack yet, and there is no recipient kind (A711, A676).
 var groupKinds = map[string][]string{
 	exception + "status_explained":  {"payment.amount", "account", "payment.time"},
 	exception + "case_opened":       {"case.ref"},

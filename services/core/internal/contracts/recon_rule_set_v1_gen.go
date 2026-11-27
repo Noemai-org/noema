@@ -8,7 +8,7 @@ import (
 )
 
 // ReconRuleSetV1ConvergenceWindowSeconds is generated from recon-rule-set.v1.json#$defs/ConvergenceWindowSeconds.
-// The declared window of a compared fact pair, in whole seconds (REQ-RES-005, A659): inside it a disagreement waits. At least 1: a window of zero is the absence of the member, which is a version 1 rule set.
+// The declared window of a compared fact pair, in whole seconds (REQ-RES-005, A659): inside it a disagreement waits. At least 0 (A708): 0 is a declared window with no tolerance, so a disagreement of the pair is contradi...
 type ReconRuleSetV1ConvergenceWindowSeconds int64
 
 // ReconRuleSetV1Derived is generated from recon-rule-set.v1.json#$defs/Derived.
