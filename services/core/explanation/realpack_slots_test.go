@@ -31,7 +31,7 @@ var factIDOf = map[string]string{"payment.amount": "f1", "account": "f2", "payme
 
 func TestEveryRealTemplateHoldsTheSlotsOfItsOutcomeAndFillsFromKnownFacts(t *testing.T) {
 	tpl := load(t)
-	keys := tpl.Keys("en-NG")
+	keys := summaryKeys(tpl)
 	if len(keys) != 35 {
 		t.Fatalf("%d templates, want 35 (5 outcomes by 7 classifications)", len(keys))
 	}
@@ -65,7 +65,7 @@ func TestEveryRealTemplateHoldsTheSlotsOfItsOutcomeAndFillsFromKnownFacts(t *tes
 // A slot with no KNOWN fact of its kind blocks the render: a missing fact, an INFERRED one and two of one kind are each ErrSlot (A155), for every real template.
 func TestAMissingOrNotKnownOrAmbiguousFactBlocksEveryRealTemplateThatNeedsIt(t *testing.T) {
 	tpl := load(t)
-	for _, key := range tpl.Keys("en-NG") {
+	for _, key := range summaryKeys(tpl) {
 		outcome, class, _ := strings.Cut(key, "/")
 		for _, kind := range groupKinds[outcome] {
 			without := facts(outcome, class)

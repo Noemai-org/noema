@@ -88,9 +88,10 @@ type IntentNodeV1SlotsItem struct {
 	Resolution   *IntentNodeV1SlotsItemResolution `json:"resolution,omitempty"`
 	Vocabulary   *[]string                        `json:"vocabulary,omitempty"`
 	References   *IntentNodeV1SlotsItemReferences `json:"references,omitempty"`
+	QuestionKey  *string                          `json:"question_key,omitempty"`
 }
 
-var IntentNodeV1SlotsItemShape = objectShape{name: "IntentNodeV1SlotsItem", props: map[string]bool{"name": true, "type": true, "required": true, "resource_kind": true, "resolution": true, "vocabulary": true, "references": true}, required: []string{"name", "type", "required"}, nonNull: map[string]bool{"name": true, "type": true, "required": true, "resource_kind": true, "resolution": true, "vocabulary": true, "references": true}, closed: true}
+var IntentNodeV1SlotsItemShape = objectShape{name: "IntentNodeV1SlotsItem", props: map[string]bool{"name": true, "type": true, "required": true, "resource_kind": true, "resolution": true, "vocabulary": true, "references": true, "question_key": true}, required: []string{"name", "type", "required"}, nonNull: map[string]bool{"name": true, "type": true, "required": true, "resource_kind": true, "resolution": true, "vocabulary": true, "references": true, "question_key": true}, closed: true}
 
 func (t *IntentNodeV1SlotsItem) UnmarshalJSON(b []byte) error {
 	raw, err := IntentNodeV1SlotsItemShape.check(b)

@@ -1,4 +1,5 @@
 {
+  "fin.clarify.when": "On which day, or at what time, did this happen?",
   "fin.outcome.exception.case_opened/CONTRADICTORY_STATE": "About your complaint case {fact:case.ref}. Our records for this transaction do not agree with each other, so we cannot confirm what happened.",
   "fin.outcome.exception.case_opened/EXECUTION_OUTCOME_UNKNOWN": "About your complaint case {fact:case.ref}. We could not confirm whether this transaction went through.",
   "fin.outcome.exception.case_opened/INSUFFICIENT_EVIDENCE": "About your complaint case {fact:case.ref}. We do not have enough confirmed information to say what happened, so we cannot confirm it.",

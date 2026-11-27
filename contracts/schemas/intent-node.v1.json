@@ -72,6 +72,11 @@
             "enum": [
               "capability"
             ]
+          },
+          "question_key": {
+            "description": "A757 (interim; AMB-04; A563, A582): the pack template id (as clarification.v1 question_key) of the SLOT-mode question that asks the customer for this slot's value when it is missing and there is nothing to choose from. Optional: a slot without it is never asked for. Not on a candidate_search slot, one key per slot, never the options_key or an attribute question's key (packcheck), and a text for it in every locale of the pack (packcheck, templates).",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$"
           }
         },
         "required": [

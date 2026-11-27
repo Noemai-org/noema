@@ -32,7 +32,8 @@
         {
           "name": "when",
           "type": "TimeRef",
-          "required": false
+          "required": false,
+          "question_key": "fin.clarify.when"
         },
         {
           "name": "question_type",
