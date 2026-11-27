@@ -68,7 +68,7 @@ type decisionInputs struct {
 	Begin   trustport.TxBeginner
 	Facts   trustport.RecordFactSource
 	Entropy io.Reader
-	// PlanTextMaxBytes is the bound of every string a slot gives the Planner (plangraphs.Adapter.MaxTextBytes). No ruling or setting names a value: zero is the gap.
+	// PlanTextMaxBytes is the bound of every string a slot gives the Planner (plangraphs.Adapter.MaxTextBytes), from NOEMA_PLAN_TEXT_MAX_BYTES (A705): zero is the gap.
 	PlanTextMaxBytes int
 }
 

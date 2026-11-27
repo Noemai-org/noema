@@ -93,6 +93,10 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 	if err != nil {
 		return trustWired{}, err
 	}
+	planBound, planGiven, err := givenSetting(in.Env, EnvPlanTextMaxBytes, wholeBytes) // A705: required, no default; an invalid value stops the process and names no value
+	if err != nil {
+		return trustWired{}, err
+	}
 	lists := in.ListEntities
 	if lists == nil && in.Pack != nil && in.Understanding.Mapping != nil {
 		if lists, err = listEntitiesFromDescriptors(in.Pack.PackBytes(), in.Understanding.Mapping); err != nil { // A545: from the mapping and the pack's descriptors
@@ -114,6 +118,9 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 		return trustWired{}, err
 	}
 	di := decisionInputs{Env: in.Env, Clock: in.Clock, Pack: in.Pack, Keys: in.Keys, Begin: in.Begin, Facts: in.Facts}
+	if planGiven {
+		di.PlanTextMaxBytes = int(planBound)
+	}
 	if len(in.Pools) > 0 {
 		di.Pools = trustport.PoolsOf(in.Pools)
 	}

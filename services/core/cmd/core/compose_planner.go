@@ -24,14 +24,14 @@ import (
 // compose_planner.go is the Planner of the G1 final composition (STM-01; A684 step 2, A550, A551, A454, A440, A543, A330, interim, relayed, not yet committed; REQ-STM-001, REQ-TRU-009;
 // INV-02, INV-14, INV-16; AGENT-09, AGENT-13). It builds trustport.PlannerAdapter from three parts that are all data of the verified pack and the stored intent: the pack's node plans
 // (trustpack.NodePlans) with every slot kind copied from the NODE's slot declaration (A454: the node is the single authority), the stored intent's typed slots, and the plan contexts
-// the request carries (planContextsFromRequest). It reads no file and no setting. plangraphs.Adapter.MaxTextBytes has no value in any ruling, SRS or setting, so the Planner stays
+// the request carries (planContextsFromRequest). It reads no file; its one setting, NOEMA_PLAN_TEXT_MAX_BYTES (A705), is read by wireTrustInputs. Without it the Planner stays
 // a named gap that lacks it and nothing else (A330, A469).
 
 const (
 	// EnvPlanTextMaxBytes is the bound of every string a slot gives the Planner (A705): required, no code default.
 	EnvPlanTextMaxBytes = "NOEMA_PLAN_TEXT_MAX_BYTES"
 
-	needPlanTextBound   = "the Planner's slot-text bound (plangraphs.Adapter.MaxTextBytes: no ruling or setting gives a value)"
+	needPlanTextBound   = "the Planner's slot-text bound (" + EnvPlanTextMaxBytes + ", required, no default)"
 	needAdmittedIntents = "the admitted-intent store adapter (Intents)"
 	needSlotDocuments   = "the stored intent document reader (the tenant's Trust login and its read bound)"
 )
