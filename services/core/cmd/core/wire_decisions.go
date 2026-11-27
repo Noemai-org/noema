@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/execution/signing"
@@ -263,8 +261,6 @@ func decisionRecorderConfig(in decisionInputs) (trustport.RecorderConfig, []stri
 // identity (migrations 0012 and 0019).
 const trustRecordIdentity = "core-trust"
 
-var keyOverlapRe = regexp.MustCompile(`^[1-9][0-9]{0,8}$`)
-
 // decisionSigningRing reads the core-trust Record signing keys (A548, interim, relayed, not yet committed) through the shared key loader, execution/signing.LoadRing, as the
 // orchestrator's and the edge's keys are read. Both settings are required together: an absent one is named and gives no ring; a present one that is invalid is fatal. An error names
 // the setting and never the value or the path.
@@ -279,10 +275,11 @@ func decisionSigningRing(env Env) (*signing.Ring, []string, error) {
 	}
 	maxActive := 0
 	if overlap != "" {
-		if !keyOverlapRe.MatchString(overlap) {
-			return nil, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvTrustKeyMaxActive)
+		n, err := parseKeyOverlap(EnvTrustKeyMaxActive, overlap)
+		if err != nil {
+			return nil, nil, err
 		}
-		maxActive, _ = strconv.Atoi(overlap) // the pattern above holds it to a positive number that fits
+		maxActive = n
 	}
 	if len(missing) > 0 {
 		return nil, missing, nil
