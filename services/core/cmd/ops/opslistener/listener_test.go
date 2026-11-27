@@ -578,9 +578,14 @@ func TestOversizedHeadersAreRefused(t *testing.T) { // REQ-OPS-003
 	if _, err := conn.Write([]byte(req)); err != nil {
 		t.Fatal(err)
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	b, _ := io.ReadAll(conn)
-	if !strings.HasPrefix(string(b), "HTTP/1.1 431") {
-		t.Fatalf("response %q; want 431", string(b))
+	got := make(chan []byte, 1)
+	go func() { b, _ := io.ReadAll(conn); got <- b }()
+	select {
+	case b := <-got:
+		if !strings.HasPrefix(string(b), "HTTP/1.1 431") {
+			t.Fatalf("response %q; want 431", string(b))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no response to oversized headers")
 	}
 }
