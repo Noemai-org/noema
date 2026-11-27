@@ -63,30 +63,40 @@ func buildRecordReader(ctx context.Context, env Env) (reconstruct.TenantDBs, fun
 	return &recordPools{pools: pools}, closer, nil
 }
 
+// dsnTenantNames lists the tenant files of a directory of DSN files, sorted. The directory must be readable and hold at least one entry, and every entry must be a regular file named by a
+// tenant ID (Type() does not follow a link: a symlink, a directory or any other non-regular entry is refused, so one tenant's file cannot stand in for another's). An error names the
+// setting and nothing else.
+func dsnTenantNames(env Env, dir, setting string) ([]string, error) {
+	if env.ReadDir == nil {
+		return nil, fmt.Errorf("cmd/core: %s cannot be read: the process has no file access wired", setting)
+	}
+	entries, err := env.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("cmd/core: %s: the directory cannot be read", setting)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("cmd/core: %s: the directory holds no tenant file", setting)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !tenantFileRe.MatchString(e.Name()) {
+			return nil, fmt.Errorf("cmd/core: %s: an entry is not a regular file named by a tenant ID", setting)
+		}
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 // loginPools is the directory loader both the Record reader and the orchestrator's Recorder use (noema#535, A202): one lazily connecting pool per file, each file named by a
 // tenant ID and holding that tenant's login; regular files only, no link; one login in one file. setting is the name of the setting that holds the directory, for the
 // errors. The error names the setting or the tenant and never a DSN or any part of one (AGENT-13). The closer is safe to call more than once.
 func loginPools(ctx context.Context, env Env, setting string) (map[string]*pgxpool.Pool, func(), error) {
 	dir := env.Getenv(setting)
-	if env.ReadDir == nil {
-		return nil, nil, fmt.Errorf("cmd/core: %s cannot be read: the process has no file access wired", setting)
-	}
-	entries, err := env.ReadDir(dir)
+	names, err := dsnTenantNames(env, dir, setting)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cmd/core: %s: the directory cannot be read", setting)
+		return nil, nil, err
 	}
-	if len(entries) == 0 {
-		return nil, nil, fmt.Errorf("cmd/core: %s: the directory holds no tenant file", setting)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		// Type() does not follow a link: a symlink, a directory or any other non-regular entry is refused, so one tenant's file cannot stand in for another's.
-		if !e.Type().IsRegular() || !tenantFileRe.MatchString(e.Name()) {
-			return nil, nil, fmt.Errorf("cmd/core: %s: an entry is not a regular file named by a tenant ID", setting)
-		}
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
 	pools := make(map[string]*pgxpool.Pool, len(names))
 	logins := make(map[string]string, len(names)) // login identity -> the tenant whose file holds it
 	closeAll := func() {

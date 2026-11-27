@@ -67,6 +67,8 @@ class ManifestSchema(unittest.TestCase):
             d["version"] = v
             if v >= 3:  # A579: a manifest of version 3 or later lists its limits files
                 d["files"].append({"kind": "limits", "path": "fintech/limits/trust_limits.json", "sha256": HEX})
+            if v >= 5:  # A710: and a manifest of version 5 or later lists the recipient matcher's data
+                d["files"].append({"kind": "recipient_matcher", "path": "fintech/lexicons/recipient_matcher.json", "sha256": HEX})
             if not files:
                 d["files"] = [f for f in d["files"] if f["kind"] != "injection_patterns"]
             if not ident:
@@ -84,6 +86,27 @@ class ManifestSchema(unittest.TestCase):
             self.assertTrue(errors(with_version(v, files=False)), f"version {v}: an id without its file must be refused")
             self.assertTrue(errors(with_version(v, ident=False)), f"version {v}: a file without its id must be refused")
 
+    def test_the_recipient_matcher_is_required_from_manifest_version_5_and_optional_below_it(self):
+        """A710 (A695, OD-P-117; the A579 and A664 pattern): a manifest of version 5 or later lists the recipient matcher's data file; below that it may be absent; never two."""
+
+        def doc(v, matcher=True, count=1):
+            d = good()
+            d["version"] = v
+            if v >= 3:
+                d["files"].append({"kind": "limits", "path": "fintech/limits/trust_limits.json", "sha256": HEX})
+            for i in range(count if matcher else 0):
+                d["files"].append({"kind": "recipient_matcher", "path": f"fintech/lexicons/recipient_matcher{'' if i == 0 else '.' + str(i)}.json", "sha256": HEX})
+            return d
+
+        for v in (1, 2, 3, 4):
+            self.assertEqual(errors(doc(v, matcher=False)), [], f"version {v} without the matcher must validate")
+            self.assertEqual(errors(doc(v)), [], f"version {v} with the matcher must validate")
+        for v in (5, 6, 99):
+            self.assertEqual(errors(doc(v)), [], f"version {v} with the matcher must validate")
+            self.assertTrue(errors(doc(v, matcher=False)), f"version {v} without the matcher must be refused (no opt-in)")
+        for v in (1, 4, 5):
+            self.assertTrue(errors(doc(v, count=2)), f"version {v} with two matcher files must be refused")
+
     def test_two_pattern_files_are_refused_at_every_version(self):
         for v in (1, 3, 4):
             d = good()
@@ -98,7 +121,7 @@ class ManifestSchema(unittest.TestCase):
 
     def test_kinds_are_a_closed_list(self):
         kinds = schema()["properties"]["files"]["items"]["properties"]["kind"]["enum"]
-        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "limits", "pack", "priority_routing", "recon_rules"])  # A510: the action graphs are pinned too; A544: the limits files; A645: the injection patterns; PCK-09 (A644): the priority routing member
+        self.assertEqual(sorted(kinds), ["action_graph", "evidence_mapping", "injection_patterns", "limits", "pack", "priority_routing", "recipient_matcher", "recon_rules"])  # A710: the recipient matcher's data; A510: the action graphs are pinned too; A544: the limits files; A645: the injection patterns; PCK-09 (A644): the priority routing member
 
     def test_the_action_graph_kind_may_repeat_and_an_old_manifest_without_it_still_validates(self):
         doc = good()

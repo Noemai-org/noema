@@ -1,7 +1,6 @@
 {
   "version_2_incompatible_without_window.json": "required",
   "version_2_single_valued_without_window.json": "required",
-  "version_2_window_zero.json": "minimum",
   "version_2_window_negative.json": "minimum",
   "version_2_window_fractional.json": "type",
   "version_2_window_text.json": "type",

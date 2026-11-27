@@ -153,6 +153,11 @@ jobs:
           node-version-file: ui/.nvmrc
           cache: npm
           cache-dependency-path: ui/package-lock.json
+      # A683, A715: one token for each journey principal (noema#962, 19), issued by the stack's synthetic issuer for the same tenant `make bench-up` used, into benchmark/out/idp/tokens (mode 0400 in a
+      # private directory, the path deploy/compose/README.md documents and FE reads). They stop working after 15 minutes, so this is the step right before the browser checks. Never uploaded or scanned.
+      - name: Issue the journey tokens for the browser checks (A683, 15 minutes)
+        if: always() && inputs.playwright
+        run: make bench-journey-tokens BENCH_MAX_BODY_BYTES="$BENCH_MAX_BODY_BYTES"
       - id: playwright
         name: Browser checks against the stack (Playwright, opt-in; not evidence for G1)
         if: always() && inputs.playwright
