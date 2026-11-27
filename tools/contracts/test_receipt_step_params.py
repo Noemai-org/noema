@@ -29,7 +29,12 @@ class StepParams(unittest.TestCase):
     def test_its_keys_and_values_are_those_of_a_plan_step_param(self):
         m = RECEIPT["properties"]["step_params"]
         self.assertEqual(m["propertyNames"], PLAN_PARAMS["propertyNames"], "a receipt param is named like a plan param")
-        self.assertEqual(m["additionalProperties"], PLAN_PARAMS["additionalProperties"], "a receipt param holds what a plan param may hold")
+        value = dict(m["additionalProperties"])
+        self.assertEqual(value.pop("maxLength", None), 128, "A709: a disclosed string is at most 128 characters (a hash is 71)")
+        self.assertEqual(value, PLAN_PARAMS["additionalProperties"], "a receipt param holds what a plan param may hold, bounded in length")
+
+    def test_the_member_is_bounded_in_size(self):
+        self.assertEqual(RECEIPT["properties"]["step_params"].get("maxProperties"), 8, "A709: at most eight bound params")
 
     def test_the_receipt_is_still_closed(self):
         self.assertIs(RECEIPT["additionalProperties"], False)
