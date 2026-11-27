@@ -6,6 +6,7 @@ package trustport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -158,5 +159,77 @@ func TestAReaderThatCannotAnswerIsUnknownNeverNone(t *testing.T) {
 		if got := reconcile.ReadFreeze(recCtx(t), row, recTenant, frzTarget); got != reconcile.FreezeUnknown {
 			t.Errorf("%s: got %v, want FreezeUnknown", name, got)
 		}
+	}
+}
+
+// A756 (interim, relayed): the target reference is in the payload of both freeze events and is verified against the freeze row. A row whose payload names another target than its object
+// reference is a defect: the reader answers unknown (frozen), and a clearing is refused where the recorded SET does not name the target.
+func (w *frzWorld) appendRaw(t *testing.T, eventType, objectRef string, payload map[string]any) {
+	t.Helper()
+	tx, err := recPool{w.trust}.Begin(recCtx(t), recTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(recCtx(t)) }()
+	if _, err := w.row.c.Appender.Append(recCtx(t), tx, chain.Event{TenantID: recTenant, CorrelationID: "corr_Frz1", WrittenBy: "core-trust", Actor: "core-trust", EventType: eventType, ObjectRef: objectRef, Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(recCtx(t)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func payloadOf(t *testing.T, r chain.Row) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if r.Payload == nil {
+		t.Fatalf("%s has no payload", r.EventType)
+	}
+	if err := json.Unmarshal([]byte(*r.Payload), &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestBothFreezeEventsCarryTheTargetReference(t *testing.T) {
+	w := newFrzWorld(t)
+	w.set(t)
+	esc, err := w.a.Record(recCtx(t), escalateDisposition(t, 53))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.row.RecordFreezeCleared(recCtx(t), reconcile.FreezeLift{TenantID: recTenant, Target: frzTarget, By: reconcile.ClearedByEscalation, DecisionID: esc.DecisionID}); err != nil {
+		t.Fatal(err)
+	}
+	ev := w.events(t)
+	if len(ev) != 2 {
+		t.Fatalf("events %+v", ev)
+	}
+	for _, e := range ev {
+		if got := payloadOf(t, e)["target_ref"]; got != frzTarget {
+			t.Errorf("%s payload target_ref %v, want %s", e.EventType, got, frzTarget)
+		}
+	}
+}
+
+func TestARowThatNamesAnotherTargetInItsPayloadReadsAsUnknown(t *testing.T) {
+	for _, kind := range []string{eventSet, eventCleared} {
+		w := newFrzWorld(t)
+		w.appendRaw(t, kind, frzTarget, map[string]any{"target_ref": "tx_OtherTarget9", "ruleset_id": "fin.recon.rules@2", "rule_id": "R4@2", "evidence": []string{"ev_A1"}, "labels": []string{"l"}, "cleared_by": "ESCALATION", "decision_id": "dec_01X"})
+		if got := w.state(t); got != reconcile.FreezeUnknown {
+			t.Errorf("%s: got %v, want FreezeUnknown", kind, got)
+		}
+	}
+}
+
+func TestAClearingIsRefusedWhereTheRecordedFreezeNamesAnotherTarget(t *testing.T) {
+	w := newFrzWorld(t)
+	w.appendRaw(t, eventSet, frzTarget, map[string]any{"target_ref": "tx_OtherTarget9", "ruleset_id": "fin.recon.rules@2", "rule_id": "R4@2", "evidence": []string{"ev_A1"}, "labels": []string{"l"}})
+	esc, err := w.a.Record(recCtx(t), escalateDisposition(t, 54))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.row.RecordFreezeCleared(recCtx(t), reconcile.FreezeLift{TenantID: recTenant, Target: frzTarget, By: reconcile.ClearedByEscalation, DecisionID: esc.DecisionID}); err == nil {
+		t.Fatal("a freeze row that names another target was cleared")
 	}
 }
