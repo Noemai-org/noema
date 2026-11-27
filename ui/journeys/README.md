@@ -6,7 +6,7 @@ The benchmark runner drives each generated case through the public API and recor
 
 ## Prerequisites
 
-1. Merge BO's BEN-23 manifest PR #962 and EL's events-route composition PR #907. The manifest path is `benchmark/journeys/j1-j8.v1.json`.
+1. Already merged: BO's BEN-23 manifest PR #962, EL's events-route composition PR #907, and IL's 15-minute per-principal token issuer PR #983. The manifest path is `benchmark/journeys/j1-j8.v1.json`.
 2. Materialise the exact generated suite named by that manifest:
    `python -m benchmark.generator generate --seed 20261020 --out benchmark/out/suite`.
 3. Issue the 19 short-lived synthetic customer tokens from the manifest using the A683 target in #983. Run this after the bench stack is up and immediately before the browser checks; each token expires after 900 seconds (15 minutes). The target reads the manifest itself and writes one mode-0400 file per principal into the private `$(BENCH_OUT)/idp/tokens` directory (default: `benchmark/out/idp/tokens`); do not hand-build the principal list or copy tokens elsewhere.
@@ -59,6 +59,6 @@ Optional `NOEMA_UI_E2E_MANIFEST` overrides the committed BEN-23 manifest path. T
 
 ## Known backend/runner gates
 
-The current runner's `drivers.py` supports `session_start`, `clock_advance`, `confirm` and `kill_switch`. It refuses other timeline events as `EVENT_KIND_UNSUPPORTED` (never skips them). BEN-23 currently includes `webhook:settlement_updated` in J5, `webhook:reversal_posted` in J6, and `session_resume:same_channel` in J8. Those journeys remain red until their real event drivers exist. J3–J6 also depend on the production write seam/Record path; #907 itself names that as a gap. J6 is intentionally thin (one case) until after G1. These tests do not fake any of those capabilities.
+After #979 merged on 27 Nov, the runner supports `session_resume:same_channel` as well as `session_start`, `clock_advance`, `confirm` and `kill_switch`; J8 now has a runner driver. #979 also adds a `WebhookSender` port for `settlement_updated` and `reversal_posted`, but the environment still needs to supply a concrete sender. #1029 (open) implements the runner sender through mock-case's bench control routes; #1024 (open) configures the bench-only relay and its shared SYNTHETIC signing secret. J5 and J6 remain explicit errors until both are integrated, the bench relay is actually configured, and the caller supplies the required SYNTHETIC payload file. No Tushe payload schema is assumed. J3–J6 also depend on production write/Record paths; #907 still names write ports as gaps, so verify those paths at the current main head before interpreting the journeys as acceptance. J6 is intentionally thin (one case) until after G1. These tests do not fake any of those capabilities.
 
 This suite is customer-surface evidence, not a substitute for the benchmark's Record/oracle assertions or G1 evidence. No Android/WebView acceptance is claimed.
