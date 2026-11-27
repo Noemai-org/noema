@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from benchmark.compile_acceptance.replay import load_recordings
+from benchmark.compile_acceptance.replay import ReplayRefused, ReplayStore, load_recordings
 from benchmark.compile_acceptance.synthetic_boundary import BOUNDARIES, LONG_RUN, expected_bp, expected_passes
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -99,6 +99,48 @@ class Recordings(unittest.TestCase):
         done = subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "ci" / "leakscan.py"), "--allow", str(ROOT / "benchmark" / "compile_acceptance" / "leakscan.allow"), str(DIR)],
                               capture_output=True, text=True, check=False)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
+class Replay(unittest.TestCase):
+    """What the replay provider does with this directory (Codex on #1010): it serves a usable recording by the SHA-256 of its request, and refuses a recording of a failure as EVIDENCE_ONLY. The five malformed
+    boundaries (B16 to B20) are recordings of a reply the harness refuses as a whole, so replay refuses them by design; their compile outcomes are exercised offline by the generator (scripted inner transport,
+    through the real pipeline), whose agreement with A612 `Generated.test_the_three_long_digit_run_boundaries_are_generated_here_and_never_committed_a604` and the findings file check."""
+
+    MALFORMED = ("B16", "B17", "B18", "B19", "B20")
+
+    def gate_recordings(self) -> dict[str, str]:
+        """boundary id -> the recording id of its gate question."""
+        by_case = {f["case_id"]: f["boundary"] for f in findings()["boundaries"] if "case_id" in f}
+        out: dict[str, str] = {}
+        for path in sorted(RECORDINGS.glob("rec-*.json")):
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            reply = json.dumps(doc["reply"])
+            if "requested_remedy_gate" in reply and "probabilities" in reply:
+                out[by_case[doc["case_id"]]] = path.stem
+        return out
+
+    def test_replay_serves_every_boundary_but_the_malformed_five_and_refuses_those_as_evidence_only(self) -> None:
+        recordings = load_recordings(RECORDINGS)
+        store = ReplayStore(recordings)
+        by_id = {r.recording_id: r for r in recordings.recordings}
+        gate = self.gate_recordings()
+        self.assertEqual(len(gate), 19)
+        for boundary, recording_id in gate.items():
+            if boundary in self.MALFORMED:
+                with self.assertRaises(ReplayRefused, msg=boundary) as caught:
+                    store.lookup(by_id[recording_id].request_sha256)
+                self.assertEqual(caught.exception.code, "EVIDENCE_ONLY", boundary)
+            else:
+                self.assertIsInstance(store.lookup(by_id[recording_id].request_sha256), dict, boundary)
+        unusable = sorted(r.recording_id for r in recordings.recordings if not r.labels.usable_as_fixture)
+        self.assertEqual(unusable, sorted(gate[b] for b in self.MALFORMED))  # nothing else in the directory is evidence-only
+
+    def test_the_readme_names_the_five_and_says_where_to_exercise_them(self) -> None:
+        text = (DIR / "README.md").read_text(encoding="utf-8")
+        for boundary in self.MALFORMED:
+            self.assertIn(boundary, text)
+        self.assertIn("EVIDENCE_ONLY", text)
+        self.assertIn("synthetic_boundary", text)
 
 
 class Findings(unittest.TestCase):

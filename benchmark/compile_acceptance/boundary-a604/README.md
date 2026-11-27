@@ -33,7 +33,7 @@ The expected outcome is computed from the text the provider wrote, by exact inte
 | B21 | 0.95 with "selected": "no" | absent | the model's own no |
 | B22 | 0.6 with "selected": "yes" | absent | a yes at 0.6 is doubt |
 
-**Three boundaries are not committed:** B02 (a value just under 0.9 written to five places, which floors to 8999), B06 (just over 0.9 to five places, which floors to 9000) and B12 (just over one to five places, above one by less than a basis point). Their text holds five digits in a row, which the leak rule refuses in a committed file (REQ-SEC-003, A154). Generate them with `--include-long-digit-runs`. They matter: they are the floor-never-rounds-up boundary. C2's tests cover 8999, 9000 and 9001 basis points; whether to allow these three lines in `leakscan.allow` is for SR.
+**Three boundaries are not committed:** B02 (a value just under 0.9 written to five places, which floors to 8999), B06 (just over 0.9 to five places, which floors to 9000) and B12 (just over one to five places, above one by less than a basis point). Their text holds five digits in a row, which the leak rule refuses in a committed file (REQ-SEC-003, A154). Generate them with `--include-long-digit-runs`. They matter: they are the floor-never-rounds-up boundary. SR ruled that the leak rule is not relaxed for them, so a test generates them (see below).
 
 ## Where the gate and A612's text agree
 
@@ -42,6 +42,8 @@ At `d2f83578` (main, with noema#932 merged) all 22 boundaries agree: **0 disagre
 ## Use, and regeneration
 
 `fixture/` is the reduced run (`fixtures.reduce_run`), flat (`manifest.json` and `rec-NNNN.json`, no sub-directory), and every file carries `fixture.synthetic: true`, which `ReplayTransport` requires (noema#938). C2 can run A604 offline: point the replay provider at `benchmark/compile_acceptance/boundary-a604/fixture`, and use `remedy_labelled.v1.json` for the labelled set. The findings file is outside the fixture directory on purpose.
+
+**What replay serves, and what it does not.** Replay serves a usable recording by the SHA-256 of its request. 14 of the 19 committed gate recordings are usable. **B16, B17, B18, B19 and B20 are not**: a reply with NaN, Infinity, null, a missing member or a string where a number is required is refused as a whole by the harness, so the recording is a record of a failure (`usable_as_fixture: false`; rec-0094 and rec-0101 are `NOT_JSON`, rec-0108, rec-0115 and rec-0122 are `SCHEMA_MISMATCH`) and replay answers it with `ReplayRefused` code `EVIDENCE_ONLY`, never with the malformed text. That is by design, and a test pins it. Replay therefore cannot reproduce the `ABSENT` outcome of those five. Their outcome is exercised offline by the generator: `synthetic_boundary` runs the real compile pipeline against a scripted inner transport, with no network and no key, and compares each boundary with A612's rule (the test that runs it checks all 22, 0 disagreements). C2 runs those five through the generator, not through replay.
 
 Reproduce (the request bytes depend on the model service's code and the pack's `slot_gates`, so regenerate after either changes):
 
