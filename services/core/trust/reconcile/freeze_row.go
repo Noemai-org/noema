@@ -24,12 +24,14 @@ var ErrFreezeFacts = errors.New("reconcile: a freeze row names its tenant, targe
 // FreezeSet is the facts of CONTRADICTION_FREEZE_SET: which target, which rule set and rule, which evidence and which matrix pairs disagreed. Lists are sorted, so the same result gives the same
 // row.
 type FreezeSet struct {
-	TenantID  string
-	Target    string
-	RulesetID string
-	RuleID    string
-	Evidence  []string
-	Labels    []string
+	TenantID string
+	// CorrelationID is the investigation the event belongs to, set by the Recorder's caller (the Record's events carry one); NewFreezeSet leaves it empty.
+	CorrelationID string
+	Target        string
+	RulesetID     string
+	RuleID        string
+	Evidence      []string
+	Labels        []string
 }
 
 // NewFreezeSet builds the row for a contradictory result. Anything else is ErrNotContradictory: a waiting result, an unknown outcome or a converged state never freezes. The row is built from

@@ -36,3 +36,15 @@ Task state: freeze-row facts and effective answer built (green written); the Rec
 3. names this target (not another intent's decision in the same tenant: the gap Codex found on #733);
 4. has a `dec_`-prefixed id with no control character (the shape check here is the cheap first line, not the proof).
 Each with its own test. Also (C1 note 1): the freeze row is appended in the decision's transaction before the grant is issued, so a freeze that cannot be recorded stops the write (PERD 32.4, EC-E16), with the failure case tested; `FreezeReader` answers from the latest of SET and CLEARED for the target and the adapter reads it only through `ReadFreeze`.
+
+# Session 2026-11-27 · RES-02 · A642, A677 (C1, interim, relayed): the Record side of the freeze row
+
+## Session summary
+- What changed: `orchestrator/portadapters/trust.FreezeRow` implements `reconcile.FreezeRecorder` and `reconcile.FreezeReader` over the Record. `RecordFreezeSet` and `RecordFreezeCleared` append CONTRADICTION_FREEZE_SET and CONTRADICTION_FREEZE_CLEARED as `core-trust`, each in a transaction of its own; `RecordFreezeCleared` also needs a recorded freeze for the target and a decision of the tenant that lifts it (an ESCALATE for an escalation, an ALLOW for a resolution). `RecordedFreeze` reads the tenant's chain through `record_read_chain_t` (as the tenant's own read login) and returns the latest row for the target; any failure is an error, which `reconcile.ReadFreeze` turns into FreezeUnknown. `reconcile.FreezeSet` gained a `CorrelationID` the caller sets (the Record's events carry one).
+- Why: A642 and A677: the port was on `main` (#958) with no implementation.
+- Risks (listed, not decided): (1) The append is not in the transaction of the decision that caused it (the port passes no transaction). Both losses fail closed: a lost SET leaves the derived freeze, a lost CLEARED leaves the target frozen. (2) The reader reads the whole tenant chain per question (the only read path into the Record is `record_read_chain_t`): a dedicated read function by target is a candidate, DEBT-60 proposed. (3) That the clearing decision names the target is NOT checked: the Record holds no link from a decision to a target. Needs a ruling (Architect). (4) The emitter `core-trust` is my reading of "the Recorder's side" (PERD 32.1); the Record's events table does not say which emitter writes these two types.
+- Tests added (REQ-RES-002; INV-20): `freeze_row_test.go` (none, set, cleared only by a recorded escalation, nothing to clear, a new contradiction after a clearing, a reader that cannot answer). Regression cases: the red at `46cf56090`. Debt entries: DEBT-60 proposed for the Steward (the whole-chain read). Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the composition builds `NewFreezeRow` and gives it to the reconcile adapter; the caller of `NewFreezeSet` sets `CorrelationID`.
+- Do not touch: `trust/reconcile` rules.

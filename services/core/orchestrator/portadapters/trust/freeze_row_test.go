@@ -31,7 +31,7 @@ func newFrzWorld(t *testing.T) *frzWorld {
 	t.Helper()
 	w := newRecWorldWith(t, recorder.NewEscalationSet(recCap))
 	clk := clock.NewManual(time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC))
-	app := &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: recordsig.For(t, w.admin, "freezerow", nil, "core-trust")}
+	app := &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: recordsig.For(t, w.admin, "recorder", nil, "core-trust")}
 	row := NewFreezeRow(FreezeRowConfig{Begin: recPool{w.trust}, Reads: func(string) chain.Queryer { return w.reader }, Appender: app})
 	return &frzWorld{recWorld: w, row: row}
 }
@@ -43,7 +43,7 @@ func (w *frzWorld) state(t *testing.T) reconcile.RecordedFreeze {
 
 func (w *frzWorld) set(t *testing.T) {
 	t.Helper()
-	fs := reconcile.FreezeSet{TenantID: recTenant, Target: frzTarget, RulesetID: "fin.recon.rules@2", RuleID: "R4@2", Evidence: []string{"ev_A1", "ev_B2"}, Labels: []string{"switch_failed_credit_credited"}}
+	fs := reconcile.FreezeSet{TenantID: recTenant, CorrelationID: "corr_Frz1", Target: frzTarget, RulesetID: "fin.recon.rules@2", RuleID: "R4@2", Evidence: []string{"ev_A1", "ev_B2"}, Labels: []string{"switch_failed_credit_credited"}}
 	if err := w.row.RecordFreezeSet(recCtx(t), fs); err != nil {
 		t.Fatal(err)
 	}
