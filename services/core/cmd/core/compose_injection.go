@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/platform/packload"
 	"github.com/Noemai-org/noema/services/core/platform/telemetry"
+	"github.com/Noemai-org/noema/services/core/trust/grants/keyfiles"
 )
 
 // compose_injection.go builds the injection screen of the payload reader for the composition (STM-01; A704, A330, A664 round 2, A372, interim, relayed, not yet committed; REQ-STM-001,
@@ -40,8 +43,9 @@ const needInjectionPatterns = "the pack's injection patterns"
 // and nothing is recorded; and the count has no exporter yet, so a zero is not a healthy screen. It carries no value.
 const needInjectionRecorder = "the injection recorder: not wired, so a flagged payload is an alert and a count and no Record event, and the count has no exporter, so a count of zero is not a healthy screen"
 
-// recordFailureCounter counts noema_injection_record_failures_total. The core has no metric registry or exporter yet (platform/telemetry: "metrics: not here yet"); this is the value a
-// registry reads when one exists.
+// recordFailureCounter counts noema_injection_record_failures_total. The core has no metric registry or exporter yet (platform/telemetry: "metrics: not here yet"; A722: the counter stays
+// in-process and the exporter comes later); this is the value a registry reads when one exists. Until then a count of zero is not evidence of a healthy screen, and the gap text of the
+// injection recorder says so.
 type recordFailureCounter struct{ n atomic.Uint64 }
 
 // Inc counts one failure.
@@ -59,6 +63,8 @@ type injectionScreen struct {
 	Deps     ScreenDeps
 	Failures *recordFailureCounter
 	Missing  []string
+	// RecorderWired is true when the screen was built over a Recorder. Without one it is built for the Alert side only (SR on #1018).
+	RecorderWired bool
 }
 
 // injectionLimitsFrom reads the five settings. An absent one is named in missing (in the order of the constants); a present one that is not a whole positive number is an error that
@@ -134,10 +140,11 @@ func newInjectionScreen(v packload.Pack, lim injection.Limits, log *slog.Logger,
 	if isNilValue(rec) {
 		rec = nil
 	}
+	wired := rec != nil
 	counter := &recordFailureCounter{}
 	return injectionScreen{
 		Deps:     ScreenDeps{Screen: &injection.Screener{Detector: det, Recorder: rec}, Correlation: correlationOfContext, Alert: injectionAlert{log: log, failures: counter}},
-		Failures: counter,
+		Failures: counter, RecorderWired: wired,
 	}, nil
 }
 
@@ -149,12 +156,15 @@ func buildInjectionScreen(env Env, verified VerifiedSource, log *slog.Logger, re
 	if err != nil {
 		return injectionScreen{}, err
 	}
-	_, evMissing, err := evidenceSettingsFrom(env)
+	evidence, evMissing, err := evidenceSettingsFrom(env)
 	if err != nil {
 		return injectionScreen{}, err
 	}
 	if missing = append(missing, evMissing...); len(missing) > 0 {
 		return injectionScreen{Missing: missing}, nil
+	}
+	if err := checkEvidenceFiles(env, evidence); err != nil {
+		return injectionScreen{}, err
 	}
 	if verified == nil {
 		return injectionScreen{Missing: []string{needInjectionPatterns}}, nil
@@ -184,8 +194,8 @@ type evidenceSettings struct {
 	KeyMaxActive int
 }
 
-// evidenceSettingsFrom reads the three settings. An absent one is named in missing (in the order of the constants); a present overlap that is not a whole positive number is an error that
-// names the setting and never the value, whatever else is missing (A469).
+// evidenceSettingsFrom reads the three settings. An absent one is named in missing (in the order of the constants); a present overlap that is not a whole positive number within the Trust key
+// ring's bound is an error that names the setting and never the value, whatever else is missing (A469).
 func evidenceSettingsFrom(env Env) (set evidenceSettings, missing []string, err error) {
 	get := func(name string) string {
 		if env.Getenv == nil {
@@ -197,14 +207,11 @@ func evidenceSettingsFrom(env Env) (set evidenceSettings, missing []string, err 
 	set.DSNDir, set.KeyFile = get(EnvEvidenceDSNDir), get(EnvEvidenceKeyFile)
 	given[0], given[1] = set.DSNDir != "", set.KeyFile != ""
 	if given[2] = get(EnvEvidenceKeyMaxActive) != ""; given[2] {
-		n, err := wholeNumber(env, EnvEvidenceKeyMaxActive, "")
-		if err != nil {
-			return evidenceSettings{}, nil, err
+		// The bound of the Trust key ring's overlap (keyOverlapRe, NOEMA_TRUST_KEY_MAX_ACTIVE): a whole number from 1 to 999999999. The error names the setting, never the value.
+		if !keyOverlapRe.MatchString(get(EnvEvidenceKeyMaxActive)) {
+			return evidenceSettings{}, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvEvidenceKeyMaxActive)
 		}
-		if int64(int(n)) != n {
-			return evidenceSettings{}, nil, fmt.Errorf("cmd/core: %s must be a whole positive number", EnvEvidenceKeyMaxActive)
-		}
-		set.KeyMaxActive = int(n)
+		set.KeyMaxActive, _ = strconv.Atoi(get(EnvEvidenceKeyMaxActive)) // the pattern holds it to a positive number that fits
 	}
 	for i, name := range []string{EnvEvidenceDSNDir, EnvEvidenceKeyFile, EnvEvidenceKeyMaxActive} {
 		if !given[i] {
@@ -217,9 +224,31 @@ func evidenceSettingsFrom(env Env) (set evidenceSettings, missing []string, err 
 	return set, nil, nil
 }
 
-// annotate names what the screen lacks on the adapters that read it (the Evidence read, the Policies read and Clocks), when they are still unbuilt. A built screen adds nothing.
+// checkEvidenceFiles checks, once the three settings are given, that the evidence login's files are usable as secrets: the DSN directory (the listing rules of loginPools, then each file by
+// the shared checked reader: a regular file you own, mode 0400, no link, bounded) and the key file (the same reader, bounded as a mounted private key). It dials nothing and keeps nothing:
+// what the reader returns is dropped here, and the Record port that uses the files is a later lane's. An error names the setting, never a path or a content (AGENT-13).
+func checkEvidenceFiles(env Env, set evidenceSettings) error {
+	names, err := dsnTenantNames(env, set.DSNDir, EnvEvidenceDSNDir)
+	if err != nil {
+		return err
+	}
+	for _, tenant := range names {
+		if _, err := keyfiles.ReadFile(filepath.Join(set.DSNDir, tenant), dsnFileMaxBytes); err != nil {
+			return fmt.Errorf("cmd/core: %s: the file of tenant %s cannot be used as a secret (a regular file you own, mode 0400, no link, at most %d bytes)", EnvEvidenceDSNDir, tenant, dsnFileMaxBytes)
+		}
+	}
+	if _, err := keyfiles.ReadFile(set.KeyFile, privateKeyMaxBytes); err != nil {
+		return fmt.Errorf("cmd/core: %s: the file cannot be used as a secret (a regular file you own, mode 0400, no link, at most %d bytes)", EnvEvidenceKeyFile, privateKeyMaxBytes)
+	}
+	return nil
+}
+
+// annotate names what the screen lacks on the adapters that read it (the Evidence read, the Policies read and Clocks). A screen that is not built adds its missing settings, on the adapters
+// still unbuilt. A screen built with no Recorder is built for the Alert side only: it adds the fixed gap of the injection recorder on the three adapters, built or not, so that a count of
+// zero is not read as a healthy screen. A screen with a Recorder adds nothing.
 func (s injectionScreen) annotate(w *trustWired) {
-	if len(s.Missing) == 0 {
+	built := screenGiven(s.Deps)
+	if len(s.Missing) == 0 && (!built || s.RecorderWired) {
 		return
 	}
 	if w.Reasons == nil {
@@ -227,8 +256,11 @@ func (s injectionScreen) annotate(w *trustWired) {
 	}
 	unbuilt := w.Unbuilt()
 	for _, a := range []string{"Evidence", "Policies", "Clocks"} {
-		if slices.Contains(unbuilt, a) {
+		if len(s.Missing) > 0 && slices.Contains(unbuilt, a) {
 			w.Reasons[a] = append(w.Reasons[a], s.Missing...)
+		}
+		if built && !s.RecorderWired {
+			w.Reasons[a] = append(w.Reasons[a], needInjectionRecorder)
 		}
 	}
 }

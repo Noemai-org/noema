@@ -1,6 +1,6 @@
 # Status · STM-01 · compose injection screen inputs (A704)
 
-State: red and green committed locally; not pushed.
+State: pushed on #1018: red 93af22ec, green 87b5b702, merge of main 4996914f. Review follow-up (SR findings 3 and 4, nit): a red and a green commit, committed locally, not pushed.
 
 # Session 2026-11-26 · STM-01
 
@@ -34,4 +34,21 @@ State: red and green committed locally; not pushed.
 - Exact next step: IL names and provisions the core-evidence key file path and the evidence DSN volume (the DSN dir value `/run/evidence-dsn` follows the existing pattern; no volume mounts it yet); then set `NOEMA_EVIDENCE_KEY_FILE` in the bench Compose; EL wires the `injection.Recorder` that reads the three settings.
 - Open questions (owner): the key file path (IL); whether `checkPackLimits` and `composeUnderstanding` should also take `VerifiedSource` (EL, the lanes that own them).
 - Files to read first: `cmd/core/compose_injection.go`, `cmd/core/compose_packsource.go`.
+- Do not touch: `evidence/injection`, `evidence/payloadread`, `platform/telemetry`.
+
+# Session 2026-11-27 · STM-01 (#1018 review: SR findings 3 and 4, nit)
+
+## Session summary
+- What changed (PR links): none yet; follow-up to noema#1018, a new red and green pair on top of the pushed red 93af22ec, green 87b5b702 and merge 4996914f. `compose_injection.go`: (3) `annotate` names the fixed gap "the injection recorder" on Evidence, Policies and Clocks when the screen is built with no Recorder (`injectionScreen.RecorderWired`), built adapters included; the screen counts as built for the Alert side only. (4) `NOEMA_EVIDENCE_KEY_MAX_ACTIVE` has the upper bound of the Trust key ring (`keyOverlapRe`, 1 to 999999999); `checkEvidenceFiles` checks the evidence DSN directory (`dsnTenantNames`, then `keyfiles.ReadFile` per file) and the key file (`keyfiles.ReadFile`, bounded by `privateKeyMaxBytes`) once the three settings are given: unsafe mode, a link, oversize, absent, empty directory or an entry not named by a tenant stops the process; the error names the setting, never the path or the content. Nothing is dialled and nothing is kept: the Record port that uses the files is the Evidence wiring PR's. `recordpools.go`: the listing rules of `loginPools` are extracted unchanged into `dsnTenantNames` so the check and the login share them.
+- Why: SR's review of #1018 at 93af22ec; A722, A536, A594, A664, A704; AGENT-13, AGENT-16.
+- Risks, and how they are contained: the screen still has a nil Recorder, so a finding is an alert and a count and no Record event. The counter has no exporter (A722: later), so a count of zero is not evidence of a healthy screen; the gap text says so. The two key-ring overlap bounds on main differ (`overlapRe`, up to 999, for execution; `keyOverlapRe`, up to 999999999, for Trust); the Trust one is used here. The key file size bound is `privateKeyMaxBytes` (16 KiB, a mounted private key), because no ruling gives the evidence key's format; EL may change it when the Evidence wiring reads the key.
+- Tests added (REQ-STM-001, REQ-CTX-007, REQ-SEC-009; INV-16, INV-29; AGENT-13, AGENT-16): `compose_evidence_files_test.go`. The fixtures of the earlier tests now point at real safe files (`evRulingReal`).
+- Regression cases added: the same tests.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: wire the `injection.Recorder` over the evidence login (it reads the three settings and may reuse `dsnTenantNames`); set `RecorderWired` by passing it at the one call in `compose.go`; then the gap text goes away. Export `noema_injection_record_failures_total` when a registry exists.
+- Open questions (owner): the format and size of the core-evidence key file (EL, IL); whether one overlap bound should serve every key ring (EL).
+- Files to read first: `cmd/core/compose_injection.go`, `cmd/core/recordpools.go`.
 - Do not touch: `evidence/injection`, `evidence/payloadread`, `platform/telemetry`.
