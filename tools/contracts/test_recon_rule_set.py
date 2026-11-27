@@ -1,5 +1,5 @@
 """A659 (interim, relayed, not yet committed; REQ-RES-005, REQ-RES-001; AGENT-15): recon-rule-set.v1 is the shape of the pack's reconciliation rule set. From version 2 each compared
-pair (`incompatible`) and each `single_valued` field declares `convergence_window_seconds`, a whole number of seconds of at least 1; in version 1 the member is not allowed. The
+pair (`incompatible`) and each `single_valued` field declares `convergence_window_seconds`, a whole number of seconds of at least 0 (A708); in version 1 the member is not allowed. The
 shape is the loader's (an unknown member is refused). That a window equals the smaller freshness limit of its pair (A641) is packcheck's, not the schema's. All data is SYNTHETIC."""
 import json
 import unittest
@@ -23,9 +23,9 @@ class ReconRuleSetV1(unittest.TestCase):
         self.assertIn("convergence_window_seconds", defs["SingleValued"]["properties"])
         self.assertNotIn("window_seconds", json.dumps(self.schema).replace("convergence_window_seconds", "").replace("within_seconds", ""))
 
-    def test_the_window_is_a_whole_number_of_at_least_one_with_no_ceiling_of_its_own(self):
+    def test_the_window_is_a_whole_number_of_at_least_zero_with_no_ceiling_of_its_own(self):
         w = self.schema["$defs"]["ConvergenceWindowSeconds"]
-        self.assertEqual((w["type"], w["minimum"]), ("integer", 1))
+        self.assertEqual((w["type"], w["minimum"]), ("integer", 0))
         self.assertNotIn("maximum", w)
 
     def test_it_is_required_from_version_2_and_not_allowed_in_version_1(self):

@@ -317,7 +317,7 @@ def check_write_when_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
 
 def check_recon_rules(doc: object) -> list[Problem]:
     """A659 (interim, relayed, not yet committed; REQ-RES-005): the pack's rules file is a `recon-rule-set.v1` document. From version 2 each compared pair and each single-valued field
-    declares `convergence_window_seconds` (at least 1); version 1 declares none. A message names the place and the rule, never a value of the document. That a window equals the smaller
+    declares `convergence_window_seconds` (at least 0, A708); version 1 declares none. A message names the place and the rule, never a value of the document. That a window equals the smaller
     freshness limit of its pair (A641) is not checked here: it needs the evidence mapping's entity-to-source link."""
     schemas = validate.load_schemas()
     errs = validate.validator_for("recon-rule-set", schemas, validate.make_registry(schemas)).iter_errors(doc)
