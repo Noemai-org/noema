@@ -160,9 +160,9 @@ func trustSettings(env Env, records reconstruct.TenantDBs, loadKeys KeyLoader) (
 	if err != nil || ms < 1 {
 		return 0, nil, fmt.Errorf("cmd/core: %s must be a positive whole number of milliseconds", EnvTrustDBTimeout)
 	}
-	maxActive, err := strconv.Atoi(env.Getenv(EnvGrantKeyMaxActive))
-	if err != nil || maxActive < 1 {
-		return 0, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvGrantKeyMaxActive)
+	maxActive, err := parseKeyOverlap(EnvGrantKeyMaxActive, env.Getenv(EnvGrantKeyMaxActive))
+	if err != nil {
+		return 0, nil, err
 	}
 	keys, err := loadKeys(env.Getenv(EnvGrantKeyDir), maxActive) // its errors never repeat a key's contents
 	if err != nil {

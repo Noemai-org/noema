@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strconv"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,8 +32,6 @@ const (
 	outcomeLoginPrefix   = "outcome_rw__"
 )
 
-var overlapRe = regexp.MustCompile(`^[1-9][0-9]{0,2}$`)
-
 // executionParts is what slice 1 builds: the receipt signer's ring and one pool of each kind for each tenant.
 type executionParts struct {
 	Receipts       *signing.Ring
@@ -63,12 +59,9 @@ func buildExecution(ctx context.Context, env Env) (*executionParts, func(), erro
 			return nil, nil, fmt.Errorf("cmd/core: the Execution side needs %s as well: all four settings or none", s)
 		}
 	}
-	if !overlapRe.MatchString(env.Getenv(EnvExecutionKeyMaxActive)) {
-		return nil, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvExecutionKeyMaxActive)
-	}
-	maxActive, err := strconv.Atoi(env.Getenv(EnvExecutionKeyMaxActive))
-	if err != nil || maxActive < 1 {
-		return nil, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvExecutionKeyMaxActive)
+	maxActive, err := parseKeyOverlap(EnvExecutionKeyMaxActive, env.Getenv(EnvExecutionKeyMaxActive))
+	if err != nil {
+		return nil, nil, err
 	}
 	ring, err := signing.LoadRing(executionIdentity, env.Getenv(EnvExecutionKeyDir), signing.Options{MaxActive: maxActive}) // its errors never repeat a key's contents
 	if err != nil {
