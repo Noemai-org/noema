@@ -213,20 +213,17 @@ func TestTheInjectionScreenFileNeverLoadsThePack(t *testing.T) {
 	}
 }
 
-// A722, A594, AGENT-16: the bench values sit in the bench Compose file only: the directory follows the existing DSN-directory pattern and the overlap is 2. The key file's path is not named by
-// any ruling, so no value is set for it here (a named gap until IL provisions it).
-func TestTheBenchComposeSetsTheEvidenceDirectoryAndOverlapAndInventsNoKeyPath(t *testing.T) {
+// A722, A594, A739: the bench values sit in the bench Compose file only: the directory follows the existing DSN-directory pattern, the overlap is 2, and the key file is the one IL's noema#1023
+// provisions (A739: EL conforms the loader to those names): `core-evidence.ed25519.1.key` in the evidence_keys volume. A739 supersedes the earlier reading that left the path unset.
+func TestTheBenchComposeSetsTheEvidenceDirectoryKeyFileAndOverlap(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "deploy", "compose", "bench-stack.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, want := range []string{"NOEMA_EVIDENCE_DSN_DIR: /run/evidence-dsn", `NOEMA_EVIDENCE_KEY_MAX_ACTIVE: "2"`} {
+	for _, want := range []string{"NOEMA_EVIDENCE_DSN_DIR: /run/evidence-dsn", "NOEMA_EVIDENCE_KEY_FILE: /run/evidence-keys/core-evidence.ed25519.1.key", `NOEMA_EVIDENCE_KEY_MAX_ACTIVE: "2"`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("bench-stack.yml lacks %q", want)
 		}
-	}
-	if strings.Contains(text, "NOEMA_EVIDENCE_KEY_FILE:") {
-		t.Error("bench-stack.yml sets NOEMA_EVIDENCE_KEY_FILE: no ruling names the path (AGENT-16)")
 	}
 }
