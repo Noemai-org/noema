@@ -149,3 +149,14 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 
 ## Pre-work for the next agent
 - Exact next step: C2 scores the five malformed boundaries through the generator, and the other fourteen through replay.
+
+# Session 2026-11-27 · BEN-23 · A759: one repeated-option fixture
+
+## Session summary
+- What changed: boundary B23 in `synthetic_boundary.py`: a gate answer that lists the option yes twice (each at 0.95). Its recording is labelled `usable_as_fixture: true` (valid against the request's schema, answers exactly the questions asked), so replay serves it, and the harness then refuses the whole reply (`OUTPUT_MISMATCH`, INV-02; `harness/core.py`), so the compile stops with no proposal (`ProviderUnavailable`). The expected outcome is `STOPPED`, stated from that rule and not read from the run. The fixture was regenerated whole at main's head, so every file's `head_sha` changed and nothing else in the 147 older files did.
+- Why: A759.
+- Tests added: B23 listed and agreeing (23 boundaries, 0 disagreements); the fixture's gate recording for B23 is labelled usable and served by `ReplayStore`; the README names it.
+- Risks: none to the product. Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 points the replay provider at `boundary-a604/fixture`; B23 is the one replayable fixture that exercises the harness's whole-reply refusal.

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.compile_acceptance.replay import ReplayRefused, ReplayStore, load_recordings
-from benchmark.compile_acceptance.synthetic_boundary import BOUNDARIES, LONG_RUN, expected_bp, expected_passes
+from benchmark.compile_acceptance.synthetic_boundary import BOUNDARIES, LONG_RUN, expected_bp, expected_outcome, expected_passes
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "benchmark" / "compile_acceptance" / "boundary-a604"
@@ -124,7 +124,7 @@ class Replay(unittest.TestCase):
         store = ReplayStore(recordings)
         by_id = {r.recording_id: r for r in recordings.recordings}
         gate = self.gate_recordings()
-        self.assertEqual(len(gate), 19)
+        self.assertEqual(len(gate), 20)
         for boundary, recording_id in gate.items():
             if boundary in self.MALFORMED:
                 with self.assertRaises(ReplayRefused, msg=boundary) as caught:
@@ -132,6 +132,7 @@ class Replay(unittest.TestCase):
                 self.assertEqual(caught.exception.code, "EVIDENCE_ONLY", boundary)
             else:
                 self.assertIsInstance(store.lookup(by_id[recording_id].request_sha256), dict, boundary)
+        self.assertTrue(by_id[gate["B23"]].labels.usable_as_fixture, "A759: the repeated-option reply is served, so replay delivers it to the harness, which refuses it")
         unusable = sorted(r.recording_id for r in recordings.recordings if not r.labels.usable_as_fixture)
         self.assertEqual(unusable, sorted(gate[b] for b in self.MALFORMED))  # nothing else in the directory is evidence-only
 
@@ -152,8 +153,8 @@ class Findings(unittest.TestCase):
                 self.assertTrue(b.written is not None and LONG_RUN.search(b.written), b.boundary_id)  # only a long digit run is left out
             else:
                 self.assertEqual(r["written"], b.written)
-                self.assertEqual(r["expected"], "PRESENT" if expected_passes(b) else "ABSENT", b.boundary_id)
-                self.assertEqual(r["agree"], r["implementation"] == r["expected"], b.boundary_id)
+                self.assertEqual(r["expected"], expected_outcome(b), b.boundary_id)
+                self.assertEqual(r["agree"], r["implementation"].startswith("STOPPED") if r["expected"] == "STOPPED" else r["implementation"] == r["expected"], b.boundary_id)
 
     def test_the_gate_agrees_with_a612_at_every_boundary_and_the_file_says_so(self) -> None:
         rows = [r for r in findings()["boundaries"] if "agree" in r]
@@ -184,7 +185,7 @@ class Fixture(unittest.TestCase):
             done = subprocess.run([sys.executable, "-c", "import sys; from benchmark.compile_acceptance.synthetic_boundary import main; sys.exit(main(['--out', sys.argv[1], '--include-long-digit-runs']))", tmp],
                                   capture_output=True, text=True, check=False, cwd=ROOT, env={**os.environ, "PYTHONPATH": f"{ROOT / 'services' / 'model'}:{ROOT}"})
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-            self.assertIn("22 boundaries generated, 0 skipped, 0 disagreement(s)", done.stdout)
+            self.assertIn("23 boundaries generated, 0 skipped, 0 disagreement(s)", done.stdout)
             rows = json.loads((Path(tmp) / "boundary-findings.json").read_text(encoding="utf-8"))["boundaries"]
             self.assertEqual({r["boundary"] for r in rows if r["boundary"] in ("B02", "B06", "B12")}, {"B02", "B06", "B12"})
             self.assertTrue(all(r["agree"] for r in rows))

@@ -1,11 +1,11 @@
 {
-  "calls": 140,
+  "calls": 147,
   "date": "2026-11-24",
   "failure_classes": {
-    "OK": 140
+    "OK": 147
   },
   "fixture": {
-    "head_sha": "d2f83578a7c7195891eab753ee9963f52388bf7d",
+    "head_sha": "1fb26e7f23bceb5d21ef0542849cfcd1b279042f",
     "label": "Understanding: recorded replay of live output",
     "reduced": true,
     "run_id": "synthetic-boundary",
@@ -1428,6 +1428,76 @@
       "failure_class": "OK",
       "recording_id": "rec-0140",
       "request_sha256": "sha256:f7cf6ce5e8788eaa7d8c5ebd9cb213014d30327cacc254dee5ad61a1f89e7afd",
+      "status": 200
+    },
+    {
+      "case_id": "SB-W",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0141",
+      "request_sha256": "sha256:f342b40348dc3a1563dd5a2768fd04e85e42ad74bcbc057bb655f738212c439d",
+      "status": 200
+    },
+    {
+      "case_id": "SB-W",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0142",
+      "request_sha256": "sha256:bc8d93a92e9a4e3522cf9b77ab9029e3515dd0987a38950c7d07c4db20b17950",
+      "status": 200
+    },
+    {
+      "case_id": "SB-W",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0143",
+      "request_sha256": "sha256:9a9ec83a6170366807807fb70ad8990c45752dce353e71ac15553e376a7414b1",
+      "status": 200
+    },
+    {
+      "case_id": "SB-W",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0144",
+      "request_sha256": "sha256:2ea88fc3b29b9d05743ff128b6aa7f9b1d6e752a22bd9c1df2566c486fd332ae",
+      "status": 200
+    },
+    {
+      "case_id": "SB-W",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0145",
+      "request_sha256": "sha256:99638e99007bfae18621126cf0de029bfb14331d918183a137b7212bb7ef9167",
+      "status": 200
+    },
+    {
+      "case_id": "SB-W",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0146",
+      "request_sha256": "sha256:6debc44fceafe2e47eb4a908d156eb933f88ca412fc41b3006f38f4ad041c998",
+      "status": 200
+    },
+    {
+      "case_id": "SB-W",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0147",
+      "request_sha256": "sha256:13cdd7b2773ec0ff9a5d987d6543c8c64cff3d819c328003be7482d9cee01b3e",
       "status": 200
     }
   ],

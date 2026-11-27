@@ -56,6 +56,7 @@ class Boundary:
     written: str | None  # the JSON text of the probability of yes the scripted model writes; None: the member is left out
     selected: str = "yes"
     why: str = ""
+    repeat_yes: bool = False  # the reply lists the option "yes" twice, with the same probability text (A759)
 
 
 BOUNDARIES: tuple[Boundary, ...] = (
@@ -81,6 +82,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
     Boundary("B20", '"0.95"', why="a string where a number is required"),
     Boundary("B21", "0.95", selected="no", why="the model's own answer is no: a no whatever its probability says"),
     Boundary("B22", "0.6", why="the model says yes but gives it 0.6: doubt, the harmful case"),
+    Boundary("B23", "0.95", repeat_yes=True, why="the reply lists the option yes twice, each at 0.95: a gate answer that repeats an option contradicts itself, so the harness refuses the WHOLE reply (OUTPUT_MISMATCH, INV-02) and the compile stops with no proposal; no entry wins"),
 )
 
 
@@ -94,6 +96,11 @@ def expected_bp(written: str | None) -> int | None:
     return int(value * 10_000)  # floor, by the integer division of a non-negative fraction
 
 
+def expected_outcome(b: Boundary) -> str:
+    """PRESENT or ABSENT by the rule of A612; STOPPED for a reply the harness refuses as a whole (a repeated option: `harness/core.py`, INV-02), where the compile ends with no proposal at all."""
+    return "STOPPED" if b.repeat_yes else "PRESENT" if expected_passes(b) else "ABSENT"
+
+
 def expected_passes(b: Boundary) -> bool:
     bp = expected_bp(b.written)
     return b.selected == "yes" and bp is not None and bp >= THRESHOLD_BP
@@ -103,7 +110,9 @@ def _answer(question: Mapping[str, Any], boundary: Boundary, abstain: str) -> di
     qid, kind = question["question_id"], question["kind"]
     if kind == "yes_no" and qid == GATE_ID:
         member = "" if boundary.written is None else f', "p": {boundary.written}'
-        return {"__raw__": f'{{"question_id": "{qid}", "selected": "{boundary.selected}", "probabilities": [{{"option": "yes"{member}}}, {{"option": "no", "p": 0.1}}]}}'}
+        yes = f'{{"option": "yes"{member}}}'
+        entries = f"{yes}, {yes}" if boundary.repeat_yes else yes
+        return {"__raw__": f'{{"question_id": "{qid}", "selected": "{boundary.selected}", "probabilities": [{entries}, {{"option": "no", "p": 0.1}}]}}'}
     if kind == "yes_no":
         return {"question_id": qid, "selected": "no", "probabilities": [{"option": "yes", "p": 0.1}, {"option": "no", "p": 0.9}]}
     want = LOOKUP if qid == PICK_ID else G_A_ANSWERS.get(qid)
@@ -173,8 +182,8 @@ async def generate(out: Path, now: datetime, include_long: bool = False) -> list
             got: str | None = "ABSENT" if _remedy_slot(proposal) is None else "PRESENT"
         except Exception as exc:  # the class only: a recorded finding, never hidden
             got = f"STOPPED:{type(exc).__name__}" + (f" {exc}" if type(exc).__name__ == "CompileFailed" else "")  # CompileFailed's text is built from a closed set (build.py), never from the request
-        want = "PRESENT" if expected_passes(b) else "ABSENT"
-        findings.append({"boundary": b.boundary_id, "case_id": case.case_id, "labelled_item": item.item_id, "written": b.written, "selected": b.selected, "expected": want, "implementation": got, "agree": got == want, "why": b.why})
+        want = expected_outcome(b)
+        findings.append({"boundary": b.boundary_id, "case_id": case.case_id, "labelled_item": item.item_id, "written": b.written, "selected": b.selected, "expected": want, "implementation": got, "agree": (got or "").startswith("STOPPED") if want == "STOPPED" else got == want, "why": b.why})
     recorder.write_manifest(backend.pin())
     return findings
 

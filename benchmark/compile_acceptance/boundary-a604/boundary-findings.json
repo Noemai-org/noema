@@ -223,6 +223,17 @@
       "selected": "yes",
       "why": "the model says yes but gives it 0.6: doubt, the harmful case",
       "written": "0.6"
+    },
+    {
+      "agree": true,
+      "boundary": "B23",
+      "case_id": "SB-W",
+      "expected": "STOPPED",
+      "implementation": "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)",
+      "labelled_item": "RL-023",
+      "selected": "yes",
+      "why": "the reply lists the option yes twice, each at 0.95: a gate answer that repeats an option contradicts itself, so the harness refuses the WHOLE reply (OUTPUT_MISMATCH, INV-02) and the compile stops with no proposal; no entry wins",
+      "written": "0.95"
     }
   ],
   "label": "SYNTHETIC boundary recordings of the requested_remedy gate (A604): scripted replies, not live model output",
