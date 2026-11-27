@@ -130,11 +130,11 @@ class RealManifest(Base):
     def test_it_is_labelled_synthetic_and_lists_exactly_the_five_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing")}, LISTED)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing", "recipient_matcher")}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "limits"), LIMITS)  # A544
         self.assertEqual([f["path"] for f in doc["files"] if f["kind"] == "priority_routing"], ["fintech/routing/priority_routing.v1.json"])  # PCK-09, A644
-        self.assertEqual(len(doc["files"]), 12)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
+        self.assertEqual(len(doc["files"]), 13)  # the three single kinds, the three action graphs, the four limits files, (A645) the injection patterns, (PCK-09) the priority routing and (A710) the matcher
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -154,6 +154,7 @@ class RealManifest(Base):
         listed = {f["path"] for f in self.load()["files"]}
         found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context", "fintech/routing") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
+        found |= {str(p.relative_to(PACKS)) for p in (PACKS / "fintech/lexicons").glob("recipient_matcher*.json")}  # A710: the folder also holds other lexicons; only the matcher's own name stem is of the kind
         self.assertEqual(found, listed)
 
     def test_the_core_does_not_hard_code_the_ids(self):
@@ -657,6 +658,75 @@ class ShippedPatterns(Base):
         body = json.loads((PACKS / INJECTION).read_text(encoding="utf-8"))
         self.assertGreaterEqual(body["version"], 2, "versioned data is not edited under the same version (A664 round 2)")
         self.assertEqual(json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))["expected"]["injection_patterns_id"], "fin.ctx.injection_patterns@2")
+
+
+MATCHER = "fintech/lexicons/recipient_matcher.json"
+
+
+class MatcherGate(Base):
+    """A710 (A695, OD-P-117; the A579 and A664 pattern): the recipient matcher's data is hash-pinned as kind `recipient_matcher`. Required from manifest version 5, optional below it, never two; a manifest
+    below the gate that lists none passes, one from the gate that lists none fails, even with the file left on disk."""
+
+    GATE = 5
+
+    def tree_with(self, version: int, *, listed: bool, on_disk: bool = True):
+        root, manifest = self.tree()
+        if on_disk:
+            (root / MATCHER).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(PACKS / MATCHER, root / MATCHER)
+
+        def edit(d):
+            d["version"] = version
+            if listed:
+                d["files"].append({"kind": "recipient_matcher", "path": MATCHER, "sha256": sha256(PACKS / MATCHER)})
+
+        self.edit(root, manifest, edit)
+        return root, manifest
+
+    def test_the_shipped_manifest_is_at_or_above_the_gate_and_pins_the_matcher_data_with_its_digest(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(doc["version"], self.GATE)
+        pinned = [f for f in doc["files"] if f["kind"] == "recipient_matcher"]
+        self.assertEqual([f["path"] for f in pinned], [MATCHER])
+        self.assertEqual(pinned[0]["sha256"], sha256(PACKS / MATCHER))
+        self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
+
+    def test_a_manifest_below_the_gate_that_lists_no_matcher_passes_with_or_without_the_file_on_disk(self):
+        for v in range(1, self.GATE):
+            for on_disk in (False, True):
+                with self.subTest(v=v, on_disk=on_disk):
+                    root, manifest = self.tree_with(v, listed=False, on_disk=on_disk)
+                    self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_manifest_from_the_gate_that_lists_no_matcher_fails_even_with_the_file_on_disk(self):
+        for v in (self.GATE, self.GATE + 1, 99):
+            for on_disk in (False, True):
+                with self.subTest(v=v, on_disk=on_disk):
+                    root, manifest = self.tree_with(v, listed=False, on_disk=on_disk)
+                    self.fails(root, manifest, f"version {v}", "exactly one recipient_matcher file", "it lists 0")
+
+    def test_a_manifest_that_lists_the_matcher_passes_at_every_version(self):
+        for v in (1, 4, self.GATE, self.GATE + 1):
+            with self.subTest(v):
+                root, manifest = self.tree_with(v, listed=True)
+                self.assertEqual(self.check(manifest, root), [])
+
+    def test_two_matcher_files_fail_at_every_version_and_a_second_beside_the_pinned_one_is_unlisted(self):
+        for v in (1, self.GATE):
+            with self.subTest(v):
+                root, manifest = self.tree_with(v, listed=True)
+                other = root / "fintech/lexicons/recipient_matcher.other.json"
+                shutil.copyfile(root / MATCHER, other)
+                self.edit(root, manifest, lambda d: d["files"].append({"kind": "recipient_matcher", "path": "fintech/lexicons/recipient_matcher.other.json", "sha256": sha256(other)}))
+                self.fails(root, manifest, "recipient_matcher file", "it lists 2")
+        root, manifest = self.tree_with(self.GATE, listed=True)
+        shutil.copyfile(root / MATCHER, root / "fintech/lexicons/recipient_matcher.v2.json")
+        self.fails(root, manifest, "recipient_matcher.v2.json", "not listed")
+
+    def test_another_lexicon_beside_the_matcher_is_not_a_matcher(self):
+        root, manifest = self.tree_with(self.GATE, listed=True)
+        (root / "fintech/lexicons/fin.lex.en_ng.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(self.check(manifest, root), [])
 
 
 class InjectionGate(Base):

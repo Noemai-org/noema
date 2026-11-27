@@ -724,6 +724,7 @@ MANIFEST_KINDS = {
     "recon_rules": ("fintech/recon_rules", "*.json"),
     "action_graph": ("fintech/graph", "*.json"),  # A510
     "limits": ("fintech/limits", "*.json"),  # A544: every limits file of the folder is pinned
+    "recipient_matcher": ("fintech/lexicons", "recipient_matcher*.json"),  # A710: exactly one from manifest version 5, none or one below it; the folder also holds the pack's other lexicons, so only a file of the matcher's own name stem is of this kind
     "injection_patterns": ("fintech/context", "*.json"),  # A645, A664: exactly one from manifest version 4, none or one below it, always with its expected id
     "priority_routing": ("fintech/routing", "*.json"),  # PCK-09, A644: at most one
 }
@@ -733,6 +734,7 @@ MANIFEST_KINDS = {
 SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
 # `limits` is listed once for each file of the pack's limits folder (A544) and may be listed for none: the kind is additive.
 MANIFEST_INJECTION_FROM_VERSION = 4  # A664 (interim): the first manifest version that must list the injection patterns
+MANIFEST_MATCHER_FROM_VERSION = 5  # A710 (A695, OD-P-117): the first manifest version that must list the recipient matcher's data
 # `priority_routing` is listed at most once (PCK-09, A644); the pack that lists it is held to its schema and to the pack's own phases and queues.
 OPTIONAL_KINDS = ("priority_routing",)
 PRIORITY_ROUTING_SCHEMA = ROOT / "packs/schemas/priority_routing.v1.json"
@@ -799,6 +801,22 @@ def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Prob
 MANIFEST_LIMITS_FROM_VERSION = 3  # A579 (interim): the first manifest version that must list the limits files
 
 
+def _matcher_problems(doc) -> list[Problem]:
+    """A710 (the A579 and A664 pattern): from manifest version MANIFEST_MATCHER_FROM_VERSION the manifest lists exactly one `recipient_matcher` file; below it none or one; never two. A manifest below the gate
+    that lists none carries no matcher data, and the core then builds no matcher from the pack. The schema says the same; this names the version and the rule."""
+    if not isinstance(doc, dict):
+        return []
+    version, files = doc.get("version"), doc.get("files")
+    if not isinstance(version, int) or isinstance(version, bool) or not isinstance(files, list):
+        return []  # the schema names these
+    listed = sum(1 for f in files if isinstance(f, dict) and f.get("kind") == "recipient_matcher")
+    if version >= MANIFEST_MATCHER_FROM_VERSION and listed != 1:
+        return [("manifest", f"a manifest of version {version} must list exactly one recipient_matcher file (A710); it lists {listed}")]
+    if version < MANIFEST_MATCHER_FROM_VERSION and listed > 1:
+        return [("manifest", f"a manifest of version {version} lists none or one recipient_matcher file (A710); it lists {listed}")]
+    return []
+
+
 def _injection_problems(doc) -> list[Problem]:
     """A664 (interim; the A579 pattern): from manifest version MANIFEST_INJECTION_FROM_VERSION the manifest lists exactly one `injection_patterns` file and names `expected.injection_patterns_id`; below it
     both may be absent. The file and its id go together at every version, and no manifest lists two files of the kind. A manifest below the gate that lists none carries no pattern data, and the core then
@@ -850,6 +868,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
         out.append(("manifest", f"a manifest of version {version} must list its limits files (A579); it lists none"))
         named.add(("files",))
     out += _injection_problems(doc)
+    out += _matcher_problems(doc)
     errs = sorted(validate.StrictValidator(validate.load_strict(MANIFEST_SCHEMA)).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
     errs = [e for e in errs if tuple(map(str, e.absolute_path)) not in named]
     if errs or out:
@@ -900,6 +919,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             continue
         if kind == "injection_patterns" and not by_kind[kind] and doc["version"] < MANIFEST_INJECTION_FROM_VERSION:
             continue  # A664: a manifest below the gate that lists none carries no pattern data; the loader serves nothing it does not pin and does not scan for the kind either
+        if kind == "recipient_matcher" and not by_kind[kind] and doc["version"] < MANIFEST_MATCHER_FROM_VERSION:
+            continue  # A710: a manifest below the gate that lists none carries no matcher data; the loader serves nothing it does not pin
         for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
             if folder == "":
                 dirnames[:] = []  # the pack folder itself: only its own files, not the whole tree
