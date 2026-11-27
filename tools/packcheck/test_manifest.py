@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -41,7 +42,7 @@ LIMITS = [
     "fintech/limits/trust_limits.json",
 ]
 INJECTION_ID = "fin.ctx.injection_patterns@2"  # the shipped file's own pack_id@version (A664 round 2: the patterns changed, so the version did)
-EXPECTED = {"evidence_mapping_id": "fin.map.v1@2", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
+EXPECTED = {"evidence_mapping_id": "fin.map.v1@3", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
 
 
 def sha256(path: Path) -> str:
@@ -129,11 +130,11 @@ class RealManifest(Base):
     def test_it_is_labelled_synthetic_and_lists_exactly_the_five_kinds(self):
         doc = self.load()
         self.assertEqual(doc["label"], "SYNTHETIC")
-        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing")}, LISTED)
+        self.assertEqual({f["kind"]: f["path"] for f in doc["files"] if f["kind"] not in ("action_graph", "limits", "priority_routing", "recipient_matcher")}, LISTED)
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "action_graph"), GRAPHS)  # A510
         self.assertEqual(sorted(f["path"] for f in doc["files"] if f["kind"] == "limits"), LIMITS)  # A544
         self.assertEqual([f["path"] for f in doc["files"] if f["kind"] == "priority_routing"], ["fintech/routing/priority_routing.v1.json"])  # PCK-09, A644
-        self.assertEqual(len(doc["files"]), 12)  # the three single kinds, the three action graphs, the four limits files and (A645) the injection patterns
+        self.assertEqual(len(doc["files"]), 13)  # the three single kinds, the three action graphs, the four limits files, (A645) the injection patterns, (PCK-09) the priority routing and (A710) the matcher
 
     def test_each_listed_hash_is_the_independent_sha256_of_the_file(self):
         for f in self.load()["files"]:
@@ -153,11 +154,12 @@ class RealManifest(Base):
         listed = {f["path"] for f in self.load()["files"]}
         found = {str(p.relative_to(PACKS)) for d in ("fintech/evidence_mapping", "fintech/recon_rules", "fintech/graph", "fintech/limits", "fintech/context", "fintech/routing") for p in (PACKS / d).rglob("*.json")}
         found |= {p.name for p in PACKS.glob("fintech_v*.json")}
+        found |= {str(p.relative_to(PACKS)) for p in (PACKS / "fintech/lexicons").glob("recipient_matcher*.json")}  # A710: the folder also holds other lexicons; only the matcher's own name stem is of the kind
         self.assertEqual(found, listed)
 
     def test_the_core_does_not_hard_code_the_ids(self):
         # INV-14: nothing in the core names the ids; the manifest does. The Go loader is another pull request, so only the absence is asserted.
-        hits = [str(p) for p in (ROOT / "services/core").rglob("*.go") if not p.name.endswith("_test.go") and "fin.map.v1@2" in p.read_text(encoding="utf-8", errors="ignore")]
+        hits = [str(p) for p in (ROOT / "services/core").rglob("*.go") if not p.name.endswith("_test.go") and re.search(r"fin\.map\.v1@[0-9]+", p.read_text(encoding="utf-8", errors="ignore"))]
         self.assertEqual(hits, [])
 
     def test_the_makefile_runs_the_manifest_check(self):
@@ -315,6 +317,61 @@ class UnlistedFile(Base):
             doc["files"].append({"kind": "recon_rules", "path": "fintech/recon_rules/rules.v2.json", "sha256": sha256(root / RULES)})
         self.edit(root, manifest, add)
         self.fails(root, manifest, "exactly one recon_rules file, it lists 2")
+
+
+class MappingTargetVersions(Base):
+    """EXP-01 (A550, A556, A706, A710): the evidence mapping may declare, in `target_versions`, which source carries the version token of the target a write acts on and which payload member
+    marks the read complete. The member is additive and optional (the mapping version is 3 because it adds it); when present it is checked here the way the Go loader checks it, so a pack
+    that the loader would refuse is refused before it ships. The real mapping declares the ledger."""
+
+    LEDGER = "fin.src.core_ledger"
+
+    def reseal(self, root: Path, manifest: Path, mutate) -> None:
+        doc = json.loads((root / MAPPING).read_text(encoding="utf-8"))
+        mutate(doc)
+        write(root / MAPPING, doc)
+        self.edit(root, manifest, lambda d: entry(d, "evidence_mapping").__setitem__("sha256", sha256(root / MAPPING)))
+
+    def test_the_real_mapping_declares_the_ledgers_version_token(self):
+        doc = json.loads((PACKS / MAPPING).read_text(encoding="utf-8"))
+        self.assertEqual(doc["version"], 3)
+        self.assertEqual(doc["target_versions"], [{"source": self.LEDGER, "token": "version_token", "complete": "complete"}])
+
+    def test_a_mapping_with_no_declaration_is_accepted(self):
+        root, manifest = self.tree()
+        self.reseal(root, manifest, lambda d: d.pop("target_versions"))
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_second_declaration_of_another_source_of_the_pack_is_accepted(self):
+        root, manifest = self.tree()
+        self.reseal(root, manifest, lambda d: d["target_versions"].append({"source": "fin.src.switch", "token": "version_token", "complete": "complete"}))
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_declaration_the_loader_would_refuse_is_refused(self):
+        good = {"source": self.LEDGER, "token": "version_token", "complete": "complete"}
+        bad = {
+            "an empty list": [],
+            "an entry that is not an object": ["fin.src.core_ledger"],
+            "no source": [{"token": "version_token", "complete": "complete"}],
+            "no token": [{"source": self.LEDGER, "complete": "complete"}],
+            "no complete marker": [{"source": self.LEDGER, "token": "version_token"}],
+            "an empty token": [{**good, "token": ""}],
+            "an empty marker": [{**good, "complete": ""}],
+            "a token that is not text": [{**good, "token": 7}],
+            "the marker is the token": [{**good, "complete": "version_token"}],
+            "a member nobody reads": [{**good, "default": "v0"}],
+            "the same source twice": [good, dict(good)],
+            "a source that is not one of the pack's": [{**good, "source": "fin.src.ghost"}],
+        }
+        for name, value in bad.items():
+            with self.subTest(name):
+                root, manifest = self.tree()
+                self.reseal(root, manifest, lambda d, v=value: d.__setitem__("target_versions", v))
+                self.fails(root, manifest, "target_versions")
+        with self.subTest("not a list"):
+            root, manifest = self.tree()
+            self.reseal(root, manifest, lambda d: d.__setitem__("target_versions", good))
+            self.fails(root, manifest, "target_versions")
 
 
 class ReconRulesFile(Base):
@@ -603,6 +660,75 @@ class ShippedPatterns(Base):
         self.assertEqual(json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))["expected"]["injection_patterns_id"], "fin.ctx.injection_patterns@2")
 
 
+MATCHER = "fintech/lexicons/recipient_matcher.json"
+
+
+class MatcherGate(Base):
+    """A710 (A695, OD-P-117; the A579 and A664 pattern): the recipient matcher's data is hash-pinned as kind `recipient_matcher`. Required from manifest version 5, optional below it, never two; a manifest
+    below the gate that lists none passes, one from the gate that lists none fails, even with the file left on disk."""
+
+    GATE = 5
+
+    def tree_with(self, version: int, *, listed: bool, on_disk: bool = True):
+        root, manifest = self.tree()
+        if on_disk:
+            (root / MATCHER).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(PACKS / MATCHER, root / MATCHER)
+
+        def edit(d):
+            d["version"] = version
+            if listed:
+                d["files"].append({"kind": "recipient_matcher", "path": MATCHER, "sha256": sha256(PACKS / MATCHER)})
+
+        self.edit(root, manifest, edit)
+        return root, manifest
+
+    def test_the_shipped_manifest_is_at_or_above_the_gate_and_pins_the_matcher_data_with_its_digest(self):
+        doc = json.loads(REAL_MANIFEST.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(doc["version"], self.GATE)
+        pinned = [f for f in doc["files"] if f["kind"] == "recipient_matcher"]
+        self.assertEqual([f["path"] for f in pinned], [MATCHER])
+        self.assertEqual(pinned[0]["sha256"], sha256(PACKS / MATCHER))
+        self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
+
+    def test_a_manifest_below_the_gate_that_lists_no_matcher_passes_with_or_without_the_file_on_disk(self):
+        for v in range(1, self.GATE):
+            for on_disk in (False, True):
+                with self.subTest(v=v, on_disk=on_disk):
+                    root, manifest = self.tree_with(v, listed=False, on_disk=on_disk)
+                    self.assertEqual(self.check(manifest, root), [])
+
+    def test_a_manifest_from_the_gate_that_lists_no_matcher_fails_even_with_the_file_on_disk(self):
+        for v in (self.GATE, self.GATE + 1, 99):
+            for on_disk in (False, True):
+                with self.subTest(v=v, on_disk=on_disk):
+                    root, manifest = self.tree_with(v, listed=False, on_disk=on_disk)
+                    self.fails(root, manifest, f"version {v}", "exactly one recipient_matcher file", "it lists 0")
+
+    def test_a_manifest_that_lists_the_matcher_passes_at_every_version(self):
+        for v in (1, 4, self.GATE, self.GATE + 1):
+            with self.subTest(v):
+                root, manifest = self.tree_with(v, listed=True)
+                self.assertEqual(self.check(manifest, root), [])
+
+    def test_two_matcher_files_fail_at_every_version_and_a_second_beside_the_pinned_one_is_unlisted(self):
+        for v in (1, self.GATE):
+            with self.subTest(v):
+                root, manifest = self.tree_with(v, listed=True)
+                other = root / "fintech/lexicons/recipient_matcher.other.json"
+                shutil.copyfile(root / MATCHER, other)
+                self.edit(root, manifest, lambda d: d["files"].append({"kind": "recipient_matcher", "path": "fintech/lexicons/recipient_matcher.other.json", "sha256": sha256(other)}))
+                self.fails(root, manifest, "recipient_matcher file", "it lists 2")
+        root, manifest = self.tree_with(self.GATE, listed=True)
+        shutil.copyfile(root / MATCHER, root / "fintech/lexicons/recipient_matcher.v2.json")
+        self.fails(root, manifest, "recipient_matcher.v2.json", "not listed")
+
+    def test_another_lexicon_beside_the_matcher_is_not_a_matcher(self):
+        root, manifest = self.tree_with(self.GATE, listed=True)
+        (root / "fintech/lexicons/fin.lex.en_ng.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(self.check(manifest, root), [])
+
+
 class InjectionGate(Base):
     """A664 (interim; the A579 pattern): the injection patterns are required from manifest version 4 and optional below it. A manifest below the gate that lists none still passes; one from the gate
     that lists none fails; the id and the file go together at every version; the rule is none or one below the gate and exactly one from it."""
@@ -681,8 +807,8 @@ class InjectionGate(Base):
 class IdMatch(Base):
     def test_an_expected_id_that_is_not_the_files_id_fails(self):
         cases = (
-            ("evidence_mapping_id", "fin.map.v2@1", "fin.map.v1@2"),
-            ("evidence_mapping_id", "fin.map.v1@1", "fin.map.v1@2"),
+            ("evidence_mapping_id", "fin.map.v2@1", "fin.map.v1@3"),
+            ("evidence_mapping_id", "fin.map.v1@1", "fin.map.v1@3"),
             ("recon_rule_set_id", "fin.recon.rules@2", "fin.recon.rules@1"),
             ("recon_rule_set_id", "fin.recon.other@1", "fin.recon.rules@1"),
         )
@@ -722,7 +848,7 @@ class IdMatch(Base):
                 self.edit(root, manifest, lambda d, k=kind, r=rel: entry(d, k).__setitem__("sha256", sha256(root / r)))
                 problems = self.check(manifest, root)
                 self.assertEqual(len(problems), 1, problems)
-                self.assertIn("@2", problems[0][1])
+                self.assertIn(f"@{doc['version']}", problems[0][1])  # the new version, which is the mapping's 4 and the rule set's 2
 
     def test_the_mappings_own_rule_set_reference_must_be_the_expected_rule_set(self):
         # fin.map.v1 says which rule set it feeds; that must be the rule set the manifest expects (one rule set in the pack).

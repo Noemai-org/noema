@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -96,9 +95,9 @@ func buildRecorder(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSo
 	if records == nil {
 		return nil, nil, errors.New("cmd/core: the orchestrator's Recorder confirms an input against the Record and needs the Record reader (" + EnvRecordReadDSNDir + ")")
 	}
-	maxActive, err := strconv.Atoi(env.Getenv(EnvOrchestratorKeyMaxActive))
-	if err != nil || maxActive < 1 {
-		return nil, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvOrchestratorKeyMaxActive)
+	maxActive, err := parseKeyOverlap(EnvOrchestratorKeyMaxActive, env.Getenv(EnvOrchestratorKeyMaxActive))
+	if err != nil {
+		return nil, nil, err
 	}
 	ring, err := signing.LoadRing(orchestratorIdentity, env.Getenv(EnvOrchestratorKeyDir), signing.Options{MaxActive: maxActive}) // its errors never repeat a key's contents
 	if err != nil {

@@ -17,7 +17,7 @@ from benchmark.oracle_client.transport import HttpError, TransportError
 
 from .api import NotSettled
 from .control import PlanRejected
-from .drivers import driven, split_events
+from .drivers import driven, misplaced_at_start, split_events
 from .env import EnvironmentUnavailable, RunEnv
 from .faultplan import CLOCK_START, split_plan
 from .evidence import ALLOWED_ROLE as AUDIT_ROLE, probe_principal
@@ -73,9 +73,24 @@ def _kill_switch(env: RunEnv, case: Json, argument: str) -> None:
     env.api.kill_switch(env.admin_token, env.tenant_id, argument == "on", f"benchmark case {case['case_id']}")
 
 
-def _drive(env: RunEnv, token: str, case: Json, events: list[tuple[str, str]], conv: Any) -> None:
+def _webhook(env: RunEnv, case: Json, argument: str) -> None:
+    """Delivers one webhook event through the environment's sender, once (A667). Any failure is the case's ERROR, naming the class of the failure and never its text (a sender may hold a secret)."""
+    assert env.webhooks is not None  # `driven` admitted the kind only because a sender is configured
+    try:
+        env.webhooks.deliver(case["case_id"], argument)
+    except Exception as error:  # noqa: BLE001 (every failure of a delivery is a failed case, never a skipped event)
+        raise CaseError("WEBHOOK_DELIVERY_FAILED", f"webhook:{argument} was not delivered ({error.__class__.__name__})") from None
+
+
+def _drive(env: RunEnv, token: str, case: Json, events: list[tuple[str, str]], conv: Any) -> str:
+    """Drives the events after the first input, in timeline order, and returns the token the later turns travel with (a resume obtains a new one)."""
     for kind, argument in events:
-        if kind == "clock_advance":
+        if kind == "webhook":
+            _webhook(env, case, argument)
+        elif kind == "session_resume":
+            principal = case["principal"]
+            token = env.sessions.token_for(principal["principal_id"], principal["roles"])  # the customer returns: the same principal, asked for again; the conversation and the channel are the same
+        elif kind == "clock_advance":
             env.control.advance(argument)
         elif kind == "confirm":
             found = env.api.confirmation_id(env.api.events(token, conv.conversation_ref, timeout_s=env.settle_timeout_s))
@@ -85,6 +100,7 @@ def _drive(env: RunEnv, token: str, case: Json, events: list[tuple[str, str]], c
         elif kind == "kill_switch":
             _kill_switch(env, case, argument)
         env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
+    return token
 
 
 class _Turns:
@@ -98,9 +114,12 @@ class _Turns:
 def _execute(env: RunEnv, lc: LoadedCase, turns: _Turns) -> Json:
     case = lc.case
     started = env.now()
-    undriven = [e for e in case["events_timeline"] if not driven(e["event"])]
+    undriven = [e for e in case["events_timeline"] if not driven(e["event"], webhooks=env.webhooks is not None)]
     if undriven:
         raise CaseError("EVENT_KIND_UNSUPPORTED", "no driver for: " + ", ".join(sorted({e["event"] if e["event"].startswith("needs_fault:") else e["event"].split(":")[0] for e in undriven})))
+    misplaced = misplaced_at_start(case)
+    if misplaced:
+        raise CaseError("EVENT_AT_START_UNSUPPORTED", f"{', '.join(misplaced)} is driven after the first input; at the start of the timeline only a kill switch and a clock advance are")
     split = split_plan(case, lc.plan)
     if split.unsupported:
         raise CaseError("FAULT_UNSUPPORTED", "; ".join(split.unsupported)[:290])
@@ -121,11 +140,13 @@ def _execute(env: RunEnv, lc: LoadedCase, turns: _Turns) -> Json:
             _kill_switch(env, case, argument)
         elif kind == "clock_advance":
             env.control.advance(argument)
+        else:
+            raise CaseError("EVENT_AT_START_UNSUPPORTED", f"{kind} is driven after the first input; at the start of the timeline only a kill switch and a clock advance are")
     turns.sent += 1  # counted when the request is sent: a timeout can come after the core received it (Codex review of noema#112)
     conv = env.api.start(token, f"{case['case_id']}-t1", texts[0], locale_hint=locale)
     env.correlations[case["case_id"]] = conv.correlation_id
     env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
-    _drive(env, token, case, after, conv)
+    token = _drive(env, token, case, after, conv)
     for number, text in enumerate(texts[1:], start=2):
         turns.sent += 1
         env.api.message(token, conv.conversation_ref, f"{case['case_id']}-t{number}", text=text)

@@ -37,10 +37,10 @@ type ConfirmationRequests interface {
 
 // ConfirmationAnswerInput is an approver's answer with the identity the session gave (INV-12); At is Unix seconds from the core's clock. It mirrors the store's AnswerInput.
 type ConfirmationAnswerInput struct {
-	TenantID, RequestID, ApproverID string
-	Roles                           []string
-	Response                        confirm.Response
-	At                              int64
+	TenantID, RequestID, ApproverID, ApproverKind string
+	Roles                                         []string
+	Response                                      confirm.Response
+	At                                            int64
 }
 
 // ErrConfirmationAnswered: the request was answered before, differently or by another approver (first answer wins). The store adapter maps its own conflict to it.
@@ -194,7 +194,7 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 			return
 		}
 		// The store records the answer and appends CONFIRMATION_RECEIVED in one transaction (PERD 32.4: the Record first); the route appends nothing itself. First answer wins.
-		_, err = c.Answers.Answer(ctx, ConfirmationAnswerInput{TenantID: p.Tenant, RequestID: pathID, ApproverID: p.ID, Roles: []string{string(p.Role)}, Response: ans.Response, At: at})
+		_, err = c.Answers.Answer(ctx, ConfirmationAnswerInput{TenantID: p.Tenant, RequestID: pathID, ApproverID: p.ID, ApproverKind: string(p.Role), Roles: []string{string(p.Role)}, Response: ans.Response, At: at})
 		switch {
 		case errors.Is(err, ErrConfirmationExpired): // the request expired between the read and the store (A368 (iv)); nothing was recorded
 			c.logRefusal(ctx, msgRefusedExpired, outcomeExpired, p.Tenant, pathID, p.ID)

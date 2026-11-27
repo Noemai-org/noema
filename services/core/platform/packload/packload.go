@@ -32,7 +32,9 @@ type Pack struct {
 	EvidenceMapping []byte
 	ReconRules      []byte
 	// PriorityRouting is the verified bytes of the priority routing member (PCK-09), nil when the manifest lists none.
-	PriorityRouting   []byte
+	PriorityRouting []byte
+	// RecipientMatcher is the verified bytes of the recipient matcher's data (A710), nil when the manifest below version 5 lists none. The matcher is built from these bytes and never from a second read.
+	RecipientMatcher  []byte
 	EvidenceMappingID string
 	ReconRuleSetID    string
 	// ActionGraphs holds the verified bytes of each action graph the pack names (A510), by the path the manifest pins. A graph that is not pinned is never here.
@@ -60,7 +62,7 @@ var (
 	ErrGraph    = errors.New("packload: the action graphs the pack names are not the ones the manifest pins")
 )
 
-// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`, `limits`, `injection_patterns` or `priority_routing`), never a path, a digest or content.
+// Error is a refusal. Err is one of the kinds above; Kind names what was refused from a closed set (`manifest`, `pack`, `evidence_mapping`, `recon_rules`, `action_graph`, `limits`, `injection_patterns`, `priority_routing` or `recipient_matcher`), never a path, a digest or content.
 type Error struct {
 	Err  error
 	Kind string
@@ -86,12 +88,15 @@ const (
 	kindLimits   = "limits"
 	kindPatterns = "injection_patterns"
 	kindPriority = "priority_routing"
+	kindMatcher  = "recipient_matcher"
 
 	// limitsFromVersion is the first manifest version that must list the limits files (A579, interim).
 	limitsFromVersion = 3
 	// patternsFromVersion is the first manifest version that must list the injection patterns (A664, interim; the A579 pattern, the version after the limits files' 3).
 	patternsFromVersion = 4
-	kindManifest        = "manifest"
+	// matcherFromVersion is the first manifest version that must list the recipient matcher's data (A710, A695, OD-P-117; the A579 and A664 pattern, the version after the patterns' 4).
+	matcherFromVersion = 5
+	kindManifest       = "manifest"
 )
 
 var (
@@ -185,7 +190,7 @@ func Load(dir, manifest string, maxBytes int64) (Pack, error) {
 			return Pack{}, err
 		}
 	}
-	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules], PriorityRouting: bytesOf[kindPriority],
+	p := Pack{Pack: bytesOf[kindPack], EvidenceMapping: bytesOf[kindMapping], ReconRules: bytesOf[kindRules], PriorityRouting: bytesOf[kindPriority], RecipientMatcher: bytesOf[kindMatcher],
 		EvidenceMappingID: *doc.Expected.MappingID, ReconRuleSetID: *doc.Expected.RulesID}
 	if err := checkIDs(p); err != nil {
 		return Pack{}, err
@@ -241,7 +246,7 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		if f.Kind == nil || f.Path == nil || f.Sha256 == nil || !digestRe.MatchString(*f.Sha256) {
 			return manifestDoc{}, bad
 		}
-		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindLimits && k != kindPatterns && k != kindPriority {
+		if k := *f.Kind; k != kindPack && k != kindMapping && k != kindRules && k != kindGraph && k != kindLimits && k != kindPatterns && k != kindPriority && k != kindMatcher {
 			return manifestDoc{}, bad
 		}
 		perKind[*f.Kind]++
@@ -263,6 +268,10 @@ func decodeManifest(raw []byte) (manifestDoc, error) {
 		return manifestDoc{}, bad
 	}
 	if id := doc.Expected.PatternsID; id != nil && (!idRe.MatchString(*id) || len(*id) > maxIDLen) {
+		return manifestDoc{}, bad
+	}
+	// A710 (A695, OD-P-117; the same pattern): the recipient matcher's data is listed exactly once from manifest version matcherFromVersion and none or once below it. There is no opt-in for a gated version.
+	if n := perKind[kindMatcher]; n > 1 || (*doc.Version >= matcherFromVersion && n != 1) {
 		return manifestDoc{}, bad
 	}
 	return doc, nil
@@ -354,6 +363,12 @@ func noUnlisted(root *os.Root, rel, kind string, listed map[string]bool) error {
 		}, false)
 	}
 	ext := path.Ext(name)
+	if kind == kindMatcher {
+		// A710: the matcher's data sits among other files of its kind of folder (the pack's other lexicons), so a second matcher is a second file of the listed file's own name stem in that folder: the stem is
+		// read from the listed file, and the core names no file.
+		stem := strings.TrimSuffix(name, ext)
+		return scan(root, dir, dir+"/", kind, listed, func(entry string) bool { return path.Ext(entry) == ext && strings.HasPrefix(entry, stem) }, false)
+	}
 	return scan(root, dir, dir+"/", kind, listed, func(entry string) bool { return path.Ext(entry) == ext }, true)
 }
 

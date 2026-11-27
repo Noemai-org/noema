@@ -368,3 +368,32 @@ func ruleSetWithWindows(t *testing.T, windows map[string]int64) *reconcile.RuleS
 	}
 	return rs
 }
+
+// A708 (REQ-RES-005): a version 2 rule set may declare a window of zero on every pair and field. The loader accepts it and it behaves as no lag allowed (SYNTHETIC test value).
+func TestA708AVersion2RuleSetWithEveryWindowZeroLoadsAndAllowsNoLag(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "fixtures", "valid", "recon-rule-set", "fin_version_2_window_zero.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, section := range []string{"incompatible", "single_valued"} {
+		for _, e := range doc[section].([]any) {
+			e.(map[string]any)["convergence_window_seconds"] = int64(0)
+		}
+	}
+	out, _ := json.Marshal(doc)
+	rs, err := reconcile.ParseRuleSet(out)
+	if err != nil {
+		t.Fatalf("a version 2 rule set with every window 0 must load: %v", err)
+	}
+	res, err := reconcile.Reconcile(rs, pair(), creditAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Classification != reconcile.ContradictoryState || res.Wait != nil {
+		t.Errorf("window 0 allows no lag: want CONTRADICTORY_STATE at once, got %s wait=%+v", res.Classification, res.Wait)
+	}
+}

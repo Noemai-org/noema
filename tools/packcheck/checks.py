@@ -317,7 +317,7 @@ def check_write_when_link(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
 
 def check_recon_rules(doc: object) -> list[Problem]:
     """A659 (interim, relayed, not yet committed; REQ-RES-005): the pack's rules file is a `recon-rule-set.v1` document. From version 2 each compared pair and each single-valued field
-    declares `convergence_window_seconds` (at least 1); version 1 declares none. A message names the place and the rule, never a value of the document. That a window equals the smaller
+    declares `convergence_window_seconds` (at least 0, A708); version 1 declares none. A message names the place and the rule, never a value of the document. That a window equals the smaller
     freshness limit of its pair (A641) is not checked here: it needs the evidence mapping's entity-to-source link."""
     schemas = validate.load_schemas()
     errs = validate.validator_for("recon-rule-set", schemas, validate.make_registry(schemas)).iter_errors(doc)
@@ -724,6 +724,7 @@ MANIFEST_KINDS = {
     "recon_rules": ("fintech/recon_rules", "*.json"),
     "action_graph": ("fintech/graph", "*.json"),  # A510
     "limits": ("fintech/limits", "*.json"),  # A544: every limits file of the folder is pinned
+    "recipient_matcher": ("fintech/lexicons", "recipient_matcher*.json"),  # A710: exactly one from manifest version 5, none or one below it; the folder also holds the pack's other lexicons, so only a file of the matcher's own name stem is of this kind
     "injection_patterns": ("fintech/context", "*.json"),  # A645, A664: exactly one from manifest version 4, none or one below it, always with its expected id
     "priority_routing": ("fintech/routing", "*.json"),  # PCK-09, A644: at most one
 }
@@ -733,6 +734,7 @@ MANIFEST_KINDS = {
 SINGLE_KINDS = ("pack", "evidence_mapping", "recon_rules")
 # `limits` is listed once for each file of the pack's limits folder (A544) and may be listed for none: the kind is additive.
 MANIFEST_INJECTION_FROM_VERSION = 4  # A664 (interim): the first manifest version that must list the injection patterns
+MANIFEST_MATCHER_FROM_VERSION = 5  # A710 (A695, OD-P-117): the first manifest version that must list the recipient matcher's data
 # `priority_routing` is listed at most once (PCK-09, A644); the pack that lists it is held to its schema and to the pack's own phases and queues.
 OPTIONAL_KINDS = ("priority_routing",)
 PRIORITY_ROUTING_SCHEMA = ROOT / "packs/schemas/priority_routing.v1.json"
@@ -799,6 +801,22 @@ def _graph_set_problems(pinned: list[dict], pack_file: Path | None) -> list[Prob
 MANIFEST_LIMITS_FROM_VERSION = 3  # A579 (interim): the first manifest version that must list the limits files
 
 
+def _matcher_problems(doc) -> list[Problem]:
+    """A710 (the A579 and A664 pattern): from manifest version MANIFEST_MATCHER_FROM_VERSION the manifest lists exactly one `recipient_matcher` file; below it none or one; never two. A manifest below the gate
+    that lists none carries no matcher data, and the core then builds no matcher from the pack. The schema says the same; this names the version and the rule."""
+    if not isinstance(doc, dict):
+        return []
+    version, files = doc.get("version"), doc.get("files")
+    if not isinstance(version, int) or isinstance(version, bool) or not isinstance(files, list):
+        return []  # the schema names these
+    listed = sum(1 for f in files if isinstance(f, dict) and f.get("kind") == "recipient_matcher")
+    if version >= MANIFEST_MATCHER_FROM_VERSION and listed != 1:
+        return [("manifest", f"a manifest of version {version} must list exactly one recipient_matcher file (A710); it lists {listed}")]
+    if version < MANIFEST_MATCHER_FROM_VERSION and listed > 1:
+        return [("manifest", f"a manifest of version {version} lists none or one recipient_matcher file (A710); it lists {listed}")]
+    return []
+
+
 def _injection_problems(doc) -> list[Problem]:
     """A664 (interim; the A579 pattern): from manifest version MANIFEST_INJECTION_FROM_VERSION the manifest lists exactly one `injection_patterns` file and names `expected.injection_patterns_id`; below it
     both may be absent. The file and its id go together at every version, and no manifest lists two files of the kind. A manifest below the gate that lists none carries no pattern data, and the core then
@@ -850,6 +868,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
         out.append(("manifest", f"a manifest of version {version} must list its limits files (A579); it lists none"))
         named.add(("files",))
     out += _injection_problems(doc)
+    out += _matcher_problems(doc)
     errs = sorted(validate.StrictValidator(validate.load_strict(MANIFEST_SCHEMA)).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
     errs = [e for e in errs if tuple(map(str, e.absolute_path)) not in named]
     if errs or out:
@@ -900,6 +919,8 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             continue
         if kind == "injection_patterns" and not by_kind[kind] and doc["version"] < MANIFEST_INJECTION_FROM_VERSION:
             continue  # A664: a manifest below the gate that lists none carries no pattern data; the loader serves nothing it does not pin and does not scan for the kind either
+        if kind == "recipient_matcher" and not by_kind[kind] and doc["version"] < MANIFEST_MATCHER_FROM_VERSION:
+            continue  # A710: a manifest below the gate that lists none carries no matcher data; the loader serves nothing it does not pin
         for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
             if folder == "":
                 dirnames[:] = []  # the pack folder itself: only its own files, not the whole tree
@@ -937,8 +958,45 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             out += [("manifest", f"{rel} is not a valid rule set: {m}") for _, m in check_recon_rules(body)]
         if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
             out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
+        if kind == "evidence_mapping" and isinstance(body, dict):
+            out += [("manifest", f"{rel} {m}") for m in _target_version_problems(body, readable.get("pack"))]
     out += _priority_routing_problems(readable.get("priority_routing"), readable.get("pack"), root)
     return out
+
+
+def _target_version_problems(mapping: dict, pack_file: Path | None) -> list[str]:
+    """EXP-01 (A556, A706, A710): the optional `target_versions` member of the evidence mapping is checked the way the Go loader checks it (trust/reconcile/mapping): a non-empty list of
+    `{source, token, complete}`, each a non-empty text, the marker not the token, no other member, one declaration per source, and every source one of the pack's evidence sources."""
+    if "target_versions" not in mapping:
+        return []
+    decls = mapping["target_versions"]
+    if not isinstance(decls, list) or not decls:
+        return ["target_versions must be a non-empty list of declarations"]
+    sources: set[str] | None = None
+    if pack_file is not None:
+        try:
+            pack = json.loads(pack_file.read_text(encoding="utf-8"))
+            sources = {e["source_id"] for e in pack.get("evidence_sources", []) if isinstance(e, dict) and isinstance(e.get("source_id"), str)}
+        except (ValueError, UnicodeDecodeError, OSError, AttributeError):
+            sources = None
+    problems: list[str] = []
+    seen: set[str] = set()
+    for i, d in enumerate(decls):
+        where = f"target_versions[{i}]"
+        if not isinstance(d, dict) or set(d) != {"source", "token", "complete"}:
+            problems.append(f"{where} must be an object with exactly source, token and complete")
+            continue
+        if not all(isinstance(d[k], str) and d[k] for k in ("source", "token", "complete")):
+            problems.append(f"{where} must name a source, a token member and a complete member as non-empty text")
+            continue
+        if d["token"] == d["complete"]:
+            problems.append(f"{where}: the complete marker must be a member other than the token")
+        if d["source"] in seen:
+            problems.append(f"{where}: the source {d['source']} is declared twice")
+        seen.add(d["source"])
+        if sources is not None and d["source"] not in sources:
+            problems.append(f"{where}: the source {d['source']} is not an evidence source of the pack")
+    return problems
 
 
 def _priority_routing_problems(member: Path | None, pack_file: Path | None, root: Path) -> list[Problem]:
