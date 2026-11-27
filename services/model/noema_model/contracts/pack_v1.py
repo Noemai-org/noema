@@ -28,7 +28,7 @@ class PackV1OutcomeBinding(ContractModel):
     model_config = ConfigDict(extra="forbid")
     capability_id: CommonV1PackId
     outcome_id: CommonV1PackId
-    variables: dict[str, Annotated[str, StringConstraints(pattern='\\A(INTENT_ID|SUBJECT|PLAN_PARAM:[a-z][a-z0-9_]*)\\Z')]]
+    variables: dict[str, Annotated[str, StringConstraints(pattern='\\A(INTENT_ID|SUBJECT|EPOCH|PLAN_PARAM:[a-z][a-z0-9_]*)\\Z')]]
     retry_safety: EnumsV1RetrySafety
 
 

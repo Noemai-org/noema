@@ -2358,7 +2358,8 @@
       "capability_id": "fin.cap.log_complaint_reference",
       "outcome_id": "fin.outcome.exception.complaint_logged",
       "variables": {
-        "subject_resource": "SUBJECT"
+        "subject_resource": "SUBJECT",
+        "logical_resolution_epoch": "EPOCH"
       },
       "retry_safety": "QUERYABLE_BY_KEY"
     }
