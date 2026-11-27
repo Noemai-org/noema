@@ -7,7 +7,7 @@ type Props = { onPcm?: (bytes: Uint8Array) => void; maxRecordingMs?: number };
 
 // No sink means no capture; the host integrates voice only when it exists.
 export function PushToTalk({ onPcm, maxRecordingMs }: Props) {
-  const recordingLimitMs = Number.isSafeInteger(maxRecordingMs) && maxRecordingMs > 0
+  const recordingLimitMs = typeof maxRecordingMs === "number" && Number.isSafeInteger(maxRecordingMs) && maxRecordingMs > 0
     ? Math.min(maxRecordingMs, MAX_PUSH_TO_TALK_RECORDING_MS)
     : 0;
   const controller = useRef<AbortController | null>(null);
