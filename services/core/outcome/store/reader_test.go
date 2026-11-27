@@ -30,8 +30,10 @@ const (
 // seedFacts plants a decision, a grant that names a capability and a plan hash, its spend and a signed receipt carrying stepParams (nil: the member is absent).
 func (w *world) seedFacts(t *testing.T, tenantID, grant, receipt string, stepParams map[string]any) {
 	t.Helper()
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'T') ON CONFLICT DO NOTHING`, tenantID); err != nil {
+		t.Fatalf("seed the tenant: %v", err)
+	}
 	for _, q := range []string{
-		`INSERT INTO tenant (tenant_id, name) VALUES ($1, 'T') ON CONFLICT DO NOTHING`,
 		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ('dec_' || $2::text, $1, jsonb_build_object('decision_id', 'dec_' || $2::text, 'tenant_id', $1::text, 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k', 'value', 's')) || ` + testpg.BoundFieldsSQL + `, 'ALLOW', '` + testpg.FixtureIntentHash + `', '[]', 'k', 's')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		  VALUES ($2, $1, 'dec_' || $2::text, 'n_' || $2, jsonb_build_object('correlation_id', 'corr_abc123', 'principal_id', 'usr_100', 'decision_id', 'dec_' || $2::text, 'tenant_id', $1::text,
