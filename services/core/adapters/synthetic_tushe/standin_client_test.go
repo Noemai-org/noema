@@ -544,3 +544,27 @@ func TestTheDefaultHTTPClientOpensANewConnectionForEveryCall(t *testing.T) {
 		t.Errorf("the client opened %d connections for two calls, want 2 (no keep-alive)", opened)
 	}
 }
+
+type notATransport struct{}
+
+func (notATransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("not used")
+}
+
+// SR (A761): the default transport is built explicitly, with no type assertion on http.DefaultTransport: a process that replaced the default transport (a tracing or test round tripper) must not
+// make the constructor panic, and the client it builds still opens a new connection for every call.
+func TestTheDefaultClientDoesNotAssumeTheShapeOfTheProcessWideTransport(t *testing.T) {
+	saved := http.DefaultTransport
+	http.DefaultTransport = notATransport{}
+	t.Cleanup(func() { http.DefaultTransport = saved })
+	f := newFakeStandin(t)
+	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, ledgerBody)
+	c := newStandinClient(t, f) // panicked on the unchecked assertion
+	if _, err := c.LedgerEntries(sdl(t, 5*time.Second), sScope, "tx:1"); err != nil {
+		t.Fatalf("the read failed: %v", err)
+	}
+	tr, ok := c.http.Transport.(*http.Transport)
+	if !ok || !tr.DisableKeepAlives {
+		t.Errorf("the default client's transport is %T (keep-alive disabled: %v), want an explicit *http.Transport with DisableKeepAlives", c.http.Transport, ok && tr.DisableKeepAlives)
+	}
+}
