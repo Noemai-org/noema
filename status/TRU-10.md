@@ -65,3 +65,16 @@ State: built locally on `prep/tru10-linkage` (two commits, not pushed, no PR). O
 - Exact next step: BO's US-06 expected events can list `disposition_decision_id` on the action decision's DECISION item; EL's escalation path (noema#733's branch) records the disposition first.
 - Files to read first: `trust/recorder/recorder.go` (DECISION_MADE payload), `record/reconstruct/project.go`, `contracts/README.md` (the A503 note).
 - Do not touch: `reconstruction.v1.json` and `reconstruction.v2.json` (pinned by a test).
+
+# Session 2026-11-27 · TRU-10 · A680 (C1, interim, relayed): a T1 to T9 refusal is a Decision Record
+
+## Session summary
+- What changed: a REJECT reached before the evidence and the policy were evaluated (a refusal at T1 to T9, from `decide.FailAtGate` or a step) is recorded through the Recorder before it is returned, in the null-basis form keyed by the turn and the verified principal (A574, A581, A590): `trust/intake` (`recordRefusal` in `run`), the Recorder adapter (`early` covers REJECT) and the Writer (`checkEarly` covers REJECT). The result carries the decision ID. Migration 0043 (#1021) allows a turn on a REJECT as well as an ESCALATE (A745: it must not forbid what A680 records).
+- Why: A680 (C1 records a T1 to T9 refusal as a Decision Record; C2 then tightens the test to exactly one record).
+- Reading taken (the safer one, listed for the Architect): (1) a request that names no well-formed turn is refused as before and records nothing, because it cannot be keyed (an ESCALATE with no turn becomes UNKNOWN, a REJECT stays a REJECT: turning every unkeyed refusal into UNKNOWN would flip the many existing refusals); (2) a refusal with no admitted intent (T1 on a malformed intent reference) cannot be keyed and records nothing; (3) a REJECT with a complete basis (T11) and the declined approval of T13 are not this path; (4) an UNKNOWN (T3, writes disabled) is not recorded.
+- Tests changed: two tests that encoded the old rule (a null-basis REJECT with a turn refused with ErrNoEvaluatedBasis; a refusal before any read with no turn refused with ErrNoEvaluatedBasis) now assert the new rule (the REJECT is the early form; with no turn it is ErrRequest); a stricter case was added (a REJECT with a complete basis that names a turn is ErrRequest).
+- Tests added (REQ-TRU-002, REQ-TRU-007; INV-16, INV-21, INV-25; EC-E16): `early_reject_test.go` in `trust/recorder` (real PostgreSQL) and `trust/intake`, `recorder_early_test.go` in the adapter. Regression cases: the red at `e218e89d3`. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 tightens UND-07 to exactly one record per refusal; the composition must pass the turn into the intake request for the real edge.
+- Do not touch: migration 0040 and 0043 (#1021).

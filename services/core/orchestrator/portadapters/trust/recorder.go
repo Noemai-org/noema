@@ -205,9 +205,9 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	}
 	// A663, A581, A590 (interim, relayed): an ESCALATE whose basis is incomplete has no sealed snapshot and no policy to take facts from. It is recorded with its basis null and keyed by the
 	// turn and the verified principal; the facts are not asked. Only such an ESCALATE names a turn, and it must (a well-formed one), or nothing is opened.
-	early := r.Decision.Outcome() == decide.Escalate && !r.Decision.HasCompleteBasis()
+	early := (r.Decision.Outcome() == decide.Escalate || r.Decision.Outcome() == decide.Reject) && !r.Decision.HasCompleteBasis()
 	if r.TurnID != "" && !early || early && !recTurnRe.MatchString(r.TurnID) {
-		return recorder.Request{}, fmt.Errorf("%w: only an early ESCALATE names a turn, and it names a well-formed one", ErrRecordRequest)
+		return recorder.Request{}, fmt.Errorf("%w: only an early ESCALATE or REJECT names a turn, and it names a well-formed one", ErrRecordRequest)
 	}
 	if early {
 		return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), Decision: r.Decision, Evaluated: r.Evaluated,

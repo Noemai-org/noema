@@ -374,8 +374,9 @@ func TestRequestsTheWriterCannotHonourAreRefusedBeforeAnythingIsWritten(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.w.Write(ctx(t), tx, request(t, refusal, early)); !errors.Is(err, recorder.ErrNoEvaluatedBasis) {
-		t.Errorf("a refusal before any read: %v", err)
+	// A680: a refusal before any read is the early REJECT, which needs its turn and principal (early_reject_test.go); with none the request is refused.
+	if _, err := w.w.Write(ctx(t), tx, request(t, refusal, early)); !errors.Is(err, recorder.ErrRequest) {
+		t.Errorf("a refusal before any read with no turn: %v", err)
 	}
 }
 

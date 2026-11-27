@@ -445,14 +445,14 @@ func (w *Writer) check(r Request) (decide.Basis, string, bool, error) {
 	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" && !hashRe.MatchString(string(r.ConfirmationBindingEvidenceHash)) {
 		return decide.Basis{}, "", false, fmt.Errorf("%w: an ALLOW after a confirmation names no well-formed evidence value of its binding", ErrRequest)
 	}
-	if d.Outcome() == decide.Escalate && !d.HasCompleteBasis() {
+	if (d.Outcome() == decide.Escalate || d.Outcome() == decide.Reject) && !d.HasCompleteBasis() {
 		return w.checkEarly(r)
 	}
 	if !d.HasCompleteBasis() {
 		return decide.Basis{}, "", false, ErrNoEvaluatedBasis
 	}
 	if r.TurnID != "" || r.TurnPrincipalID != "" {
-		return decide.Basis{}, "", false, fmt.Errorf("%w: only an early ESCALATE names a turn and a principal", ErrRequest)
+		return decide.Basis{}, "", false, fmt.Errorf("%w: only an early ESCALATE or REJECT names a turn and a principal", ErrRequest)
 	}
 	if err := r.Evaluated.Check(d); err != nil {
 		return decide.Basis{}, "", false, err
@@ -485,10 +485,10 @@ func (w *Writer) check(r Request) (decide.Basis, string, bool, error) {
 // confirmation request and no disposition (it has no step and no grant), and its evaluated set must still be the one the decision holds (TRU-13). It binds no policy and holds no snapshot.
 func (w *Writer) checkEarly(r Request) (decide.Basis, string, bool, error) {
 	if !turnRe.MatchString(r.TurnID) || !principalRe.MatchString(r.TurnPrincipalID) {
-		return decide.Basis{}, "", false, fmt.Errorf("%w: an early ESCALATE names the turn and the verified principal in their contract forms", ErrRequest)
+		return decide.Basis{}, "", false, fmt.Errorf("%w: an early ESCALATE or REJECT names the turn and the verified principal in their contract forms", ErrRequest)
 	}
 	if r.ConfirmationRequest != nil || r.ConfirmationEventID != "" || r.DispositionDecisionID != "" {
-		return decide.Basis{}, "", false, fmt.Errorf("%w: an early ESCALATE names no confirmation and no disposition", ErrRequest)
+		return decide.Basis{}, "", false, fmt.Errorf("%w: an early ESCALATE or REJECT names no confirmation and no disposition", ErrRequest)
 	}
 	if err := r.Evaluated.Check(r.Decision); err != nil {
 		return decide.Basis{}, "", false, err
