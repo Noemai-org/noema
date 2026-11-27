@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/adapters"
@@ -216,13 +217,17 @@ func (r *Reader) ledger(ctx context.Context, scope adapters.Scope, ref string, o
 	rows := make([]any, 0, len(entries))
 	determinate := len(entries) > 0 // an empty ledger is an absence, never a fact (INV-19)
 	var latest time.Time
-	for _, e := range entries {
+	var maxVersion int64
+	for i, e := range entries {
 		at, perr := time.Parse(time.RFC3339, e.PostedAt)
 		if perr != nil || e.Validate() != nil {
 			return r.malformed(o, got.Provenance)
 		}
 		if at.After(latest) {
 			latest = at
+		}
+		if i == 0 || e.Version > maxVersion {
+			maxVersion = e.Version
 		}
 		if e.PostingStatus == adapters.PostingPending {
 			determinate = false // a pending posting can still change
@@ -233,7 +238,11 @@ func (r *Reader) ledger(ctx context.Context, scope adapters.Scope, ref string, o
 	if latest.IsZero() {
 		latest = r.Clock.Now()
 	}
-	return r.answered(o, got.Provenance, latest, determinate, map[string]any{"transaction_ref": ref, "entries": rows})
+	payload := map[string]any{"transaction_ref": ref, "entries": rows, "complete": true} // the read answered and was not unavailable (A706)
+	if len(entries) > 0 {
+		payload["version_token"] = strconv.FormatInt(maxVersion, 10) // the maximum entry version; an empty ledger has no token (A706, INV-19)
+	}
+	return r.answered(o, got.Provenance, latest, determinate, payload)
 }
 
 func (r *Reader) switchRead(ctx context.Context, scope adapters.Scope, ref string, o layer.Observation) layer.Observation {
