@@ -447,7 +447,7 @@ func TestAnIdOtherThanTheManifestsIsRefusedAtStartup(t *testing.T) {
 	rec := undFakeRecorder(t, "ten_aa")
 	for name, edit := range map[string]func(exp map[string]any){
 		"the mapping":  func(exp map[string]any) { exp["evidence_mapping_id"] = "fin.map.v1@4" },
-		"the rule set": func(exp map[string]any) { exp["recon_rule_set_id"] = "fin.recon.rules@2" },
+		"the rule set": func(exp map[string]any) { exp["recon_rule_set_id"] = "fin.recon.rules@3" },
 	} {
 		dir := copyPack(t)
 		man := readJSON(t, filepath.Join(dir, undManifestRel))

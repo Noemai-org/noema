@@ -42,7 +42,7 @@ LIMITS = [
     "fintech/limits/trust_limits.json",
 ]
 INJECTION_ID = "fin.ctx.injection_patterns@2"  # the shipped file's own pack_id@version (A664 round 2: the patterns changed, so the version did)
-EXPECTED = {"evidence_mapping_id": "fin.map.v1@3", "recon_rule_set_id": "fin.recon.rules@1", "injection_patterns_id": INJECTION_ID}
+EXPECTED = {"evidence_mapping_id": "fin.map.v1@3", "recon_rule_set_id": "fin.recon.rules@2", "injection_patterns_id": INJECTION_ID}
 
 
 def sha256(path: Path) -> str:
@@ -401,7 +401,7 @@ class ReconRulesFile(Base):
         doc = json.loads((root / RULES).read_text(encoding="utf-8"))
         doc["version"] = 2
         for e in doc["incompatible"] + doc["single_valued"]:
-            e["convergence_window_seconds"] = 60
+            e["convergence_window_seconds"] = 0  # 0 is no window (A708): always allowed, so this test is about the schema, not the equality
         write(root / RULES, doc)
         self.reseal(root, manifest, "fin.recon.rules@2")
         self.assertEqual(self.check(manifest, root), [])
@@ -809,8 +809,8 @@ class IdMatch(Base):
         cases = (
             ("evidence_mapping_id", "fin.map.v2@1", "fin.map.v1@3"),
             ("evidence_mapping_id", "fin.map.v1@1", "fin.map.v1@3"),
-            ("recon_rule_set_id", "fin.recon.rules@2", "fin.recon.rules@1"),
-            ("recon_rule_set_id", "fin.recon.other@1", "fin.recon.rules@1"),
+            ("recon_rule_set_id", "fin.recon.rules@3", "fin.recon.rules@2"),
+            ("recon_rule_set_id", "fin.recon.other@1", "fin.recon.rules@2"),
         )
         for key, named, carried in cases:
             with self.subTest(named):
@@ -854,12 +854,12 @@ class IdMatch(Base):
         # fin.map.v1 says which rule set it feeds; that must be the rule set the manifest expects (one rule set in the pack).
         root, manifest = self.tree()
         doc = json.loads((root / MAPPING).read_text(encoding="utf-8"))
-        doc["ruleset"] = "fin.recon.rules@2"
+        doc["ruleset"] = "fin.recon.rules@3"
         (root / MAPPING).write_text(json.dumps(doc, indent=2), encoding="utf-8")
         self.edit(root, manifest, lambda d: entry(d, "evidence_mapping").__setitem__("sha256", sha256(root / MAPPING)))
         problems = self.check(manifest, root)
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("fin.recon.rules@2", problems[0][1])
+        self.assertIn("fin.recon.rules@3", problems[0][1])
 
     def test_a_file_without_an_id_or_with_a_bad_version_or_not_json_fails(self):
         for rel, kind, mutate in (
@@ -1070,3 +1070,65 @@ class LimitsRequiredFromVersionThree(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConvergenceWindows(Base):
+    """PCK-05 (A674, A691, A708): from rule set version 2 each compared pair and each single-valued field carries `convergence_window_seconds`. A window of 0 is no window (the safe value, A691):
+    it is always allowed. A window above zero equals the smaller `freshness_sla_seconds` of the entity's sources, which the evidence mapping links (A641); it is SYNTHETIC. The shipped rule set is version 2."""
+
+    def seal(self, root: Path, manifest: Path, rules: dict) -> None:
+        write(root / RULES, rules)
+
+        def fix(doc):
+            entry(doc, "recon_rules")["sha256"] = sha256(root / RULES)
+        self.edit(root, manifest, fix)
+
+    def rules(self, root: Path) -> dict:
+        return json.loads((root / RULES).read_text(encoding="utf-8"))
+
+    def test_the_shipped_rule_set_is_version_2_with_the_windows_of_the_pack(self):
+        r = json.loads((PACKS / RULES).read_text(encoding="utf-8"))
+        self.assertEqual(r["version"], 2)
+        self.assertEqual({m["label"]: m["convergence_window_seconds"] for m in r["incompatible"]},
+                         {"switch_failed_credit_credited": 300, "credit_without_debit": 300, "reversal_conflict": 0, "switch_successful_credit_not_credited": 300})
+        self.assertEqual({(s["entity"], s["field"]): s["convergence_window_seconds"] for s in r["single_valued"]},
+                         {("credit", "state"): 300, ("switch", "state"): 300, ("settlement", "state"): 0, ("reversal", "state"): 0})
+        self.assertEqual(self.check(REAL_MANIFEST, PACKS), [])
+
+    def test_a_window_that_is_not_the_smaller_freshness_of_its_sources_is_refused(self):
+        root, manifest = self.tree()
+        r = self.rules(root)
+        r["incompatible"][0]["convergence_window_seconds"] = 60
+        self.seal(root, manifest, r)
+        self.fails(root, manifest, "switch_failed_credit_credited", "300")
+
+    def test_a_single_valued_window_that_is_not_the_freshness_of_its_source_is_refused(self):
+        root, manifest = self.tree()
+        r = self.rules(root)
+        r["single_valued"][0]["convergence_window_seconds"] = 60
+        self.seal(root, manifest, r)
+        self.fails(root, manifest, "credit", "300")
+
+    def test_a_window_above_zero_for_an_entity_the_mapping_does_not_link_is_refused(self):
+        root, manifest = self.tree()
+        r = self.rules(root)
+        pair = next(m for m in r["incompatible"] if m["label"] == "reversal_conflict")
+        pair["convergence_window_seconds"] = 300
+        self.seal(root, manifest, r)
+        self.fails(root, manifest, "reversal_conflict", "reversal")
+
+    def test_a_window_of_zero_is_always_allowed(self):
+        root, manifest = self.tree()
+        r = self.rules(root)
+        for e in r["incompatible"] + r["single_valued"]:
+            e["convergence_window_seconds"] = 0
+        self.seal(root, manifest, r)
+        self.assertEqual(self.check(manifest, root), [])
+
+    def test_the_rule_set_must_be_labelled_synthetic(self):
+        root, manifest = self.tree()
+        r = self.rules(root)
+        r["label"] = "VALIDATED"
+        self.seal(root, manifest, r)
+        self.fails(root, manifest, "SYNTHETIC")
+
