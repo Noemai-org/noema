@@ -55,3 +55,24 @@ func TestAnInvalidPlanTextBoundStopsTheProcessAndNamesNoValue(t *testing.T) {
 		}
 	}
 }
+
+// SR (A754 round): the bound of a plan text has an upper limit, 4096 bytes: the largest value is accepted and anything above it stops the process, naming the setting and never the value.
+func TestThePlanTextBoundHasAnUpperLimitOf4096(t *testing.T) {
+	in := twIn(t)
+	twEnv(&in, map[string]string{EnvPlanTextMaxBytes: "4096"})
+	w, err := wireTrustInputs(in)
+	if err != nil {
+		t.Fatalf("4096 was refused: %v", err)
+	}
+	if got := w.fill(TrustAdapters{}); got.Planner == nil {
+		t.Error("the Planner was not built at the upper limit")
+	}
+	for _, bad := range []string{"4097", "65536", "1000000"} {
+		in := twIn(t)
+		twEnv(&in, map[string]string{EnvPlanTextMaxBytes: bad})
+		_, err := wireTrustInputs(in)
+		if err == nil || !strings.Contains(err.Error(), EnvPlanTextMaxBytes) || strings.Contains(err.Error(), bad) {
+			t.Errorf("%s=%q: err %v; want a refusal that names the setting and not the value", EnvPlanTextMaxBytes, bad, err)
+		}
+	}
+}
