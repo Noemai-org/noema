@@ -84,7 +84,10 @@ func NewStandinClient(o StandinOptions) (*StandinClient, error) {
 	}
 	hc := o.HTTP
 	if hc == nil {
-		hc = &http.Client{}
+		// A738: no kept-alive connection. One the stand-in closed between runs was reused and read as UNAVAILABLE; every call opens its own.
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.DisableKeepAlives = true
+		hc = &http.Client{Transport: tr}
 	}
 	c := *hc
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
