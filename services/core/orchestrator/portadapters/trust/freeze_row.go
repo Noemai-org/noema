@@ -7,6 +7,7 @@ package trustport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -74,14 +75,37 @@ func (f *FreezeRow) RecordedFreeze(ctx context.Context, tenantID, target string)
 		if r.ObjectRef != target {
 			continue
 		}
-		switch r.EventType {
-		case eventSet:
+		if r.EventType != eventSet && r.EventType != eventCleared {
+			continue
+		}
+		// A756 (interim, relayed): the target reference is in the payload and is verified against the freeze row's own object reference. A row that names another target, or none, is a defect:
+		// the answer is an error, which reconcile.ReadFreeze turns into FreezeUnknown (frozen).
+		if !payloadNamesTarget(r, target) {
+			return reconcile.FreezeUnknown, errFreezeRow
+		}
+		if r.EventType == eventSet {
 			state = reconcile.FreezeRecorded
-		case eventCleared:
+		} else {
 			state = reconcile.FreezeCleared
 		}
 	}
 	return state, nil
+}
+
+var errFreezeRow = errors.New("trustport: a freeze row does not name the target it is recorded for")
+
+// payloadNamesTarget reports that the row's payload carries a target_ref equal to the target.
+func payloadNamesTarget(r chain.Row, target string) bool {
+	if r.Payload == nil {
+		return false
+	}
+	var p struct {
+		TargetRef string `json:"target_ref"`
+	}
+	if err := json.Unmarshal([]byte(*r.Payload), &p); err != nil {
+		return false
+	}
+	return p.TargetRef == target
 }
 
 // RecordFreezeSet appends CONTRADICTION_FREEZE_SET for the target.
@@ -90,7 +114,7 @@ func (f *FreezeRow) RecordFreezeSet(ctx context.Context, s reconcile.FreezeSet) 
 		return err
 	}
 	return f.append(ctx, s.TenantID, chain.Event{TenantID: s.TenantID, CorrelationID: s.CorrelationID, WrittenBy: freezeEmitter, Actor: freezeEmitter, EventType: eventSet, ObjectRef: s.Target,
-		Payload: map[string]any{"ruleset_id": s.RulesetID, "rule_id": s.RuleID, "evidence": s.Evidence, "labels": s.Labels}})
+		Payload: map[string]any{"target_ref": s.Target, "ruleset_id": s.RulesetID, "rule_id": s.RuleID, "evidence": s.Evidence, "labels": s.Labels}})
 }
 
 // RecordFreezeCleared appends CONTRADICTION_FREEZE_CLEARED for the target when a freeze is recorded for it and the named decision is the tenant's and lifts it: an ESCALATE for an
@@ -123,7 +147,7 @@ func (f *FreezeRow) RecordFreezeCleared(ctx context.Context, c reconcile.FreezeL
 		return ErrClearingDecision
 	}
 	if _, err := f.c.Appender.Append(ctx, tx, chain.Event{TenantID: c.TenantID, CorrelationID: correlation, WrittenBy: freezeEmitter, Actor: freezeEmitter, EventType: eventCleared, ObjectRef: c.Target,
-		Payload: map[string]any{"cleared_by": string(c.By), "decision_id": c.DecisionID}}); err != nil {
+		Payload: map[string]any{"target_ref": c.Target, "cleared_by": string(c.By), "decision_id": c.DecisionID}}); err != nil {
 		return fmt.Errorf("trustport: append %s: %w", eventCleared, err)
 	}
 	return tx.Commit(ctx)

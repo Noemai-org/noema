@@ -48,3 +48,7 @@ Each with its own test. Also (C1 note 1): the freeze row is appended in the deci
 ## Pre-work for the next agent
 - Exact next step: the composition builds `NewFreezeRow` and gives it to the reconcile adapter; the caller of `NewFreezeSet` sets `CorrelationID`.
 - Do not touch: `trust/reconcile` rules.
+
+# Session 2026-11-27 · RES-02 · A756 (C1, interim, relayed): the target reference in both events, verified
+
+- Both CONTRADICTION_FREEZE_SET and CONTRADICTION_FREEZE_CLEARED carry `target_ref` in their payload. The reader checks it against the row's own object reference: a row that names another target, or none, is a defect and the answer is an error (FreezeUnknown, frozen), which also stops `RecordFreezeCleared`. This is the verification against the freeze row; the decision-to-target link of the first session is now carried by the event, not the Decision Record (which has no target member). `core-trust` is confirmed as the emitter (A756). DEBT-60 (the by-target read function, instead of reading the whole tenant chain) is the Steward's to file; I propose it. Red at `45bf17f88`.
