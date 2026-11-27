@@ -8,6 +8,13 @@
   "missing_grant.json": "required",
   "state_succeeded.json": "enum",
   "state_synthetic_transaction.json": "enum",
+  "step_params_array_value.json": "type",
+  "step_params_empty.json": "minProperties",
+  "step_params_key_not_a_slot_name.json": "pattern",
+  "step_params_more_than_eight_params.json": "maxProperties",
+  "step_params_nested_object.json": "type",
+  "step_params_not_an_object.json": "type",
+  "step_params_value_over_128_characters.json": "maxLength",
   "unknown_with_ack.json": "type",
   "unsigned.json": "required"
 }

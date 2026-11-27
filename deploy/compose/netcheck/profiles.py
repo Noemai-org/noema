@@ -221,6 +221,10 @@ BENCH_CORE_SETTINGS = {
     "NOEMA_EXECUTION_KEY_MAX_ACTIVE": "2",
     "NOEMA_OUTCOME_KEY_DIR": "/run/outcome-keys",
     "NOEMA_OUTCOME_KEY_MAX_ACTIVE": "2",
+    # A714: A658's eight events settings, the Execution timeouts and the plan text bound (resource limits, bench only, no default in code).
+    "NOEMA_EVENTS_POLL_MS": "2000", "NOEMA_EVENTS_MAX_STREAM_MS": "300000", "NOEMA_EVENTS_WRITE_TIMEOUT_MS": "5000", "NOEMA_EVENTS_READ_TIMEOUT_MS": "2000",
+    "NOEMA_EVENTS_MAX_EVENT_BYTES": "65536", "NOEMA_EVENTS_MAX_STREAMS": "100", "NOEMA_EVENTS_MAX_STREAMS_PER_PRINCIPAL": "3", "NOEMA_EVENTS_MAX_BATCH": "100",
+    "NOEMA_EXECUTION_EXECUTE_TIMEOUT_MS": "10000", "NOEMA_EXECUTION_ROLLBACK_TIMEOUT_MS": "5000", "NOEMA_PLAN_TEXT_MAX_BYTES": "256",
     "NOEMA_TEMPORAL_NAMESPACE": "default",
     "NOEMA_TEMPORAL_TASK_QUEUE": "noema-investigations",
     "NOEMA_TEMPORAL_TLS_CA_FILE": "/run/tls/ca.crt",
@@ -469,6 +473,7 @@ BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000
 
 
 INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
+ADMIN_EMITTER_HOLDER = "ops"  # A699: the only service that may hold a tenant's admin emitter login; it does not exist yet (EL, G2)
 
 
 def intron_overlay_text_problems(text):
@@ -697,6 +702,13 @@ def check(cfg, profile):
                     bad.append(f"{profile}: temporal's healthcheck does not use TLS (A296)")
             elif any(str(k).startswith("TEMPORAL_TLS") for k in (svc.get("environment") or {})):
                 bad.append(f"{profile}: temporal sets TLS outside the bench profile; A296 puts it in bench only until the core's client follows")
+        # A699, A714: a tenant's admin emitter login is held by the ops listener only. No other service mounts a volume, bind or secret, or sets an environment variable, whose name pairs "admin" with
+        # "emitter" or "dsn". No service in the stack holds one today; the ops listener (EL, G2) is named `ADMIN_EMITTER_HOLDER`, and its PR changes the name there if it calls the service otherwise.
+        admin_refs = [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or []) if isinstance(v, dict)]
+        admin_refs += [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])]
+        admin_refs += list((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else []
+        if name != ADMIN_EMITTER_HOLDER and any(re.search(r"admin", r, re.I) and re.search(r"emitter|dsn", r, re.I) for r in admin_refs):
+            bad.append(f"{profile}: {name} mounts or names an admin emitter login; only the ops listener may hold it (A699, INV-29)")
         # Intron's key (A249): a file mount read by the model service only. No service may carry it as an environment variable, and no service but the model may name a setting or a mount for it.
         env_names = set((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else set()
         mounts = [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or [])] + [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])]
@@ -704,6 +716,8 @@ def check(cfg, profile):
             bad.append(f"{profile}: {name} carries the Intron key as an environment variable; it comes only from a file mount (A249)")
         if name != "model" and ("INTRON_API_KEY_FILE" in env_names or any("intron" in m.lower() for m in mounts)):
             bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
+        if name == "model" and str((svc.get("environment") or {}).get("NOEMA_MODEL_PROVIDER_PROFILE", "")) != "live":
+            bad.append(f"{profile}: the model must set NOEMA_MODEL_PROVIDER_PROFILE to \"live\" in every profile; absent refuses the start and replay is chosen only by a later ruling, never by this file (A679, A695)")
         if name == "model":
             # A377 to A379: the key file is mounted in the bench profile only, read-only, as one bind of one file at one path, and the variable and the mount come together or not at all.
             key_env = str((svc.get("environment") or {}).get("INTRON_API_KEY_FILE", ""))
@@ -824,6 +838,12 @@ def self_test(configs):
         "the model mounts the core's client key": ("dev", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/x/secrets/tls/core-client.key", "target": "/run/tls/core-client.key"})),
         "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
+        "the core mounts an admin emitter DSN directory": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "volume", "source": "admin_emitter_dsn", "target": "/run/admin-emitter-dsn", "read_only": True})),
+        "the model names an admin emitter DSN setting": ("dev", lambda c: c["services"]["model"]["environment"].update({"NOEMA_ADMIN_EMITTER_DSN_DIR": "/x"})),
+        "the model loses the provider profile": ("dev", lambda c: c["services"]["model"]["environment"].pop("NOEMA_MODEL_PROVIDER_PROFILE")),
+        "the ci model's provider profile is replay": ("ci", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": "replay"})),
+        "the demo model's provider profile is empty": ("demo", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": ""})),
+        "the bench model's provider profile is upper case": ("bench", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": "LIVE"})),
         "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
         "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
         "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
@@ -1057,6 +1077,12 @@ def self_test(configs):
         "the bench core's input dedup window changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INPUT_DEDUP_WINDOW": "24h"})),
         "the bench core runs two investigation workers": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INVESTIGATION_WORKERS": "2"})),
         "the bench core's activity timeout drops below the run timeout": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS": "100000"})),
+        "the bench core loses an events setting": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_EVENTS_MAX_STREAMS_PER_PRINCIPAL")),
+        "the bench core's events stream limit changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EVENTS_MAX_STREAMS": "1000"})),
+        "the bench core's events event bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EVENTS_MAX_EVENT_BYTES": "1048576"})),
+        "the bench core's execute timeout changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EXECUTION_EXECUTE_TIMEOUT_MS": "60000"})),
+        "the bench core loses the rollback timeout": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_EXECUTION_ROLLBACK_TIMEOUT_MS")),
+        "the bench core's plan text bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_PLAN_TEXT_MAX_BYTES": "4096"})),
         "the bench core loses the recovery batch size": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_STM_RECOVERY_BATCH_SIZE")),
         "the bench core's pack size bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_PACK_MAX_BYTES": "4194304"})),
         "the bench core loses the pack manifest setting": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PACK_MANIFEST")),

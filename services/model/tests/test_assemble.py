@@ -12,6 +12,7 @@ import pytest
 from noema_model.harness import Harness, assemble_harness
 from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL, ENV_MASKING_LIMITS
 from noema_model.platform.telemetry import COST_EVENT, InMemoryTelemetry
+from noema_model.providers.llm.profile import ENV_PROVIDER_PROFILE
 from noema_model.providers.llm.base import HttpResponse
 from tests.support import ManualClock, RecordingTransport, raw_config, run
 from tests.test_harness_call import request, version
@@ -22,7 +23,7 @@ def write(tmp_path: Path, body: Any) -> dict[str, str]:
     path.write_text(body if isinstance(body, str) else json.dumps(body))
     limits = tmp_path / "masking_limits.json"
     limits.write_text(json.dumps({"schema_version": "1.0", "pack_id": "fintech", "label": "SYNTHETIC", "max_unmasked_digit_run": 4}))
-    return {ENV_CONFIG: str(path), ENV_LLM_POOL: "2", ENV_MASKING_LIMITS: str(limits)}
+    return {ENV_CONFIG: str(path), ENV_LLM_POOL: "2", ENV_MASKING_LIMITS: str(limits), ENV_PROVIDER_PROFILE: "live"}  # A679: the provider profile is required
 
 
 def chat_reply(model: str) -> HttpResponse:

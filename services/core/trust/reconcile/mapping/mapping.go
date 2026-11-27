@@ -63,6 +63,8 @@ type file struct {
 	Ruleset   string    `json:"ruleset"`
 	Note      string    `json:"note"`
 	Rows      []rowSpec `json:"rows"`
+	// TargetVersions is the optional declaration of which sources carry the version token of a write's target (version 3, target_versions.go).
+	TargetVersions json.RawMessage `json:"target_versions"`
 }
 
 // Row is one row of an entity of the rule set: the fields the payload gave. A field that is not in Fields is unset.
@@ -77,6 +79,7 @@ type Mapping struct {
 	ruleset string
 	rows    []rowSpec
 	lists   []listSpec
+	targets map[string]targetSpec // the sources that carry a target version token, by source id (target_versions.go)
 }
 
 // ID is the mapping's identity and version, `<mapping_id>@<version>`: a reconciliation records it next to the rule set's (INV-21).
@@ -144,7 +147,11 @@ func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string
 		}
 		seen[key] = true
 	}
-	return &Mapping{id: f.MappingID + "@" + strconv.Itoa(f.Version), ruleset: f.Ruleset, rows: f.Rows, lists: lists}, nil
+	targets, err := parseTargetVersions(f.TargetVersions, known)
+	if err != nil {
+		return nil, err
+	}
+	return &Mapping{id: f.MappingID + "@" + strconv.Itoa(f.Version), ruleset: f.Ruleset, rows: f.Rows, lists: lists, targets: targets}, nil
 }
 
 func checkRow(r rowSpec, scope predicate.Scope, known map[string]bool) error {

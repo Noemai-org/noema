@@ -84,6 +84,21 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 ## Pre-work for the next agent
 - Exact next step: none for this change; row 12 on a real run waits for IL's #924 (the second artifact and the stack workflow arguments).
 - Do not touch: `benchmark-heldout`, the oracle.
+
+# Session 2026-11-24 · BEN-23 · A652: the seeded J1 to J8 manifest for the front end
+
+## Session summary
+- What changed: `benchmark/generator/journeys.py` (the builder), `benchmark/journeys/j1-j8.v1.json` and its README, `benchmark/generator/test_journeys.py` (10 tests).
+- Why: A652 asks BO to supply the seeded J1 to J8 manifest to FE (REQ-UI-001, PERD §11.1). It names, per journey, the user stories (the PERD's table) and one to three generated cases with the principal, utterances, channel, fixture, fault plan, timeline and versions, and no expectation, oracle reference or ground truth (INV-22). It is reproducible by the generator's seed; a stale committed copy fails a test.
+- J1 and J4 use the G1 pair's inputs, so the front end and the G1 run read the same cases. **J6 is thin: one case**, because the suite holds exactly one US-18 case; strengthening it waits until after G1 (changing the generator moves the manifest digest the G1 inputs record).
+- Risks, and how they are contained: SYNTHETIC; the manifest holds the generator's seed as an eight-digit number, which the digit-run rule flags if the file is ever scanned (the same seed is already in committed G1 inputs); a test strips it before it checks the rest.
+- Tests added (REQ-BEN-001, REQ-UI-001): 10. Seen failing first (import error); a mutant that adds `expected` to a case fails 2. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: FE reads `benchmark/journeys/j1-j8.v1.json` and materialises the cases with the generator.
+- Open questions (owner): whether FE needs a second case for J6 before G1 (FE, the Architect).
+- Do not touch: the generator's cases before G1.
+
 # Session 2026-11-24 · BEN-23 · A604: the offline labelled set for `requested_remedy`
 
 ## Session summary
@@ -99,3 +114,27 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 - Exact next step: C2 uses `load(Path("benchmark/compile_acceptance/remedy_labelled.v1.json"))` to score the compiler's gate offline with the replay provider, and reports the false-assertion and the miss counts separately, with and without the borderline items.
 - Do not touch: the goldens, the held-out set (INV-22), or any threshold (AGENT-16).
 - Split (A652, 24 Nov): this PR is the labelled set only. The SYNTHETIC boundary recordings and their generator were taken out (a revert commit, no history rewritten) and go in their own PR, regenerated on `main` after noema#932 merges. The generator work is kept on the branch `feat/BEN-23-boundary-recordings-a604` (commit `b2aee73a`).
+
+# Session 2026-11-26 · BEN-23 · A604, A649, A682: SYNTHETIC boundary recordings of the requested_remedy gate, for C2
+
+## Session summary
+- What changed: `benchmark/compile_acceptance/synthetic_boundary.py` and its test (from the split-out branch), `boundary-a604/fixture/` (140 reduced recordings plus the manifest, flat, `fixture.synthetic: true`, made with `reduce_run` at `d2f83578`), `boundary-a604/boundary-findings.json` (outside the fixture directory) and its README.
+- Why: A604 and A667 asked for the recordings after #932, #936, #931 and #938 merged; A682 asked to regenerate them on main, matching A649 (the exponent forms are malformed and the slot abstains).
+- Risks, and how they are contained: SYNTHETIC scripted replies, never live model output (A261). The leak rule: B02, B06 and B12 hold five or more digits in a row, so they are generated inside a test, never committed (the scan is clean over 143 files, no allowlisting). The generating test needs the model service's dependencies and is skipped, by name, in a job that has only `benchmark/requirements.lock`: CI would need `services/model/requirements.lock` installed for that one test (a `.github` change, SR).
+- Tests added (A604, A612, A649): the generator's 9 plus 2 new ones (the flat fixture directory with `fixture.synthetic` in every file; the three long-digit boundaries generated in a temporary directory, 22 boundaries and 0 disagreements).
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 points the replay provider at `benchmark/compile_acceptance/boundary-a604/fixture` and scores the gate offline with `remedy_labelled.v1.json`.
+- Do not touch: the goldens, the held-out set (INV-22), the threshold (AGENT-16).
+
+# Session 2026-11-27 · BEN-23 · Codex on #1010: replay serves 14 of the 19 committed boundaries, not the five malformed ones
+
+## Session summary
+- What changed: README (what replay serves and what it does not; the stale line about `leakscan.allow` removed), and two tests in `test_synthetic_boundary.py` (class `Replay`).
+- Why: Codex's P2 on #1010 is right. B16 to B20 are recordings of a reply the harness refuses as a whole (`usable_as_fixture: false`: rec-0094 and rec-0101 `NOT_JSON`; rec-0108, rec-0115 and rec-0122 `SCHEMA_MISMATCH`), so `ReplayStore.lookup` raises `EVIDENCE_ONLY` for them by design. The findings were computed through the scripted inner transport, not through replay.
+- Evidence: the new test looks every gate recording up through `ReplayStore` by its request hash: 14 are served, the five are refused `EVIDENCE_ONLY`, and nothing else in the directory is evidence-only. The supported offline path for the five is the generator (`synthetic_boundary`), which runs the real pipeline against a scripted transport; its test checks all 22 boundaries.
+- Risks: none to the product. Tests added: 2 (the README test was seen failing first). Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 scores the five malformed boundaries through the generator, and the other fourteen through replay.

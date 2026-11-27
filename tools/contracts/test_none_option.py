@@ -37,8 +37,10 @@ class NoneOptionSchema(unittest.TestCase):
     def test_a_clarification_and_a_clarification_card_require_the_id_of_none_of_these(self):
         for name, schema in (("clarification.v1", CLARIFICATION), ("overlay-card.v1 ClarificationCard", CARD)):
             self.assertIn("none_option_id", schema["properties"], name)
-            self.assertIn("none_option_id", schema["required"], name)
-            self.assertIn("allow_none", schema["required"], name)
+            # A593, A600: required in every mode but SLOT (a SLOT card has nothing to choose from and carries neither). clarification.v1 says so in its conditional rule.
+            required = schema["required"] if name != "clarification.v1" else next(r["else"]["required"] for r in schema["allOf"] if r.get("if", {}).get("properties", {}).get("mode", {}).get("const") == "SLOT")
+            self.assertIn("none_option_id", required, name)
+            self.assertIn("allow_none", required, name)
             self.assertEqual(schema["properties"]["none_option_id"]["type"], "string", name)
 
     def test_the_id_has_the_form_of_an_option_id_in_each_contract(self):
@@ -101,6 +103,8 @@ class NoneOptionFixtures(unittest.TestCase):
             if path.name == "expectations.json" or "none_option_id" in path.name:
                 continue
             for node in holders(load_strict(path)):
+                if node.get("mode") == "SLOT":  # A593: a SLOT card carries no none choice
+                    continue
                 self.assertIn("none_option_id", node, f"{path}: the fixture must fail for its own reason, not for a missing none_option_id")
 
     def test_the_collision_check_names_an_id_equal_to_an_option_id(self):

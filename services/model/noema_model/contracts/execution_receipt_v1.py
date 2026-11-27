@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
-from typing import Annotated
-from pydantic import ConfigDict, StringConstraints
+from typing import Annotated, TypeAlias, Union
+from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
 from .common_v1 import CommonV1CorrelationId, CommonV1GrantId, CommonV1PackId, CommonV1PositiveInt, CommonV1ReceiptId, CommonV1SchemaVersion, CommonV1Sig, CommonV1TenantId, CommonV1Timestamp
 from .enums_v1 import EnumsV1ExecutionState
+
+# ExecutionReceiptV1StepParamsValue: one of several shapes. Source: execution-receipt.v1.json#/properties/step_params/additionalProperties
+ExecutionReceiptV1StepParamsValue: TypeAlias = Union[str, int, bool, None]
+
 
 class ExecutionReceiptV1(ContractModel):
     """SoT §43.3 and PERD §27. Produced by Execution; it never writes SUCCEEDED (that word belongs to Outcome). A timeout or silence is OUTCOME_UNKNOWN with no acknowledgement; an ACKNOWLEDGED receipt carries the target's ac... Source: execution-receipt.v1.json"""
@@ -25,6 +29,7 @@ class ExecutionReceiptV1(ContractModel):
     transport_result: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] | None
     external_ack: Annotated[str, StringConstraints(min_length=1)] | None
     execution_state: EnumsV1ExecutionState
+    step_params: dict[str, ExecutionReceiptV1StepParamsValue | None] | None = Field(default=None)
     sig: CommonV1Sig
 
 
