@@ -29,13 +29,13 @@ import (
 const (
 	testRuntimeToken = "runtime-token-runtime-token-runtime-token-0001"
 	testPrincipalKey = "principal-principal-principal-principal-0003"
-	pinnedVector     = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42" // synthetic/standin/README.md
+	pinnedVector     = "v2.dXNyX2Fh.dGVuX2FscGhh.1790847660.371859af5bfc544d8070d42f0469249dbbf21d496cc20c744bcf01e948777db9" // synthetic/standin/README.md
 )
 
 var testNow = time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC) // SYNTHETIC
 
 func TestTheAssertionMatchesThePinnedVectorOfTheStandinReadme(t *testing.T) {
-	if got := standinAssertion([]byte(testPrincipalKey), "usr_a", "ten_alpha", 1790847660); got != pinnedVector {
+	if got := standinAssertion([]byte(testPrincipalKey), "usr_aa", "ten_alpha", 1790847660); got != pinnedVector {
 		t.Fatalf("assertion = %s, want %s", got, pinnedVector)
 	}
 }
@@ -106,13 +106,13 @@ func sdl(t *testing.T, d time.Duration) context.Context {
 	return ctx
 }
 
-var sScope = adapters.Scope{TenantID: "ten_aa", PrincipalID: "usr_a"}
+var sScope = adapters.Scope{TenantID: "ten_aa", PrincipalID: "usr_aa"}
 
 const (
-	ledgerBody = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false,"entries":[{"entry_id":"le_1_1","account_ref":"acc_usr_a","transaction_ref":"tx:1","entry_type":"DEBIT","amount_minor":500000,"currency":"NGN","posting_status":"POSTED","posted_at":"2026-10-01T09:30:00+01:00","version":1}]}` + "\n"
+	ledgerBody = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false,"entries":[{"entry_id":"le_1_1","account_ref":"acc_usr_aa","transaction_ref":"tx:1","entry_type":"DEBIT","amount_minor":500000,"currency":"NGN","posting_status":"POSTED","posted_at":"2026-10-01T09:30:00+01:00","version":1}]}` + "\n"
 	switchBody = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false,"switch_ref":"sw_1","transaction_ref":"tx:1","raw_code":"SYN-91","raw_code_label":"SYNTHETIC","semantic_status":"TIMED_OUT","is_terminal":false,"destination_ack":false,"received_at":"2026-10-01T09:30:00+01:00","raw_payload_hash":"sha256:` + zeros + `"}`
 	destBody   = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false,"transaction_ref":"tx:1","credit_state":"PENDING","settlement_state":"PENDING","effective_at":"2026-10-01T09:30:00+01:00","observed_at":"2026-10-01T09:40:00+01:00"}`
-	candBody   = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","complete":true,"items":[{"transaction_ref":"tx:1","account_ref":"acc_usr_a","direction":"OUTGOING","amount_minor":500000,"currency":"NGN","counterparty":"ben_1","occurred_at":"2026-10-01T09:30:00+01:00"}]}`
+	candBody   = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","complete":true,"items":[{"transaction_ref":"tx:1","account_ref":"acc_usr_aa","direction":"OUTGOING","amount_minor":500000,"currency":"NGN","counterparty":"ben_1","occurred_at":"2026-10-01T09:30:00+01:00"}]}`
 	zeros      = "0000000000000000000000000000000000000000000000000000000000000000"
 )
 
@@ -142,7 +142,7 @@ func TestEachReadReturnsTheDecodedAnswerWithTheHashOfTheWireBytesAndTheLabel(t *
 	if err != nil || d.Status.CreditState != adapters.CreditPending || d.Provenance.RawHash != sha(destBody) {
 		t.Fatalf("destination: %+v %v", d, err)
 	}
-	p, err := c.FindCandidates(ctx, sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
+	p, err := c.FindCandidates(ctx, sScope, adapters.TransactionQuery{AccountRef: "acc_usr_aa", Limit: 10})
 	if err != nil || len(p.Items) != 1 || !p.Complete || p.Provenance.RawHash != sha(candBody) || p.Provenance.DataSource != "stand-in" {
 		t.Fatalf("candidates: %+v %v", p, err)
 	}
@@ -304,11 +304,11 @@ func TestTheRequestIsAGetWithTheRuntimeTokenAndAnAssertionForTheSessionPrincipal
 	if string(ten) != "ten_aa" {
 		t.Fatalf("tenant %q: the assertion must bind the session's tenant (A135)", ten)
 	}
-	if string(who) != "usr_a" || exp <= testNow.Unix() || exp-testNow.Unix() > 300 {
+	if string(who) != "usr_aa" || exp <= testNow.Unix() || exp-testNow.Unix() > 300 {
 		t.Fatalf("principal %q expiry %d (now %d): must be the session principal and live at most 5 minutes", who, exp, testNow.Unix())
 	}
 	m := hmac.New(sha256.New, []byte(testPrincipalKey))
-	fmt.Fprintf(m, "noema-standin-principal-v2\nstandin\nusr_a\nten_aa\n%d", exp)
+	fmt.Fprintf(m, "noema-standin-principal-v2\nstandin\nusr_aa\nten_aa\n%d", exp)
 	if parts[4] != hex.EncodeToString(m.Sum(nil)) {
 		t.Fatal("the MAC does not verify with the principal key")
 	}
@@ -339,16 +339,16 @@ func TestCandidateFiltersAreSentAndAnAnswerOverTheLimitIsNotTruncated(t *testing
 	f := newFakeStandin(t)
 	f.body("/standin/v1/transactions", 200, candBody)
 	c := newStandinClient(t, f)
-	q := adapters.TransactionQuery{AccountRef: "acc_usr_a", From: "2026-10-01T00:00:00Z", To: "2026-10-02T00:00:00Z", AmountMinMinor: 100, AmountMaxMinor: 900000, Counterparty: "ben_1", Limit: 10}
+	q := adapters.TransactionQuery{AccountRef: "acc_usr_aa", From: "2026-10-01T00:00:00Z", To: "2026-10-02T00:00:00Z", AmountMinMinor: 100, AmountMaxMinor: 900000, Counterparty: "ben_1", Limit: 10}
 	if _, err := c.FindCandidates(sdl(t, 5*time.Second), sScope, q); err != nil {
 		t.Fatal(err)
 	}
-	want := "account=acc_usr_a&amount_max=900000&amount_min=100&counterparty=ben_1&from=2026-10-01T00%3A00%3A00Z&to=2026-10-02T00%3A00%3A00Z"
+	want := "account=acc_usr_aa&amount_max=900000&amount_min=100&counterparty=ben_1&from=2026-10-01T00%3A00%3A00Z&to=2026-10-02T00%3A00%3A00Z"
 	if got := f.seen[0].query; got != want {
 		t.Fatalf("query = %s, want %s", got, want)
 	}
 	// The stand-in has no pagination: more items than the caller's limit cannot be cut without hiding some, so it is not an answer.
-	two := strings.Replace(candBody, `"items":[`, `"items":[{"transaction_ref":"tx:2","account_ref":"acc_usr_a","direction":"OUTGOING","amount_minor":1,"currency":"NGN","counterparty":"ben_1","occurred_at":"2026-10-01T09:30:00+01:00"},`, 1)
+	two := strings.Replace(candBody, `"items":[`, `"items":[{"transaction_ref":"tx:2","account_ref":"acc_usr_aa","direction":"OUTGOING","amount_minor":1,"currency":"NGN","counterparty":"ben_1","occurred_at":"2026-10-01T09:30:00+01:00"},`, 1)
 	f.body("/standin/v1/transactions", 200, two)
 	q.Limit = 1
 	_, err := c.FindCandidates(sdl(t, 5*time.Second), sScope, q)
@@ -395,12 +395,12 @@ func TestACredentialFileThatIsMissingOrEmptyIsRefusedAtConstruction(t *testing.T
 func TestAMissingListIsMalformedNotEmpty(t *testing.T) {
 	f := newFakeStandin(t)
 	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","complete":true}`)
-	_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
+	_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_aa", Limit: 10})
 	if re := sFail(t, err); re.Failure != adapters.ReadMalformed {
 		t.Fatalf("got %+v, want MALFORMED", re)
 	}
 	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","complete":true,"items":[]}`)
-	page, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
+	page, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_aa", Limit: 10})
 	if err != nil || !page.ProvesAbsence() {
 		t.Fatalf("a present empty list on a complete page is a real absence: %+v %v", page, err)
 	}
@@ -411,7 +411,7 @@ func TestAMissingListIsMalformedNotEmpty(t *testing.T) {
 func TestAnUnsupportedCursorIsRefusedAndNothingIsSent(t *testing.T) {
 	f := newFakeStandin(t)
 	f.body("/standin/v1/transactions", 200, candBody)
-	_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10, Cursor: "c2"})
+	_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_aa", Limit: 10, Cursor: "c2"})
 	if re := sFail(t, err); re.Failure != adapters.ReadInvalid || re.RawCode != "FIN:CURSOR_UNSUPPORTED" {
 		t.Fatalf("got %+v, want INVALID FIN:CURSOR_UNSUPPORTED", re)
 	}
@@ -429,7 +429,7 @@ func TestACandidateWithAnUnknownDirectionOrABadTimeInAnAnswerIsMalformed(t *test
 		t.Run(name, func(t *testing.T) {
 			f := newFakeStandin(t)
 			f.body("/standin/v1/transactions", 200, body)
-			_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
+			_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_aa", Limit: 10})
 			if re := sFail(t, err); re.Failure != adapters.ReadMalformed {
 				t.Fatalf("got %+v, want MALFORMED", re)
 			}

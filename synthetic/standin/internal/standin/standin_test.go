@@ -155,7 +155,7 @@ func TestDataNeedsTheRuntimeCredentialAndRefusesTheBenchOne(t *testing.T) { // R
 	r := newRig(t)
 	r.loadGolden()
 	for name, token := range map[string]string{"none": "", "bench": benchToken, "wrong": "nope"} {
-		if res := do(t, "GET", r.data.URL+"/standin/v1/principal", token, "usr_a", nil); res.status != 401 {
+		if res := do(t, "GET", r.data.URL+"/standin/v1/principal", token, "usr_aa", nil); res.status != 401 {
 			t.Fatalf("%s credential: want 401, got %d", name, res.status)
 		}
 	}
@@ -163,7 +163,7 @@ func TestDataNeedsTheRuntimeCredentialAndRefusesTheBenchOne(t *testing.T) { // R
 
 func TestReadsBeforeALoadAreUnavailableNotEmpty(t *testing.T) { // AGENT-20: unknown stays unknown
 	r := newRig(t)
-	res := r.read("usr_a", "/standin/v1/transactions")
+	res := r.read("usr_aa", "/standin/v1/transactions")
 	if res.status != 503 || !strings.Contains(res.body, "STANDIN_NOT_LOADED") {
 		t.Fatalf("want 503 STANDIN_NOT_LOADED, got %d %s", res.status, res.body)
 	}
@@ -180,10 +180,10 @@ func TestLoadRefusesWhatIsNotAStandIn(t *testing.T) {
 		"a ledger entry for no transaction": func(m map[string]any) {
 			m["ledger_entries"].(map[string]any)["fin.transaction:ORPHAN"] = map[string]any{"unavailable": false, "entries": []any{}}
 		},
-		"a transaction with no switch record": func(m map[string]any) { delete(m["switch_records"].(map[string]any), "fin.transaction:TX1") },
+		"a transaction with no switch record": func(m map[string]any) { delete(m["switch_records"].(map[string]any), "TX1") },
 		"a transaction listed for two owners": func(m map[string]any) {
 			c := m["candidates"].(map[string]any)
-			c["usr_b"] = append(c["usr_b"].([]any), c["usr_a"].([]any)[0])
+			c["usr_bb"] = append(c["usr_bb"].([]any), c["usr_aa"].([]any)[0])
 		},
 	}
 	for name, fn := range cases {
@@ -194,7 +194,7 @@ func TestLoadRefusesWhatIsNotAStandIn(t *testing.T) {
 	if res := r.load([]byte("not json")); res.status != 400 {
 		t.Fatalf("not JSON: want 400, got %d", res.status)
 	}
-	if res := r.read("usr_a", "/standin/v1/principal"); res.status != 503 {
+	if res := r.read("usr_aa", "/standin/v1/principal"); res.status != 503 {
 		t.Fatalf("a refused load must leave nothing loaded, got %d", res.status)
 	}
 }
@@ -221,12 +221,12 @@ func TestCandidatesAreScopedToThePrincipalWithACompletenessMarker(t *testing.T) 
 		}
 		return strings.Join(out, ","), doc["complete"].(bool)
 	}
-	a, complete := refs("usr_a")
-	if a != "fin.transaction:TX2,fin.transaction:TX1,fin.transaction:TX3" || !complete { // newest first
-		t.Fatalf("usr_a sees %q complete=%t", a, complete)
+	a, complete := refs("usr_aa")
+	if a != "TX2,TX1,TX3" || !complete { // newest first
+		t.Fatalf("usr_aa sees %q complete=%t", a, complete)
 	}
-	if b, _ := refs("usr_b"); b != "fin.transaction:TX9" {
-		t.Fatalf("usr_b sees %q", b)
+	if b, _ := refs("usr_bb"); b != "TX9" {
+		t.Fatalf("usr_bb sees %q", b)
 	}
 }
 
@@ -234,13 +234,13 @@ func TestAnotherPrincipalsTransactionLooksLikeOneThatDoesNotExist(t *testing.T) 
 	r := newRig(t)
 	r.loadGolden()
 	for _, kind := range []string{"ledger-entries", "switch-status", "destination-status"} {
-		foreign := r.read("usr_a", "/standin/v1/transactions/fin.transaction:TX9/"+kind)
-		missing := r.read("usr_a", "/standin/v1/transactions/fin.transaction:NOPE/"+kind)
+		foreign := r.read("usr_aa", "/standin/v1/transactions/TX9/"+kind)
+		missing := r.read("usr_aa", "/standin/v1/transactions/fin.transaction:NOPE/"+kind)
 		if foreign.status != 404 || foreign.body != missing.body || missing.status != 404 {
 			t.Fatalf("%s: foreign %d %q, missing %d %q", kind, foreign.status, foreign.body, missing.status, missing.body)
 		}
 	}
-	if res := r.read("usr_a", "/standin/v1/transactions?account=acc_usr_b"); res.status != 404 {
+	if res := r.read("usr_aa", "/standin/v1/transactions?account=acc_usr_bb"); res.status != 404 {
 		t.Fatalf("another principal's account must look absent, got %d", res.status)
 	}
 }
@@ -259,14 +259,14 @@ func TestFiltersNarrowTheCandidatesAndBadValuesAreRefused(t *testing.T) {
 	r := newRig(t)
 	r.loadGolden()
 	count := func(q string) int {
-		res := r.read("usr_a", "/standin/v1/transactions?"+q)
+		res := r.read("usr_aa", "/standin/v1/transactions?"+q)
 		if res.status != 200 {
 			t.Fatalf("%s: %d %s", q, res.status, res.body)
 		}
 		return len(decode(t, res.body)["items"].([]any))
 	}
 	for q, want := range map[string]int{
-		"account=acc_usr_a": 3, "amount_min=300000": 1, "amount_max=250000": 2, "amount_min=250000&amount_max=250000": 2,
+		"account=acc_usr_aa": 3, "amount_min=300000": 1, "amount_max=250000": 2, "amount_min=250000&amount_max=250000": 2,
 		"from=2026-10-01T09:00:00%2B01:00": 1, "to=2026-10-01T08:00:00%2B01:00": 2, "counterparty=ben_0001": 3, "counterparty=ben_9999": 0,
 	} {
 		if got := count(q); got != want {
@@ -274,7 +274,7 @@ func TestFiltersNarrowTheCandidatesAndBadValuesAreRefused(t *testing.T) {
 		}
 	}
 	for _, q := range []string{"amount_min=2500.50", "amount_min=-1", "amount_max=abc", "from=yesterday", "to=2026-13-01"} {
-		if res := r.read("usr_a", "/standin/v1/transactions?"+q); res.status != 400 {
+		if res := r.read("usr_aa", "/standin/v1/transactions?"+q); res.status != 400 {
 			t.Fatalf("%s: want 400, got %d", q, res.status)
 		}
 	}
@@ -283,32 +283,32 @@ func TestFiltersNarrowTheCandidatesAndBadValuesAreRefused(t *testing.T) {
 func TestThePrincipalAndBeneficiariesAreTheirOwn(t *testing.T) {
 	r := newRig(t)
 	r.loadGolden()
-	p := decode(t, r.read("usr_a", "/standin/v1/principal").body)
-	if p["principal_id"] != "usr_a" || p["display_name"] != "A" || len(p["accounts"].([]any)) != 1 || len(p["beneficiaries"].([]any)) != 1 {
+	p := decode(t, r.read("usr_aa", "/standin/v1/principal").body)
+	if p["principal_id"] != "usr_aa" || p["display_name"] != "A" || len(p["accounts"].([]any)) != 1 || len(p["beneficiaries"].([]any)) != 1 {
 		t.Fatalf("principal wrong: %v", p)
 	}
-	if b := decode(t, r.read("usr_b", "/standin/v1/beneficiaries").body); len(b["beneficiaries"].([]any)) != 0 {
-		t.Fatalf("usr_b owns no beneficiary: %v", b)
+	if b := decode(t, r.read("usr_bb", "/standin/v1/beneficiaries").body); len(b["beneficiaries"].([]any)) != 0 {
+		t.Fatalf("usr_bb owns no beneficiary: %v", b)
 	}
 }
 
 func TestLedgerSwitchAndDestinationAnswerAsDerived(t *testing.T) {
 	r := newRig(t)
 	r.loadGolden()
-	ledger := decode(t, r.read("usr_a", "/standin/v1/transactions/fin.transaction:TX1/ledger-entries").body)
+	ledger := decode(t, r.read("usr_aa", "/standin/v1/transactions/TX1/ledger-entries").body)
 	entries := ledger["entries"].([]any)
 	if len(entries) != 1 || entries[0].(map[string]any)["entry_type"] != "DEBIT" || entries[0].(map[string]any)["posting_status"] != "POSTED" || ledger["unavailable"] != false {
 		t.Fatalf("TX1 ledger wrong: %v", ledger)
 	}
-	sw := decode(t, r.read("usr_a", "/standin/v1/transactions/fin.transaction:TX2/switch-status").body)
+	sw := decode(t, r.read("usr_aa", "/standin/v1/transactions/TX2/switch-status").body)
 	if sw["semantic_status"] != "TIMED_OUT" || sw["is_terminal"] != false || sw["raw_code_label"] != "SYNTHETIC" { // a non-terminal answer is never read as credited
 		t.Fatalf("TX2 switch wrong: %v", sw)
 	}
-	dest := decode(t, r.read("usr_a", "/standin/v1/transactions/fin.transaction:TX2/destination-status").body)
+	dest := decode(t, r.read("usr_aa", "/standin/v1/transactions/TX2/destination-status").body)
 	if dest["credit_state"] != "PENDING" || dest["settlement_state"] != "PENDING" {
 		t.Fatalf("TX2 destination wrong: %v", dest)
 	}
-	down := r.read("usr_a", "/standin/v1/transactions/fin.transaction:TX3/ledger-entries")
+	down := r.read("usr_aa", "/standin/v1/transactions/TX3/ledger-entries")
 	d := decode(t, down.body)
 	if down.status != 200 || d["unavailable"] != true || len(d["entries"].([]any)) != 0 { // an unavailable answer, not an empty one
 		t.Fatalf("TX3 ledger must be an unavailable answer: %d %s", down.status, down.body)
@@ -319,24 +319,24 @@ func TestEveryAnswerIsLabelledStandIn(t *testing.T) { // AGENT-25: evidence from
 	r := newRig(t)
 	r.loadGolden()
 	for _, path := range []string{"/standin/v1/principal", "/standin/v1/beneficiaries", "/standin/v1/transactions",
-		"/standin/v1/transactions/fin.transaction:TX1/ledger-entries", "/standin/v1/transactions/fin.transaction:TX1/switch-status", "/standin/v1/transactions/fin.transaction:TX1/destination-status"} {
-		res := r.read("usr_a", path)
+		"/standin/v1/transactions/TX1/ledger-entries", "/standin/v1/transactions/TX1/switch-status", "/standin/v1/transactions/TX1/destination-status"} {
+		res := r.read("usr_aa", path)
 		doc := decode(t, res.body)
 		if res.status != 200 || res.header.Get("X-Data-Source") != "stand-in" || doc["data_source"] != "stand-in" || doc["synthetic"] != true {
 			t.Fatalf("%s is not labelled: %d %v %s", path, res.status, res.header, res.body)
 		}
 	}
-	if res := r.read("usr_a", "/standin/v1/transactions/fin.transaction:NOPE/ledger-entries"); res.header.Get("X-Data-Source") != "stand-in" {
+	if res := r.read("usr_aa", "/standin/v1/transactions/fin.transaction:NOPE/ledger-entries"); res.header.Get("X-Data-Source") != "stand-in" {
 		t.Fatal("even a refusal says where it came from")
 	}
 }
 
 func TestTheSameLoadGivesTheSameBytesAndDigest(t *testing.T) { // REQ-ENV-004
-	paths := []string{"/standin/v1/principal", "/standin/v1/transactions", "/standin/v1/transactions/fin.transaction:TX2/switch-status"}
+	paths := []string{"/standin/v1/principal", "/standin/v1/transactions", "/standin/v1/transactions/TX2/switch-status"}
 	snapshot := func(r *rig) (string, string) {
 		var all strings.Builder
 		for _, p := range paths {
-			all.WriteString(r.read("usr_a", p).body)
+			all.WriteString(r.read("usr_aa", p).body)
 		}
 		return all.String(), decode(t, do(t, "GET", r.control.URL+"/control/v1/standin", benchToken, "", nil).body)["digest"].(string)
 	}
@@ -361,15 +361,15 @@ func TestTheSameLoadGivesTheSameBytesAndDigest(t *testing.T) { // REQ-ENV-004
 func TestNoRouteOnTheDataSideChangesAnything(t *testing.T) { // INV-05, BD-08: no write, no money movement
 	r := newRig(t)
 	r.loadGolden()
-	before := r.read("usr_a", "/standin/v1/transactions").body
+	before := r.read("usr_aa", "/standin/v1/transactions").body
 	for _, m := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-		for _, p := range []string{"/standin/v1/transactions", "/standin/v1/transactions/fin.transaction:TX1/ledger-entries", "/standin/v1/payouts", "/control/v1/standin"} {
-			if res := do(t, m, r.data.URL+p, runtimeToken, "usr_a", []byte("{}")); res.status != 405 && res.status != 404 {
+		for _, p := range []string{"/standin/v1/transactions", "/standin/v1/transactions/TX1/ledger-entries", "/standin/v1/payouts", "/control/v1/standin"} {
+			if res := do(t, m, r.data.URL+p, runtimeToken, "usr_aa", []byte("{}")); res.status != 405 && res.status != 404 {
 				t.Fatalf("%s %s: want 405 or 404, got %d", m, p, res.status)
 			}
 		}
 	}
-	if after := r.read("usr_a", "/standin/v1/transactions").body; after != before {
+	if after := r.read("usr_aa", "/standin/v1/transactions").body; after != before {
 		t.Fatal("a refused write changed what is served")
 	}
 }
@@ -380,7 +380,7 @@ func TestDeletingTheLoadLeavesNothingServed(t *testing.T) {
 	if res := do(t, "DELETE", r.control.URL+"/control/v1/standin", benchToken, "", nil); res.status != 200 {
 		t.Fatalf("delete: %d", res.status)
 	}
-	if res := r.read("usr_a", "/standin/v1/principal"); res.status != 503 {
+	if res := r.read("usr_aa", "/standin/v1/principal"); res.status != 503 {
 		t.Fatalf("want 503 after delete, got %d", res.status)
 	}
 	if st := decode(t, do(t, "GET", r.control.URL+"/control/v1/standin", benchToken, "", nil).body); st["loaded"] != false {
@@ -425,23 +425,23 @@ func TestACallerCannotChangeThePrincipalWhileKeepingTheSameCredential(t *testing
 	r := newRig(t)
 	r.loadGolden()
 	const path = "/standin/v1/transactions"
-	good := assertion("usr_a")
+	good := assertion("usr_aa")
 	if res := r.withAssertion(good, path, nil); res.status != 200 {
 		t.Fatalf("a valid assertion must be served, got %d %s", res.status, res.body)
 	}
 	parts := strings.Split(good, ".")
-	swapped := strings.Join([]string{parts[0], base64.RawURLEncoding.EncodeToString([]byte("usr_b")), parts[2], parts[3], parts[4]}, ".")
+	swapped := strings.Join([]string{parts[0], base64.RawURLEncoding.EncodeToString([]byte("usr_bb")), parts[2], parts[3], parts[4]}, ".")
 	for name, a := range map[string]string{
 		"principal swapped, MAC kept": swapped,
 		"expiry extended, MAC kept":   strings.Join([]string{parts[0], parts[1], parts[2], "1790999999", parts[4]}, "."),
 		"no assertion":                "",
-		"malformed":                   "usr_a",
+		"malformed":                   "usr_aa",
 		"wrong version":               strings.Replace(good, "v2.", "v1.", 1),
 		"MAC not hex":                 strings.Join([]string{parts[0], parts[1], parts[2], parts[3], "zz"}, "."),
-		"wrong key":                   mint("another-key-another-key-another-key-0009", "standin", "usr_a", tenant, fixedNow.Unix()+60),
-		"wrong audience":              mint(principalKey, "mock-case", "usr_a", tenant, fixedNow.Unix()+60),
-		"expired":                     mint(principalKey, "standin", "usr_a", tenant, fixedNow.Unix()-1),
-		"lifetime too long":           mint(principalKey, "standin", "usr_a", tenant, fixedNow.Unix()+3600),
+		"wrong key":                   mint("another-key-another-key-another-key-0009", "standin", "usr_aa", tenant, fixedNow.Unix()+60),
+		"wrong audience":              mint(principalKey, "mock-case", "usr_aa", tenant, fixedNow.Unix()+60),
+		"expired":                     mint(principalKey, "standin", "usr_aa", tenant, fixedNow.Unix()-1),
+		"lifetime too long":           mint(principalKey, "standin", "usr_aa", tenant, fixedNow.Unix()+3600),
 		"valid but not in the load":   mint(principalKey, "standin", "usr_nobody", tenant, fixedNow.Unix()+60),
 	} {
 		if res := r.withAssertion(a, path, nil); res.status != 401 {
@@ -449,18 +449,18 @@ func TestACallerCannotChangeThePrincipalWhileKeepingTheSameCredential(t *testing
 		}
 	}
 	// the old way no longer identifies anyone, and never overrides a valid assertion
-	if res := r.withAssertion("", path, map[string]string{"X-Principal": "usr_a"}); res.status != 401 {
+	if res := r.withAssertion("", path, map[string]string{"X-Principal": "usr_aa"}); res.status != 401 {
 		t.Fatalf("a bare X-Principal must not identify the caller, got %d", res.status)
 	}
-	res := r.withAssertion(assertion("usr_b"), path, map[string]string{"X-Principal": "usr_a"})
+	res := r.withAssertion(assertion("usr_bb"), path, map[string]string{"X-Principal": "usr_aa"})
 	if res.status != 200 || strings.Contains(res.body, "TX1") || !strings.Contains(res.body, "TX9") {
 		t.Fatalf("the assertion, not the header, must decide who is served: %d %s", res.status, res.body)
 	}
 }
 
 func TestTheAssertionContractMatchesThePinnedVector(t *testing.T) { // the adapter implements this from the README; a second implementation (Python hmac) produced the vector
-	const want = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42"
-	if got := mint(principalKey, "standin", "usr_a", tenant, 1790847660); got != want {
+	const want = "v2.dXNyX2Fh.dGVuX2FscGhh.1790847660.371859af5bfc544d8070d42f0469249dbbf21d496cc20c744bcf01e948777db9"
+	if got := mint(principalKey, "standin", "usr_aa", tenant, 1790847660); got != want {
 		t.Fatalf("test minter drifted from the vector: %s", got)
 	}
 	r := newRig(t)
@@ -485,7 +485,7 @@ func TestAnAssertionIsRefusedAtTheInstantItExpires(t *testing.T) { // INV-12: an
 		"exactly five minutes":   {now + 300, 200},
 		"five minutes and one":   {now + 301, 401},
 	} {
-		if res := r.withAssertion(mint(principalKey, "standin", "usr_a", tenant, c.exp), path, nil); res.status != c.want {
+		if res := r.withAssertion(mint(principalKey, "standin", "usr_aa", tenant, c.exp), path, nil); res.status != c.want {
 			t.Fatalf("%s: want %d, got %d", name, c.want, res.status)
 		}
 	}
@@ -498,15 +498,15 @@ func TestAnAssertionForAnotherTenantOrWithoutOneIsRefused(t *testing.T) {
 	exp := fixedNow.Unix() + 60
 	v1 := "v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce"
 	for name, a := range map[string]string{
-		"validly signed for another tenant": mint(principalKey, "standin", "usr_a", "ten_beta", exp),
-		"an empty tenant":                   mint(principalKey, "standin", "usr_a", "", exp),
+		"validly signed for another tenant": mint(principalKey, "standin", "usr_aa", "ten_beta", exp),
+		"an empty tenant":                   mint(principalKey, "standin", "usr_aa", "", exp),
 		"the old principal-only form":       v1,
 	} {
 		if res := r.withAssertion(a, "/standin/v1/principal", nil); res.status != 401 {
 			t.Errorf("%s: got %d, want 401 (%s)", name, res.status, res.body)
 		}
 	}
-	if res := r.read("usr_a", "/standin/v1/principal"); res.status != 200 {
+	if res := r.read("usr_aa", "/standin/v1/principal"); res.status != 200 {
 		t.Fatalf("the right tenant must read: %d %s", res.status, res.body)
 	}
 }
@@ -515,7 +515,7 @@ func TestEveryReadNamesTheTenantItServes(t *testing.T) {
 	r := newRig(t)
 	r.loadGolden()
 	for _, path := range []string{"/standin/v1/principal", "/standin/v1/beneficiaries", "/standin/v1/transactions"} {
-		res := r.read("usr_a", path)
+		res := r.read("usr_aa", path)
 		if res.status != 200 || decode(t, res.body)["tenant_id"] != tenant {
 			t.Errorf("%s: %d, want 200 carrying tenant_id %q: %s", path, res.status, tenant, res.body)
 		}

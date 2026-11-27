@@ -47,14 +47,14 @@ type recordedFile struct {
 var recordedReads = []struct {
 	scenario, principal, path, query string
 }{
-	{"ledger_posted", "usr_a", "/standin/v1/transactions/fin.transaction:TX1/ledger-entries", ""},
-	{"ledger_unavailable", "usr_a", "/standin/v1/transactions/fin.transaction:TX3/ledger-entries", ""},
-	{"switch_accepted", "usr_a", "/standin/v1/transactions/fin.transaction:TX1/switch-status", ""},
-	{"switch_timed_out", "usr_a", "/standin/v1/transactions/fin.transaction:TX2/switch-status", ""},
-	{"destination_pending", "usr_a", "/standin/v1/transactions/fin.transaction:TX2/destination-status", ""},
-	{"destination_credited", "usr_a", "/standin/v1/transactions/fin.transaction:TX1/destination-status", ""},
-	{"candidates_of_usr_a", "usr_a", "/standin/v1/transactions", "account=acc_usr_a"},
-	{"another_principals_transaction", "usr_a", "/standin/v1/transactions/fin.transaction:TX9/ledger-entries", ""},
+	{"ledger_posted", "usr_aa", "/standin/v1/transactions/TX1/ledger-entries", ""},
+	{"ledger_unavailable", "usr_aa", "/standin/v1/transactions/TX3/ledger-entries", ""},
+	{"switch_accepted", "usr_aa", "/standin/v1/transactions/TX1/switch-status", ""},
+	{"switch_timed_out", "usr_aa", "/standin/v1/transactions/TX2/switch-status", ""},
+	{"destination_pending", "usr_aa", "/standin/v1/transactions/TX2/destination-status", ""},
+	{"destination_credited", "usr_aa", "/standin/v1/transactions/TX1/destination-status", ""},
+	{"candidates_of_usr_a", "usr_aa", "/standin/v1/transactions", "account=acc_usr_aa"},
+	{"another_principals_transaction", "usr_aa", "/standin/v1/transactions/TX9/ledger-entries", ""},
 }
 
 func recordStandin(t *testing.T) []byte {
@@ -63,7 +63,7 @@ func recordStandin(t *testing.T) []byte {
 
 	// Before anything is loaded every read is 503 STANDIN_NOT_LOADED, never an empty answer.
 	empty := newRig(t)
-	out.Exchanges = append(out.Exchanges, exchange(t, empty, "not_loaded", "usr_a", "/standin/v1/transactions/fin.transaction:TX1/ledger-entries", ""))
+	out.Exchanges = append(out.Exchanges, exchange(t, empty, "not_loaded", "usr_aa", "/standin/v1/transactions/TX1/ledger-entries", ""))
 
 	loaded := newRig(t)
 	if put := do(t, http.MethodPut, loaded.control.URL+"/control/v1/standin", benchToken, "", loaded.golden); put.status != 200 {

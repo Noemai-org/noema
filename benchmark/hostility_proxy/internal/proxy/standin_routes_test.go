@@ -23,7 +23,7 @@ import (
 // route table is config/routes.standin.json. The stand-in is a read store with six read routes; the proxy forwards exactly
 // those, passes the caller's credentials through untouched (it holds none), and applies its own faults to them.
 
-const standinPrincipalAssertion = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42" // the README's worked vector, SYNTHETIC
+const standinPrincipalAssertion = "v2.dXNyX2Fh.dGVuX2FscGhh.1790847660.371859af5bfc544d8070d42f0469249dbbf21d496cc20c744bcf01e948777db9" // the README's worked vector, SYNTHETIC
 
 // fakeStandin answers the stand-in's six read routes and records the headers it received.
 type fakeStandin struct {
@@ -122,7 +122,7 @@ func (r *rig) getWith(path string, h map[string]string) response {
 func TestEveryStandinReadRouteIsForwardedWithTheCallersCredentialsUntouched(t *testing.T) {
 	r, back := newStandinRig(t)
 	h := map[string]string{"Authorization": "Bearer runtime-token-runtime-token-runtime-tok", "X-Principal-Assertion": standinPrincipalAssertion}
-	for _, p := range []string{"/standin/v1/principal", "/standin/v1/beneficiaries", "/standin/v1/transactions?account=acc_usr_a",
+	for _, p := range []string{"/standin/v1/principal", "/standin/v1/beneficiaries", "/standin/v1/transactions?account=acc_usr_aa",
 		"/standin/v1/transactions/tx:1/ledger-entries", "/standin/v1/transactions/tx:1/switch-status", "/standin/v1/transactions/tx:1/destination-status"} {
 		res := r.getWith(p, h)
 		if res.status != 200 || !strings.Contains(res.body, `"data_source":"stand-in"`) {
@@ -173,7 +173,7 @@ func TestAServerErrorOnTheLedgerReadIsObservedAsOneAndOthersAreUntouched(t *test
 func TestPaginationOnTheStandinCandidateSearchIsCompleteOnlyAtTheEnd(t *testing.T) {
 	r, _ := newStandinRig(t)
 	r.load(fault("mock-ledger", "list_transactions", "PAGINATE", `{}`, `{"page_size":2}`), "")
-	res := r.getWith("/standin/v1/transactions?account=acc_usr_a", nil)
+	res := r.getWith("/standin/v1/transactions?account=acc_usr_aa", nil)
 	d := decode(t, res.body)
 	if res.status != 200 || d["complete"] != false || d["next_cursor"] == nil || len(d["items"].([]any)) != 2 {
 		t.Fatalf("the first page must be 2 items, incomplete, with a cursor: %d %s", res.status, res.body)
@@ -219,7 +219,7 @@ func TestAFaultPlanCannotMatchAStandinRouteOnAPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := `{"fault_plan_id":"fp_t","scenario_id":"SCN-T","seed":7,"deterministic":true,"source":"PROXY","faults":[{"target":"mock-customer","operation":"get_principal","effect":"DROP_RESPONSE","match":{"principal_id":"usr_a"},"params":{}}]}`
+	body := `{"fault_plan_id":"fp_t","scenario_id":"SCN-T","seed":7,"deterministic":true,"source":"PROXY","faults":[{"target":"mock-customer","operation":"get_principal","effect":"DROP_RESPONSE","match":{"principal_id":"usr_aa"},"params":{}}]}`
 	if _, err := plan.Parse([]byte(body), plan.Env{Routes: tab}); err == nil || !strings.Contains(err.Error(), "not an attribute") {
 		t.Fatalf("a plan matching a stand-in route on principal_id must be refused: %v", err)
 	}
