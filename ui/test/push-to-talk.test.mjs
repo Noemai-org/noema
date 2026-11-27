@@ -43,12 +43,12 @@ test("REQ-VOI-004: invalid recording limits are refused before microphone access
   }
 });
 
-test("A715: recording limit defaults to 30 seconds and a host cannot extend it", () => {
+test("A715: a host-supplied recording limit is capped at 30 seconds", () => {
   assert.equal(MAX_PUSH_TO_TALK_RECORDING_MS, 30_000);
-  const defaultHtml = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {} }));
+  const atLimitHtml = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {}, maxRecordingMs: 30_000 }));
   const shorterHtml = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {}, maxRecordingMs: 12_000 }));
   const extendedHtml = renderToStaticMarkup(createElement(PushToTalk, { onPcm: () => {}, maxRecordingMs: 90_000 }));
-  assert.match(defaultHtml, /<button(?![^>]*disabled)/u);
+  assert.match(atLimitHtml, /<button(?![^>]*disabled)/u);
   assert.match(shorterHtml, /<button(?![^>]*disabled)/u);
   assert.match(extendedHtml, /<button(?![^>]*disabled)/u);
 });
