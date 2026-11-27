@@ -69,7 +69,7 @@ State: built locally on `prep/tru10-linkage` (two commits, not pushed, no PR). O
 # Session 2026-11-26 · TRU-10 · A709 (C1, interim, relayed): migration 0043
 
 ## Session summary
-- What changed: `0043_decision_early_key_escalate_only.sql` replaces 0040's `decision_record_early_key_shape` with a CHECK in which a decision naming a turn and a principal has `outcome = 'ESCALATE'` (was: not ALLOW or CONFIRM). The test of "every early outcome may name a turn" is replaced by "an ESCALATE may; REJECT, CLARIFY, WAIT and UNKNOWN may not".
+- What changed: `0043_decision_early_key_escalate_only.sql` replaces 0040's `decision_record_early_key_shape` with a CHECK in which a decision naming a turn and a principal has `outcome` ESCALATE or REJECT (was: not ALLOW or CONFIRM; widened to REJECT for A680, a T1 to T9 refusal keyed by the turn). The test of "every early outcome may name a turn" is replaced by "an ESCALATE or a REJECT may; CLARIFY, WAIT and UNKNOWN may not".
 - Why: A709 (the next migration tightens 0040's CHECK). The early gate writes an ESCALATE only (A663, A574, A577) and the Writer already refuses anything else with a turn.
 - Risks: the number 0043 is the next free number on `main` at this head; the migration ledger (A171) governs, so another PR may take it first (then this PR renumbers, content unchanged). The CHECK is validated against existing rows: a database holding a turn on another outcome (none written by this code) fails the migration, by design.
 - Tests added: `platform/db/decision_early_key_test.go` (REQ-TRU-010; INV-03, INV-17). Regression cases: the red tests at `e2c322d4b`. Debt entries: none. Conflicts raised: none.
