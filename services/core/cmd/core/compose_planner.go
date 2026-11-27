@@ -28,6 +28,9 @@ import (
 // a named gap that lacks it and nothing else (A330, A469).
 
 const (
+	// EnvPlanTextMaxBytes is the bound of every string a slot gives the Planner (A705): required, no code default.
+	EnvPlanTextMaxBytes = "NOEMA_PLAN_TEXT_MAX_BYTES"
+
 	needPlanTextBound   = "the Planner's slot-text bound (plangraphs.Adapter.MaxTextBytes: no ruling or setting gives a value)"
 	needAdmittedIntents = "the admitted-intent store adapter (Intents)"
 	needSlotDocuments   = "the stored intent document reader (the tenant's Trust login and its read bound)"
