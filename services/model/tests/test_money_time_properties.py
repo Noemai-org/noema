@@ -311,3 +311,29 @@ def test_a_utc_instant_with_z_is_a_timestamp_and_the_same_instant_with_an_offset
     for bad in (utc.strftime("%Y-%m-%dT%H:%M:%Sz"), utc.strftime("%Y-%m-%dT%H:%M:%SZ") + "\n", utc.strftime("%Y-%m-%d %H:%M:%SZ"), utc.strftime("%Y-%m-%dT%H:%M:%S") + "+00:00"):
         with pytest.raises(ValidationError):
             check.validate_python(bad)
+
+
+# A758 (DATA-02; REQ-DATA-002; INV-02, INV-21): a run of digits longer than 4300 characters is UNREAD, never an error. CPython refuses to turn a longer integer string into an int (ValueError), and the
+# digit reader turned the customer's number into a Fraction without checking its length. Today the model's quote is cut at MAX_SURFACE (64) before the reader, so the public seam already answers "unread"; this
+# pins the reader itself, so raising that cap or a second caller can never turn a long number into an exception. At exactly 4300 characters the reader still reads (the amount is then unread by the safe-integer ceiling).
+LONG_RUN = 4300
+
+
+@pytest.mark.parametrize("template", ["{d}", "{d}.5", "1.{d}", "{d}k", "{d}{d}", "1,{d}"])
+def test_a_digit_run_over_4300_characters_is_unread_and_never_an_error(template: str) -> None:
+    normaliser = Normaliser(LEXICON, datetime(2026, 11, 14, 10, 0, tzinfo=UTC))
+    number = template.format(d="9" * (LONG_RUN + 1))
+    assert normaliser._digits(number) is None
+
+
+@pytest.mark.parametrize("template", ["{d}", "{d}.5", "1.{d}", "{d}k"])
+def test_the_digit_reader_still_reads_a_run_at_the_limit(template: str) -> None:
+    normaliser = Normaliser(LEXICON, datetime(2026, 11, 14, 10, 0, tzinfo=UTC))
+    digits = LONG_RUN - len(template.replace("{d}", ""))
+    assert digits > 0
+    assert normaliser._digits(template.format(d="9" * digits)) is not None
+
+
+@pytest.mark.parametrize("template", ["{d}", "naira {d}", "{d}k", "{d}.5"])
+def test_a_quoted_amount_with_a_run_over_4300_characters_is_unread_at_the_seam(template: str) -> None:
+    assert amount_of(template.format(d="9" * (LONG_RUN + 1))) is None
