@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
 var readIndex = map[string]int{"ledger": 0, "switch": 1, "destination": 2}
@@ -178,6 +179,44 @@ func TestClockSkewIsRecordedAsSentAndNeverCorrected(t *testing.T) {
 				}
 				if got := o.EffectiveAt.Sub(b.EffectiveAt); got != shift {
 					t.Errorf("effective time moved by %v from the unskewed read, want %v as sent", got, shift)
+				}
+			})
+		}
+	}
+}
+
+// A761, REQ-CTX-002, REQ-CTX-008, INV-23: freshness is computed from the RETRIEVAL time on the platform clock (layer.Read.ReadAt), never from a time the source sent. A source whose clock runs
+// 900 seconds ahead or behind leaves the status of the same read exactly where the unskewed read puts it, at every age: KNOWN up to the limit, STALE just beyond it. So a skewed source can neither
+// make a stale record look fresh nor a fresh one look stale. (The skewed times themselves are only recorded, TestClockSkewIsRecordedAsSentAndNeverCorrected.)
+func TestClockSkewNeverChangesFreshnessWhichIsTheRetrievalTimes(t *testing.T) {
+	all := load(t)
+	for _, family := range []string{"clock_skew_ahead", "clock_skew_behind"} {
+		for _, read := range readNames {
+			t.Run(read+"/"+family, func(t *testing.T) {
+				obs, _, _, _ := run(t, all, read, family, generous)
+				base, _, _, _ := run(t, all, read, "baseline", generous)
+				o, b := obs[readIndex[read]], base[readIndex[read]]
+				limit := o.Src.SourceLimit
+				if limit <= 0 || limit != b.Src.SourceLimit {
+					t.Fatalf("source limit %v (unskewed %v): the read carries no usable freshness limit, so the test would prove nothing", limit, b.Src.SourceLimit)
+				}
+				if o.Read.ReadAt.IsZero() || !o.Read.ReadAt.Equal(b.Read.ReadAt) {
+					t.Fatalf("retrieval time %v, unskewed %v: the skew must not touch the platform clock's reading", o.Read.ReadAt, b.Read.ReadAt)
+				}
+				if o.EffectiveAt.Equal(b.EffectiveAt) {
+					t.Fatalf("the source's own time did not move, so this read is not skewed")
+				}
+				for _, age := range []time.Duration{0, limit / 2, limit, limit + time.Nanosecond, 2 * limit} {
+					now := o.Read.ReadAt.Add(age)
+					got := layer.AssignStatus(o.Read, o.Src, now)
+					want := layer.AssignStatus(b.Read, b.Src, now)
+					expect := contracts.EnumsV1FactStatusKNOWN
+					if age > limit {
+						expect = contracts.EnumsV1FactStatusSTALE
+					}
+					if got != want || got != expect {
+						t.Errorf("age %v (limit %v): skewed read %s, unskewed %s, want %s: freshness must follow the retrieval time alone", age, limit, got, want, expect)
+					}
 				}
 			})
 		}
