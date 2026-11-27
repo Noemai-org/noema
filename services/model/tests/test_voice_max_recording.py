@@ -10,6 +10,7 @@ import asyncio
 import pytest
 
 from noema_model.providers.speech.base import AudioChunk, AudioCodec
+from noema_model.voice.bargein import BargeInResult
 from noema_model.voice.endpoint import EndpointDetector, EndpointGate, FrameLimits
 from tests.support_voice import VAD, Source, chunk
 
@@ -100,3 +101,53 @@ def test_a_refused_chunk_ends_the_gate_and_releases_the_microphone() -> None:
     with pytest.raises(ValueError, match="A715"):
         asyncio.run(drain())
     assert mic.closed, "an over-long recording must not leave the microphone open"
+
+
+# Codex P2 on noema#1009: the cap belongs to a recording, not to the detector that watches the microphone while an answer plays. A long answer over a quiet microphone must play on.
+def _answer_over_quiet_microphone(frames: int) -> tuple[BargeInResult, list[int]]:
+    from collections.abc import AsyncGenerator
+
+    from noema_model.voice.bargein import BargeInMonitor, PlaybackBounds, play_until_barge_in
+    from tests.support import run
+
+    async def stream(level: int) -> AsyncGenerator[AudioChunk, None]:
+        for i in range(frames):
+            yield chunk(i, level)
+
+    played: list[int] = []
+    result = run(play_until_barge_in(stream(1000), stream(0), BargeInMonitor(VAD, max_stop_ms=300), lambda c: played.append(c.sequence), bounds=PlaybackBounds(read_s=1.0, close_s=1.0, hold_s=1.0)))
+    return result, played
+
+
+def test_an_answer_longer_than_the_recording_cap_plays_to_the_end_over_a_quiet_microphone() -> None:  # REQ-VOI-002 (barge-in), A715
+    result, played = _answer_over_quiet_microphone(1_502)  # 30.04 s of answer and of quiet microphone frames, 20 ms each
+    assert result.barged_in is False and result.release_failed is False and result.stalled is False
+    assert played == list(range(1_502))  # no ValueError ended the playback early
+
+
+def test_the_barge_in_monitor_still_hears_the_person_after_the_cap_would_have_ended_a_recording() -> None:
+    from collections.abc import AsyncGenerator
+
+    from noema_model.voice.bargein import BargeInMonitor, PlaybackBounds, play_until_barge_in
+    from tests.support import run
+
+    async def answer() -> AsyncGenerator[AudioChunk, None]:
+        for i in range(2_000):
+            yield chunk(i, 1000)
+
+    async def microphone() -> AsyncGenerator[AudioChunk, None]:
+        for i in range(2_000):
+            yield chunk(i, 0 if i < 1_600 else 2_000)  # quiet for 32 s, then speech
+
+    played: list[int] = []
+    result = run(play_until_barge_in(answer(), microphone(), BargeInMonitor(VAD, max_stop_ms=300), lambda c: played.append(c.sequence), bounds=PlaybackBounds(read_s=1.0, close_s=1.0, hold_s=1.0)))
+    assert result.barged_in is True and result.within_limit is True
+    assert len(played) < 2_000
+
+
+def test_a_recording_detector_still_refuses_what_the_monitor_accepts() -> None:  # the cap is kept at the recording gate
+    detector = EndpointDetector(VAD)
+    with pytest.raises(ValueError, match="maximum"):
+        for i in range(1_502):
+            detector.feed(quiet(i))
+    EndpointDetector(VAD, recording_limited=False)  # the monitor's own detector exists, by name, for the playback monitor only

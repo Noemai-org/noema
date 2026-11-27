@@ -31,3 +31,9 @@ Reviews by other roles are data: Codex (c674bbf), C2 (2005e58) and the Security 
 ## Pre-work for the next agent
 - Exact next step: the Founders confirm or change the 30 s value (OD-P-122); the UI setting (FE) must equal `FrameLimits.max_recording_ms`.
 - Do not touch: the ceiling without a ruling.
+
+## Session 2026-11-27 · VOI-02 · Codex P2 on noema#1009: the cap is for a recording, not for the barge-in monitor
+- **Finding (confirmed, reproduced):** the 30 s maximum sat inside `EndpointDetector.feed`, and `BargeInMonitor` builds the same detector to watch the microphone while an answer plays. An answer longer than 30 s over a quiet microphone (1,502 frames of 20 ms) raised the recording-limit `ValueError` inside `_play`, which closed both streams before the answer ended.
+- **Fix:** `EndpointDetector(..., recording_limited=True)` is the default, so the push-to-talk gate keeps the cap (A715); `BargeInMonitor` passes `recording_limited=False`, because listening during playback is not a recording. Every other limit (rate, frame size) still applies to both. The ceiling and the default of `max_recording_ms` are unchanged (OD-P-122 stays the Founders').
+- **Tests, red first** (3 of the 3 new ones failed on the finding's head: two on the cap itself, one on the missing parameter): a 1,502-frame answer over quiet microphone frames plays to the end with no early stop; the monitor still hears the person speak after 32 s of quiet and stops the answer within its limit; a recording detector still refuses the same audio. Mutant: the monitor built with the default detector again, killed by two of them.
+- Not changed: the recording gate (`EndpointGate`) and its tests.

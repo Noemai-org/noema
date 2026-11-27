@@ -78,9 +78,12 @@ def _rms(data: bytes) -> float:
 
 
 class EndpointDetector:
-    def __init__(self, config: VadConfig, limits: FrameLimits | None = None) -> None:
+    def __init__(self, config: VadConfig, limits: FrameLimits | None = None, *, recording_limited: bool = True) -> None:
+        """`recording_limited` is True for a detector that ends a push-to-talk recording: the 30 s maximum (A715) applies to what is recorded. The barge-in monitor passes False: it listens to
+        the microphone for as long as an answer plays, which is not a recording and has no such maximum (Codex P2 on noema#1009). Every other limit (frame size, rate) applies to both."""
         self._config = config
         self._limits = FrameLimits() if limits is None else limits
+        self._recording_limited = recording_limited
         self._speech_ms = 0.0
         self._silence_ms = 0.0
         self._recorded_samples = 0  # integer samples: the limit is checked without float rounding
@@ -103,7 +106,7 @@ class EndpointDetector:
             return self._state
         duration_ms = len(chunk.data) // _BYTES_PER_SAMPLE * _MS_PER_S / chunk.sample_rate_hz
         samples = len(chunk.data) // _BYTES_PER_SAMPLE
-        if (self._recorded_samples + samples) * _MS_PER_S > self._limits.max_recording_ms * chunk.sample_rate_hz:
+        if self._recording_limited and (self._recorded_samples + samples) * _MS_PER_S > self._limits.max_recording_ms * chunk.sample_rate_hz:
             raise ValueError(f"recording is over the {self._limits.max_recording_ms} ms maximum (ruling A715)")
         self._recorded_samples += samples
         if _rms(chunk.data) >= self._config.speech_rms:
