@@ -238,7 +238,7 @@ func (w *evdPG) facts(t *testing.T, pools evdPools) trustport.ItemFacts {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := mapping.Parse(read("evidence_mapping", "mapping.v1.json"), rs, []string{evdLedger, evdSwitch, evdSettle, "fin.src.case_system"}, "fin.map.v1@2", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(dir, "..", "fintech_v1.json")))
+	m, err := mapping.Parse(read("evidence_mapping", "mapping.v1.json"), rs, []string{evdLedger, evdSwitch, evdSettle, "fin.src.case_system"}, "fin.map.v1@3", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(dir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -33,8 +33,6 @@ const (
 	needRequestRead    = "a read of a confirmation request by its id (the store has Latest only)"
 	needRequestEvents  = "the Record events of the confirmation store (no confirm-request or confirm-event contract)"
 	needConfirmPolicy  = "the pack's confirmation expiry and the capability an intent confirms (the pack gives the approver requirement only)"
-	needGraphReader    = "the pack's action-graph reader (plangraphs.Pack: the pack names no graph of an intent node)"
-	needIntentSlots    = "the stored intent's slot reader (plangraphs.Intents)"
 	needRunnableAdapt  = "an intake.Runnable adapter over the pack's graph conditions"
 	needHandoffAdapter = "an intake.Handoffs adapter over the pack's handoff routes"
 )
@@ -70,12 +68,15 @@ type decisionInputs struct {
 	Begin   trustport.TxBeginner
 	Facts   trustport.RecordFactSource
 	Entropy io.Reader
+	// PlanTextMaxBytes is the bound of every string a slot gives the Planner (plangraphs.Adapter.MaxTextBytes). No ruling or setting names a value: zero is the gap.
+	PlanTextMaxBytes int
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.
 type decisionParts struct {
 	Intents  intake.Intents
 	Recorder intake.Recorder
+	Planner  intake.Planner
 	Gaps     []decisionGap
 }
 
@@ -100,7 +101,12 @@ func buildDecisions(in decisionInputs) (decisionParts, error) {
 	}
 	add("Intents", intentsMissing)
 	add("Confirmations", []string{needRequestRead, needRequestEvents, needConfirmPolicy})
-	add("Planner", []string{needGraphReader, needIntentSlots}) // the plan contexts (planContextsFromRequest) and the registry (Pack.Registry) are built; the graph reader and the slot reader are not
+	planner, plannerMissing, err := decisionPlanner(in, intents)
+	if err != nil {
+		return decisionParts{}, err
+	}
+	p.Planner = planner
+	add("Planner", plannerMissing)
 	add("Recorder", recMissing)
 	add(gapServiceRunnable, []string{needRunnableAdapt})
 	add(gapServiceHandoffs, []string{needHandoffAdapter})
@@ -114,6 +120,9 @@ func (p decisionParts) fill(a TrustAdapters) TrustAdapters {
 	}
 	if p.Recorder != nil {
 		a.Recorder = p.Recorder
+	}
+	if p.Planner != nil {
+		a.Planner = p.Planner
 	}
 	return a
 }
@@ -157,6 +166,22 @@ func decisionIntents(in decisionInputs) (intake.Intents, []string, error) {
 		return nil, nil, fmt.Errorf("cmd/core: the admitted-intent store adapter: %w", err)
 	}
 	return si, nil, nil
+}
+
+// decisionPlanner builds the Planner (compose_planner.go) from the pack, the Intents adapter above and the tenant's Trust login with the same read bound; the text bound has no
+// source, so with PlanTextMaxBytes zero it is the one gap that remains once the rest is present.
+func decisionPlanner(in decisionInputs, intents intake.Intents) (intake.Planner, []string, error) {
+	var docs slotDocuments
+	if !absent(in.Pools) && in.Env.Getenv(EnvTrustDBTimeout) != "" {
+		timeout, err := recorderSettingMS(in.Env, EnvTrustDBTimeout)
+		if err != nil {
+			return nil, nil, err
+		}
+		if docs, err = newPoolDocuments(in.Pools, timeout); err != nil {
+			return nil, nil, fmt.Errorf("cmd/core: the Planner's document reader: %w", err)
+		}
+	}
+	return buildPlanner(plannerInputs{Pack: in.Pack, Intents: intents, Docs: docs, MaxTextBytes: in.PlanTextMaxBytes})
 }
 
 // decisionRecorder builds the Decision Record writer (REQ-TRU-008, REQ-TRU-010) from decisionRecorderConfig. The DeclinedRequestID mapping is noema#892's: nothing here touches it.
