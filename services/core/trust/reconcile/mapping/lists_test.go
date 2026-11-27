@@ -354,12 +354,12 @@ func TestThePackDeclaresTheClockAnchorOfAComplaintRef(t *testing.T) {
 	}
 }
 
-func TestTheRealMappingIsVersion2WithTheCaseAndComplaintRows(t *testing.T) {
-	m, err := mapping.Parse(realFile(t), ruleSet(t), sources(t), "fin.map.v1@2", limits, mapping.WithScope(packScope(t)))
+func TestTheRealMappingKeepsTheCaseAndComplaintRowsOfVersion2(t *testing.T) {
+	m, err := mapping.Parse(realFile(t), ruleSet(t), sources(t), "fin.map.v1@3", limits, mapping.WithScope(packScope(t)))
 	if err != nil {
-		t.Fatalf("the pack's mapping must be fin.map.v1@2 and load with the pack's own scope: %v", err)
+		t.Fatalf("the pack's mapping must be fin.map.v1@3 (which keeps the version 2 list entities) and load with the pack's own scope: %v", err)
 	}
-	if m.ID() != "fin.map.v1@2" || m.RuleSet() != ruleSet(t).ID() {
+	if m.ID() != "fin.map.v1@3" || m.RuleSet() != ruleSet(t).ID() {
 		t.Errorf("ID %q, rule set %q", m.ID(), m.RuleSet())
 	}
 	rows, err := m.ListRows(caseSystem, "case", casePage(true, aCase("case_1", "ROUTED")))

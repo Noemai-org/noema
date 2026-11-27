@@ -138,3 +138,14 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 
 ## Pre-work for the next agent
 - Exact next step: open the PR after the recordings PR merges (it is stacked on that branch).
+
+# Session 2026-11-27 · BEN-23 · Codex on #1010: replay serves 14 of the 19 committed boundaries, not the five malformed ones
+
+## Session summary
+- What changed: README (what replay serves and what it does not; the stale line about `leakscan.allow` removed), and two tests in `test_synthetic_boundary.py` (class `Replay`).
+- Why: Codex's P2 on #1010 is right. B16 to B20 are recordings of a reply the harness refuses as a whole (`usable_as_fixture: false`: rec-0094 and rec-0101 `NOT_JSON`; rec-0108, rec-0115 and rec-0122 `SCHEMA_MISMATCH`), so `ReplayStore.lookup` raises `EVIDENCE_ONLY` for them by design. The findings were computed through the scripted inner transport, not through replay.
+- Evidence: the new test looks every gate recording up through `ReplayStore` by its request hash: 14 are served, the five are refused `EVIDENCE_ONLY`, and nothing else in the directory is evidence-only. The supported offline path for the five is the generator (`synthetic_boundary`), which runs the real pipeline against a scripted transport; its test checks all 22 boundaries.
+- Risks: none to the product. Tests added: 2 (the README test was seen failing first). Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 scores the five malformed boundaries through the generator, and the other fourteen through replay.
