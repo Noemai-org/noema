@@ -65,6 +65,9 @@ type Components struct {
 	// UnderstandingUnbuilt names the Understanding settings that are missing when some are given (A486): /readyz names each after "interpreter" as "interpreter: NAME missing" (fixed text,
 	// no value). Not a component; empty when the Interpreter is built or none of its settings is given.
 	UnderstandingUnbuilt []string
+	// InjectionFailures counts noema_injection_record_failures_total (A704): a flagged payload whose Record event failed. It is not a component, and is nil while the injection screen is
+	// not built (a limit or the pack's patterns are missing, a named gap of the Trust adapters that read the screen).
+	InjectionFailures *recordFailureCounter
 }
 
 // Env is the process's configuration source, injected so that tests do not touch the real environment. Nothing read through it has a default (AGENT-16).
@@ -298,6 +301,13 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 		closeAll()
 		return Components{}, TrustParts{}, closeAll, err
 	}
+	// A704: the injection screen of the payload reader. An absent limit is a named gap, an invalid one stops the process; no Record port is wired here (nil).
+	screen, err := buildInjectionScreen(env, d.Verified, c.AccessLog, nil)
+	if err != nil {
+		closeAll()
+		return Components{}, TrustParts{}, closeAll, err
+	}
+	c.InjectionFailures = screen.Failures
 	var parts TrustParts
 	if trustRequested(env) {
 		if d.TrustAdapters == nil {
@@ -331,11 +341,12 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 				closeAll()
 				return Components{}, TrustParts{}, closeAll, fmt.Errorf("cmd/core: the pack: %w", err)
 			}
-			wired, err := d.WireTrust(trustWiringIn{Env: env, Clock: clk, Pack: pack, Tenants: c.ServedTenants, Pools: logins, Keys: keys, Understanding: c.Understanding})
+			wired, err := d.WireTrust(trustWiringIn{Env: env, Clock: clk, Pack: pack, Tenants: c.ServedTenants, Pools: logins, Keys: keys, Understanding: c.Understanding, Screen: screen.Deps})
 			if err != nil {
 				closeAll()
 				return Components{}, TrustParts{}, closeAll, err
 			}
+			screen.annotate(&wired)
 			adapters = wired.fill(adapters)
 			if c.TrustUnbuilt = stillUnbuilt(unbuilt.Names, adapters); len(c.TrustUnbuilt) > 0 {
 				break
@@ -384,6 +395,8 @@ type composeDeps struct {
 	WorkerActivities func() *workflows.EscalateActivities
 	// Pack is the one source of the manifest-verified pack for the whole composition (A548, INV-16): the same call the TrustAdapters source makes, so the pack is loaded and verified once.
 	Pack PackSource
+	// Verified is the same single load as Pack (A722), with the pinned bytes the injection screen reads: the screen carries this pack and loads none of its own. Nil means the screen has no pack.
+	Verified VerifiedSource
 	// WireTrust builds the Trust inputs and the decisions over the pack and the shared Trust logins (compose_trust_wiring.go). Nil means the composition builds none of them.
 	WireTrust func(trustWiringIn) (trustWired, error)
 	// Surfaces are the parts the surfaces lane takes from other tasks (compose_surfaces.go); the zero value names each as a gap.
@@ -394,13 +407,15 @@ type composeDeps struct {
 // activities, are added here as each merges and never from a fake; until then the Trust adapter source gives only the clock, so a process asked for Trust starts without it and /readyz names each adapter
 // it lacks (UnbuiltAdaptersError), and a configured worker without activities is not started (A442). Nothing is dialled here.
 func productionDeps() composeDeps {
-	pack := memoPackSource(productionPack) // loaded and verified once: the adapter source and the wiring share the one answer (A548, INV-16)
+	verified := memoVerified(loadVerified) // loaded and verified once: the adapter source, the wiring and the injection screen share the one answer (A548, A722, INV-16)
+	pack := memoPackSource(packFromVerified(verified))
 	return composeDeps{
 		LoadKeys:         loadGrantKeys,
 		TrustAdapters:    trustAdaptersSource(pack),
 		WorkerDial:       dialTemporal,
 		WorkerActivities: func() *workflows.EscalateActivities { return nil },
 		Pack:             pack,
+		Verified:         verified,
 		WireTrust:        wireTrustInputs,
 	}
 }

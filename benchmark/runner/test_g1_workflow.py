@@ -459,6 +459,20 @@ class G1StackWorkflow(unittest.TestCase):
             self.assertNotIn("private", path)
             self.assertNotEqual(path.rstrip("/"), "benchmark/out", "the whole output directory holds the issuer and the private key")
 
+    def test_the_journey_tokens_are_issued_right_before_the_browser_checks_and_only_when_they_run(self) -> None:
+        # A683, A715: one token for each journey principal, 15 minutes, in benchmark/out/idp/tokens (the path the Makefile and compose README document; FE reads it from there). The step runs
+        # only for the opt-in browser checks, after the stack is up and immediately before them (the tokens stop working after 15 minutes), with the same body limit the stack was given.
+        step = re.search(r"(?ms)^      - name: ([^\n]*journey tokens[^\n]*)\n(.*?)(?=^      - )", self.text)
+        assert step, "no step issues the journey tokens"
+        body = step.group(2)
+        self.assertRegex(body, r"if: always\(\) && inputs\.playwright")
+        self.assertRegex(body, r"make bench-journey-tokens BENCH_MAX_BODY_BYTES=\"\$BENCH_MAX_BODY_BYTES\"")
+        self.assertLess(self.text.index(step.group(0)), self.text.index("id: playwright"))
+        between = self.text[self.text.index(step.group(0)) + len(step.group(0)): self.text.index("id: playwright")]
+        self.assertNotIn("run:", between.replace("id: playwright", ""), "another command runs between the tokens and the browser checks")
+        self.assertLess(self.text.index("make bench-up"), self.text.index(step.group(0)))
+        self.assertNotIn("tokens", "".join(l for l in self.text.splitlines() if "upload-artifact" in l))
+
     def test_the_core_and_the_token_script_name_the_key_id_and_audience_the_same_way(self) -> None:
         # C2 and Codex on noema#577: the core read NOEMA_BENCH_KID and NOEMA_BENCH_AUDIENCE while bench_tokens.sh read BENCH_KID and BENCH_AUDIENCE, so a changed value made the issuer
         # sign for one audience and the core expect another. One name on both sides, one default on both sides, and the workflow's runner flags carry the same defaults.

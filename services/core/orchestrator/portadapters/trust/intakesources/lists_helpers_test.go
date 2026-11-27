@@ -192,7 +192,7 @@ func realMapping(t *testing.T) *mapping.Mapping {
 		}
 	}
 	m, err := mapping.Parse(read("fintech", "evidence_mapping", "mapping.v1.json"), rs,
-		[]string{ledgerSource, "fin.src.switch", "fin.src.destination", caseSource}, "fin.map.v1@2", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, mapping.WithScope(sc))
+		[]string{ledgerSource, "fin.src.switch", "fin.src.destination", caseSource}, "fin.map.v1@3", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, mapping.WithScope(sc))
 	if err != nil {
 		t.Fatal(err)
 	}
