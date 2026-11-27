@@ -1,4 +1,4 @@
-<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.23.md section 28.2 (Investigation state machine) at docs commit 88843e1de48749933fa503763bcf40a2d18d06e5. The PERD original is normative; this copy exists so a test can check transitions.yaml against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.23.md section 28.2 (Investigation state machine) at docs commit 8907f27cba0e7e969c4e76d89457c998e2636cfe. The PERD original is normative; this copy exists so a test can check transitions.yaml against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 ### 28.2 Investigation state machine [ADOPTED DEC-2026-10-17]
 
