@@ -41,14 +41,14 @@ func evScreenEnv(t *testing.T, e envMap) envMap {
 	return all
 }
 
-// REQ-STM-001, A722 (bench 2): the overlap has an upper bound, the one of NOEMA_TRUST_KEY_MAX_ACTIVE; a value above it stops the process and the error never echoes the value.
-func TestTheEvidenceKeyOverlapHasTheUpperBoundOfTheTrustKeyRing(t *testing.T) {
+// REQ-STM-001, A722 (bench 2), A739: the overlap has the upper bound of every key ring, 999; a value above it stops the process and the error never echoes the value.
+func TestTheEvidenceKeyOverlapHasTheUpperBoundOfEveryKeyRing(t *testing.T) {
 	ok := evRuling()
-	ok[EnvEvidenceKeyMaxActive] = "999999999"
-	if set, _, err := evidenceSettingsFrom(Env{Getenv: ok.get}); err != nil || set.KeyMaxActive != 999999999 {
-		t.Errorf("the largest value of the Trust ring's bound: settings %+v, err %v", set, err)
+	ok[EnvEvidenceKeyMaxActive] = "999"
+	if set, _, err := evidenceSettingsFrom(Env{Getenv: ok.get}); err != nil || set.KeyMaxActive != 999 {
+		t.Errorf("the largest value of the bound: settings %+v, err %v", set, err)
 	}
-	for _, bad := range []string{"1000000000", "2000000000", "4294967296"} {
+	for _, bad := range []string{"1000", "1000000000", "4294967296"} {
 		e := evRuling()
 		e[EnvEvidenceKeyMaxActive] = bad
 		_, _, err := evidenceSettingsFrom(Env{Getenv: e.get})

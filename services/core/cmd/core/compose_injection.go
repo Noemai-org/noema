@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -207,11 +206,12 @@ func evidenceSettingsFrom(env Env) (set evidenceSettings, missing []string, err 
 	set.DSNDir, set.KeyFile = get(EnvEvidenceDSNDir), get(EnvEvidenceKeyFile)
 	given[0], given[1] = set.DSNDir != "", set.KeyFile != ""
 	if given[2] = get(EnvEvidenceKeyMaxActive) != ""; given[2] {
-		// The bound of the Trust key ring's overlap (keyOverlapRe, NOEMA_TRUST_KEY_MAX_ACTIVE): a whole number from 1 to 999999999. The error names the setting, never the value.
-		if !keyOverlapRe.MatchString(get(EnvEvidenceKeyMaxActive)) {
-			return evidenceSettings{}, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvEvidenceKeyMaxActive)
+		// A739: the one overlap bound of every key ring, 1 to 999. The error names the setting, never the value.
+		n, err := parseKeyOverlap(EnvEvidenceKeyMaxActive, get(EnvEvidenceKeyMaxActive))
+		if err != nil {
+			return evidenceSettings{}, nil, err
 		}
-		set.KeyMaxActive, _ = strconv.Atoi(get(EnvEvidenceKeyMaxActive)) // the pattern holds it to a positive number that fits
+		set.KeyMaxActive = n
 	}
 	for i, name := range []string{EnvEvidenceDSNDir, EnvEvidenceKeyFile, EnvEvidenceKeyMaxActive} {
 		if !given[i] {
