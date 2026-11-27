@@ -206,7 +206,7 @@ func newWorld(t *testing.T, specs ...spec) *world {
 			st = contracts.EnumsV1FactStatusKNOWN
 		}
 		items = append(items, layer.Item{EvidenceID: id, PayloadRef: ref, PayloadHash: hashOf(t, s.payload), Status: st, Source: s.source, ReadAt: readAt,
-			EffectiveAt: readAt.Add(-time.Minute), EffectiveFreshnessSeconds: 300})
+			EffectiveAt: readAt.Add(-10 * time.Minute), EffectiveFreshnessSeconds: 900}) // older than the shipped 300 s convergence windows (PCK-05) and still fresh
 	}
 	var pairs []snapshot.Pair
 	ids := make([]string, len(items))
