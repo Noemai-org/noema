@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -27,6 +28,9 @@ type RecordEvents struct {
 func (r RecordEvents) Received(ctx context.Context, tx pgx.Tx, e ReceivedEvent) error {
 	if r.Appender == nil {
 		return ErrNoAppender
+	}
+	if strings.Contains(e.ApproverID, ":") || strings.Contains(e.ApproverKind, ":") {
+		return fmt.Errorf("%w: the actor is <kind>:<id>, so neither part holds a colon (A761)", ErrRequestForm)
 	}
 	_, err := r.Appender.Append(ctx, tx, chain.Event{TenantID: e.TenantID, CorrelationID: e.CorrelationID, WrittenBy: emitter, Actor: e.ApproverKind + ":" + e.ApproverID,
 		EventType: "CONFIRMATION_RECEIVED", ObjectRef: e.RequestID,

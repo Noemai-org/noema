@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -256,7 +257,7 @@ func (r Requests) Answer(ctx context.Context, a AnswerInput) (string, error) {
 	if err := r.ready(); err != nil {
 		return "", err
 	}
-	if !hasDeadline(ctx) || !safeRe.MatchString(a.TenantID) || !requestIDRe.MatchString(a.RequestID) || !safeRe.MatchString(a.ApproverID) ||
+	if !hasDeadline(ctx) || !safeRe.MatchString(a.TenantID) || !requestIDRe.MatchString(a.RequestID) || !safeRe.MatchString(a.ApproverID) || strings.Contains(a.ApproverID, ":") ||
 		(a.Response != confirm.Accept && a.Response != confirm.Decline) {
 		return "", ErrRequestForm
 	}
