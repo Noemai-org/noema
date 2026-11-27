@@ -937,8 +937,45 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             out += [("manifest", f"{rel} is not a valid rule set: {m}") for _, m in check_recon_rules(body)]
         if kind == "evidence_mapping" and isinstance(body, dict) and body.get("ruleset") != expected["recon_rule_set_id"]:
             out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
+        if kind == "evidence_mapping" and isinstance(body, dict):
+            out += [("manifest", f"{rel} {m}") for m in _target_version_problems(body, readable.get("pack"))]
     out += _priority_routing_problems(readable.get("priority_routing"), readable.get("pack"), root)
     return out
+
+
+def _target_version_problems(mapping: dict, pack_file: Path | None) -> list[str]:
+    """EXP-01 (A556, A706, A710): the optional `target_versions` member of the evidence mapping is checked the way the Go loader checks it (trust/reconcile/mapping): a non-empty list of
+    `{source, token, complete}`, each a non-empty text, the marker not the token, no other member, one declaration per source, and every source one of the pack's evidence sources."""
+    if "target_versions" not in mapping:
+        return []
+    decls = mapping["target_versions"]
+    if not isinstance(decls, list) or not decls:
+        return ["target_versions must be a non-empty list of declarations"]
+    sources: set[str] | None = None
+    if pack_file is not None:
+        try:
+            pack = json.loads(pack_file.read_text(encoding="utf-8"))
+            sources = {e["source_id"] for e in pack.get("evidence_sources", []) if isinstance(e, dict) and isinstance(e.get("source_id"), str)}
+        except (ValueError, UnicodeDecodeError, OSError, AttributeError):
+            sources = None
+    problems: list[str] = []
+    seen: set[str] = set()
+    for i, d in enumerate(decls):
+        where = f"target_versions[{i}]"
+        if not isinstance(d, dict) or set(d) != {"source", "token", "complete"}:
+            problems.append(f"{where} must be an object with exactly source, token and complete")
+            continue
+        if not all(isinstance(d[k], str) and d[k] for k in ("source", "token", "complete")):
+            problems.append(f"{where} must name a source, a token member and a complete member as non-empty text")
+            continue
+        if d["token"] == d["complete"]:
+            problems.append(f"{where}: the complete marker must be a member other than the token")
+        if d["source"] in seen:
+            problems.append(f"{where}: the source {d['source']} is declared twice")
+        seen.add(d["source"])
+        if sources is not None and d["source"] not in sources:
+            problems.append(f"{where}: the source {d['source']} is not an evidence source of the pack")
+    return problems
 
 
 def _priority_routing_problems(member: Path | None, pack_file: Path | None, root: Path) -> list[Problem]:
