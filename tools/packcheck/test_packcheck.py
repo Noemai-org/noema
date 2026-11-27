@@ -254,7 +254,7 @@ class TemplateCoverage(unittest.TestCase):
         (root / "fintech/recon_rules").mkdir(parents=True)
         (root / "fintech/recon_rules/rules.v1.json").write_text((PACKS / "fintech/recon_rules/rules.v1.json").read_text())
         (root / "fintech/templates").mkdir()
-        keys = checks.required_template_keys(pack, root)
+        keys = checks.required_template_keys(pack, root) + [k for _, _, k in checks.slot_question_keys(pack)]
         for loc in checks.template_locales(pack):
             if loc == skip_locale:
                 continue
@@ -296,6 +296,21 @@ class TemplateCoverage(unittest.TestCase):
             self.assertIn(victim, problems[0][1])
             self.assertIn("yo", problems[0][1])
 
+    def test_a_missing_slot_question_text_fails_and_names_it_and_its_locale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp), drop=("pcm", "fin.clarify.when"))
+            problems = checks.check_templates(pack, Path(tmp))
+            self.assertEqual(len(problems), 1, problems)
+            self.assertIn("fin.clarify.when", problems[0][1])
+            self.assertIn("pcm", problems[0][1])
+
+    def test_a_key_with_no_slash_that_no_slot_declares_is_refused_and_a_blank_question_text_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp), extra=("en-NG", "fin.clarify.nobody_asks"), empty=("ha", "fin.clarify.when"))
+            joined = " | ".join(m for _, m in checks.check_templates(pack, Path(tmp)))
+            self.assertIn("fin.clarify.nobody_asks", joined)
+            self.assertIn("the template for fin.clarify.when is empty", joined)
+
     def test_a_template_for_a_part_of_the_answer_is_allowed_and_checked_like_the_summary(self):
         # A271: <outcome_id>/<classification>/<part> for a part of the closed list. A part is optional for now; when present it must be non-empty text, and a part name that is not
         # on the list, a part of a key the pack does not have, and a deeper path each fail. SYNTHETIC text.
@@ -335,6 +350,53 @@ class TemplateCoverage(unittest.TestCase):
         self.assertEqual(checks.run(PACKS / "fintech_v1.json"), [])
         enforced = checks.run(PACKS / "fintech_v1.json", templates="enforce")
         self.assertTrue(enforced and all(c == "templates" for c, _ in enforced), enforced[:2])
+
+
+class SlotQuestions(unittest.TestCase):
+    """A757 (interim; AMB-04; A563, A582): a slot may name `question_key`, the pack template (plain language, a key of every locale file) of the SLOT-mode clarification that asks the customer for
+    its value when it is missing. The core never writes a key in code (INV-14). One key per slot, never shared with `options_key` or an attribute question, never on a slot that is resolved by a
+    candidate search (nothing to ask there), and a text for it in every locale (checked with the templates). SYNTHETIC."""
+
+    def problems(self, mutate):
+        base, graphs = real()
+        mutate(base)
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "slot_questions"]
+
+    @staticmethod
+    def slot(pack, name, node=0):
+        return next(s for s in pack["intent_nodes"][node]["slots"] if s["name"] == name)
+
+    def test_the_real_pack_asks_for_the_time_window_and_nothing_else(self):
+        base, _ = real()
+        self.assertEqual(checks.slot_question_keys(base), [("fin.payments.exception.investigate", "when", "fin.clarify.when")])
+        self.assertEqual(self.problems(lambda d: None), [])
+
+    def test_the_english_text_is_plain_language_with_no_digit_no_placeholder_and_one_question(self):
+        text = json.loads((PACKS / "fintech/templates/en-NG.json").read_text())["fin.clarify.when"]
+        self.assertTrue(text.strip().endswith("?") and text.count("?") == 1, text)
+        self.assertFalse(any(ch.isdigit() or ch in "{}" for ch in text), text)
+        self.assertLessEqual(len(text), 120)
+
+    def test_a_question_key_on_a_candidate_search_slot_is_refused(self):
+        found = self.problems(lambda d: self.slot(d, "subject_resource").__setitem__("question_key", "fin.clarify.which"))
+        self.assertTrue(any("subject_resource" in m and "candidate" in m for m in found), found)
+
+    def test_two_slots_may_not_share_a_key(self):
+        found = self.problems(lambda d: self.slot(d, "amount").__setitem__("question_key", "fin.clarify.when"))
+        self.assertTrue(any("fin.clarify.when" in m and "twice" in m for m in found), found)
+
+    def test_a_slot_key_may_not_be_the_options_key_or_an_attribute_question(self):
+        base, _ = real()
+        disambiguation = next(n for n in base["intent_nodes"] if n.get("disambiguation"))["disambiguation"]
+        for taken in (disambiguation["options_key"], disambiguation["attribute_order"][0]["question_key"]):
+            found = self.problems(lambda d, taken=taken: self.slot(d, "amount").__setitem__("question_key", taken))
+            self.assertTrue(any(taken in m for m in found), (taken, found))
+
+    def test_a_key_that_is_not_a_template_id_is_refused_by_the_contract_before_the_pack_check(self):
+        base, graphs = real()
+        for bad in ("", "When did you send it", "fin", "Fin.clarify.when"):
+            self.slot(base, "when")["question_key"] = bad
+            self.assertTrue(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), f"{bad!r} is accepted")
 
 
 class SubjectSlot(unittest.TestCase):
