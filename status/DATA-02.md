@@ -23,6 +23,16 @@ Updated 2026-11-26. Plan task DATA-02 (week 7, workstream SEC): "Money and time 
 3. **Money arithmetic (M6):** no code exists and nothing is invented here; it stays OPEN until after G1 (OD-P-130). The M10 rows "addition crossing the ceiling" and "NGN plus another currency" have nothing to test until then.
 4. **Decoder bounds:** the generated Go decoder is shape-only by design (`tools/codegen/README.md`); every route validates request bodies against the JSON Schema (A655). **C1's confirmation is owed** that the conversation POST does; it is not DATA-02's.
 
+## Session 2026-11-27 · C2 (A758)
+
+### Session summary
+- Order (A758, relayed; not yet committed as a ruling, so this section and the PR body are its record): "digit runs over 4300 characters make the amount unread, regression case."
+- What changed (this PR, noema#1014): `Normaliser._digits` returns `None` (the amount is unread, never an error) when the number has more than `MAX_DIGIT_RUN` = 4300 digits. CPython refuses to convert a longer digit string and `Fraction` raised `ValueError`; the public seam's 64-character quote limit (`MAX_SURFACE`) hid it, so the defect was latent in `_digits` (INV-02, INV-21). The count is of digits, not of the commas that group them.
+- Red first, read whole: `3d81a92f4`, `model` job 140663558962: 5 failed (`{d}`, `{d}.5`, `1.{d}`, `{d}k`, `{d}{d}`), 3804 passed, every one `ValueError: Exceeds the limit (4300 digits)`. Green `7c361c6b6`: 26 runs, all passed after one re-run of `tests (2)` (the first run failed `execution/ledger` `TestTheContextDeadlineStopsTheAttempts`, a timing test in a package this diff does not touch; the re-run passed: `core` 140692619011, `tests (0..2)` 140689996369 / 140689997072 / 140689995136, `static` 140690051872, `model` 140687154756, `contracts` 140687154745, `checks` 140687155306, `arch-lint` 140687154417, `regression-link` 140687155183).
+- Tests added (INV-02, INV-21): `test_a_digit_run_over_4300_characters_is_unread_and_never_an_error` (six shapes), `test_the_digit_reader_still_reads_a_run_at_the_limit`, `test_a_quoted_amount_with_a_run_over_4300_characters_is_unread_at_the_seam`, `test_the_limit_counts_the_digits_and_not_the_commas_that_group_them`. The "1,{d}" shape and the seam test pass before the fix (characterisation, said here).
+- Hand mutants: limit off (no guard), limit one digit high, guard after the conversion, count with commas: all killed.
+- Debt entries: none. Conflicts raised: none.
+
 ## Pre-work for the next agent
 - Exact next step: SR and Codex read the lexicon fix; C1 confirms the conversation POST validates against the JSON Schema (A729 item 4).
 - Files to read first: `services/model/tests/test_money_time_properties.py`, `services/model/noema_model/understanding/compiler/lexicon.py` (`_amount`, `_digits`, `_spoken`).
