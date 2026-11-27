@@ -97,13 +97,16 @@ type IDs interface {
 
 // Writer writes Decision Records and grants.
 type Writer struct {
-	Keys           *grants.Keys
-	Issuer         *grants.Issuer
-	Appender       *chain.Appender
-	Clock          clock.Clock
-	IDs            IDs
-	Escalation     EscalationSet // the pack's escalation plan capabilities, from the composition root (REQ-TRU-010); empty means no step may follow a disposition
-	RecordLifetime time.Duration // how long a record is usable after issued_at (ruling A13); from configuration, never a literal here
+	Keys       *grants.Keys
+	Issuer     *grants.Issuer
+	Appender   *chain.Appender
+	Clock      clock.Clock
+	IDs        IDs
+	Escalation EscalationSet // the pack's escalation plan capabilities, from the composition root (REQ-TRU-010); empty means no step may follow a disposition
+	// ConfirmationTTLCeiling is the most a confirmation request may live (A561, A724): the pack's `confirmation_ttl_ceiling_ms`, from the composition root. Zero or negative: no CONFIRM
+	// request is written (a missing ceiling never reads as no ceiling). Red stub: not read yet.
+	ConfirmationTTLCeiling time.Duration
+	RecordLifetime         time.Duration // how long a record is usable after issued_at (ruling A13); from configuration, never a literal here
 }
 
 // Request is one decision to write. The identifiers come from the admitted intent and the session, the basis from the evaluation, nothing from the caller's
