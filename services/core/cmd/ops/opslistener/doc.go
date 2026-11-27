@@ -6,6 +6,13 @@
 // controlplane.Caller with the admin role, the same way for every request. Headers, the query string and a body never name a person or a role (INV-12, AGENT-10); a request with
 // a body is refused. The verification role (RoleVerify) is not produced here at all.
 //
+// Revocation is a recorded limit, not a feature (A721: the operator CA is the control). Any certificate the operator CA signs is an operator, and there is no revocation list
+// and no serial deny-list: a lost operator certificate stays valid until it expires. The operator CA must therefore issue short-lived client certificates, at most 24 hours in
+// the bench, and the listener refuses none on that ground itself. A deny-list of serials is a follow-up if the Founders want revocation.
+//
+// Bounds on a client: the header timeout, a read timeout covering the whole request, an idle timeout and a header size bound are required settings with no default (AGENT-16).
+// Go adds 4096 bytes to MaxHeaderBytes for the request line, so the bound is a floor on what is accepted, not an exact cut.
+//
 // The two routes, POST only:
 //
 //	/v1/ops/tenants/{tenant_id}/kill-switch:set

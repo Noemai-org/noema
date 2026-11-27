@@ -574,7 +574,7 @@ func TestOversizedHeadersAreRefused(t *testing.T) { // REQ-OPS-003
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	req := "POST /v1/ops/tenants/ten_ABC/kill-switch:set HTTP/1.1\r\nHost: localhost\r\nX-Pad: " + strings.Repeat("a", 4096) + "\r\n\r\n"
+	req := "POST /v1/ops/tenants/ten_ABC/kill-switch:set HTTP/1.1\r\nHost: localhost\r\nX-Pad: " + strings.Repeat("a", 16384) + "\r\n\r\n"
 	if _, err := conn.Write([]byte(req)); err != nil {
 		t.Fatal(err)
 	}
