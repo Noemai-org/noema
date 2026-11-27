@@ -70,3 +70,15 @@ Updated 2026-11-08. Plan task REC-09 (ruling A109, docs#142): owner C1, reviewer
 ### Pre-work for the next agent
 - Exact next step: Codex and the second human review (Record package); the scorer needs no change (the Benchmark Owner said so).
 - Do not touch: anything outside `record/export/**` and this file.
+
+# Session 2026-11-27 · REC-09 · A725 (C1, interim, relayed): the reconstruction reads CANDIDATES_RESOLVED in basis points
+
+## Session summary
+- What changed: the reconstruct projection of CANDIDATES_RESOLVED surfaces `state`, `resolved_target`, `candidate_count`, `top_bp`, `second_bp` and `margin_bp` (was: `resolved_target`, `candidate_count`, `margin`); the US-01 fixture event is written by `core-trust` with the integer-basis-point payload of `candidaterank.AuditPayload`; `testdata/us01.golden.json` regenerated with `-update` (one line).
+- Why: A725 (#1012): the payload is integer basis points plus `resolved_target`, written as `core-trust`; C1 updates the projection and its golden in a separate Tier 1 PR.
+- Not surfaced (listed): `above_floor`, `why_not`, `resolved_candidate_id` and the per-candidate scores and features stay in the stored payload and the export; the reconstruction shows the six summary members only. REQ-AMB-003's "scores and feature values recorded" is met by the Record, not by this projection.
+- Tests: `TestUS01ReconstructsFromTheRecordAlone` (REQ-AUD-003, INV-10) and the golden. Regression cases: the red at `f9b6b0797`. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the appender of CANDIDATES_RESOLVED (the T7 caller) writes the payload as `core-trust`.
+- Do not touch: `candidaterank.AuditPayload`.
