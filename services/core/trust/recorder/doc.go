@@ -2,7 +2,7 @@
 //
 // Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005, REQ-TRU-010, REQ-EXE-008 (Trust side only), REQ-OPS-002 (Trust side only), REQ-TRU-009 (the confirmation request of a CONFIRM).
 //
-// May import: platform/{clock,crypto,ids}, internal/contracts, record/chain, trust/confirm, trust/decide, trust/grants.
+// May import: platform/{clock,crypto,ids}, internal/contracts, record/chain, trust/clocks, trust/confirm, trust/decide, trust/grants.
 //
 // Must never: commit or roll back the caller's transaction; issue a grant for a decision that is not ALLOW; write a decision whose basis is not the set the
 // evaluation recorded (TRU-13); use a tenant, an identity or a key that the request names for another purpose than the one it is checked for.

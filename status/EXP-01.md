@@ -148,6 +148,24 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Exact next step: after the Founder's A155 approval, EL builds the real `FactsSource` over the Record reader, the sealed snapshot items and the `PayloadReader`; one fact per slot, KNOWN only; a slot with no source refuses.
 - Do not touch: the pack templates in this PR (noema#595 holds them).
 
+# Session 2026-11-26 · EXP-01 · StepFactSource for the Recorder (A550, A556, A706, A710)
+
+No task row names StepFactSource; A550 and A710 give it to C2 and the order names EXP-01, so this is the row used.
+
+## Session summary
+- What changed (PR noema#1027): `orchestrator/portadapters/trust/stepfacts.go` (`SealedSteps`, the production `StepFactSource` of the Recorder: `TargetVersions` and `StepFacts`); `trust/reconcile/mapping/target_versions.go` (the mapping's optional `target_versions` member: `TargetVersion`, `DeclaresTargetVersion`); the pack's evidence mapping `fin.map.v1@3` declares the ledger source's `version_token` and `complete` members, with its manifest pin and id; packcheck checks the member as the loader does; READMEs. The explainer's own facts source (A710's other C2 row) is a separate piece and is not touched.
+- Why: A550 and A710 (the Recorder's StepFactSource, from the sealed-snapshot reader), A556 (the target version token is a mapped field in the pack mapping, C2's), A706 (`version_token` is the maximum entry version as a string; `complete` means the read answered and was not unavailable; EL's reader change is noema#1004).
+- Risks, and how they are contained: a wrong version would bind a grant to a stale target. The token is read only from the sealed snapshot's item for the step's own target (one item, KNOWN, payload verified against its hash, marker true); every other case is `ErrStepVersion` with no version. The freeze Permission is a named gap (`ErrStepPermission`), so no grant can be issued from this source until the freeze row (noema#958) and a Record `FreezeReader` exist.
+- Tests added (REQ-TRU-009, REQ-RES-002, REQ-CTX-004; INV-17, INV-19, INV-20, INV-21; AGENT-13): `stepfacts_test.go`, `mapping/target_versions_test.go`, `tools/packcheck/test_manifest.py` (`MappingTargetVersions`).
+- Regression cases added: the three files above. Debt entries: none new.
+- Conflicts raised: none. Deviations stated in the PR: the mapping loader (`trust/reconcile/mapping`) and packcheck are outside the first allowlist; they were needed for the member to load and be checked, as noema#818 did for `rows_from`.
+
+## Pre-work for the next agent
+- Exact next step: when noema#958 merges and C1 or EL provide a Record `FreezeReader`, add a port that gives `FreezeGate.PermitResult` the reconciliation of the step's target and the effective freeze, and make `SealedSteps.StepFacts` return `RecordStepFacts{TargetVersions, Permission}`; the named-gap tests change with it. EL wires `SealedSteps` (the mapping from `packload`, the payload reader) in the composition.
+- Open questions (owner): the freeze allow-list consumer fails closed on a missing entry (EL); a pack whose write capability has `concurrency_control: NONE` has no token, and this source gives every step one or refuses (the two write capabilities of the fintech pack are `CONDITIONAL_WRITE`); the item's resource kind is not compared with the step target's kind (the sealed item has no resource scope; the source record id and the mapping's declared source decide).
+- Files to read first: `orchestrator/portadapters/trust/stepfacts.go`, `trust/reconcile/mapping/target_versions.go`, `packs/fintech/evidence_mapping/mapping.v1.json`.
+- Do not touch: `fin.map.v1@3` pins without recomputing `sha256sum`; noema#988 (PCK-05) also changes this mapping file (the rule set id), so whichever merges second merges main and recomputes the pin.
+
 # Session 2026-11-26 · EXP-01 · the explainer row reader behind `FactsSource` (A710, A675; C2)
 
 ## Task card (PERD §61.4)
