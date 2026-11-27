@@ -33,7 +33,7 @@ type Transactions interface {
 type Classified struct {
 	ReconciliationID, Classification string
 	// WaitUntil is the Unix second the answer waits until when every disagreement is still inside its convergence window (reconcile.Result.Wait.Until, REQ-RES-005): the classification
-	// is then the fallback and the answer is neither a verdict nor a freeze. Zero means the answer does not wait. Red stub: not set yet.
+	// is then the fallback and the answer is neither a verdict nor a freeze. Zero means the answer does not wait.
 	WaitUntil int64
 }
 

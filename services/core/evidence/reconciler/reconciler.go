@@ -106,7 +106,11 @@ func (r *Reconciler) Classify(ctx context.Context, tenantID string, items []laye
 	if err != nil {
 		return readseal.Classified{}, &opError{kind: ErrRule, cause: err}
 	}
-	return readseal.Classified{ReconciliationID: r.reconciliationID(sorted, now), Classification: string(res.Classification)}, nil
+	out := readseal.Classified{ReconciliationID: r.reconciliationID(sorted, now), Classification: string(res.Classification)}
+	if res.Wait != nil {
+		out.WaitUntil = res.Wait.Until
+	}
+	return out, nil
 }
 
 func (r *Reconciler) check(it layer.Item, repeated bool, now time.Time) error {

@@ -959,18 +959,35 @@ func configuredService(f *fake) *Service {
 	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Candidates: n, Ownership: n, Evidence: n, Reconciler: f, Policies: f, Clocks: f, Confirmations: &f13{}, Planner: &f13{}, Recorder: &f13{}, Dispatches: &f13{}}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 }
 
-// RES-05 (REQ-RES-005, INV-16, INV-20; interim, relayed): an answer that waits inside a convergence window ends T10 in WAIT, with INSUFFICIENT_EVIDENCE and the end of the window as the time
-// it is evaluated again; it is neither a verdict nor a freeze, and it never goes on.
-func TestT10AWaitingAnswerEndsInWaitUntilTheEndOfTheWindow(t *testing.T) {
+// RES-05 (REQ-RES-005, INV-16, INV-20; interim, relayed): an answer that waits inside a convergence window is neither a verdict nor a freeze. PERD 23.3 lets only T11 end an evaluation in
+// WAIT, so T10 goes on with the end of the window, and T11 ends in WAIT until then without asking the policy anything.
+func TestT10AWaitingAnswerGoesOnWithTheEndOfTheWindow(t *testing.T) {
 	f := &fake{rec: Reconciliation{Classification: reconcile.InsufficientEvidence, WaitUntil: tNow + 300}}
-	d, trace := run(t, newEv(t, f), decide.T10Reconciliation)
-	stopped(t, "waiting", d, trace, decide.T10Reconciliation, decide.Wait, []string{"INSUFFICIENT_EVIDENCE"}, decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass})
-	if d.ReevaluateAt() != tNow+300 {
-		t.Errorf("re-evaluated at %d, want %d", d.ReevaluateAt(), tNow+300)
+	ev := newEv(t, f)
+	_, trace := run(t, ev, decide.T10Reconciliation)
+	wentOn(t, "waiting", trace, decide.T10Reconciliation)
+	if ev.waitUntil != tNow+300 {
+		t.Errorf("T10 kept the end of the window as %d, want %d", ev.waitUntil, tNow+300)
 	}
 }
 
-// A waiting answer that cannot be a wait fails closed: an end that is not in the future, a classification other than INSUFFICIENT_EVIDENCE, or a freeze (a waiting answer is never frozen).
+func TestT11AWaitingAnswerEndsInWaitUntilTheEndOfTheWindowAndAsksNoPolicy(t *testing.T) {
+	f := &fake{}
+	ev := newEv(t, f)
+	ev.waitUntil = tNow + 300
+	d, trace := run(t, ev, decide.T11Policy)
+	stopped(t, "waiting", d, trace, decide.T11Policy, decide.Wait, []string{"INSUFFICIENT_EVIDENCE"}, layers(decide.NotEvaluated))
+	if d.ReevaluateAt() != tNow+300 {
+		t.Errorf("re-evaluated at %d, want %d", d.ReevaluateAt(), tNow+300)
+	}
+	for _, c := range f.calls {
+		if c == "Evaluate" {
+			t.Errorf("the policy was asked, calls %v, want none", f.calls)
+		}
+	}
+}
+
+// A waiting answer that cannot be a wait fails closed at T10: an end that is not in the future, a classification other than INSUFFICIENT_EVIDENCE, or a freeze (a waiting answer is never frozen).
 func TestT10AWaitingAnswerThatIsNotAWaitFailsClosed(t *testing.T) {
 	for name, rec := range map[string]Reconciliation{
 		"an end that has passed":   {Classification: reconcile.InsufficientEvidence, WaitUntil: tNow},

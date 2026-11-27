@@ -25,7 +25,7 @@ type Reconciliation struct {
 	// in the form `<vertical>.reason.<name>`; empty when the pack maps it to nothing.
 	EscalateReason string
 	// WaitUntil is the Unix second the answer waits until, when every disagreement is still inside its convergence window (reconcile.Result.Wait.Until, REQ-RES-005): the answer is neither a
-	// verdict nor a freeze, the classification is INSUFFICIENT_EVIDENCE and T10 ends in WAIT. Zero: the answer does not wait. Red stub: not read yet.
+	// verdict nor a freeze, the classification is INSUFFICIENT_EVIDENCE and T10 ends in WAIT. Zero: the answer does not wait.
 	WaitUntil int64
 }
 

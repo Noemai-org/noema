@@ -65,6 +65,16 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 		return decide.FailStep(errAnswer)
 	}
 	e.frozen, e.allowedUnderFreeze = rec.Frozen, append([]string(nil), rec.AllowedUnderFreeze...) // T14 checks the plan's capabilities against the freeze
+	if rec.WaitUntil != 0 {
+		// REQ-RES-005 (interim, relayed): every disagreement is still inside its convergence window, so the answer waits: no write and no verdict until the end of the window. A waiting answer is
+		// neither a verdict nor a freeze (INV-20), so one that names a settled classification, a freeze or an end that is not in the future is a defect and fails closed (INV-16). PERD 23.3 lets
+		// only T11 end an evaluation in WAIT, so T10 goes on with the end of the window and T11 ends in WAIT before it asks the policy anything.
+		if rec.WaitUntil <= e.now || rec.Frozen || rec.Classification != reconcile.InsufficientEvidence {
+			return decide.FailStep(errAnswer)
+		}
+		e.waitUntil = rec.WaitUntil
+		return decide.Continue()
+	}
 	if rec.EscalateReason == "" {
 		// Nothing maps this classification to an escalation. A frozen target: reads continue, and only a write the freeze blocks is refused, as a typed refusal and not an internal
 		// error (A225, A254: TARGET_FROZEN); an intent that names no capability asks for no write (the plan's capabilities are checked against the freeze again at T14). Any other
@@ -142,6 +152,18 @@ func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 	}
 	if e.bb == nil {
 		return decide.FailStep(errNotReady)
+	}
+	if e.waitUntil != 0 {
+		// The reconciliation answer waits inside a convergence window (T10): nothing is asked of the policy and nothing is permitted. The decision is WAIT until the end of the window (REQ-RES-005).
+		reason, err := decide.Core("INSUFFICIENT_EVIDENCE")
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		d, err := r.Wait(layers(decide.NotEvaluated), e.waitUntil, reason)
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		return decide.Stop(d)
 	}
 	ids, err := e.policyCapabilities(ctx)
 	if err != nil {

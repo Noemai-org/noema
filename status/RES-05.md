@@ -43,3 +43,17 @@ Task state: green written; CI to be read. Owner: C2 (A640: C2 keeps the Reconcil
 ## Pre-work for the next agent
 - Exact next step: both Founders on the PR. PCK-05 (EL) declares real windows once decided.
 - Do not touch: `rules.v1.json` values.
+
+# Session 2026-11-27 · RES-05 · Result.Wait to WAIT (C1, interim, relayed)
+
+## Session summary
+- What changed: a reconciliation answer that waits inside a convergence window (`reconcile.Result.Wait`, REQ-RES-005) now reaches the decision. `readseal.Classified` gains `WaitUntil` (set by `evidence/reconciler` from `Result.Wait.Until`); the Trust reconciler adapter returns it from its re-classification as `Reconciliation.WaitUntil`; T10 keeps it (`evaluation.waitUntil`) and goes on; T11 ends in WAIT with `reevaluate_at = WaitUntil` and the core reason INSUFFICIENT_EVIDENCE, before it asks the policy anything. A waiting answer that names a settled classification, a freeze or an end that is not in the future fails closed at T10 (INV-16, INV-20).
+- Why: the RES-05 hand-off ("C1 maps Result.Wait to a WAIT decision with reevaluate_at = Wait.Until").
+- Design correction (listed): the red head `4139297b2` asserted that T10 ends in WAIT. PERD 23.3 (`decide.stepOutcomes`) lets only T11 end an evaluation in WAIT (T10: ESCALATE only), so the green carries the wait through T10 and ends it at T11; the T10 test changed from "ends in WAIT" to "goes on with the end of the window", and a T11 test was added.
+- Not done (needs a ruling, A745): the WAIT decision is returned, not recorded as a Decision Record. A WAIT reached here has an incomplete basis (policy not evaluated), so recording it needs the early form (a turn and a principal) and migration 0043's CHECK (#1021) allows a turn only on an ESCALATE or a REJECT. The "Record event" of the hand-off is therefore open.
+- Risks: a snapshot sealed during a wait and evaluated after the window ended fails closed (UNKNOWN) at T10 rather than waiting; the next evaluation reads fresh evidence.
+- Tests added (REQ-RES-005; INV-16, INV-20, INV-21): `evidence/reconciler` (a window carries its end; no window or an expired one does not wait), the reconciler adapter, `trust/intake` T10 and T11. Regression cases: the red at `4139297b2`. Debt entries: none. Conflicts raised: none (the §23.3 limit is kept, not changed).
+
+## Pre-work for the next agent
+- Exact next step: a ruling on recording WAIT (early form with a turn; the CHECK of 0043); then the Record event.
+- Do not touch: `decide.stepOutcomes` (PERD 23.3).
