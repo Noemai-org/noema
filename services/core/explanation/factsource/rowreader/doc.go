@@ -4,7 +4,8 @@
 // Reader reads one decision's rows in a single read-only transaction: the Decision Record, the sealed snapshot's classification, the admitted intent's subject, and the grants,
 // receipts and verdicts of the decision's investigation. Every statement names the tenant, and the login's row-level security binds it again. Source builds the facts: a case
 // reference only from an ACKNOWLEDGED receipt with its acknowledgement and an ACHIEVED verdict (INV-04, INV-07), the outcome from the verdict's own definition, the classification
-// from the sealed snapshot, and everything else an unknown; the payment facts and the locale come from seams the composition fills.
+// from the sealed snapshot (a decision with no verdict and no grant of its own, ALLOW, is explained from its record as the pack's configured no-write outcome, A727), and everything
+// else an unknown; the payment facts and the locale come from seams the composition fills.
 //
 // May import: the standard library, the database driver, explanation, explanation/factsource, internal/contracts, platform/clock.
 //
