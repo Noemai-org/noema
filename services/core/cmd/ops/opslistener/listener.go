@@ -47,6 +47,10 @@ type Config struct {
 	CorrelationIDs func() (string, error)
 	// HeaderTimeout bounds reading a request's headers and the graceful stop of Serve.
 	HeaderTimeout time.Duration
+	// ReadTimeout bounds reading a whole request, body included. IdleTimeout bounds a kept-alive connection between requests. MaxHeaderBytes bounds the request headers.
+	ReadTimeout    time.Duration
+	IdleTimeout    time.Duration
+	MaxHeaderBytes int
 }
 
 var (
