@@ -1,6 +1,6 @@
 {
   "ruleset_id": "fin.recon.rules",
-  "version": 1,
+  "version": 2,
   "label": "SYNTHETIC",
   "entities": {
     "debit": {
@@ -86,7 +86,8 @@
         "entity": "credit",
         "field": "state",
         "value": "CREDITED"
-      }
+      },
+      "convergence_window_seconds": 300
     },
     {
       "label": "credit_without_debit",
@@ -104,7 +105,8 @@
         "entity": "reversal",
         "field": "state",
         "value": "POSTED"
-      }
+      },
+      "convergence_window_seconds": 300
     },
     {
       "label": "reversal_conflict",
@@ -117,7 +119,8 @@
         "entity": "debit",
         "field": "state",
         "value": "NOT_POSTED"
-      }
+      },
+      "convergence_window_seconds": 0
     },
     {
       "label": "switch_successful_credit_not_credited",
@@ -130,25 +133,30 @@
         "entity": "credit",
         "field": "state",
         "value": "NOT_CREDITED"
-      }
+      },
+      "convergence_window_seconds": 300
     }
   ],
   "single_valued": [
     {
       "entity": "credit",
-      "field": "state"
+      "field": "state",
+      "convergence_window_seconds": 300
     },
     {
       "entity": "switch",
-      "field": "state"
+      "field": "state",
+      "convergence_window_seconds": 300
     },
     {
       "entity": "settlement",
-      "field": "state"
+      "field": "state",
+      "convergence_window_seconds": 0
     },
     {
       "entity": "reversal",
-      "field": "state"
+      "field": "state",
+      "convergence_window_seconds": 0
     }
   ],
   "derived": [

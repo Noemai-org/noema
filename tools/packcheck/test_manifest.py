@@ -392,6 +392,8 @@ class ReconRulesFile(Base):
         root, manifest = self.tree()
         doc = json.loads((root / RULES).read_text(encoding="utf-8"))
         doc["version"] = 2
+        for e in doc["incompatible"] + doc["single_valued"]:
+            e.pop("convergence_window_seconds", None)  # the shipped rule set is version 2 with its windows: take them away
         write(root / RULES, doc)
         self.reseal(root, manifest, "fin.recon.rules@2")
         self.fails(root, manifest, "convergence_window_seconds")
@@ -841,14 +843,11 @@ class IdMatch(Base):
                 root, manifest = self.tree()
                 doc = json.loads((root / rel).read_text(encoding="utf-8"))
                 doc["version"] = doc["version"] + 1
-                if kind == "recon_rules":  # A659: a version 2 rule set declares its windows, so the id comparison stays the only failure
-                    for e in doc["incompatible"] + doc["single_valued"]:
-                        e["convergence_window_seconds"] = 60
                 (root / rel).write_text(json.dumps(doc, indent=2), encoding="utf-8")
                 self.edit(root, manifest, lambda d, k=kind, r=rel: entry(d, k).__setitem__("sha256", sha256(root / r)))
                 problems = self.check(manifest, root)
                 self.assertEqual(len(problems), 1, problems)
-                self.assertIn(f"@{doc['version']}", problems[0][1])  # the new version, which is the mapping's 4 and the rule set's 2
+                self.assertIn(f"@{doc['version']}", problems[0][1])  # the new version, which is the mapping's 4 and the rule set's 3 (the shipped rule set is version 2 and keeps its windows)
 
     def test_the_mappings_own_rule_set_reference_must_be_the_expected_rule_set(self):
         # fin.map.v1 says which rule set it feeds; that must be the rule set the manifest expects (one rule set in the pack).

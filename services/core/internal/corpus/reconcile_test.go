@@ -30,7 +30,7 @@ func loadRuleSet(t *testing.T) *reconcile.RuleSet {
 
 // item builds a KNOWN item of an entity with its fields; id is unique per call site.
 func item(id, entity string, fields map[string]predicate.Value) reconcile.Evidence {
-	return reconcile.Evidence{ID: id, Source: "src." + entity, Entity: entity, Status: reconcile.Known, EffectiveAt: now - 30, ExpiresAt: now + 300, Fields: fields}
+	return reconcile.Evidence{ID: id, Source: "src." + entity, Entity: entity, Status: reconcile.Known, EffectiveAt: now - 600, ExpiresAt: now + 300, Fields: fields}
 }
 
 func state(s string) map[string]predicate.Value {
@@ -72,17 +72,17 @@ func TestRulesOneByOne(t *testing.T) {
 		want reconcile.Classification
 		rule string
 	}{
-		{"R1 debit posted and credit confirmed", []reconcile.Evidence{debit("d", "POSTED"), credit("c", "CREDITED", true)}, reconcile.SuccessConfirmed, "R1@1"},
-		{"R2 switch timed out and credit unknown", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("TIMED_OUT"))}, reconcile.ExecutionOutcomeUnknown, "R2@1"},
-		{"R2 switch unknown and credit pending", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("EXECUTION_OUTCOME_UNKNOWN")), credit("c", "PENDING", false)}, reconcile.ExecutionOutcomeUnknown, "R2@1"},
-		{"R2 not credited without a terminal flag", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("TIMED_OUT")), credit("c", "NOT_CREDITED", false)}, reconcile.ExecutionOutcomeUnknown, "R2@1"},
-		{"R3 reversal posted and linked", []reconcile.Evidence{debit("d", "POSTED"), reversal("r", "POSTED", true)}, reconcile.ReversedConfirmed, "R3@1"},
-		{"R4 switch failed and credit credited", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("FAILED")), credit("c", "CREDITED", true)}, reconcile.ContradictoryState, "R4@1"},
-		{"R5 switch successful and settlement pending in window", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("SUCCESSFUL")), settlement("t", "PENDING", now+100)}, reconcile.SettlementPending, "R5@1"},
-		{"R6 two debits, one counterparty and amount, inside ten minutes", []reconcile.Evidence{debit("d1", "POSTED"), debit("d2", "POSTED")}, reconcile.PossibleDuplicate, "R6@1"},
-		{"R7 a required source is unavailable", []reconcile.Evidence{{ID: "u", Source: "src.credit", Entity: "credit", Status: reconcile.Unavailable, Required: true, ExpiresAt: now + 300}}, reconcile.InsufficientEvidence, "R7@1"},
-		{"no rule matches: never a default success", []reconcile.Evidence{debit("d", "POSTED")}, reconcile.InsufficientEvidence, "R0@1"},
-		{"empty set", nil, reconcile.InsufficientEvidence, "R0@1"},
+		{"R1 debit posted and credit confirmed", []reconcile.Evidence{debit("d", "POSTED"), credit("c", "CREDITED", true)}, reconcile.SuccessConfirmed, "R1@2"},
+		{"R2 switch timed out and credit unknown", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("TIMED_OUT"))}, reconcile.ExecutionOutcomeUnknown, "R2@2"},
+		{"R2 switch unknown and credit pending", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("EXECUTION_OUTCOME_UNKNOWN")), credit("c", "PENDING", false)}, reconcile.ExecutionOutcomeUnknown, "R2@2"},
+		{"R2 not credited without a terminal flag", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("TIMED_OUT")), credit("c", "NOT_CREDITED", false)}, reconcile.ExecutionOutcomeUnknown, "R2@2"},
+		{"R3 reversal posted and linked", []reconcile.Evidence{debit("d", "POSTED"), reversal("r", "POSTED", true)}, reconcile.ReversedConfirmed, "R3@2"},
+		{"R4 switch failed and credit credited", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("FAILED")), credit("c", "CREDITED", true)}, reconcile.ContradictoryState, "R4@2"},
+		{"R5 switch successful and settlement pending in window", []reconcile.Evidence{debit("d", "POSTED"), item("s", "switch", state("SUCCESSFUL")), settlement("t", "PENDING", now+100)}, reconcile.SettlementPending, "R5@2"},
+		{"R6 two debits, one counterparty and amount, inside ten minutes", []reconcile.Evidence{debit("d1", "POSTED"), debit("d2", "POSTED")}, reconcile.PossibleDuplicate, "R6@2"},
+		{"R7 a required source is unavailable", []reconcile.Evidence{{ID: "u", Source: "src.credit", Entity: "credit", Status: reconcile.Unavailable, Required: true, ExpiresAt: now + 300}}, reconcile.InsufficientEvidence, "R7@2"},
+		{"no rule matches: never a default success", []reconcile.Evidence{debit("d", "POSTED")}, reconcile.InsufficientEvidence, "R0@2"},
+		{"empty set", nil, reconcile.InsufficientEvidence, "R0@2"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -426,7 +426,7 @@ func TestUncoveredClassificationsFallBackToInsufficientEvidence(t *testing.T) {
 	}
 	for _, c := range uncovered {
 		got := run(t, rs, situations[c]...)
-		if got.Classification != reconcile.InsufficientEvidence || got.RuleID != "R0@1" {
+		if got.Classification != reconcile.InsufficientEvidence || got.RuleID != "R0@2" {
 			t.Errorf("%s: want the INSUFFICIENT_EVIDENCE fallback, got %s by %s", c, got.Classification, got.RuleID)
 		}
 	}

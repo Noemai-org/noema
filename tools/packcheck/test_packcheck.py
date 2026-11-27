@@ -935,23 +935,28 @@ def rules_file(version=1, window=None):
     """The real rule set, as version 1 (no window) or as version 2 with one window on every compared pair and single-valued field (a test value, not a ruling)."""
     doc = json.loads((PACKS / "fintech/recon_rules/rules.v1.json").read_text())
     doc["version"] = version
-    if window is not None:
-        for entry in doc["incompatible"] + doc["single_valued"]:
+    for entry in doc["incompatible"] + doc["single_valued"]:
+        if window is None:
+            entry.pop("convergence_window_seconds", None)  # the shipped rule set is version 2 with its windows (PCK-05): a version 1 document has none
+        else:
             entry["convergence_window_seconds"] = window
     return doc
 
 
 class ReconRuleSet(unittest.TestCase):
     """A659 (interim, relayed, not yet committed; REQ-RES-005; AGENT-15): the pack's rules file is checked against `recon-rule-set.v1`. From version 2 every compared pair and every
-    single-valued field declares `convergence_window_seconds` (at least 0, A708); version 1 declares none. That a window equals the smaller freshness limit of its pair (A641) is not
-    checked here: it needs the evidence mapping's entity-to-source link, which is the rule set's data change (PCK-05)."""
+    single-valued field declares `convergence_window_seconds` (at least 0, A708); version 1 declares none. That a window equals the smaller freshness limit of its sources (A641) is not
+    checked here: it needs the evidence mapping's entity-to-source link and is checked with the manifest (test_manifest.ConvergenceWindows, PCK-05)."""
 
     def problems(self, doc):
         fn = getattr(checks, "check_recon_rules", None)
         self.assertIsNotNone(fn, "tools/packcheck/checks.py has no check_recon_rules(doc) (A659)")
         return fn(doc)
 
-    def test_the_real_rule_set_is_a_valid_version_1(self):
+    def test_the_real_rule_set_is_a_valid_version_2(self):
+        self.assertEqual(self.problems(json.loads((PACKS / "fintech/recon_rules/rules.v1.json").read_text())), [])
+
+    def test_a_version_1_rule_set_with_no_window_is_valid(self):
         self.assertEqual(self.problems(rules_file()), [])
 
     def test_a_version_2_rule_set_with_every_window_is_valid(self):

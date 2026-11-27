@@ -843,6 +843,74 @@ def _injection_problems(doc) -> list[Problem]:
     return out
 
 
+def _is_whole(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _window_problems(rules: dict, mapping: dict, pack: dict) -> list[Problem]:
+    """PCK-05 (A674, A691, A708): from rule set version 2 each compared pair and each single-valued field carries `convergence_window_seconds`. A window of 0 is no window (the safe value,
+    A691) and is always allowed. A window above zero equals the smaller `freshness_sla_seconds` of the sources the evidence mapping links to the entity (A641); the link is read from the mapping,
+    never from the rule file. It fails when such a window differs, when an entity of it has no mapped source or a source the pack does not declare with a freshness limit, or when the rule set is
+    not labelled SYNTHETIC. Version 1 has no windows and is not asked for them. The message names the rule and the entity, never a document value beyond the two numbers compared."""
+    version = rules.get("version")
+    if not isinstance(version, int) or isinstance(version, bool) or version < 2:
+        return []
+    out: list[Problem] = []
+    if rules.get("label") != "SYNTHETIC":
+        out.append(("manifest", f"the rule set of version {version} is not labelled SYNTHETIC (A674: the windows are synthetic)"))
+    sources: dict[str, set[str]] = {}
+    for row in mapping.get("rows") if isinstance(mapping.get("rows"), list) else []:
+        if isinstance(row, dict) and isinstance(row.get("entity"), str) and isinstance(row.get("source"), str):
+            sources.setdefault(row["entity"], set()).add(row["source"])
+    fresh = {s.get("source_id"): s.get("freshness_sla_seconds") for s in pack.get("evidence_sources", []) if isinstance(s, dict)} if isinstance(pack.get("evidence_sources"), list) else {}
+
+    def limit_of(rule: str, entities: list) -> int | None:
+        limits: list[int] = []
+        for entity in entities:
+            linked = sources.get(entity, set())
+            if not linked:
+                out.append(("manifest", f"{rule}: entity {entity!r} has no source in the evidence mapping, so its window can only be 0"))
+                return None
+            for src in sorted(linked):
+                if not _is_whole(fresh.get(src)):
+                    out.append(("manifest", f"{rule}: source {src!r} of entity {entity!r} has no freshness_sla_seconds in the pack"))
+                    return None
+                limits.append(fresh[src])
+        return min(limits)
+
+    def check(rule: str, window: object, entities: list) -> None:
+        if not isinstance(window, int) or isinstance(window, bool) or window < 0:
+            return  # the schema reports a missing or malformed window (check_recon_rules)
+        if window == 0:
+            return
+        want = limit_of(rule, entities)
+        if want is not None and window != want:
+            out.append(("manifest", f"{rule}: convergence_window_seconds is {window}, the smaller freshness_sla_seconds of its sources is {want}"))
+
+    for m in rules.get("incompatible") if isinstance(rules.get("incompatible"), list) else []:
+        if isinstance(m, dict):
+            entities = [m.get(side, {}).get("entity") for side in ("a", "b") if isinstance(m.get(side), dict)]
+            check(f"matrix entry {m.get('label')!r}", m.get("convergence_window_seconds"), entities)
+    for sv in rules.get("single_valued") if isinstance(rules.get("single_valued"), list) else []:
+        if isinstance(sv, dict):
+            check(f"single-valued {sv.get('entity')!r}.{sv.get('field')!r}", sv.get("convergence_window_seconds"), [sv.get("entity")])
+    return out
+
+
+def _window_problems_of(readable: dict[str, Path]) -> list[Problem]:
+    """Reads the three files the window check needs; a file that cannot be read as an object is reported by the checks above, so it is skipped here."""
+    bodies = []
+    for kind in ("recon_rules", "evidence_mapping", "pack"):
+        try:
+            body = json.loads(readable[kind].read_text(encoding="utf-8")) if kind in readable else None
+        except (ValueError, UnicodeDecodeError):
+            body = None
+        if not isinstance(body, dict):
+            return []
+        bodies.append(body)
+    return _window_problems(*bodies)
+
+
 def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
     """PCK-02 (A333, EVD-06 hash-pin of A320): the pack manifest lists the pack files the core loads with their SHA-256 and names the expected
     evidence-mapping and rule-set ids. Fails when a listed file's SHA-256 differs or the file is missing, a file of a listed kind is not listed,
@@ -960,6 +1028,7 @@ def check_manifest(manifest_path: Path, root: Path) -> list[Problem]:
             out.append(("manifest", f"{rel} feeds rule set {body.get('ruleset')!r}, the manifest expects {expected['recon_rule_set_id']}"))
         if kind == "evidence_mapping" and isinstance(body, dict):
             out += [("manifest", f"{rel} {m}") for m in _target_version_problems(body, readable.get("pack"))]
+    out += _window_problems_of(readable)
     out += _priority_routing_problems(readable.get("priority_routing"), readable.get("pack"), root)
     return out
 
