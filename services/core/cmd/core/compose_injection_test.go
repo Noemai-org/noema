@@ -25,9 +25,10 @@ var injNames = []string{
 }
 
 // injRuling is the Architect's bench set (A704): 64 patterns, 1024 per pattern, 65536 per document, depth 8, field cap 256.
-func injRuling() envMap {
+func injRuling(t *testing.T) envMap {
+	t.Helper()
 	e := envMap{injNames[0]: "64", injNames[1]: "1024", injNames[2]: "65536", injNames[3]: "8", injNames[4]: "256"}
-	for k, v := range evRuling() {
+	for k, v := range evRulingReal(t) {
 		e[k] = v
 	}
 	return e
@@ -81,7 +82,7 @@ func TestTheFiveInjectionLimitsAreRequiredSettingsWithNoDefault(t *testing.T) {
 
 func TestAPartlyGivenSetOfInjectionLimitsNamesOnlyTheMissingOnes(t *testing.T) {
 	for i, name := range injNames {
-		e := injRuling()
+		e := injRuling(t)
 		delete(e, name)
 		_, missing, err := injectionLimitsFrom(Env{Getenv: e.get})
 		if err != nil || len(missing) != 1 || missing[0] != name {
@@ -98,7 +99,7 @@ func TestEachInjectionSettingReachesItsOwnLimit(t *testing.T) {
 	if err != nil || len(missing) != 0 || lim != want {
 		t.Fatalf("limits %+v, missing %v, err %v; want %+v", lim, missing, err, want)
 	}
-	if lim, _, _ := injectionLimitsFrom(Env{Getenv: injRuling().get}); lim != injLimits() {
+	if lim, _, _ := injectionLimitsFrom(Env{Getenv: injRuling(t).get}); lim != injLimits() {
 		t.Errorf("the ruling's values give %+v, want %+v", lim, injLimits())
 	}
 }
@@ -322,7 +323,7 @@ func TestAReadWithNoCorrelationIsRefusedByTheComposedScreen(t *testing.T) {
 func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 	l, _ := injLog()
 	full := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		full[k] = v
 	}
 	s, err := buildInjectionScreen(mcEnvOf(full), loadVerified, l, nil)
@@ -333,13 +334,13 @@ func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 	if err != nil || screenGiven(none.Deps) || strings.Join(none.Missing, ",") != strings.Join(append(slices.Clone(injNames), evNames...), ",") {
 		t.Fatalf("screen %+v, err %v; want every setting named and no screen", none, err)
 	}
-	noPack := injRuling()
+	noPack := injRuling(t)
 	g, err := buildInjectionScreen(mcEnvOf(noPack), loadVerified, l, nil)
 	if err != nil || screenGiven(g.Deps) || len(g.Missing) != 1 {
 		t.Fatalf("screen %+v, err %v; want the pack's patterns named and no screen", g, err)
 	}
 	bad := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		bad[k] = v
 	}
 	bad[EnvInjectionMaxDepth] = "x"
@@ -347,7 +348,7 @@ func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 		t.Errorf("an invalid setting: err %v", err)
 	}
 	over := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		over[k] = v
 	}
 	over[EnvInjectionMaxPatterns] = "1"
@@ -355,7 +356,7 @@ func TestBuildInjectionScreenFromTheEnvironment(t *testing.T) {
 		t.Error("a pack whose patterns exceed the limit started")
 	}
 	badPack := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		badPack[k] = v
 	}
 	badPack[EnvPackManifest] = "fintech/no-such-manifest.json"
@@ -393,7 +394,7 @@ func TestAMissingScreenIsNamedOnTheAdaptersThatReadIt(t *testing.T) {
 func TestTheCompositionPassesTheScreenToTheTrustWiring(t *testing.T) {
 	var calls twCalls
 	e := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		e[k] = v
 	}
 	c, _, closer, err := twBuild(t, e, twDeps(&loaded{}), &calls)
@@ -431,7 +432,7 @@ var _ = packload.Pack{}
 // The composition names the missing limit on the adapters that read the screen, in the same reasons the wiring keeps for every other gap: a setting is named, never its value.
 func TestTheCompositionNamesAMissingInjectionLimitOnTheAdaptersThatReadTheScreen(t *testing.T) {
 	e := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		e[k] = v
 	}
 	delete(e, EnvInjectionMaxDepth)

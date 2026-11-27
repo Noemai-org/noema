@@ -36,6 +36,10 @@ const MetricInjectionRecordFailures = "noema_injection_record_failures_total"
 // needInjectionPatterns is the fixed text of the gap of a pack that gives no pattern data (A664): there is no empty screen.
 const needInjectionPatterns = "the pack's injection patterns"
 
+// needInjectionRecorder is the fixed text of the gap of a screen built with no Recorder (SR on #1018): the screen is built for the Alert side only, so a finding is an alert and a count
+// and nothing is recorded; and the count has no exporter yet, so a zero is not a healthy screen. It carries no value.
+const needInjectionRecorder = "the injection recorder: not wired, so a flagged payload is an alert and a count and no Record event, and the count has no exporter, so a count of zero is not a healthy screen"
+
 // recordFailureCounter counts noema_injection_record_failures_total. The core has no metric registry or exporter yet (platform/telemetry: "metrics: not here yet"); this is the value a
 // registry reads when one exists.
 type recordFailureCounter struct{ n atomic.Uint64 }

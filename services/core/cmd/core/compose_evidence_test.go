@@ -80,7 +80,7 @@ func TestTheScreenNamesAMissingEvidenceSettingAndIsNotBuilt(t *testing.T) {
 	l, _ := injLog()
 	for _, name := range evNames {
 		e := twProductionEnv(t)
-		for k, v := range injRuling() {
+		for k, v := range injRuling(t) {
 			e[k] = v
 		}
 		delete(e, name)
@@ -90,7 +90,7 @@ func TestTheScreenNamesAMissingEvidenceSettingAndIsNotBuilt(t *testing.T) {
 		}
 	}
 	e := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		e[k] = v
 	}
 	e[EnvEvidenceKeyMaxActive] = "zero"
@@ -102,7 +102,7 @@ func TestTheScreenNamesAMissingEvidenceSettingAndIsNotBuilt(t *testing.T) {
 // The composition: a missing evidence setting is named on the adapters that read the screen; an invalid one stops the process.
 func TestTheCompositionNamesAMissingEvidenceSettingAndStopsOnAnInvalidOne(t *testing.T) {
 	e := twProductionEnv(t)
-	for k, v := range injRuling() {
+	for k, v := range injRuling(t) {
 		e[k] = v
 	}
 	delete(e, EnvEvidenceKeyFile)
@@ -142,7 +142,7 @@ func TestTheScreenIsBuiltFromTheVerifiedPackItIsGivenAndNeverLoadsOne(t *testing
 	var calls int
 	src := func(Env) (packload.Pack, error) { calls++; return v, nil }
 	l, _ := injLog()
-	s, err := buildInjectionScreen(mcEnvOf(injRuling()), src, l, nil) // no pack setting in the environment
+	s, err := buildInjectionScreen(mcEnvOf(injRuling(t)), src, l, nil) // no pack setting in the environment
 	if err != nil || !screenGiven(s.Deps) || len(s.Missing) != 0 || s.Failures == nil {
 		t.Fatalf("screen %+v, err %v; want a screen built from the given verified pack", s, err)
 	}
@@ -151,15 +151,15 @@ func TestTheScreenIsBuiltFromTheVerifiedPackItIsGivenAndNeverLoadsOne(t *testing
 	}
 	var none int
 	gone := func(Env) (packload.Pack, error) { none++; return packload.Pack{}, errPackNotConfigured }
-	g, err := buildInjectionScreen(mcEnvOf(injRuling()), gone, l, nil)
+	g, err := buildInjectionScreen(mcEnvOf(injRuling(t)), gone, l, nil)
 	if err != nil || screenGiven(g.Deps) || len(g.Missing) != 1 || g.Missing[0] != needInjectionPatterns {
 		t.Errorf("a pack that is not configured: screen %+v, err %v; want the patterns named", g, err)
 	}
-	if g, err := buildInjectionScreen(mcEnvOf(injRuling()), nil, l, nil); err != nil || screenGiven(g.Deps) || len(g.Missing) != 1 {
+	if g, err := buildInjectionScreen(mcEnvOf(injRuling(t)), nil, l, nil); err != nil || screenGiven(g.Deps) || len(g.Missing) != 1 {
 		t.Errorf("no source: screen %+v, err %v; want the patterns named", g, err)
 	}
 	broken := func(Env) (packload.Pack, error) { return packload.Pack{}, errors.New("synthetic load failure") }
-	if _, err := buildInjectionScreen(mcEnvOf(injRuling()), broken, l, nil); err == nil {
+	if _, err := buildInjectionScreen(mcEnvOf(injRuling(t)), broken, l, nil); err == nil {
 		t.Error("a pack that failed to load started the screen")
 	}
 }
@@ -168,7 +168,7 @@ func TestTheScreenIsBuiltFromTheVerifiedPackItIsGivenAndNeverLoadsOne(t *testing
 func TestTheCompositionBuildsTheScreenFromTheDepsVerifiedPack(t *testing.T) {
 	v := tiVerified(t)
 	var calls int
-	c, _, closer, err := mcBuild(t, injRuling(), composeDeps{Verified: func(Env) (packload.Pack, error) { calls++; return v, nil }})
+	c, _, closer, err := mcBuild(t, injRuling(t), composeDeps{Verified: func(Env) (packload.Pack, error) { calls++; return v, nil }})
 	if err != nil {
 		t.Fatalf("the process must start: %v", err)
 	}
