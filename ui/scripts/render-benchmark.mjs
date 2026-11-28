@@ -13,5 +13,6 @@ try {
 } catch {
   // Never print file paths, input text, or error details.
   scorecard = null;
+  process.exitCode = 1;
 }
 process.stdout.write(renderToStaticMarkup(createElement(ScorecardInspector, { scorecard })));

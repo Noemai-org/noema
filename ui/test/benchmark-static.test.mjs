@@ -29,3 +29,19 @@ test("A326 INV-22: static rendering refuses a file with a case list", async () =
     assert.deepEqual(scanScorecardText(stdout), []);
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
+
+test("A326: unreadable or malformed input fails with generic output and a nonzero exit", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "noema-scorecard-"));
+  try {
+    const bad = join(temp, "bad.json");
+    await writeFile(bad, "synthetic-private-input{");
+    for (const path of [bad, join(temp, "missing.json")]) {
+      await assert.rejects(run(process.execPath, ["scripts/render-benchmark.mjs", path]), (error) => {
+        assert.notEqual(error.code, 0);
+        assert.match(error.stdout, /This scorecard is unavailable\./u);
+        assert.doesNotMatch(error.stdout + error.stderr, /synthetic-private-input|bad\.json|missing\.json/u);
+        return true;
+      });
+    }
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
