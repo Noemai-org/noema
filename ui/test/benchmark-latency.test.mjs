@@ -16,6 +16,22 @@ test("REQ-UI-004: synthetic latency uses exact scores for each named path", () =
   }
   assert.doesNotMatch(html, /BEN-[A-Z]{2,5}-[0-9]{4,6}/u);
 });
+test("REQ-UI-004: labelled latency values stay with their paths, including missing values", () => {
+  const synthetic = structuredClone(fixture);
+  synthetic.tier3.latency_by_path = {
+    CLARIFICATION: { n: 7, p50_ms: 100, p95_ms: 200, p99_ms: 300 },
+    CONFIRMATION: { n: 3, p50_ms: 400, p95_ms: null, p99_ms: 600 },
+  };
+  const expectLabels = (html) => {
+    const text = html.replace(/<[^>]*>/gu, "");
+    assert.match(text, /clarification: Count: 7; median: 100 ms; 95th percentile: 200 ms; 99th percentile: 300 ms/u);
+    assert.match(text, /confirmation: Count: 3; median: 400 ms; 95th percentile: Not available ms; 99th percentile: 600 ms/u);
+  };
+  expectLabels(render(synthetic));
+  const mutant = structuredClone(synthetic);
+  [mutant.tier3.latency_by_path.CLARIFICATION.p50_ms, mutant.tier3.latency_by_path.CLARIFICATION.p95_ms] = [200, 100];
+  assert.throws(() => expectLabels(render(mutant)), assert.AssertionError);
+});
 test("REQ-UI-004 INV-22: a case list cannot be rendered as latency", () => {
   const html = render({ ...fixture, failure_list: ["BEN-AMB-0001"] });
   assert.match(html, /unavailable/i);
