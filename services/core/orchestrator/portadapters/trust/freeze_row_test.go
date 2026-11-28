@@ -42,9 +42,14 @@ func (w *frzWorld) state(t *testing.T) reconcile.RecordedFreeze {
 	return reconcile.ReadFreeze(recCtx(t), w.row, recTenant, frzTarget)
 }
 
-func (w *frzWorld) set(t *testing.T) {
+// frzCorr is the correlation of the decisions the recorder world writes (recorder_test.go): the freeze row's SET names the same investigation (SR on #1035).
+const frzCorr = "corr_ABC123"
+
+func (w *frzWorld) set(t *testing.T) { w.setIn(t, frzCorr) }
+
+func (w *frzWorld) setIn(t *testing.T, corr string) {
 	t.Helper()
-	fs := reconcile.FreezeSet{TenantID: recTenant, CorrelationID: "corr_Frz1", Target: frzTarget, RulesetID: "fin.recon.rules@2", RuleID: "R4@2", Evidence: []string{"ev_A1", "ev_B2"}, Labels: []string{"switch_failed_credit_credited"}}
+	fs := reconcile.FreezeSet{TenantID: recTenant, CorrelationID: corr, Target: frzTarget, RulesetID: "fin.recon.rules@2", RuleID: "R4@2", Evidence: []string{"ev_A1", "ev_B2"}, Labels: []string{"switch_failed_credit_credited"}}
 	if err := w.row.RecordFreezeSet(recCtx(t), fs); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +176,7 @@ func (w *frzWorld) appendRaw(t *testing.T, eventType, objectRef string, payload 
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(recCtx(t)) }()
-	if _, err := w.row.c.Appender.Append(recCtx(t), tx, chain.Event{TenantID: recTenant, CorrelationID: "corr_Frz1", WrittenBy: "core-trust", Actor: "core-trust", EventType: eventType, ObjectRef: objectRef, Payload: payload}); err != nil {
+	if _, err := w.row.c.Appender.Append(recCtx(t), tx, chain.Event{TenantID: recTenant, CorrelationID: frzCorr, WrittenBy: "core-trust", Actor: "core-trust", EventType: eventType, ObjectRef: objectRef, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(recCtx(t)); err != nil {
@@ -231,5 +236,81 @@ func TestAClearingIsRefusedWhereTheRecordedFreezeNamesAnotherTarget(t *testing.T
 	}
 	if err := w.row.RecordFreezeCleared(recCtx(t), reconcile.FreezeLift{TenantID: recTenant, Target: frzTarget, By: reconcile.ClearedByEscalation, DecisionID: esc.DecisionID}); err == nil {
 		t.Fatal("a freeze row that names another target was cleared")
+	}
+}
+
+// SR on #1035 (finding 1; A756): a freeze is lifted by the decision that resolves THIS investigation, not by any decision of the tenant with the right outcome. The clearing decision names the
+// same correlation as the recorded SET and is recorded after it. (The Decision Record has no target member; a target member is a contracts PR for both Founders and is listed.)
+func TestADecisionOfAnotherInvestigationCannotClearTheFreeze(t *testing.T) {
+	w := newFrzWorld(t)
+	w.setIn(t, "corr_Other7")
+	esc, err := w.a.Record(recCtx(t), escalateDisposition(t, 60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.row.RecordFreezeCleared(recCtx(t), reconcile.FreezeLift{TenantID: recTenant, Target: frzTarget, By: reconcile.ClearedByEscalation, DecisionID: esc.DecisionID}); err == nil {
+		t.Fatal("a decision of another investigation cleared the freeze")
+	}
+	if got := w.state(t); got != reconcile.FreezeRecorded {
+		t.Fatalf("state %v, want FreezeRecorded", got)
+	}
+}
+
+func TestADecisionRecordedBeforeTheFreezeCannotClearIt(t *testing.T) {
+	w := newFrzWorld(t)
+	esc, err := w.a.Record(recCtx(t), escalateDisposition(t, 61))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.set(t)
+	if err := w.row.RecordFreezeCleared(recCtx(t), reconcile.FreezeLift{TenantID: recTenant, Target: frzTarget, By: reconcile.ClearedByEscalation, DecisionID: esc.DecisionID}); err == nil {
+		t.Fatal("a decision recorded before the freeze cleared it")
+	}
+}
+
+// Finding 2 and condition 4: a SET that cannot be appended is an error the caller must treat as a refusal (no grant, no write, retry), and a SET with no correlation writes nothing.
+func TestAFreezeSetThatCannotBeAppendedIsAnErrorAndWritesNothing(t *testing.T) {
+	w := newFrzWorld(t)
+	fs := reconcile.FreezeSet{TenantID: recTenant, CorrelationID: "", Target: frzTarget, RulesetID: "fin.recon.rules@2", RuleID: "R4@2", Evidence: []string{"ev_A1"}, Labels: []string{"l"}}
+	if err := w.row.RecordFreezeSet(recCtx(t), fs); err == nil {
+		t.Fatal("a SET with no correlation was written")
+	}
+	broken := NewFreezeRow(FreezeRowConfig{Begin: recPool{w.trust}, Reads: func(string) chain.Queryer { return w.reader }, Appender: &chain.Appender{Clock: clock.NewManual(time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)), IDs: ids.New(clock.NewManual(time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)), nil)}}) // no signer for core-trust: the append fails
+	fs.CorrelationID = frzCorr
+	if err := broken.RecordFreezeSet(recCtx(t), fs); err == nil {
+		t.Fatal("a SET whose append failed was reported as written")
+	}
+	if ev := w.events(t); len(ev) != 0 {
+		t.Fatalf("Record events %+v, want none", ev)
+	}
+}
+
+// Condition 3: two clearings at once write one CLEARED, never two.
+func TestTwoClearingsAtOnceWriteOneClearedEvent(t *testing.T) {
+	w := newFrzWorld(t)
+	w.set(t)
+	esc, err := w.a.Record(recCtx(t), escalateDisposition(t, 62))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lift := reconcile.FreezeLift{TenantID: recTenant, Target: frzTarget, By: reconcile.ClearedByEscalation, DecisionID: esc.DecisionID}
+	errs := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		go func() { errs <- w.row.RecordFreezeCleared(recCtx(t), lift) }()
+	}
+	ok := 0
+	for i := 0; i < 4; i++ {
+		if <-errs == nil {
+			ok++
+		}
+	}
+	cleared := 0
+	for _, e := range w.events(t) {
+		if e.EventType == "CONTRADICTION_FREEZE_CLEARED" {
+			cleared++
+		}
+	}
+	if cleared != 1 || ok != 1 {
+		t.Fatalf("%d CLEARED events and %d successes from four clearings, want exactly one of each", cleared, ok)
 	}
 }
