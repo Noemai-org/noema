@@ -16,7 +16,7 @@ import (
 )
 
 // clockDeadline is a context whose deadline is an instant of a fake clock (Deadline reports it: the ledger requires a context with a deadline). It ends when the clock reaches the instant and Check is called (the test calls it right after it advances the
-// clock). Red stub: it never ends.
+// clock).
 type clockDeadline struct {
 	clk  *clock.Manual
 	at   time.Time
@@ -29,7 +29,15 @@ func newClockDeadline(clk *clock.Manual, d time.Duration) *clockDeadline {
 	return &clockDeadline{clk: clk, at: clk.Now().Add(d), done: make(chan struct{})}
 }
 
-func (c *clockDeadline) Check()                      {}
+func (c *clockDeadline) Check() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err == nil && !c.clk.Now().Before(c.at) {
+		c.err = context.DeadlineExceeded
+		close(c.done)
+	}
+}
+
 func (c *clockDeadline) Deadline() (time.Time, bool) { return c.at, true }
 func (c *clockDeadline) Done() <-chan struct{}       { return c.done }
 func (c *clockDeadline) Value(any) any               { return nil }
