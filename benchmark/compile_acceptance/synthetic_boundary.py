@@ -152,6 +152,15 @@ def _remedy_slot(proposal: Mapping[str, Any]) -> str | None:
     return slot.get("value") if isinstance(slot, Mapping) else None
 
 
+EXPECTED_STOP = "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)"
+
+
+def agrees(want: str, got: str | None) -> bool:
+    """Codex on #1043: an expected stop is the provider's whole-reply refusal that the compile service reports as `CompileFailed` with `ProviderUnavailable`, and nothing else. Any other
+    exception, or any other outcome, is a disagreement, so a crash is never mistaken for the refusal. PRESENT and ABSENT need the exact outcome."""
+    return got == EXPECTED_STOP if want == "STOPPED" else got == want
+
+
 LABELLED_PATH = Path(__file__).resolve().parent / "remedy_labelled.v1.json"
 
 
@@ -183,7 +192,7 @@ async def generate(out: Path, now: datetime, include_long: bool = False) -> list
         except Exception as exc:  # the class only: a recorded finding, never hidden
             got = f"STOPPED:{type(exc).__name__}" + (f" {exc}" if type(exc).__name__ == "CompileFailed" else "")  # CompileFailed's text is built from a closed set (build.py), never from the request
         want = expected_outcome(b)
-        findings.append({"boundary": b.boundary_id, "case_id": case.case_id, "labelled_item": item.item_id, "written": b.written, "selected": b.selected, "expected": want, "implementation": got, "agree": (got or "").startswith("STOPPED") if want == "STOPPED" else got == want, "why": b.why})
+        findings.append({"boundary": b.boundary_id, "case_id": case.case_id, "labelled_item": item.item_id, "written": b.written, "selected": b.selected, "expected": want, "implementation": got, "agree": agrees(want, got), "why": b.why})
     recorder.write_manifest(backend.pin())
     return findings
 
