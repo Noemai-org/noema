@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/platform/packload"
 	"io"
 	"log/slog"
 	"net/http"
@@ -341,7 +342,14 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 				closeAll()
 				return Components{}, TrustParts{}, closeAll, fmt.Errorf("cmd/core: the pack: %w", err)
 			}
-			wired, err := d.WireTrust(trustWiringIn{Env: env, Clock: clk, Pack: pack, Tenants: c.ServedTenants, Pools: logins, Keys: keys, Understanding: c.Understanding, Screen: screen.Deps})
+			var verified packload.Pack // the one verified load the pack above was built from, with the files the manifest pins (A722)
+			if d.Verified != nil {
+				if verified, err = d.Verified(env); err != nil && !errors.Is(err, errPackNotConfigured) {
+					closeAll()
+					return Components{}, TrustParts{}, closeAll, fmt.Errorf("cmd/core: the pack: %w", err)
+				}
+			}
+			wired, err := d.WireTrust(trustWiringIn{Env: env, Clock: clk, Pack: pack, Verified: verified, Tenants: c.ServedTenants, Pools: logins, Keys: keys, Understanding: c.Understanding, Screen: screen.Deps})
 			if err != nil {
 				closeAll()
 				return Components{}, TrustParts{}, closeAll, err
