@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,6 +61,12 @@ var (
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
 	// confirmation is used once). Nothing is written; the caller rolls back.
 	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
+	// ErrDispositionRequired is returned when a decision that carries steps, an ALLOW that issues grants, names no disposition (REQ-TRU-010, INV-25; ruling A317 to A328, interim): every
+	// grant-issuing action decision links its ESCALATE disposition. Nothing is written.
+	ErrDispositionRequired = errors.New(errPrefix + "a decision that issues grants must name its escalation disposition")
+	// ErrDispositionWithoutSteps is returned when a decision that carries no step names a disposition (A503, REQ-TRU-010): the link belongs to an escalation action decision, which has
+	// steps, so a disposition on a decision with none is a mistake of the caller and is refused before anything is written.
+	ErrDispositionWithoutSteps = errors.New(errPrefix + "a decision with no step must not name a disposition")
 	// ErrConfirmationRequestOpen is returned when the action (intent, capability, target) of a CONFIRM already has a request that is neither answered nor expired on the database clock
 	// (A552): a fresh request may supersede only a closed one. Nothing was written.
 	ErrConfirmationRequestOpen = errors.New(errPrefix + "the action already has an open confirmation request")
@@ -424,6 +431,15 @@ func (w *Writer) check(r Request) (decide.Basis, string, bool, error) {
 	if len(r.Steps) > 0 && d.Outcome() != decide.Allow {
 		return decide.Basis{}, "", false, ErrGrantsNeedAllow
 	}
+	if r.DispositionDecisionID == "" && slices.ContainsFunc(r.Steps, func(s grants.Step) bool { return w.Escalation.Contains(s.CapabilityID) }) {
+		// An action decision with a step of the escalation plan links its disposition (REQ-TRU-010, INV-25; ruling A317 to A328, rescoped by A534, interim): the rule applies only to a decision
+		// whose steps include a capability of the injected set, so a write outside the plan (the complaint write) is an ALLOW with a grant and no disposition. Only an ALLOW reaches here with steps.
+		return decide.Basis{}, "", false, ErrDispositionRequired
+	}
+	if len(r.Steps) == 0 && r.DispositionDecisionID != "" {
+		// Steps if and only if a disposition (A503): the link belongs to an escalation action decision, which has steps; the disposition decision itself names none.
+		return decide.Basis{}, "", false, ErrDispositionWithoutSteps
+	}
 	if r.DispositionDecisionID != "" {
 		// An ESCALATE disposition authorises the escalation plan's write steps and nothing else (REQ-TRU-010, INV-25). The set is the pack's, injected; an empty set allows no step.
 		for _, s := range r.Steps {
@@ -501,10 +517,11 @@ func (w *Writer) checkEarly(r Request) (decide.Basis, string, bool, error) {
 }
 
 // requireEscalationDisposition checks, before anything is written, that the disposition a decision names is an existing ESCALATE decision of the same tenant (REQ-TRU-010). A
-// missing decision, another tenant's and one with another outcome are one answer. The database's foreign key (migration 0012) says the same behind it.
+// missing decision, another tenant's, one with another outcome and (A542) one of another intent or intent hash are one answer. The database's foreign key (migration 0012) says the first three behind it.
 func requireEscalationDisposition(ctx context.Context, tx pgx.Tx, r Request) error {
-	var outcome string
-	err := tx.QueryRow(ctx, `SELECT outcome FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`, r.TenantID, r.DispositionDecisionID).Scan(&outcome)
+	var outcome, intentHash string
+	var intentID *string
+	err := tx.QueryRow(ctx, `SELECT outcome, intent_hash, json ->> 'intent_id' FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`, r.TenantID, r.DispositionDecisionID).Scan(&outcome, &intentHash, &intentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrDispositionNotValid
 	}
@@ -512,6 +529,11 @@ func requireEscalationDisposition(ctx context.Context, tx pgx.Tx, r Request) err
 		return fmt.Errorf("%sread the disposition: %w", errPrefix, err)
 	}
 	if outcome != string(decide.Escalate) {
+		return ErrDispositionNotValid
+	}
+	// A542 (interim, relayed, not yet committed): a disposition belongs to the same intent as the action decision that names it, the same intent ID and the same intent hash. An ESCALATE of
+	// the tenant for another intent, or for this intent with other content, is not this decision's disposition: the same typed answer as for one that does not exist.
+	if intentID == nil || *intentID != r.IntentID || intentHash != string(r.IntentHash) {
 		return ErrDispositionNotValid
 	}
 	return nil
