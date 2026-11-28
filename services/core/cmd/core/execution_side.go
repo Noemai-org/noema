@@ -57,9 +57,10 @@ type executionSeams struct {
 	Revalidator controller.Revalidator
 	Intents     ledger.IntentSource
 	Plans       ledger.PlanSource
-	Verifier    orchestrator.Verifier // verifierport.Port, which needs slice 4's request reader
-	Bindings    orchestrator.Bindings // the Trust adapter
-	Log         *slog.Logger          // optional; must run through the redactor
+	StepParams  controller.StepParamPolicy // the pack's outcome_bindings read by stepParamPolicyFromPack (A774)
+	Verifier    orchestrator.Verifier      // verifierport.Port, which needs slice 4's request reader
+	Bindings    orchestrator.Bindings      // the Trust adapter
+	Log         *slog.Logger               // optional; must run through the redactor
 }
 
 // executionSide is what was built: a Controller for each tenant, the Executor over them, the two pass-through ports, and the gap lines of what is missing.
