@@ -67,14 +67,17 @@ func hash(c byte) contracts.CommonV1Hash {
 	return contracts.CommonV1Hash(s)
 }
 
-func basis(t *testing.T) *decide.BasisBuilder {
+func basis(t *testing.T) *decide.BasisBuilder { return basisAt(t, "evs_01ABC") }
+
+// basisAt is basis over another sealed snapshot: the same intent evaluated again is another input (A186), which an escalation action decision is of its disposition (A542).
+func basisAt(t *testing.T, snapshot string) *decide.BasisBuilder {
 	t.Helper()
 	b, err := decide.NewBasisBuilder("fin.pack@1.0.0", epoch.Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := decide.Freshness{EvidenceID: "ev_1", EffectiveAt: epoch.Unix() - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}
-	if err := b.RecordEvidence("evs_01ABC", []decide.Freshness{f}); err != nil {
+	if err := b.RecordEvidence(snapshot, []decide.Freshness{f}); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.RecordPolicy([]decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_case_writes", PolicyID: "fin.pol", Version: "3.1"}}); err != nil {
@@ -110,14 +113,54 @@ func step(t *testing.T) grants.Step {
 		TargetVersions: []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: target, Source: "fin.src.ledger", VersionToken: "v7"}}, Permission: p}
 }
 
+// disposition records the ESCALATE disposition of an action decision through the real Writer, as its own Trust decision with no step and no grant (A503), and returns its decision
+// ID. It is for the intent id with the intent hash h, the action decision's own (A542), against its own sealed snapshot, so it is another input than the action decision.
+// dispositionCorr is the correlation of the dispositions world.write records: the Writer binds a disposition to the intent and its hash (A542), not to a correlation, and the correlation
+// reads of noema#945 (DispositionFor) must find none on the world's own correlation.
+const dispositionCorr = "corr_DSP0001"
+
+func (w *world) disposition(t *testing.T, id string, h contracts.CommonV1Hash) string {
+	t.Helper()
+	b := basisAt(t, "evs_01DSP")
+	reason, err := decide.Core("NOT_AUTHORIZED")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, ok := decide.Admit(decide.IntentView{Version: 2, MaterialFlags: []string{"X"}}).Unresolved()
+	if !ok {
+		t.Fatal("not unresolved")
+	}
+	d, err := u.Escalate(reason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err = b.Attach(d); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := w.trustA.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: dispositionCorr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: d, Evaluated: b})
+	if err != nil {
+		_ = tx.Rollback(ctx(t))
+		t.Fatalf("the disposition: %v", err)
+	}
+	if err := tx.Commit(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	return string(res.Record.DecisionId)
+}
+
 func (w *world) write(t *testing.T, id string, h contracts.CommonV1Hash) recorder.Result {
 	t.Helper()
+	disp := w.disposition(t, id, h)
 	b := basis(t)
 	tx, err := w.trustA.Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: allow(t, b), Evaluated: b, Steps: []grants.Step{step(t)}})
+	res, err := w.writer.Write(ctx(t), tx, recorder.Request{TenantID: tenantA, CorrelationID: corr, IntentID: id, IntentHash: h, PolicyID: "fin.pol", Decision: allow(t, b), Evaluated: b, Steps: []grants.Step{step(t)}, DispositionDecisionID: disp})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		t.Fatal(err)
@@ -162,7 +205,7 @@ func newWorld(t *testing.T) *world {
 		readerA:  testpg.TenantLogin(t, admin, dsn, "record_read", tenantA),
 		readerB:  testpg.TenantLogin(t, admin, dsn, "record_read", tenantB),
 		appender: app,
-		writer:   &recorder.Writer{Keys: keys, Issuer: issuer, Appender: app, Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute},
+		writer:   &recorder.Writer{Keys: keys, Issuer: issuer, Appender: app, Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute, Escalation: recorder.NewEscalationSet(capability)},
 	}
 	w.pools, err = trustpg.NewPools(map[string]*pgxpool.Pool{tenantA: w.trustA, tenantB: w.trustB})
 	if err != nil {
