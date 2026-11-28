@@ -2,10 +2,10 @@
 
 Updated 2026-11-26. Plan task DATA-02 (week 7, workstream SEC): "Money and time representation tests: minor units plus currency, UTC instants with tenant zone, no floats anywhere (OQ-06 answered)". Owner C2 by A650 (plan v1.28, `CR-2026-11-24-data-02-owner`); REQ-DATA-002; Needs PLT-03 (Done) and UND-05; Done when "Property tests pass; lint green". DATA-02 is not Done until merged evidence (the Steward writes status).
 
-## State: pull request to follow (draft); tests pushed red first, one defect found and fixed
+## State: pull request open (noema#1014, ready for review); tests pushed red first, two defects found and fixed (excess precision, A758 digit runs)
 
 - Needs: A729 waives UND-05 as a Need of DATA-02 (on A634 and A650); plan v1.31 makes DATA-02's Needs PLT-03 only.
-- No task card exists for DATA-02; the allowlist used: `services/model/tests/test_money_time_properties.py`, `services/core/platform/clock/clock_property_test.go`, `services/core/internal/contracts/money_time_property_test.go` (all new, tests only), `services/model/noema_model/understanding/compiler/lexicon.py` (one fix, below), two READMEs and this file. No contract, pack, migration, workflow or dependency is touched (`hypothesis` and `pgregory.net/rapid` are already direct dependencies).
+- The task card for DATA-02 is the one below (written here from the plan row, because no owner-written card was found; a Founder or the Steward confirms it). The allowlist used: `services/model/tests/test_money_time_properties.py`, `services/core/platform/clock/clock_property_test.go`, `services/core/internal/contracts/money_time_property_test.go` (all new, tests only), `services/model/noema_model/understanding/compiler/lexicon.py` (one fix, below), two READMEs and this file. No contract, pack, migration, workflow or dependency is touched (`hypothesis` and `pgregory.net/rapid` are already direct dependencies).
 
 ## Session 2026-11-26 · DATA-02
 
@@ -32,6 +32,24 @@ Updated 2026-11-26. Plan task DATA-02 (week 7, workstream SEC): "Money and time 
 - Tests added (INV-02, INV-21): `test_a_digit_run_over_4300_characters_is_unread_and_never_an_error` (six shapes), `test_the_digit_reader_still_reads_a_run_at_the_limit`, `test_a_quoted_amount_with_a_run_over_4300_characters_is_unread_at_the_seam`, `test_the_limit_counts_the_digits_and_not_the_commas_that_group_them`. The "1,{d}" shape and the seam test pass before the fix (characterisation, said here).
 - Hand mutants: limit off (no guard), limit one digit high, guard after the conversion, count with commas: all killed.
 - Debt entries: none. Conflicts raised: none.
+
+## Task card (PERD §61.4)
+
+```
+DATA-02  Money and time representation tests: minor units plus currency, UTC instants with tenant zone, no floats anywhere (OQ-06 answered)
+Priority: P1 (REQ-DATA-002)
+Requirement IDs: REQ-DATA-002; INV-02, INV-21 (SoT §44, §45), DEC-2026-10-16 M5, A729
+Rationale: money is an integer in minor units with a currency and time is a UTC instant with the tenant's zone, so no amount or time is ever a float, rounded, or read from a guess.
+Modules touched (allowlist): services/model/tests/test_money_time_properties.py, services/core/platform/clock/clock_property_test.go, services/core/internal/contracts/money_time_property_test.go (tests only); services/model/noema_model/understanding/compiler/lexicon.py (the defects the tests found: excess precision, A758 digit runs); the READMEs of clock and compiler; status/DATA-02.md. Nothing else.
+Contracts: none; bump required? N
+Inputs/outputs: customer text (untrusted) in; a Money (integer minor units plus currency) or an unread value out.
+Acceptance criteria: plan row DATA-02 "Property tests pass; lint green"; an amount with excess precision or a digit run over 4300 characters is unread, never rounded or an error (M5, A758).
+Tests to write FIRST (AGENT-11): the property tests in the three files (red at 3d81a92f4 for A758).
+Faults to exercise (AGENT-12): none (pure functions); the hostile inputs are generated (Hypothesis, rapid).
+Dependencies: PLT-03; UND-05 waived (A634, A650, A729).
+Out of scope: money arithmetic (OD-P-130, after G1); any contract, pack, workflow or dependency change.
+Definition of done: tests green; lint green; the PR answers the SoT §52 questions
+```
 
 ## Pre-work for the next agent
 - Exact next step: SR and Codex read the lexicon fix; C1 confirms the conversation POST validates against the JSON Schema (A729 item 4).
