@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/understanding"
@@ -18,6 +20,11 @@ const prefix = "interpreter: "
 const maxVersion = 1<<53 - 1
 
 var errEpochNotPositive = errors.New(prefix + "the epoch port answered an epoch below 1")
+
+var (
+	errBadPrior = errors.New(prefix + "the prior's document is not an object")
+	errBadFlags = errors.New(prefix + "the follow-up's ambiguity_flags are not a list of text")
+)
 
 // The kinds of failure of Interpret. Callers compare with errors.Is. None of the messages carries the input, the proposal or an admitted document: a cause that may hold
 // one (a database error with a key, a model service answer) is kept for errors.Is and errors.As, never printed.
@@ -95,6 +102,9 @@ type Config struct {
 	Saver    Saver
 	Subject  func(understanding.AdmittedIntent) (subjectRef string, ok bool) // understanding.SubjectOf(pack view)
 	Epochs   Epochs
+	// ContradictionFlag is the pack's ambiguity flag for a follow-up that contradicts the turn before it (the pack lists it as proposable; the core names none, INV-14). Empty: the core applies no rule
+	// and the model's flags stand. With a flag and a Prior the core decides it (A320, A404, A712): present exactly when a slot the prior had resolved now holds a different value; the model's flag is advisory.
+	ContradictionFlag string
 }
 
 // Interpreter compiles, admits, records and saves.
@@ -104,6 +114,9 @@ type Interpreter struct{ c Config }
 func New(c Config) (*Interpreter, error) {
 	if c.Compiler == nil || c.Gate == nil || c.Recorder == nil || c.Saver == nil {
 		return nil, errors.New(prefix + "a compiler, a gate, a recorder and a saver are all required")
+	}
+	if c.ContradictionFlag != "" && !flagRe.MatchString(c.ContradictionFlag) {
+		return nil, errors.New(prefix + "the contradiction flag is not an ambiguity flag id")
 	}
 	if (c.Subject == nil) != (c.Epochs == nil) {
 		return nil, errors.New(prefix + "a subject reader and an epoch port come together")
@@ -133,6 +146,8 @@ type Result struct {
 var (
 	actorRe = regexp.MustCompile(`^[a-z]+:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	corrRe  = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+	// flagRe is the shape of an ambiguity flag id (the gate's own).
+	flagRe = regexp.MustCompile(`\A[A-Z][A-Z0-9_]*\z`)
 	// priorIntentRe is the intent id the store holds (migration 0026): `int_` and 2 to 64 letters, digits or underscores.
 	priorIntentRe = regexp.MustCompile(`\A(?:int_[0-9A-Za-z_]{2,64})\z`)
 	// rawRefRe is the shape of the object_ref the core mints for an input (common.v1, A184). \A and \z: a trailing newline is not a match.
@@ -193,6 +208,11 @@ func (i *Interpreter) Interpret(ctx context.Context, in Input) (Result, error) {
 	if in.Prior != nil {
 		if doc, err = withChain(doc, in.Prior); err != nil {
 			return Result{}, wrap(ErrCompile, err)
+		}
+		if i.c.ContradictionFlag != "" {
+			if doc, err = withContradiction(doc, in.Prior.JSON, i.c.ContradictionFlag); err != nil {
+				return Result{}, wrap(ErrCompile, err)
+			}
 		}
 	}
 	compiled.IntentObject = doc
@@ -267,6 +287,71 @@ func withChain(doc []byte, prior *intentstore.Admitted) ([]byte, error) {
 	}
 	top["intent_id"], top["version"], top["supersedes"] = id, json.RawMessage(fmt.Sprintf("%d", prior.Version+1)), link
 	return json.Marshal(top)
+}
+
+// valueMembers are the members of a slot that carry its value; a Party's only one is the name as the customer said it.
+var valueMembers = []string{"value", "unit", "window", "resolved_ref"}
+
+// withContradiction makes the pack's contradiction flag the core's decision (A320, A404, A712; INV-02): present in the follow-up's flags exactly when a slot the prior HAD resolved now holds a different
+// value, absent otherwise, whatever the model said. A slot the follow-up does not name, or names without a value, is not a contradiction (it is asked for); a resource counts only when both turns resolved it.
+// Other flags are kept as the model gave them (a duplicate among them stays, for the gate to refuse: nothing is repaired); the list is returned sorted. A document that is not an object is returned as it is, for the gate to refuse.
+func withContradiction(doc, prior []byte, flag string) ([]byte, error) {
+	var next, before map[string]json.RawMessage
+	if json.Unmarshal(doc, &next) != nil || next == nil {
+		return doc, nil
+	}
+	if json.Unmarshal(prior, &before) != nil || before == nil {
+		return nil, errBadPrior
+	}
+	var flags []string
+	if raw, ok := next["ambiguity_flags"]; ok && json.Unmarshal(raw, &flags) != nil {
+		return nil, errBadFlags
+	}
+	flags = slices.DeleteFunc(flags, func(f string) bool { return f == flag })
+	if contradicts(before, next) {
+		flags = append(flags, flag)
+	}
+	slices.Sort(flags)
+	if flags == nil {
+		flags = []string{}
+	}
+	out, err := json.Marshal(flags)
+	if err != nil {
+		return nil, err
+	}
+	next["ambiguity_flags"] = out
+	return json.Marshal(next)
+}
+
+func slotsOf(doc map[string]json.RawMessage) map[string]map[string]any {
+	var slots map[string]map[string]any
+	if json.Unmarshal(doc["slots"], &slots) != nil {
+		return nil
+	}
+	return slots
+}
+
+func contradicts(prior, next map[string]json.RawMessage) bool {
+	was, now := slotsOf(prior), slotsOf(next)
+	for name, p := range was {
+		n, ok := now[name]
+		if !ok || p["type"] != n["type"] {
+			continue
+		}
+		if p["type"] == "Resource" && (p["status"] != "RESOLVED" || n["status"] != "RESOLVED") {
+			continue
+		}
+		members := valueMembers
+		if p["type"] == "Party" {
+			members = []string{"surface_form"}
+		}
+		for _, m := range members {
+			if p[m] != nil && n[m] != nil && !reflect.DeepEqual(p[m], n[m]) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // withRawRef writes the core's reference to the recorded input over whatever the model put in `source.raw_ref`, including the unset marker (A219). It runs after the model
