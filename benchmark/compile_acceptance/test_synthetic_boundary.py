@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.compile_acceptance.replay import ReplayRefused, ReplayStore, load_recordings
-from benchmark.compile_acceptance.synthetic_boundary import BOUNDARIES, LONG_RUN, expected_bp, expected_outcome, expected_passes
+from benchmark.compile_acceptance.synthetic_boundary import BOUNDARIES, LONG_RUN, agrees, expected_bp, expected_outcome, expected_passes
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "benchmark" / "compile_acceptance" / "boundary-a604"
@@ -62,6 +62,26 @@ class Expected(unittest.TestCase):
         ids = [b.boundary_id for b in BOUNDARIES]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(all(b.why.strip() for b in BOUNDARIES))
+
+
+class Agreement(unittest.TestCase):
+    """Codex on #1043: a stop agrees with `STOPPED` only when it is the expected refusal (the provider's whole-reply refusal, which the compile service reports as `CompileFailed` with `ProviderUnavailable`), never any exception."""
+
+    EXPECTED_STOP = "STOPPED:CompileFailed the compile service gave no usable proposal (ProviderUnavailable)"
+
+    def test_the_expected_refusal_agrees_with_stopped(self) -> None:
+        self.assertTrue(agrees("STOPPED", self.EXPECTED_STOP))
+
+    def test_an_unrelated_exception_does_not_agree_with_stopped(self) -> None:
+        for got in ("STOPPED:KeyError", "STOPPED:AttributeError", "STOPPED:CompileFailed the compile service gave no usable proposal (SchemaMismatch)", "STOPPED:CompileFailed", "ABSENT", "PRESENT", None):
+            self.assertFalse(agrees("STOPPED", got), str(got))
+
+    def test_present_and_absent_still_need_the_exact_outcome_and_a_stop_never_agrees_with_them(self) -> None:
+        self.assertTrue(agrees("PRESENT", "PRESENT"))
+        self.assertTrue(agrees("ABSENT", "ABSENT"))
+        self.assertFalse(agrees("ABSENT", "PRESENT"))
+        self.assertFalse(agrees("PRESENT", self.EXPECTED_STOP))
+        self.assertFalse(agrees("ABSENT", "STOPPED:KeyError"))
 
 
 class Recordings(unittest.TestCase):
@@ -154,7 +174,7 @@ class Findings(unittest.TestCase):
             else:
                 self.assertEqual(r["written"], b.written)
                 self.assertEqual(r["expected"], expected_outcome(b), b.boundary_id)
-                self.assertEqual(r["agree"], r["implementation"].startswith("STOPPED") if r["expected"] == "STOPPED" else r["implementation"] == r["expected"], b.boundary_id)
+                self.assertEqual(r["agree"], agrees(r["expected"], r["implementation"]), b.boundary_id)
 
     def test_the_gate_agrees_with_a612_at_every_boundary_and_the_file_says_so(self) -> None:
         rows = [r for r in findings()["boundaries"] if "agree" in r]
