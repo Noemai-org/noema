@@ -95,6 +95,9 @@ type Config struct {
 	Saver    Saver
 	Subject  func(understanding.AdmittedIntent) (subjectRef string, ok bool) // understanding.SubjectOf(pack view)
 	Epochs   Epochs
+	// ContradictionFlag is the pack's ambiguity flag for a follow-up that contradicts the turn before it (the pack lists it as proposable; the core names none, INV-14). Empty: the core applies no rule
+	// and the model's flags stand. With a flag and a Prior the core decides it (A320, A404, A712): present exactly when a slot the prior had resolved now holds a different value; the model's flag is advisory.
+	ContradictionFlag string
 }
 
 // Interpreter compiles, admits, records and saves.
