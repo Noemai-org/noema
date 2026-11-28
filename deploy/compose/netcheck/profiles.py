@@ -167,11 +167,11 @@ EXPECTED_SERVICES = {
     "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "migrate", "tenants-create", "tenants-provision", "tenant-init", "policy-publish"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "migrate", "tenants-create", "tenants-provision", "tenant-init", "policy-publish"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
-           "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
+           "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci", "bench"}, "webhook-relay-credentials": {"ci", "bench"},
            "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}, "bench-runner": {"bench"},
            "operator-dsn-init": {"bench"}, "core-trust-keys-init": {"bench"}, "migrate": {"bench"}, "tenants-create": {"bench"}, "tenants-provision": {"bench"}, "tenant-init": {"bench"}, "policy-publish": {"bench"}}
 
@@ -476,6 +476,7 @@ BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000
 
 
 INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
+RELAY_SECRET_VOLUME = "webhook_relay_credentials"  # A714: the one SYNTHETIC signing secret the relay and mock-case share
 ADMIN_EMITTER_HOLDER = "ops"  # A699: the only service that may hold a tenant's admin emitter login; it does not exist yet (EL, G2)
 
 
@@ -734,6 +735,22 @@ def check(cfg, profile):
             for v in key_mounts:
                 if v.get("type") != "bind" or not v.get("read_only") or str(v.get("source", "")).rstrip("/").endswith(("secrets", "/")) or len(key_mounts) != 1:
                     bad.append(f"{profile}: the Intron key must be one read-only bind of one file, never a folder (A379)")
+        # A714: the shared SYNTHETIC webhook signing secret. In the bench profile mock-case sends to the relay and reads the relay's one secret file, read-only; in every other profile it has neither
+        # sender setting and no such mount. Nothing but mock-case (read-only), the relay (read-only) and the step that writes it mounts the volume.
+        relay_mounts = [v for v in (svc.get("volumes") or []) if isinstance(v, dict) and v.get("source") == RELAY_SECRET_VOLUME]
+        if name not in ("mock-case", "webhook-relay", "webhook-relay-credentials") and relay_mounts:
+            bad.append(f"{profile}: {name} mounts the webhook signing secret; only mock-case and the relay may read it (A714)")
+        if name in ("mock-case", "webhook-relay") and any(not v.get("read_only") for v in relay_mounts):
+            bad.append(f"{profile}: {name} mounts the webhook signing secret writable; only its writing step may (A714)")
+        if name == "mock-case":
+            wenv = svc.get("environment") or {}
+            target, secret_file = str(wenv.get("MOCK_CASE_WEBHOOK_TARGET_URL", "")), str(wenv.get("MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE", ""))
+            mounted = [v for v in relay_mounts if v.get("target") == "/run/mock-case/webhook"]
+            if profile == "bench":
+                if target != "http://webhook-relay:8090/webhooks" or secret_file != "/run/mock-case/webhook/signing_secret" or len(relay_mounts) != 1 or len(mounted) != 1:
+                    bad.append(f"{profile}: mock-case must send to the relay (http://webhook-relay:8090/webhooks) with the one shared signing secret mounted read-only at /run/mock-case/webhook (A714)")
+            elif target or secret_file or relay_mounts:
+                bad.append(f"{profile}: mock-case has the webhook sender settings or the relay's secret; they exist in the bench profile only (A714)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "model":
@@ -809,9 +826,9 @@ def self_test(configs):
         "the hostility proxy appears in dev": ("dev", lambda c: c["services"].update({"hostility-proxy": {"networks": {"tushe_net": None, "bench_net": None, "tushe_egress": None}}})),
         "the hostility proxy anchor appears in demo": ("demo", lambda c: c["services"].update({"hostility-proxy-anchor": {"networks": {"bench_net": None}}})),
         "the hostility proxy credentials appear in dev": ("dev", lambda c: c["services"].update({"hostility-proxy-credentials": dict(sidecar)})),
-        "the webhook relay appears in bench": ("bench", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
+        "the webhook relay appears in dev": ("dev", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
         "the webhook relay appears in demo": ("demo", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
-        "the webhook relay credentials appear in bench": ("bench", lambda c: c["services"].update({"webhook-relay-credentials": dict(sidecar)})),
+        "the webhook relay credentials appear in dev": ("dev", lambda c: c["services"].update({"webhook-relay-credentials": dict(sidecar)})),
         "the stand-in appears in dev": ("dev", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
         "the stand-in appears in demo": ("demo", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
         "the stand-in anchor appears in demo": ("demo", lambda c: c["services"].update({"standin-anchor": {"networks": {"bench_net": None}}})),
@@ -858,6 +875,16 @@ def self_test(configs):
         "the key file variable points elsewhere": ("bench+intron", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/other"})),
         "the core mounts the key file too": ("bench+intron", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp/noema-intron-key", "target": "/run/intron/key", "read_only": True})),
         "the dev model has the key file variable": ("dev", lambda c: [c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"}), c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/k", "target": "/run/intron/key", "read_only": True})]),
+        "bench mock-case loses the webhook target": ("bench", lambda c: c["services"]["mock-case"]["environment"].pop("MOCK_CASE_WEBHOOK_TARGET_URL")),
+        "bench mock-case sends somewhere else": ("bench", lambda c: c["services"]["mock-case"]["environment"].update({"MOCK_CASE_WEBHOOK_TARGET_URL": "http://hostility-proxy:8090/webhooks"})),
+        "bench mock-case loses the signing secret file": ("bench", lambda c: c["services"]["mock-case"]["environment"].pop("MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE")),
+        "bench mock-case mounts the signing secret writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["mock-case"]["volumes"] if v.get("source") == "webhook_relay_credentials"]),
+        "bench mock-case loses the signing secret mount": ("bench", lambda c: c["services"]["mock-case"].update({"volumes": [v for v in c["services"]["mock-case"]["volumes"] if v.get("source") != "webhook_relay_credentials"]})),
+        "the ci mock-case sends webhooks": ("ci", lambda c: c["services"]["mock-case"]["environment"].update({"MOCK_CASE_WEBHOOK_TARGET_URL": "http://webhook-relay:8090/webhooks"})),
+        "the demo mock-case mounts the signing secret": ("demo", lambda c: c["services"]["mock-case"]["volumes"].append({"type": "volume", "source": "webhook_relay_credentials", "target": "/run/mock-case/webhook", "read_only": True})),
+        "the core mounts the webhook signing secret": ("ci", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "volume", "source": "webhook_relay_credentials", "target": "/x", "read_only": True})),
+        "the hostility proxy mounts the webhook signing secret": ("bench", lambda c: c["services"]["hostility-proxy"].setdefault("volumes", []).append({"type": "volume", "source": "webhook_relay_credentials", "target": "/x", "read_only": True})),
+        "the bench relay mounts its own secret writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["webhook-relay"]["volumes"] if v.get("source") == "webhook_relay_credentials"]),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
         "the ui lists a grant key as a secret": ("dev", lambda c: c["services"]["ui"].update({"secrets": [{"source": "grant_hmac_key_a"}]})),
         "the model carries a grant key file setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "/x"})),

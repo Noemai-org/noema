@@ -59,6 +59,18 @@ secrets:
   core_trust_ed25519_seed_1:
     file: ./secrets/core_trust_ed25519_seed_1
 services:
+  # A714 (interim): in the bench profile mock-case delivers its webhooks through the relay's path (A682). The relay's own one synthetic signing secret (webhook_relay_credentials, written by
+  # webhook-relay-credentials) is the shared SYNTHETIC secret file for both ends, mounted into mock-case read-only; the relay trusts mock-case's signature there and nowhere else. The
+  # settings are both set or neither (mock-case refuses one alone). No other profile carries them: ci, dev and demo have no mock-case sender settings and no mount.
+  mock-case:
+    environment:
+      MOCK_CASE_WEBHOOK_TARGET_URL: http://webhook-relay:8090/webhooks
+      MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE: /run/mock-case/webhook/signing_secret
+    volumes:
+      - webhook_relay_credentials:/run/mock-case/webhook:ro
+    depends_on:
+      webhook-relay-credentials:
+        condition: service_completed_successfully
   core:
     environment:
       NOEMA_STANDIN_URL: "http://hostility-proxy:8080"
