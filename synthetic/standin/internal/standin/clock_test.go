@@ -59,23 +59,23 @@ func (r *simRig) advance(by string) reply {
 func TestAnAssertionOnTheSimulatedClockIsAcceptedAndThenExpiresWhenTheClockAdvances(t *testing.T) {
 	r := newSimRig(t, simStart)
 	exp := simStart.Unix() + 60
-	if got := r.readAs("usr_a", exp); got != 200 {
+	if got := r.readAs("usr_aa", exp); got != 200 {
 		t.Fatalf("an assertion minted on the simulated clock was refused: %d (the service is using the real clock)", got)
 	}
 	if res := r.advance("PT2M"); res.status != 200 {
 		t.Fatalf("advance: %d %s", res.status, res.body)
 	}
-	if got := r.readAs("usr_a", exp); got != 401 {
+	if got := r.readAs("usr_aa", exp); got != 401 {
 		t.Fatalf("after the clock passed the expiry the same assertion gave %d, want 401", got)
 	}
-	if got := r.readAs("usr_a", simStart.Unix()+120+60); got != 200 {
+	if got := r.readAs("usr_aa", simStart.Unix()+120+60); got != 200 {
 		t.Fatalf("a fresh assertion on the advanced clock gave %d, want 200", got)
 	}
 }
 
 func TestAnAssertionFromTheRealClockIsRefusedOnTheSimulatedOne(t *testing.T) {
 	r := newSimRig(t, simStart)
-	if got := r.readAs("usr_a", time.Now().Unix()+60); got != 401 {
+	if got := r.readAs("usr_aa", time.Now().Unix()+60); got != 401 {
 		t.Fatalf("an assertion from the real clock gave %d on a simulated 2026-10-01 clock, want 401 (too far in the future)", got)
 	}
 }
