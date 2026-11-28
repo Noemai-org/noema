@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -113,9 +114,9 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 	if err != nil {
 		return trustWired{}, err
 	}
-	di := decisionInputs{Env: in.Env, Clock: in.Clock, Pack: in.Pack, Keys: in.Keys, Begin: in.Begin, Facts: in.Facts}
-	if len(in.Pools) > 0 {
-		di.Pools = trustport.PoolsOf(in.Pools)
+	di, err := decisionInputsFrom(in)
+	if err != nil {
+		return trustWired{}, err
 	}
 	decisions, err := buildDecisions(di)
 	if err != nil {
@@ -236,3 +237,15 @@ func (planContextsFromRequest) PlanContext(ctx context.Context, r intake.PlanReq
 	}
 	return pc, nil
 }
+
+// decisionInputsFrom is what the decisions lane consumes from the wiring. Red stub: the ceiling is not read.
+func decisionInputsFrom(in trustWiringIn) (decisionInputs, error) {
+	di := decisionInputs{Env: in.Env, Clock: in.Clock, Pack: in.Pack, Keys: in.Keys, Begin: in.Begin, Facts: in.Facts}
+	if len(in.Pools) > 0 {
+		di.Pools = trustport.PoolsOf(in.Pools)
+	}
+	return di, nil
+}
+
+// confirmationTTLCeiling is the pack's confirmation TTL ceiling. Red stub: not built.
+func confirmationTTLCeiling(p *trustpack.Pack) (time.Duration, error) { return 0, nil }

@@ -70,6 +70,8 @@ type decisionInputs struct {
 	Entropy io.Reader
 	// PlanTextMaxBytes is the bound of every string a slot gives the Planner (plangraphs.Adapter.MaxTextBytes). No ruling or setting names a value: zero is the gap.
 	PlanTextMaxBytes int
+	// ConfirmationTTLCeiling is the pack's confirmation_ttl_ceiling_ms as a duration (A561). Zero: the Writer writes no CONFIRM request.
+	ConfirmationTTLCeiling time.Duration
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.

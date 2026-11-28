@@ -80,3 +80,12 @@ func (i verifiedInfo) Mode() fs.FileMode  { return 0o444 }
 func (i verifiedInfo) ModTime() time.Time { return time.Time{} }
 func (i verifiedInfo) IsDir() bool        { return false }
 func (i verifiedInfo) Sys() any           { return nil }
+
+// LoadVerifiedWithLimits is LoadVerified that also keeps the verified bytes of the limits files the manifest pins, by the path it pins (A544, A561): the one source of the pack's limits
+// for whoever composes the process, so no limits file is read a second time (INV-16). Red stub: not built.
+func LoadVerifiedWithLimits(pack []byte, graphs, limits map[string][]byte) (*Pack, error) {
+	return nil, ErrConfig
+}
+
+// LimitsFiles is a copy of the verified limits files LoadVerifiedWithLimits kept, by pinned path; nil when none were given. Red stub: not built.
+func (p *Pack) LimitsFiles() map[string][]byte { return nil }
