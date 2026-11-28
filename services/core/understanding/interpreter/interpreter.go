@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -12,6 +13,9 @@ import (
 )
 
 const prefix = "interpreter: "
+
+// maxVersion bounds a version the core will increment: the contract's safe integer, which the gate also holds a version to.
+const maxVersion = 1<<53 - 1
 
 var errEpochNotPositive = errors.New(prefix + "the epoch port answered an epoch below 1")
 
@@ -114,6 +118,10 @@ type Input struct {
 	CorrelationID string // the investigation's, minted by the core
 	Request       understanding.CompileRequest
 	RawRef        string // the object_ref of the recorded INPUT_RECEIVED (A184, A219); the core writes it over the model's source.raw_ref
+	// Prior is the latest admitted version of the investigation this turn follows (REQ-INP-004, REQ-INT-004; A743). The caller reads it as the session's tenant and principal; nil for a
+	// first turn. The turn is compiled alone (A404, A712); with a Prior the core, never the model, names the identity of the new version: the prior's intent id, its version plus one,
+	// and a `supersedes` link to it.
+	Prior *intentstore.Admitted
 }
 
 // Result is an admitted and saved intent: the admitted intent and the reference of its INTENT_ADMITTED event.
@@ -125,6 +133,8 @@ type Result struct {
 var (
 	actorRe = regexp.MustCompile(`^[a-z]+:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	corrRe  = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+	// priorIntentRe is the intent id the store holds (migration 0026): `int_` and 2 to 64 letters, digits or underscores.
+	priorIntentRe = regexp.MustCompile(`\A(?:int_[0-9A-Za-z_]{2,64})\z`)
 	// rawRefRe is the shape of the object_ref the core mints for an input (common.v1, A184). \A and \z: a trailing newline is not a match.
 	rawRefRe = regexp.MustCompile(`\Areq_[0-9A-HJKMNP-TV-Z]{26}\z`)
 )
@@ -137,7 +147,28 @@ func validate(in Input) error {
 	if !actorRe.MatchString(in.Actor) || !strings.HasSuffix(in.Actor, ":"+s.PrincipalID) || !corrRe.MatchString(in.CorrelationID) || !rawRefRe.MatchString(in.RawRef) {
 		return ErrInput
 	}
+	if in.Prior != nil && !priorIsThisInvestigationsOwn(in) {
+		return ErrInput
+	}
 	return nil
+}
+
+// priorIsThisInvestigationsOwn is REQ-INP-004's rule for a follow-up, checked before the model service is called: the prior is of the session's tenant and of this investigation
+// (the chain's correlation id), is an intent version the store can hold, and its stored document names the session's own principal and says the same intent id and version as its
+// columns. A prior that fails any of it is the caller's bug (the edge reads it as the session's tenant and principal and answers "not found" otherwise), so nothing is recorded.
+func priorIsThisInvestigationsOwn(in Input) bool {
+	p := in.Prior
+	if p.TenantID != in.Session.TenantID || p.CorrelationID != in.CorrelationID || !priorIntentRe.MatchString(p.IntentID) || p.Version < 1 || p.Version >= maxVersion || len(p.JSON) == 0 {
+		return false
+	}
+	var doc struct {
+		IntentID  string `json:"intent_id"`
+		Version   int    `json:"version"`
+		Principal struct {
+			PrincipalID string `json:"principal_id"`
+		} `json:"principal"`
+	}
+	return json.Unmarshal(p.JSON, &doc) == nil && doc.IntentID == p.IntentID && doc.Version == p.Version && doc.Principal.PrincipalID == in.Session.PrincipalID
 }
 
 // Interpret runs one compile. Order: the input, the model service, the gate; then, by what the gate found, the Record first and the store last. A refusal at the gate is
@@ -158,6 +189,11 @@ func (i *Interpreter) Interpret(ctx context.Context, in Input) (Result, error) {
 	doc, err := withRawRef(compiled.IntentObject, in.RawRef)
 	if err != nil {
 		return Result{}, wrap(ErrCompile, err)
+	}
+	if in.Prior != nil {
+		if doc, err = withChain(doc, in.Prior); err != nil {
+			return Result{}, wrap(ErrCompile, err)
+		}
 	}
 	compiled.IntentObject = doc
 	subject := Subject{TenantID: in.Session.TenantID, Actor: in.Actor, CorrelationID: in.CorrelationID}
@@ -211,6 +247,26 @@ func admitted(a understanding.AdmittedIntent) intentstore.Admitted {
 	}
 	return intentstore.Admitted{TenantID: string(o.TenantId), IntentID: string(o.IntentId), Version: int(o.Version), Supersedes: sup, IntentNode: string(o.IntentNode),
 		IntentHash: a.Hash(), CorrelationID: string(o.CorrelationId), JSON: a.JSON()}
+}
+
+// withChain names the identity of a follow-up's version, which the model never decides (INV-02): the prior's intent id, its version plus one, and `supersedes` as
+// `<intent_id>@<prior version>`. Whatever the model wrote in the three members, including a link that would look right, is replaced; every other member is kept as it is. The gate
+// then checks the link's form and that the chain's correlation id is the turn's (REQ-INT-004). A document that is not an object is returned as it is, for the gate to refuse.
+func withChain(doc []byte, prior *intentstore.Admitted) ([]byte, error) {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(doc, &top) != nil || top == nil {
+		return doc, nil
+	}
+	id, err := json.Marshal(prior.IntentID)
+	if err != nil {
+		return nil, err
+	}
+	link, err := json.Marshal(fmt.Sprintf("%s@%d", prior.IntentID, prior.Version))
+	if err != nil {
+		return nil, err
+	}
+	top["intent_id"], top["version"], top["supersedes"] = id, json.RawMessage(fmt.Sprintf("%d", prior.Version+1)), link
+	return json.Marshal(top)
 }
 
 // withRawRef writes the core's reference to the recorded input over whatever the model put in `source.raw_ref`, including the unset marker (A219). It runs after the model
