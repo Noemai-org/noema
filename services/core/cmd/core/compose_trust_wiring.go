@@ -244,6 +244,7 @@ func decisionInputsFrom(in trustWiringIn) (decisionInputs, error) {
 	if len(in.Pools) > 0 {
 		di.Pools = trustport.PoolsOf(in.Pools)
 	}
+	di.RequestPools = in.Pools
 	ceiling, err := confirmationTTLCeiling(in.Pack)
 	if err != nil {
 		return decisionInputs{}, err
