@@ -28,7 +28,7 @@ var features = [...]string{"amount", "recipient", "temporal", "relationship", "t
 // Ranker implements trustport.CandidateRanker.
 type Ranker struct {
 	weights   [len(features)]*big.Rat
-	amountTol *big.Rat
+	matchRatioTol *big.Rat
 	timeTol   *big.Rat
 }
 
@@ -63,7 +63,7 @@ func New(pack []byte) (*Ranker, error) {
 		return nil, ErrConfig
 	}
 	var ok bool
-	if r.amountTol, ok = new(big.Rat).SetString(rk.AmountToleranceRatio); !ok || r.amountTol.Sign() < 0 || rk.TimeToleranceSeconds < 0 {
+	if r.matchRatioTol, ok = new(big.Rat).SetString(rk.AmountToleranceRatio); !ok || r.matchRatioTol.Sign() < 0 || rk.TimeToleranceSeconds < 0 {
 		return nil, ErrConfig
 	}
 	r.timeTol = new(big.Rat).SetInt64(rk.TimeToleranceSeconds)
@@ -104,7 +104,7 @@ func (r *Ranker) Rank(ctx context.Context, terms trustport.CandidateSearch, rows
 		f := [len(features)]*big.Rat{new(big.Rat), new(big.Rat), new(big.Rat), new(big.Rat), new(big.Rat)}
 		if terms.HasAmount && terms.AmountMinor > 0 && string(c.Currency) == terms.Unit {
 			wanted := new(big.Rat).SetInt64(terms.AmountMinor)
-			f[0] = ramp(absDiff(int64(c.AmountMinor), terms.AmountMinor), new(big.Rat).Mul(r.amountTol, wanted))
+			f[0] = ramp(absDiff(int64(c.AmountMinor), terms.AmountMinor), new(big.Rat).Mul(r.matchRatioTol, wanted))
 		}
 		if terms.CounterpartySurface != "" && c.RecipientMatch.Denominator > 0 {
 			f[1] = big.NewRat(c.RecipientMatch.Numerator, c.RecipientMatch.Denominator)
