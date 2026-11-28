@@ -98,12 +98,17 @@ func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verif
 	if err != nil {
 		return verifier.Request{}, fmt.Errorf("request: make the verification id: %w", err)
 	}
+	epoch, err := s.epochFor(ctx, tenantID, f.Subject, out.Bindings)
+	if err != nil {
+		return verifier.Request{}, err
+	}
 	r := f.Receipt
 	return Build(Inputs{
 		VerificationID: id,
 		Receipt: Receipt{ReceiptID: r.ReceiptID, TenantID: r.TenantID, GrantID: r.GrantID, PrincipalID: r.PrincipalID, IdempotencyKey: r.IdempotencyKey, State: r.State,
 			RawStatus: r.RawStatus, ExternalAck: r.ExternalAck, Document: r.Document, SigKeyID: r.SigKeyID, SigValue: r.SigValue},
 		Authenticity: auth,
+		Subject:      f.Subject, Epoch: epoch,
 		Plan: Plan{TenantID: tenantID, IntentID: f.IntentID, IntentHash: f.GrantIntentHash, PlanHash: f.PlanHash,
 			Steps: []Step{{CapabilityID: f.CapabilityID, Params: f.StepParams}}},
 		Expect:           Expect{TenantID: tenantID, IntentID: f.IntentID, IntentHash: f.DecisionIntentHash, PlanHash: f.PlanHash},
@@ -113,4 +118,27 @@ func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verif
 		SubjectVariable:  out.SubjectVariable,
 		Bindings:         out.Bindings,
 	})
+}
+
+// epochFor reads the subject's current epoch, and only when the pack binds a variable to EPOCH: an Outcome that binds none never asks the port. A binding to EPOCH with no port, no
+// subject or an epoch the port cannot give is refused (ErrBinding for the first two, the port's own error wrapped for the third); a negative epoch is refused by Build.
+func (s GrantRequests) epochFor(ctx context.Context, tenantID, subject string, bindings map[string]Source) (*int64, error) {
+	wanted := false
+	for _, b := range bindings {
+		if b.Kind == FromEpoch {
+			wanted = true
+			break
+		}
+	}
+	if !wanted {
+		return nil, nil
+	}
+	if s.Epochs == nil || !clean(subject) {
+		return nil, ErrBinding
+	}
+	n, err := s.Epochs.Current(ctx, tenantID, subject)
+	if err != nil {
+		return nil, fmt.Errorf("request: read the subject's epoch: %w", err)
+	}
+	return &n, nil
 }

@@ -251,6 +251,13 @@ func value(in Inputs, step Step, s Source) (string, bool, error) {
 			return "", false, ErrBinding
 		}
 		v = step.Params[s.Name]
+	case FromSubject:
+		v = in.Subject
+	case FromEpoch:
+		if in.Epoch == nil || *in.Epoch < 0 {
+			return "", false, ErrBinding
+		}
+		v = fmt.Sprintf("%d", *in.Epoch)
 	case FromExternalAck:
 		if in.Receipt.State != acknowledged {
 			return "", false, nil
