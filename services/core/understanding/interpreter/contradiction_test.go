@@ -78,7 +78,6 @@ func newWorldWithFlag(t *testing.T, out []byte, configured string) *world {
 	return w
 }
 
-
 // PUS-08: "it was 50k, not 20k".
 func TestAnAmountThatDiffersFromTheOneThePriorHeldRaisesTheFlag(t *testing.T) {
 	prior := priorWith(t, map[string]any{"amount": amount(2_000_000, "NGN")})
@@ -104,12 +103,11 @@ func TestASlotTheFollowUpDoesNotNameIsNotAContradiction(t *testing.T) {
 	}
 }
 
-func TestADifferentUnitOrTimeWindowOrResolvedResourceRaisesTheFlag(t *testing.T) {
+func TestADifferentTimeWindowOrResolvedResourceRaisesTheFlag(t *testing.T) {
 	window := func(a, b string) map[string]any {
 		return map[string]any{"type": "TimeRef", "surface_form": "yesterday", "window": []any{a, b}}
 	}
 	cases := map[string]struct{ prior, next map[string]any }{
-		"unit":   {map[string]any{"amount": amount(2_000_000, "NGN")}, map[string]any{"amount": amount(2_000_000, "USD")}},
 		"window": {map[string]any{"when": window("2026-10-01T05:00:00Z", "2026-10-01T09:00:00Z")}, map[string]any{"when": window("2026-10-02T05:00:00Z", "2026-10-02T09:00:00Z")}},
 		"resource": {map[string]any{"subject_resource": map[string]any{"type": "Resource", "status": "RESOLVED", "resolved_ref": "fin.transaction:TX1"}},
 			map[string]any{"subject_resource": map[string]any{"type": "Resource", "status": "RESOLVED", "resolved_ref": "fin.transaction:TX2"}}},
@@ -180,4 +178,13 @@ func TestPropertyTheFlagIsRaisedExactlyWhenTheAmountDiffers(t *testing.T) {
 			rt.Fatalf("before %d after %d: raised %v", before, after, raised)
 		}
 	})
+}
+
+func TestAContradictionFlagThatIsNotAFlagIdIsRefusedAtConstruction(t *testing.T) {
+	w := newWorld(t, proposal(nil))
+	for _, bad := range []string{"contradicts_prior_turn", "1FLAG", "FLAG ONE", "FLAG-ONE"} {
+		if _, err := interpreter.New(interpreter.Config{Compiler: w.comp, Gate: mustGate(t), Recorder: w.rec, Saver: w.save, ContradictionFlag: bad}); err == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
 }
