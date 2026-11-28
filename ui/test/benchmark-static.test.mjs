@@ -1,0 +1,51 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { scanScorecardText } from "../build/js/scorecard-scan.js";
+const run = promisify(execFile);
+
+test("A326: a bench-only static scorecard file renders exact aggregate data", async () => {
+  const fixturePath = "../contracts/fixtures/valid/scorecard-view/two_cases_clean.json";
+  const fixture = JSON.parse(await readFile(fixturePath, "utf8"));
+  const { stdout } = await run(process.execPath, ["scripts/render-benchmark.mjs", fixturePath]);
+  assert.ok(stdout.includes(String(fixture.tier0.gates[0].rate.exact_upper95)));
+  assert.ok(stdout.indexOf("Tier 0") < stdout.indexOf("By family"));
+  assert.deepEqual(scanScorecardText(stdout), []);
+});
+
+test("A326 INV-22: static rendering refuses a file with a case list", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "noema-scorecard-"));
+  try {
+    const fixture = JSON.parse(await readFile("../contracts/fixtures/valid/scorecard-view/two_cases_clean.json", "utf8"));
+    fixture.failure_list = ["BEN-AMB-0001"];
+    const file = join(temp, "unsafe.json");
+    await writeFile(file, JSON.stringify(fixture));
+    await assert.rejects(run(process.execPath, ["scripts/render-benchmark.mjs", file]), (error) => {
+      assert.notEqual(error.code, 0);
+      assert.match(error.stdout, /unavailable/i);
+      assert.deepEqual(scanScorecardText(error.stdout), []);
+      assert.doesNotMatch(error.stdout + error.stderr, /BEN-AMB-0001/u);
+      return true;
+    });
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test("A326: unreadable or malformed input fails with generic output and a nonzero exit", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "noema-scorecard-"));
+  try {
+    const bad = join(temp, "bad.json");
+    await writeFile(bad, "synthetic-private-input{");
+    for (const path of [bad, join(temp, "missing.json")]) {
+      await assert.rejects(run(process.execPath, ["scripts/render-benchmark.mjs", path]), (error) => {
+        assert.notEqual(error.code, 0);
+        assert.match(error.stdout, /This scorecard is unavailable\./u);
+        assert.doesNotMatch(error.stdout + error.stderr, /synthetic-private-input|bad\.json|missing\.json/u);
+        return true;
+      });
+    }
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
