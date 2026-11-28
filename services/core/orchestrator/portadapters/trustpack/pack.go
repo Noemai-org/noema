@@ -50,7 +50,9 @@ func packErr(format string, args ...any) error {
 type Pack struct {
 	// raw is the pack file as LoadPack read and decoded it: the one copy of its bytes (PackBytes).
 	raw []byte
-	reg *registry.Registry
+	// limits is the verified bytes of the limits files the manifest pins, by pinned path (LoadVerifiedWithLimits); nil when none were given.
+	limits map[string][]byte
+	reg    *registry.Registry
 	// capRoles is each capability's descriptor roles (authority.roles_allowed), by capability ID.
 	capRoles map[string]map[string]struct{}
 	// nodes is each intent node's trust profile roles; a node with no profile has no entry in roles and is out of scope.

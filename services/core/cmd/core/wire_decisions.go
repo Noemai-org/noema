@@ -68,6 +68,8 @@ type decisionInputs struct {
 	Entropy io.Reader
 	// PlanTextMaxBytes is the bound of every string a slot gives the Planner (plangraphs.Adapter.MaxTextBytes). No ruling or setting names a value: zero is the gap.
 	PlanTextMaxBytes int
+	// ConfirmationTTLCeiling is the pack's confirmation_ttl_ceiling_ms as a duration (A561). Zero: the Writer writes no CONFIRM request.
+	ConfirmationTTLCeiling time.Duration
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.
@@ -253,6 +255,7 @@ func decisionRecorderConfig(in decisionInputs) (trustport.RecorderConfig, []stri
 		entropy = rand.Reader
 	}
 	cfg.Begin, cfg.Facts, cfg.Keys, cfg.Clock, cfg.IDs, cfg.Entropy = in.Begin, in.Facts, in.Keys, in.Clock, ids.New(in.Clock, entropy), entropy
+	cfg.ConfirmationTTLCeiling = in.ConfirmationTTLCeiling
 	cfg.Appender = &chain.Appender{Clock: in.Clock, IDs: cfg.IDs, Signers: map[string]chain.Signer{trustRecordIdentity: ring}}
 	return cfg, nil, nil
 }

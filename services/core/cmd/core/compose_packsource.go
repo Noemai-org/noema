@@ -78,7 +78,7 @@ func packFromVerified(src VerifiedSource) PackSource {
 		if err != nil {
 			return nil, err
 		}
-		pack, err := trustpack.LoadVerified(verified.Pack, verified.ActionGraphs)
+		pack, err := trustpack.LoadVerifiedWithLimits(verified.Pack, verified.ActionGraphs, verified.Limits)
 		if err != nil {
 			return nil, refused("Trust pack", err)
 		}
