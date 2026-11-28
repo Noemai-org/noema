@@ -74,7 +74,7 @@ var projections = map[string]projection{
 	evClarify:                      {secAmbiguity, basisRule, []string{"clarification_id", "reason_codes"}, nil},
 	"CLARIFICATION_ANSWERED":       {secAmbiguity, basisPrincipal, []string{"clarification_id"}, nil},
 	"CLARIFICATION_EXPIRED":        {secAmbiguity, basisRule, []string{"clarification_id"}, nil},
-	"CANDIDATES_RESOLVED":          {secResolution, basisRule, []string{"resolved_target", "candidate_count", "margin"}, nil},
+	"CANDIDATES_RESOLVED":          {secResolution, basisRule, []string{"state", "resolved_target", "candidate_count", "top_bp", "second_bp", "margin_bp"}, nil},
 	"EVIDENCE_READ":                {secObserved, basisEvidence, observedKeys, nil},
 	"EVIDENCE_REFRESHED":           {secObserved, basisEvidence, observedKeys, nil},
 	"CONTEXT_SNAPSHOT_SEALED":      {secObserved, basisEvidence, observedKeys, nil},

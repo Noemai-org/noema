@@ -176,15 +176,15 @@ const (
 )
 
 // us01 is US-01 "Unique transaction" (PERD v1.19 story table): decision ALLOW, zero grants issued, the explanation
-// cites a KNOWN state, the Record holds CANDIDATES_RESOLVED with one candidate and a margin of at least 0.35. The
-// margin is a decimal string because a payload holds integers only (PERD 32.1).
+// cites a KNOWN state, the Record holds CANDIDATES_RESOLVED with one candidate and a margin of at least 3500 basis points. The
+// payload holds integers only (PERD 32.1): scores and the margin are whole basis points (A725). The event is written by core-trust (A725): the ranking is Trust's.
 func us01() []ev {
 	return []ev{
 		{writtenBy: "core-edge", actor: customer, eventType: "SESSION_VALIDATED", objectRef: "ses_synth0001", payload: map[string]any{"channel": "TEXT", "locale": "en"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INPUT_RECEIVED", objectRef: "req_synth0001", payload: map[string]any{"channel": "TEXT", "request_id": "req_synth0001"}},
 		{writtenBy: "core-edge", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "note": "model text is never a fact"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INTENT_ADMITTED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "intent_id": "int_synth0001"}},
-		{writtenBy: "core-evidence", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"resolved_target": target, "candidate_count": 1, "margin": "0.41"}},
+		{writtenBy: "core-trust", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"state": "AUTO_RESOLVED", "resolved_target": target, "candidate_count": 1, "above_floor": 1, "top_bp": 9100, "second_bp": 0, "margin_bp": 4100}},
 		{writtenBy: "core-evidence", eventType: "EVIDENCE_READ", objectRef: "evr_synth0001", payload: map[string]any{"fact_status": "KNOWN", "source": "mock-ledger"}},
 		{writtenBy: "core-trust", eventType: "STATE_RECONCILED", objectRef: "rec_synth0001", payload: map[string]any{"classification": "SUCCESS_CONFIRMED", "fact_status": "KNOWN"}},
 		{writtenBy: "core-trust", eventType: "POLICY_EVALUATED", objectRef: "dec_synth0001", payload: map[string]any{"policy_id": "test.policy.read_only", "policy_version": "3"}},
@@ -322,7 +322,7 @@ func golden(t *testing.T, name string, got []byte) {
 	}
 }
 
-// US-01 reconstructs from the Record alone (REQ-AUD-003, INV-10): ALLOW, no grant, one candidate with margin 0.41, a
+// US-01 reconstructs from the Record alone (REQ-AUD-003, INV-10): ALLOW, no grant, one candidate with a margin of 4100 basis points, a
 // KNOWN state cited by the explanation. INTENT_PROPOSED (model output) is in the timeline and in no section.
 func TestUS01ReconstructsFromTheRecordAlone(t *testing.T) {
 	w := newWorld(t)
@@ -334,8 +334,8 @@ func TestUS01ReconstructsFromTheRecordAlone(t *testing.T) {
 	b := parse(t, raw)
 	checkCitations(t, b, st)
 	res := b.section("RESOLUTION")
-	if len(res) != 1 || res[0].Facts["candidate_count"] != json.Number("1") || res[0].Facts["margin"] != "0.41" || res[0].Facts["resolved_target"] != target {
-		t.Fatalf("RESOLUTION %+v, want one candidate, margin 0.41, target %s", res, target)
+	if len(res) != 1 || res[0].Facts["candidate_count"] != json.Number("1") || res[0].Facts["margin_bp"] != json.Number("4100") || res[0].Facts["top_bp"] != json.Number("9100") || res[0].Facts["state"] != "AUTO_RESOLVED" || res[0].Facts["resolved_target"] != target {
+		t.Fatalf("RESOLUTION %+v, want one candidate, margin 4100 bp, top 9100 bp, AUTO_RESOLVED, target %s", res, target)
 	}
 	if d := b.section("DECISION"); len(d) != 1 || d[0].Facts["decision_outcome"] != "ALLOW" || d[0].Basis != "RULE" {
 		t.Fatalf("DECISION %+v, want one ALLOW on a rule", d)
