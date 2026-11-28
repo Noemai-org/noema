@@ -58,9 +58,11 @@ type trustWiringIn struct {
 	Understanding   UnderstandingParts
 	OwnershipReader ownershipport.ScopedReader
 	Screen          ScreenDeps
-	ListEntities    map[string]intakesources.ListSpec
-	Begin           trustport.TxBeginner
-	Facts           trustport.RecordFactSource
+	// Verified is the one verified load the pack was built from, with the bytes of every file the manifest pins (A722): the Clocks adapter reads the limits file from it.
+	Verified     packload.Pack
+	ListEntities map[string]intakesources.ListSpec
+	Begin        trustport.TxBeginner
+	Facts        trustport.RecordFactSource
 }
 
 // trustWired is what the wiring built and why the rest is not.
