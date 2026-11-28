@@ -30,6 +30,8 @@ import (
 const (
 	// EnvTrustDBTimeout is how long one read of the Trust readers may take, in whole milliseconds (A330: the _MS suffix). Required, no default (AGENT-16).
 	EnvTrustDBTimeout = "NOEMA_TRUST_DB_TIMEOUT_MS"
+	// EnvTrustReconcileTimeout is how long one call of the Reconciler adapter may take, in whole milliseconds. Required, no default (AGENT-16).
+	EnvTrustReconcileTimeout = "NOEMA_TRUST_RECONCILE_TIMEOUT_MS"
 	// EnvGrantKeyDir names the directory of the Decision Grant HMAC key files (INV-29). The loader reads it; this code never reads a key.
 	EnvGrantKeyDir = "NOEMA_GRANT_KEY_DIR"
 	// EnvGrantKeyMaxActive is how many grant keys may be mounted at once: the rotation overlap (REQ-SEC-005). A positive integer with no default.
