@@ -13,7 +13,10 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/resumestate"
+	"github.com/Noemai-org/noema/services/core/understanding/resume"
 )
+
+var _ resume.States = (*resumestate.States)(nil) // the resolver's own state port
 
 const (
 	tenant = "ten_demo"
