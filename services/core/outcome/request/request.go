@@ -40,6 +40,7 @@ const (
 	FromPrincipalID SourceKind = "PRINCIPAL_ID" // the principal the receipt's grant was issued to
 	FromPlanParam   SourceKind = "PLAN_PARAM"   // one param of the plan step of the executed capability
 	FromExternalAck SourceKind = "EXTERNAL_ACK" // the target's own acknowledgement; bound only for an ACKNOWLEDGED receipt
+	FromEpoch       SourceKind = "EPOCH"        // the subject's current logical-resolution epoch (A740), read through the NextEpoch port by the caller and handed in as Inputs.Epoch
 )
 
 // Source is one binding specification: the pack names the variable, this says where its value is read.
@@ -111,6 +112,7 @@ type Inputs struct {
 	Outcome          Definition
 	SubjectVariable  string            // the predicate variable that names the subject whose cases are read
 	Bindings         map[string]Source // predicate variable to source, from the pack
+	Epoch            *int              // the subject's current logical-resolution epoch, from the NextEpoch port; nil when none was read. Only an EPOCH binding reads it
 }
 
 const acknowledged = "ACKNOWLEDGED"
