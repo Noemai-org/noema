@@ -19,6 +19,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	idgen "github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/platform/redaction"
 	"github.com/Noemai-org/noema/services/core/record/admission"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -336,6 +337,21 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 				return Components{}, TrustParts{}, closeAll, err
 			}
 			closers = append(closers, closeLogins)
+			if gen, ok := ids.(*idgen.Generator); ok && c.Confirmations == nil { // A341: the confirmation route, over the tenants' own Trust logins and the core-trust appender
+				var app *chain.Appender
+				if ring, _, rerr := decisionSigningRing(env); rerr != nil {
+					closeAll()
+					return Components{}, TrustParts{}, closeAll, rerr
+				} else if ring != nil {
+					app = &chain.Appender{Clock: clk, IDs: ids, Signers: map[string]chain.Signer{trustRecordIdentity: ring}}
+				}
+				cfg, _, cerr := buildConfirmations(env, clk, gen, logins, app, logger)
+				if cerr != nil {
+					closeAll()
+					return Components{}, TrustParts{}, closeAll, cerr
+				}
+				c.Confirmations = cfg
+			}
 			pack, err := d.Pack(env) // the same memoized answer the adapter source got: never a second read of the pack
 			if err != nil && !errors.Is(err, errPackNotConfigured) {
 				closeAll()
