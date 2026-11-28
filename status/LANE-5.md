@@ -83,3 +83,20 @@ Files: `cmd/core/execution_side.go`, `cmd/core/execution_side_test.go`, this fil
 - One controller per tenant, each over that tenant's own execution pool.
 - A partial composition builds no Executor (a Controller that cannot do everything dispatches nothing).
 - No message holds a DSN, a login, a key or a setting value.
+
+---
+
+# Session 2026-11-26 · LANE-5 slice 4 · the Record reader for the Outcome request (A675, A692, A709; interim, relayed)
+
+## Session summary
+- What changed (PR links): not pushed yet. Branch `feat/LANE5-record-reader-2`: `outcome/request/reader.go` (the `Reader` port, `Facts`, `GrantRequests.For`), `outcome/store/reader.go` (`store.Reader`, read-only, tenant in the WHERE, on the outcome login), `cmd/core/wire_outcome_requests.go` (per-tenant router, `verifierport.Requests`).
+- Why: the write path's Verifier port needs a `Requests` source. It reads only what Execution wrote: the receipt (with `step_params`, A692), the grant's capability, plan hash and intent hash, and the decision's intent and intent hash. The outcome definition, the bindings, the subject variable and the retry safety come from the pack through the `Outcomes` seam.
+- Risks, and how they are contained: the reader is a port that may be wrong, so `GrantRequests.For` checks its facts against the call (tenant, grant, the receipt's action against the grant's capability, the decision's intent hash against the grant's) before `Build`; a signature not found VALID gives no request; a bound param the receipt lacks is `ErrBinding`.
+- Tests added (REQ-VER-001, REQ-SEC-004; INV-04, INV-07, INV-12, AGENT-13): `outcome/request/reader_test.go`, `outcome/store/reader_test.go` (DB, CI only), `cmd/core/wire_outcome_requests_test.go`.
+- Safer readings taken: (1) the verification id is a new `vrf_` id for each call (the Requests port carries none; a fixed id per grant would hand back the first verdict on a re-verify); (2) the plan hash is the grant's, so the plan-hash agreement is trivially true, and the intent hash is cross-checked between the grant and the Decision Record; (3) a grant with several receipts reads the latest attempt; (4) `step_params` null is read as empty (refused if bound), an object or an array is an error.
+- Not built, and why (STOP list): the pack declares no predicate-variable bindings (`PLAN_PARAM`, `INTENT_ID`, ...), no subject variable, no capability-to-outcome mapping and no retry safety that Outcome can read, so `Outcomes` has no production implementation and `buildOutcomeRequests` is a named gap until it has. Execution does not yet write `step_params` into the receipt (the Controller follow-up of A692). The A665 version token is A706's separate PR.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL calls `buildOutcomeRequests` from the composition root with the three seams and puts its result in `executionSeams.Verifier` (`verifierport.Port{Verifier, Requests}`); the pack owner adds the bindings declaration so `Outcomes` can be built.
+- Do not touch: `outcome/verifier`, `trust/`, `execution/`.
