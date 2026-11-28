@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -82,6 +83,20 @@ func givenSetting[T any](env Env, name string, read func(Env, string) (T, error)
 
 func wholeBytes(env Env, name string) (int64, error) { return wholeNumber(env, name, " of bytes") }
 
+// planTextUpperLimit is the largest the Planner's text bound may be set (A758). A bound above it is refused, not clamped.
+const planTextUpperLimit = 4096
+
+func planTextBytes(env Env, name string) (int64, error) {
+	n, err := wholeBytes(env, name)
+	if err != nil {
+		return 0, err
+	}
+	if n > planTextUpperLimit {
+		return 0, fmt.Errorf("cmd/core: %s must be a whole positive number of bytes no greater than %d", name, planTextUpperLimit)
+	}
+	return n, nil
+}
+
 // wireTrustInputs builds the Trust inputs and the decisions from what the composition has. It dials nothing. An absent input leaves its adapter nil and named in Reasons; an invalid one
 // is an error whose text names the setting or the part and carries no value, tenant or word of the pack.
 func wireTrustInputs(in trustWiringIn) (trustWired, error) {
@@ -93,7 +108,7 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 	if err != nil {
 		return trustWired{}, err
 	}
-	planBound, planGiven, err := givenSetting(in.Env, EnvPlanTextMaxBytes, wholeBytes) // A705: required, no default; an invalid value stops the process and names no value
+	planBound, planGiven, err := givenSetting(in.Env, EnvPlanTextMaxBytes, planTextBytes) // A705: required, no default; an invalid value stops the process and names no value
 	if err != nil {
 		return trustWired{}, err
 	}
