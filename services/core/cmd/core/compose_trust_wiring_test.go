@@ -46,7 +46,7 @@ func twIn(t *testing.T) trustWiringIn {
 	rs, m := tiParts(t, v)
 	e := envMap{EnvTrustDBTimeout: "750", EnvPayloadMaxBytes: "1048576"}
 	return trustWiringIn{
-		Env: Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, Clock: clock.NewManual(time.Unix(1_800_000_000, 0)), Pack: pack,
+		Verified: v, Env: Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, Clock: clock.NewManual(time.Unix(1_800_000_000, 0)), Pack: pack,
 		Tenants: []string{"ten_aa", "ten_bb"}, Pools: tiPools(t, "ten_aa", "ten_bb"), Keys: twKeys(t),
 		Understanding:   UnderstandingParts{RuleSet: rs, Mapping: m, PackRef: pack.Ref()},
 		OwnershipReader: &tiCandidates{}, Screen: tiScreen(), ListEntities: tiLists(),
@@ -90,7 +90,7 @@ func TestWiringBuildsWhatItCanFromTheVerifiedPackAndNamesTheRest(t *testing.T) {
 	if a.Ownership == nil || a.Evidence == nil || a.Policies == nil {
 		t.Errorf("Ownership %v, Evidence %v, Policies %v: each must be built when its inputs are given", a.Ownership != nil, a.Evidence != nil, a.Policies != nil)
 	}
-	want := []string{"Candidates", "Reconciler", "Clocks", "Confirmations", "Planner", "Recorder"}
+	want := []string{"Candidates", "Reconciler", "Confirmations", "Planner", "Recorder"}
 	if got := w.Unbuilt(); !reflect.DeepEqual(got, want) {
 		t.Errorf("unbuilt = %v, want %v", got, want)
 	}
@@ -224,27 +224,27 @@ func TestAPresentInvalidInputIsAnErrorThatNamesTheSettingAndNotTheValue(t *testi
 	})
 }
 
-// A612: the limits file has no loader on main (noema#910 is open). Until it merges, Clocks is a named gap; when the loader lands, a refused result must stop the start or leave Clocks a
-// gap that FAILS CLOSED, never a default. The comment that says so is pinned by this test, and the gap is pinned whatever else is given.
-func TestTheLimitsFileIsANamedGapThatFailsClosedAndNeverADefault(t *testing.T) {
+// A612, A722, STM-01 bundle 1: the Clocks adapter is built from the limits file the manifest pinned, the one verified load the composition shares. With the verified pack's limits Clocks is
+// built; with none it is a named gap that fails closed, never a default.
+func TestClocksAreBuiltFromTheVerifiedLimitsAndAreAGapWithoutThem(t *testing.T) {
 	w, err := wireTrustInputs(twIn(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.fill(TrustAdapters{}).Clocks != nil {
-		t.Error("Clocks is built with no limits loader: a default was invented")
+	if w.fill(TrustAdapters{}).Clocks == nil {
+		t.Error("Clocks is not built although the verified pack carries its limits file")
 	}
-	if len(w.Reasons["Clocks"]) == 0 || !strings.Contains(strings.Join(w.Reasons["Clocks"], " "), needTrustLimits) {
-		t.Errorf("Clocks reasons = %v; want the limits file named", w.Reasons["Clocks"])
-	}
-	src, err := os.ReadFile("compose_trust_wiring.go")
+	in := twIn(t)
+	in.Verified.Limits = nil
+	w, err = wireTrustInputs(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, must := range []string{"noema#910", "FAILS CLOSED", "never a default"} {
-		if !strings.Contains(string(src), must) {
-			t.Errorf("compose_trust_wiring.go no longer says %q about the limits file", must)
-		}
+	if w.fill(TrustAdapters{}).Clocks != nil {
+		t.Error("Clocks is built with no limits file: a default was invented")
+	}
+	if !strings.Contains(strings.Join(w.Reasons["Clocks"], " "), needTrustLimits) {
+		t.Errorf("Clocks reasons = %v; want the limits file named", w.Reasons["Clocks"])
 	}
 }
 

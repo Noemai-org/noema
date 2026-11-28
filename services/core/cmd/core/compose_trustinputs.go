@@ -54,18 +54,21 @@ type trustInputsIn struct {
 	// ListEntities is the list entities the policies read and the item of the sealed snapshot that holds each (a source and a scope prefix). No committed ruling gives it, so
 	// production leaves it empty and Policies is a gap until it is decided.
 	ListEntities map[string]intakesources.ListSpec
+	// ReconcileTimeout bounds one call of the Reconciler adapter: NOEMA_TRUST_RECONCILE_TIMEOUT_MS (EnvTrustReconcileTimeout), no default. Zero is not given.
+	ReconcileTimeout time.Duration
 	// OwnershipReader is the principal-scoped enterprise read (REQ-CTX-006). It is not built on main.
 	OwnershipReader ownershipport.ScopedReader
 }
 
 // trustInputs is what the builder made. A nil port is a gap, named in Gaps by its TrustAdapters field name, in the order of that struct.
 type trustInputs struct {
-	Writes    intake.Writes
-	Ownership intake.Ownership
-	Evidence  intake.Evidence
-	Policies  intake.Policies
-	Clocks    intake.Clocks
-	Gaps      []string
+	Writes     intake.Writes
+	Ownership  intake.Ownership
+	Evidence   intake.Evidence
+	Policies   intake.Policies
+	Clocks     intake.Clocks
+	Reconciler intake.Reconciler
+	Gaps       []string
 }
 
 // inputsError is a failure whose text is fixed; the cause stays reachable with errors.Is and errors.As and is never in Error(), since a decoder's text can quote the pack (AGENT-13).
@@ -145,6 +148,9 @@ func buildTrustInputs(in trustInputsIn) (trustInputs, error) {
 	if out.Clocks, err = buildClocksInput(in); err != nil {
 		return trustInputs{}, err
 	}
+	if out.Reconciler, err = buildReconcilerInput(in); err != nil {
+		return trustInputs{}, err
+	}
 	built := out.fill(TrustAdapters{})
 	for _, name := range unsetAdapters(built) {
 		if slices.Contains([]string{"Writes", "Ownership", "Evidence", "Reconciler", "Policies", "Clocks"}, name) {
@@ -170,6 +176,9 @@ func (t trustInputs) fill(a TrustAdapters) TrustAdapters {
 	}
 	if t.Clocks != nil {
 		a.Clocks = t.Clocks
+	}
+	if t.Reconciler != nil {
+		a.Reconciler = t.Reconciler
 	}
 	return a
 }
