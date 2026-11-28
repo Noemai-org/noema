@@ -22,6 +22,7 @@ type outcomeRequestSeams struct {
 	Signatures request.Signatures
 	Outcomes   request.Outcomes
 	IDs        request.IDs
+	Epochs     request.Epochs // optional (A740, A776): the NextEpoch port for a pack whose outcome binds the subject's epoch; absent, such an outcome is refused at the request
 }
 
 // outcomeRequests routes by tenant.
@@ -41,7 +42,7 @@ func newOutcomeRequests(readers map[string]request.Reader, s outcomeRequestSeams
 		if tenant == "" || rd == nil {
 			return nil
 		}
-		by[tenant] = request.GrantRequests{Reader: rd, Signatures: s.Signatures, Outcomes: s.Outcomes, IDs: s.IDs}
+		by[tenant] = request.GrantRequests{Reader: rd, Signatures: s.Signatures, Outcomes: s.Outcomes, IDs: s.IDs, Epochs: s.Epochs}
 	}
 	return &outcomeRequests{byTenant: by}
 }

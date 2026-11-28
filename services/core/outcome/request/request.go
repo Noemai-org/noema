@@ -40,6 +40,7 @@ const (
 	FromPrincipalID SourceKind = "PRINCIPAL_ID" // the principal the receipt's grant was issued to
 	FromPlanParam   SourceKind = "PLAN_PARAM"   // one param of the plan step of the executed capability
 	FromExternalAck SourceKind = "EXTERNAL_ACK" // the target's own acknowledgement; bound only for an ACKNOWLEDGED receipt
+	FromEpoch       SourceKind = "EPOCH"        // the subject's current logical-resolution epoch (A740), read through the NextEpoch port by the caller and handed in as Inputs.Epoch
 )
 
 // Source is one binding specification: the pack names the variable, this says where its value is read.
@@ -111,6 +112,7 @@ type Inputs struct {
 	Outcome          Definition
 	SubjectVariable  string            // the predicate variable that names the subject whose cases are read
 	Bindings         map[string]Source // predicate variable to source, from the pack
+	Epoch            *int              // the subject's current logical-resolution epoch, from the NextEpoch port; nil when none was read. Only an EPOCH binding reads it
 }
 
 const acknowledged = "ACKNOWLEDGED"
@@ -247,6 +249,12 @@ func value(in Inputs, step Step, s Source) (string, bool, error) {
 			return "", false, ErrBinding
 		}
 		v = step.Params[s.Name]
+	case FromEpoch:
+		// A740: the subject's current logical-resolution epoch, read by the caller through the NextEpoch port. It names no param; a missing, zero or negative epoch is not bound: it is never 1 by default (INV-19).
+		if s.Name != "" || in.Epoch == nil || *in.Epoch < 1 {
+			return "", false, ErrBinding
+		}
+		v = fmt.Sprintf("%d", *in.Epoch)
 	case FromExternalAck:
 		if in.Receipt.State != acknowledged {
 			return "", false, nil
@@ -261,4 +269,35 @@ func value(in Inputs, step Step, s Source) (string, bool, error) {
 		return "", false, ErrBinding
 	}
 	return v, true, nil
+}
+
+// NeedsEpoch reports whether any binding reads the epoch (A740): only then does a caller read the case list.
+func NeedsEpoch(bindings map[string]Source) bool {
+	for _, s := range bindings {
+		if s.Kind == FromEpoch {
+			return true
+		}
+	}
+	return false
+}
+
+// SubjectOf is the value of the subject variable as the inputs bind it, before any epoch is known: the subject whose epoch is read. It runs the same checks as Build first, so a receipt, plan or
+// expectation that Build would refuse is refused here and no epoch is read for it. The subject cannot itself be an epoch.
+func SubjectOf(in Inputs) (string, error) {
+	if err := check(in); err != nil {
+		return "", err
+	}
+	step, err := stepOf(in)
+	if err != nil {
+		return "", err
+	}
+	src, ok := in.Bindings[in.SubjectVariable]
+	if !ok || src.Kind == FromEpoch || in.SubjectVariable == "" {
+		return "", ErrBinding
+	}
+	v, bound, err := value(in, step, src)
+	if err != nil || !bound || v == "" {
+		return "", ErrBinding
+	}
+	return v, nil
 }

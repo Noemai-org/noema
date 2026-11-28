@@ -49,6 +49,12 @@ type Outcomes interface {
 	For(ctx context.Context, tenantID, capabilityID string) (Outcome, error)
 }
 
+// Epochs answers the subject's current logical-resolution epoch in the scope of a tenant and principal: the NextEpoch port the Interpreter uses (evidence/epochport.Epochs implements it). An error
+// means no epoch can be named; the epoch is never guessed (INV-19).
+type Epochs interface {
+	EpochOf(ctx context.Context, tenantID, principalID, subjectRef string) (int, error)
+}
+
 // IDs makes the id of one verification.
 type IDs interface {
 	ID(prefix string) (string, error)
@@ -60,6 +66,7 @@ type GrantRequests struct {
 	Signatures Signatures
 	Outcomes   Outcomes
 	IDs        IDs
+	Epochs     Epochs // optional: needed only for a pack whose outcome definition has an EPOCH binding (A740, A776)
 }
 
 // For reads the facts of the grant and builds the request, or refuses. The reader is a port that may be wrong, so what it returns is checked against the call: the tenant and the grant
@@ -92,7 +99,7 @@ func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verif
 		return verifier.Request{}, fmt.Errorf("request: make the verification id: %w", err)
 	}
 	r := f.Receipt
-	return Build(Inputs{
+	in := Inputs{
 		VerificationID: id,
 		Receipt: Receipt{ReceiptID: r.ReceiptID, TenantID: r.TenantID, GrantID: r.GrantID, PrincipalID: r.PrincipalID, IdempotencyKey: r.IdempotencyKey, State: r.State,
 			RawStatus: r.RawStatus, ExternalAck: r.ExternalAck, Document: r.Document, SigKeyID: r.SigKeyID, SigValue: r.SigValue},
@@ -105,5 +112,22 @@ func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verif
 		Outcome:          out.Definition,
 		SubjectVariable:  out.SubjectVariable,
 		Bindings:         out.Bindings,
-	})
+	}
+	if NeedsEpoch(out.Bindings) {
+		// A740, A776: the pack's outcome binds the subject's epoch. The case list is read only for a grant that Build would accept, as the principal the grant was issued to in the grant's tenant (INV-12),
+		// through the port the Interpreter uses; a port that is not wired, that fails or that names no epoch refuses the request (INV-19).
+		if s.Epochs == nil {
+			return verifier.Request{}, ErrIncomplete
+		}
+		subject, err := SubjectOf(in)
+		if err != nil {
+			return verifier.Request{}, err
+		}
+		epoch, err := s.Epochs.EpochOf(ctx, tenantID, r.PrincipalID, subject)
+		if err != nil {
+			return verifier.Request{}, fmt.Errorf("request: read the subject's epoch: %w", err)
+		}
+		in.Epoch = &epoch
+	}
+	return Build(in)
 }
