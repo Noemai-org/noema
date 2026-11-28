@@ -37,6 +37,14 @@ const (
 	target     = "fin.transaction:TX88213"
 )
 
+// seededDisposition is the SYNTHETIC ESCALATE decision every world holds for the requests that carry steps (see newWorld); recordsQ counts the other decision records.
+const (
+	seededDisposition = "dec_SEEDDISP"
+	// seededDispositionL is the same for the intent hash letters(0), the tuple of the confirmation tests (A542: a disposition belongs to the intent of the action decision that names it).
+	seededDispositionL = "dec_SEEDDISPL"
+	recordsQ           = `SELECT count(*) FROM decision_record WHERE decision_id NOT IN ('` + seededDisposition + `', '` + seededDispositionL + `')`
+)
+
 var epoch = time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
 
 type world struct {
@@ -85,7 +93,21 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(t, admin, clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute}
+	// Every decision with steps names an ESCALATE disposition (A317 to A328) and every step is one of the escalation plan (the pack's graph, read as data). The disposition is
+	// the SYNTHETIC row below, inserted directly with no Record event and no grant, for the intent and the intent hash that request() gives (A542): tests that are about something else link to it through request(); the tests of the linkage
+	// itself write real dispositions through the writer (escalation_link_test.go). Counts of decision records in these tests exclude it (recordsQ).
+	if _, err := admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		VALUES ($1, $2, jsonb_set(jsonb_set($3::jsonb, '{outcome}', '"ESCALATE"'), '{intent_id}', '"int_01J9X3"'), 'ESCALATE', $4, '[]', 'k1', 'aa')`,
+		seededDisposition, tenant, testpg.DecisionDocJSON(seededDisposition, tenant, string(h(1)), testpg.FixturePolicyVersion, "corr_synth01"), string(h(1))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		VALUES ($1, $2, jsonb_set(jsonb_set($3::jsonb, '{outcome}', '"ESCALATE"'), '{intent_id}', '"int_01J9X3"'), 'ESCALATE', $4, '[]', 'k1', 'aa')`,
+		seededDispositionL, tenant, testpg.DecisionDocJSON(seededDispositionL, tenant, letters(0), testpg.FixturePolicyVersion, "corr_synth01"), letters(0)); err != nil {
+		t.Fatal(err)
+	}
+	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(t, admin, clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute,
+		Escalation: recorder.NewEscalationSet(packEscalationCapabilities(t)...)}
 	return &world{dsn: dsn, admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
 }
 
@@ -169,7 +191,11 @@ func step(t *testing.T) grants.Step {
 }
 
 func request(t *testing.T, d decide.Decision, b *decide.BasisBuilder, steps ...grants.Step) recorder.Request {
-	return recorder.Request{TenantID: tenant, CorrelationID: "corr_ABC123", IntentID: "int_01J9X3", IntentHash: h(1), PolicyID: "fin.pol", Decision: d, Evaluated: b, Steps: steps}
+	r := recorder.Request{TenantID: tenant, CorrelationID: "corr_ABC123", IntentID: "int_01J9X3", IntentHash: h(1), PolicyID: "fin.pol", Decision: d, Evaluated: b, Steps: steps}
+	if len(steps) > 0 {
+		r.DispositionDecisionID = seededDisposition // a decision that issues grants names its ESCALATE disposition (A317 to A328)
+	}
+	return r
 }
 
 func (w *world) write(t *testing.T, r recorder.Request, commit bool) (recorder.Result, error) {
@@ -222,7 +248,7 @@ func TestAnAllowWritesTheSignedRecordThenEachGrantAndEachEventInOneTransaction(t
 	if len(res.Grants) != 2 || res.Record.Outcome != "ALLOW" || string(res.Record.TenantId) != tenant {
 		t.Fatalf("result %+v", res)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Fatalf("%d decision records, want 1", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 2 {
@@ -231,7 +257,7 @@ func TestAnAllowWritesTheSignedRecordThenEachGrantAndEachEventInOneTransaction(t
 	// the stored record is the v2 document, its signature verifies, and every bound field is in it
 	var stored contracts.DecisionRecordV2
 	var raw []byte
-	if err := w.admin.QueryRow(ctx(t), `SELECT json::text FROM decision_record`).Scan(&raw); err != nil {
+	if err := w.admin.QueryRow(ctx(t), `SELECT json::text FROM decision_record WHERE decision_id NOT IN ('`+seededDisposition+`', '`+seededDispositionL+`')`).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := stored.UnmarshalJSON(raw); err != nil {
@@ -266,7 +292,7 @@ func TestARolledBackTransactionLeavesNoRecordNoGrantAndNoEvent(t *testing.T) {
 	if _, err := w.write(t, request(t, decision(t, decide.Allow, b), b, step(t)), false); err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`SELECT count(*) FROM decision_record`, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM record_event`} {
+	for _, q := range []string{recordsQ, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM record_event`} {
 		if n := w.count(t, q); n != 0 {
 			t.Errorf("%s: %d rows after a rollback", q, n)
 		}
@@ -283,7 +309,7 @@ func TestAGrantThatCannotBeIssuedFailsTheWholeWrite(t *testing.T) {
 	if err == nil {
 		t.Fatal("a write with an invalid step succeeded")
 	}
-	for _, q := range []string{`SELECT count(*) FROM decision_record`, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM record_event`} {
+	for _, q := range []string{recordsQ, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM record_event`} {
 		if n := w.count(t, q); n != 0 {
 			t.Errorf("%s: %d rows after a failed write", q, n)
 		}
@@ -298,7 +324,7 @@ func TestOnlyAnAllowIssuesGrants(t *testing.T) {
 	if _, err := w.write(t, request(t, d, b, step(t)), true); !errors.Is(err, recorder.ErrGrantsNeedAllow) {
 		t.Fatalf("grants requested for a REJECT: %v", err)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 0 {
+	if n := w.count(t, recordsQ); n != 0 {
 		t.Fatalf("a refused request wrote %d records", n)
 	}
 	res, err := w.write(t, request(t, d, b), true)
@@ -330,7 +356,7 @@ func TestADecisionWhoseBasisIsNotTheEvaluatedSetIsRefused(t *testing.T) {
 	if _, err := w.write(t, request(t, d, b, step(t)), true); !errors.Is(err, decide.ErrBasisDiffers) {
 		t.Fatalf("a forged basis: %v", err)
 	}
-	for _, q := range []string{`SELECT count(*) FROM decision_record`, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM record_event`} {
+	for _, q := range []string{recordsQ, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM record_event`} {
 		if n := w.count(t, q); n != 0 {
 			t.Errorf("%s: %d rows", q, n)
 		}
@@ -509,7 +535,7 @@ func (f fixedIDs) ID(prefix string) (string, error) {
 
 func (w *world) nothingRemains(t *testing.T, what string) {
 	t.Helper()
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 0 {
+	if n := w.count(t, recordsQ); n != 0 {
 		t.Errorf("%s: %d decision records remain after the rollback", what, n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 0 {
@@ -570,13 +596,13 @@ func TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing(t *testing.T) 
 	if _, err := w.write(t, other, true); err != nil { // the first use of the fixed decision id succeeds
 		t.Fatal(err)
 	}
-	before := w.count(t, `SELECT count(*) FROM decision_record`)
+	before := w.count(t, recordsQ)
 	_, err := w.write(t, another, true) // the second use collides on the primary key
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) || pg.Code != "23505" || !strings.Contains(err.Error(), "insert decision record") {
 		t.Fatalf("got %v, want the unique violation of the decision_record insert", err)
 	}
-	if after := w.count(t, `SELECT count(*) FROM decision_record`); after != before {
+	if after := w.count(t, recordsQ); after != before {
 		t.Errorf("a failed insert changed the record count from %d to %d", before, after)
 	}
 }

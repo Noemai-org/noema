@@ -29,6 +29,9 @@ volumes:
   outcome_dsns: {}
   execution_keys: {}
   outcome_keys: {}
+  # The Evidence Layer's login and signing key (A704, A722; the A536 two-holder design: the writing one-shot and the core, read-only): the per-tenant `evidence_rw__<t>` login files and `core-evidence.ed25519.1.key`.
+  evidence_dsns: {}
+  evidence_keys: {}
   # The operator DSN (the superuser's, A527) and the core-trust signing key (A445): each written once by its one-shot at mode 0400 owned by uid 65532. The DSN is read by tenant-init only; the key
   # directory by tenant-init and policy-publish only, read-only. The core mounts neither.
   operator_dsn: {}
@@ -46,6 +49,8 @@ secrets:
     file: ./secrets/core_execution_ed25519_seed_1
   core_outcome_ed25519_seed_1:
     file: ./secrets/core_outcome_ed25519_seed_1
+  core_evidence_ed25519_seed_1:
+    file: ./secrets/core_evidence_ed25519_seed_1
   # The migration password's private copy (A536): the same value as noema_migrator_password, mode 0400, owned by the host user. Held by the two one-shots that hold the migration password (migrate and
   # tenants-provision), which run as that user; postgres reads the mode-644 original.
   migrator_password_file:
@@ -84,6 +89,8 @@ services:
       NOEMA_EVIDENCE_DSN_DIR: /run/evidence-dsn
       NOEMA_EVIDENCE_KEY_FILE: /run/evidence-keys/core-evidence.ed25519.1.key
       NOEMA_EVIDENCE_KEY_MAX_ACTIVE: "2"
+      # A754: how long the Evidence Layer waits for its Record append (ms), bench only, no default in code (AGENT-16).
+      NOEMA_EVIDENCE_RECORD_TIMEOUT_MS: "5000"
       # The bench settings with no default in code (A356, interim, relayed; docs/decisions/DEC-2026-11-19-architect-rulings-a341-a357.md): the Architect's values, for the bench profile only. They collect
       # the settings of A319, A320, A330 and A345; a setting the core does not read yet is inert until its lane merges. Changing a number here is a ruling, not an edit (AGENT-16).
       NOEMA_STORE_TIMEOUT_MS: "1000"
@@ -171,6 +178,8 @@ services:
       - outcome_dsns:/run/outcome-dsn:ro
       - execution_keys:/run/execution-keys:ro
       - outcome_keys:/run/outcome-keys:ro
+      - evidence_dsns:/run/evidence-dsn:ro
+      - evidence_keys:/run/evidence-keys:ro
       - input_hash:/run/input-hash:ro
       - standin_runtime_credential:/run/standin/runtime:ro
       - standin_principal_key:/run/standin/principal:ro
@@ -204,7 +213,7 @@ services:
       TRUST_DSN_SRC: /run/secrets
       TRUST_DSN_EMITTERS: /run/emitter_logins
       # one job per directory of the core (A506): the group and the volume's path inside this step
-      TRUST_DSN_JOBS: "trust_rw:/out/trust orchestrator_rw:/out/orchestrator record_read:/out/record-read edge:/out/edge execution_rw:/out/execution outcome_rw:/out/outcome"
+      TRUST_DSN_JOBS: "trust_rw:/out/trust orchestrator_rw:/out/orchestrator record_read:/out/record-read edge:/out/edge execution_rw:/out/execution outcome_rw:/out/outcome evidence_rw:/out/evidence"
       TRUST_DSN_UID: "65532"
       TRUST_DSN_GID: "65532"
       TRUST_DSN_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
@@ -218,6 +227,7 @@ services:
       - edge_dsns:/out/edge
       - execution_dsns:/out/execution
       - outcome_dsns:/out/outcome
+      - evidence_dsns:/out/evidence
       # the core-edge login's own secret, one file per tenant (ruling A4); read-only, held by postgres and by this step only
       - ./secrets/emitter_logins:/run/emitter_logins:ro
   # One-shot, as root, no network (A506): turns the three key secrets into the files the core loads (64 hexadecimal characters, mode 0400, owner 65532) and checks each by reading it as that user. It prints
@@ -236,11 +246,11 @@ services:
     cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
     environment:
       CORE_KEYS_SRC: /run/secrets
-      CORE_KEYS_FILES: "core_workflows_ed25519_seed_1=/out/orchestrator/core-workflows.ed25519.1.key core_edge_ed25519_seed_1=/out/edge/core-edge.ed25519.1.key input_hash_key=/out/input-hash/key core_execution_ed25519_seed_1=/out/execution/core-execution.ed25519.1.key core_outcome_ed25519_seed_1=/out/outcome/core-outcome.ed25519.1.key"
+      CORE_KEYS_FILES: "core_workflows_ed25519_seed_1=/out/orchestrator/core-workflows.ed25519.1.key core_edge_ed25519_seed_1=/out/edge/core-edge.ed25519.1.key input_hash_key=/out/input-hash/key core_execution_ed25519_seed_1=/out/execution/core-execution.ed25519.1.key core_outcome_ed25519_seed_1=/out/outcome/core-outcome.ed25519.1.key core_evidence_ed25519_seed_1=/out/evidence/core-evidence.ed25519.1.key"
       CORE_KEYS_UID: "65532"
       CORE_KEYS_GID: "65532"
     command: ["python3", "-I", "/init/init.py"]
-    secrets: [core_workflows_ed25519_seed_1, core_edge_ed25519_seed_1, input_hash_key, core_execution_ed25519_seed_1, core_outcome_ed25519_seed_1]
+    secrets: [core_workflows_ed25519_seed_1, core_edge_ed25519_seed_1, input_hash_key, core_execution_ed25519_seed_1, core_outcome_ed25519_seed_1, core_evidence_ed25519_seed_1]
     volumes:
       - ./core-keys/init.py:/init/init.py:ro
       - orchestrator_keys:/out/orchestrator
@@ -248,6 +258,7 @@ services:
       - input_hash:/out/input-hash
       - execution_keys:/out/execution
       - outcome_keys:/out/outcome
+      - evidence_keys:/out/evidence
   # One-shot, as root, no network (A527): turns the superuser's password secret into the one DSN file tenant-init reads (mode 0400, owner 65532). The migration login's password is not here: it belongs to
   # the migrate one-shot and postgres alone. It prints the file name, never the password. If it fails, tenant-init does not run.
   operator-dsn-init:
