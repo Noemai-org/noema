@@ -60,7 +60,7 @@ func productionPack(env Env) (*trustpack.Pack, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cmd/core: %s: the pack cannot be loaded: %w", EnvPackDir, err)
 	}
-	pack, err := trustpack.LoadVerified(verified.Pack, verified.ActionGraphs)
+	pack, err := trustpack.LoadVerifiedWithLimits(verified.Pack, verified.ActionGraphs, verified.Limits)
 	if err != nil {
 		return nil, refused("Trust pack", err)
 	}

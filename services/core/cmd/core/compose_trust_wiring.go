@@ -238,14 +238,34 @@ func (planContextsFromRequest) PlanContext(ctx context.Context, r intake.PlanReq
 	return pc, nil
 }
 
-// decisionInputsFrom is what the decisions lane consumes from the wiring. Red stub: the ceiling is not read.
+// decisionInputsFrom is what the decisions lane consumes from the wiring: the process inputs, the shared Trust logins and the pack's confirmation TTL ceiling (A561, A724).
 func decisionInputsFrom(in trustWiringIn) (decisionInputs, error) {
 	di := decisionInputs{Env: in.Env, Clock: in.Clock, Pack: in.Pack, Keys: in.Keys, Begin: in.Begin, Facts: in.Facts}
 	if len(in.Pools) > 0 {
 		di.Pools = trustport.PoolsOf(in.Pools)
 	}
+	ceiling, err := confirmationTTLCeiling(in.Pack)
+	if err != nil {
+		return decisionInputs{}, err
+	}
+	di.ConfirmationTTLCeiling = ceiling
 	return di, nil
 }
 
-// confirmationTTLCeiling is the pack's confirmation TTL ceiling. Red stub: not built.
-func confirmationTTLCeiling(p *trustpack.Pack) (time.Duration, error) { return 0, nil }
+// confirmationTTLCeiling is the pack's `confirmation_ttl_ceiling_ms` as a duration, read from the verified trust limits the pack kept (trustlimits, A612; no number of this package, AGENT-16).
+// A pack that kept no limits files, and no pack, give zero: the Writer then writes no CONFIRM request (fail closed) and the Confirmations gap stays named. Limits that are kept and do
+// not load are an error, as the Clocks adapter's are.
+func confirmationTTLCeiling(p *trustpack.Pack) (time.Duration, error) {
+	if p == nil || len(p.LimitsFiles()) == 0 {
+		return 0, nil
+	}
+	limits, _, err := trustLimitsOf(packload.Pack{Pack: p.PackBytes(), Limits: p.LimitsFiles()})
+	if err != nil {
+		return 0, err
+	}
+	ms, err := limits.ConfirmationTTLCeilingMS()
+	if err != nil {
+		return 0, inputsFail("the pack's confirmation TTL ceiling cannot be read", err)
+	}
+	return time.Duration(ms) * time.Millisecond, nil
+}

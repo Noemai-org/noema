@@ -257,6 +257,7 @@ func decisionRecorderConfig(in decisionInputs) (trustport.RecorderConfig, []stri
 		entropy = rand.Reader
 	}
 	cfg.Begin, cfg.Facts, cfg.Keys, cfg.Clock, cfg.IDs, cfg.Entropy = in.Begin, in.Facts, in.Keys, in.Clock, ids.New(in.Clock, entropy), entropy
+	cfg.ConfirmationTTLCeiling = in.ConfirmationTTLCeiling
 	cfg.Appender = &chain.Appender{Clock: in.Clock, IDs: cfg.IDs, Signers: map[string]chain.Signer{trustRecordIdentity: ring}}
 	return cfg, nil, nil
 }

@@ -81,11 +81,33 @@ func (i verifiedInfo) ModTime() time.Time { return time.Time{} }
 func (i verifiedInfo) IsDir() bool        { return false }
 func (i verifiedInfo) Sys() any           { return nil }
 
-// LoadVerifiedWithLimits is LoadVerified that also keeps the verified bytes of the limits files the manifest pins, by the path it pins (A544, A561): the one source of the pack's limits
-// for whoever composes the process, so no limits file is read a second time (INV-16). Red stub: not built.
+// LoadVerifiedWithLimits is LoadVerified that also keeps the verified bytes of the limits files the manifest pins, by the path it pins (A544, A561): the one source of the pack's
+// limits for whoever composes the process, so no limits file is read a second time (INV-16). The bytes are copied: the caller's map and the Pack's share nothing. What a limits file
+// means is the caller's (platform/trustlimits); this package only holds the verified bytes.
 func LoadVerifiedWithLimits(pack []byte, graphs, limits map[string][]byte) (*Pack, error) {
-	return nil, ErrConfig
+	p, err := LoadVerified(pack, graphs)
+	if err != nil {
+		return nil, err
+	}
+	p.limits = copyFiles(limits)
+	return p, nil
 }
 
-// LimitsFiles is a copy of the verified limits files LoadVerifiedWithLimits kept, by pinned path; nil when none were given. Red stub: not built.
-func (p *Pack) LimitsFiles() map[string][]byte { return nil }
+// LimitsFiles is a copy of the verified limits files LoadVerifiedWithLimits kept, by pinned path; nil when none were given and for a nil Pack.
+func (p *Pack) LimitsFiles() map[string][]byte {
+	if p == nil {
+		return nil
+	}
+	return copyFiles(p.limits)
+}
+
+func copyFiles(in map[string][]byte) map[string][]byte {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]byte, len(in))
+	for name, b := range in {
+		out[name] = bytes.Clone(b)
+	}
+	return out
+}
