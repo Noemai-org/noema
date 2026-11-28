@@ -18,7 +18,13 @@ Updated 2026-11-27. All data is SYNTHETIC.
 - Tests added (REQ-AMB-004, REQ-EXP-002, INV-14): `SlotQuestions` (6) and two `TemplateCoverage` cases in `tools/packcheck/test_packcheck.py`; `test_templates_en_ng.py` (question keys equal the slot keys; the forbidden list and plain-language checks cover them); `explanation/questions_test.go`; contract fixtures `valid/intent-node/investigate_slot_question.json` and `invalid/intent-node/slot_question_key_not_a_template_id.json`.
 - Regression cases added: the invalid fixture and the packcheck negatives above.
 - Debt entries: none.
-- Conflicts raised: none.
+- Conflicts raised: the plan row AMB-04 is a different task from the order's "AMB-04 SLOT question template" (below).
+
+## Change record and a conflict to record
+
+The change record is the committed A757 (docs#252), named under State above: it carries this contract change's migration notes, which stand as the change request for the edit (Codex P1).
+
+**Conflict to record (AGENT-26).** The plan row `AMB-04` is "Key-slot speech confidence: any key slot below 0.85 forces CLARIFY" (REQ-AMB-007; REQ-VOI-003; Needs VOI-03, AMB-01). The order of A757 calls this work "the AMB-04 SLOT question template". They are different work under one ID. This PR keeps the order's name and cites REQ-AMB-004 and REQ-EXP-002; it does not touch the 0.85 rule or the plan row. Recommendation: the Steward gives the SLOT question template its own task ID in the plan's next version (or a new row), and the Founders commit A757 with that ID; this PR then renames only its title and this file.
 
 ## Pre-work for the next agent
 - Exact next step: EL builds the resolver over `question_key`; EXP-04 writes the four other locales with a native-speaker review and then the OPTIONS and ATTRIBUTE texts.
