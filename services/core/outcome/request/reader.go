@@ -24,6 +24,7 @@ type Facts struct {
 	GrantIntentHash    string // the grant's intent hash
 	PlanHash           string // the grant's plan hash
 	StepParams         map[string]string
+	Subject            string // the intent's subject (the pack's subject_slot value); empty when the reader could not read it
 }
 
 // Reader reads the Facts of a grant as the tenant. An absent row is ErrNotFound.
@@ -49,6 +50,11 @@ type Outcomes interface {
 	For(ctx context.Context, tenantID, capabilityID string) (Outcome, error)
 }
 
+// Epochs reads the subject's current logical resolution epoch (the NextEpoch port, A740). It is asked only for a pack that binds a variable to EPOCH.
+type Epochs interface {
+	Current(ctx context.Context, tenantID, subject string) (int64, error)
+}
+
 // IDs makes the id of one verification.
 type IDs interface {
 	ID(prefix string) (string, error)
@@ -60,6 +66,7 @@ type GrantRequests struct {
 	Signatures Signatures
 	Outcomes   Outcomes
 	IDs        IDs
+	Epochs     Epochs // optional: needed only for an Outcome that binds EPOCH
 }
 
 // For reads the facts of the grant and builds the request, or refuses. The reader is a port that may be wrong, so what it returns is checked against the call: the tenant and the grant
