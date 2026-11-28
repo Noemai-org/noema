@@ -13,6 +13,19 @@ permissions:
   contents: read
   pull-requests: read
 jobs:
+  # A770 (on A455): the runners are saturated, so a pull request that changes only documentation or status notes skips the heavy jobs below. Push and dispatch runs always run them.
+  changed:
+    if: github.event.action != 'edited'
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.docs_only.outputs.run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: docs_only
+        run: python3 -I tools/ci/docs_only.py "${{ github.event_name }}" "${{ github.event.pull_request.base.sha }}"
   checks:
     # An "edited" event fires for a title, body or base change. Only a body change can alter the PR trace result,
     # so a title-only edit skips the job (a skipped job reports success). Every other step skips on "edited".
@@ -66,6 +79,9 @@ jobs:
       - name: The fixture-loader workflow is main-only, gated and reads no secret (ENV-16)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_tushe_fixture_workflow.py
+      - name: The docs-only skip of the heavy jobs is safe by default (A770)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_docs_only.py
       - name: Every TEN_RESULT line is checked by a workflow (A274)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_ten_result_grep.py
@@ -140,7 +156,8 @@ jobs:
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/run_canaries.py "$RUNNER_TEMP/bin/gitleaks"
   images:
-    if: github.event.action != 'edited'
+    needs: changed
+    if: needs.changed.outputs.run == 'true' && (github.event.action != 'edited')
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -171,7 +188,8 @@ jobs:
   codegen-diff:
     # CON-03 (REQ-API-001, AGENT-15): regenerate the Go and Pydantic types from contracts/schemas and fail on any difference, on any
     # file added by hand to a generated directory, and on a generator that does not pass its own tests. gofmt comes with Go.
-    if: github.event.action != 'edited'
+    needs: changed
+    if: needs.changed.outputs.run == 'true' && (github.event.action != 'edited')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

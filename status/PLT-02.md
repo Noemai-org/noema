@@ -34,3 +34,10 @@ None sent or accepted for this task.
 - Open questions (owner): none.
 - Files to read first: `tools/ci/install_tools.sh`.
 - Do not touch: the pinned versions and SHA-256 values.
+
+## Session 2026-11-28 · PLT-02 · A770: docs-only and status-only pull requests skip the heavy jobs (IL)
+- **What changed:** `tools/ci/docs_only.py` decides from the changed files whether the heavy jobs run. Only a `pull_request` event ever skips, and only when every changed file is a `.md` file outside `contracts/`, `packs/`, `tools/`, `.github/`, `deploy/`, `AGENTS.md` and `CLAUDE.md`, or sits under `status/`; an empty or unreadable list runs them. A `changed` job (full history, no stored token) runs it in `arch-lint`, `compose` (`grantdrill`, `compose`), `contracts` and `safeguards` (`images`, `codegen-diff`); those jobs wait for it and run only when it says so. The secret scan and the PR trace (`checks`) are never gated.
+- **Concurrency (the other half of A770):** already in place. Every workflow that runs on a pull request has a per-PR group with `cancel-in-progress` true only for `pull_request` (guard: `tools/ci/test_workflow_concurrency.py`, passes); the three workflows without a group (`docs-drift`, `main-merge-audit`, `tushe-fixture-load`) never run on a pull request and must not be cancelled. Nothing to add there.
+- **Tests, red first:** `tools/ci/test_docs_only.py` (8 tests; run by `safeguards`) failed before the script existed. Three hand mutants are killed (a code tree dropped from the list, the event check removed, the gate removed from `arch-lint`).
+- **A770's exception to AGENT-11 and A455:** this PR's own red was seen locally, not in CI, because the runners are queued ("red not observed in CI: queue"). The local red is the failing run of `test_docs_only.py` before `docs_only.py` existed.
+- **Not claimed:** that the gated jobs report skipped on a docs-only pull request: that is shown by the first such pull request after this merges.

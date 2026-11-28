@@ -10,10 +10,24 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  # A770 (on A455): the runners are saturated, so a pull request that changes only documentation or status notes skips the heavy jobs below. Push and dispatch runs always run them.
+  changed:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.docs_only.outputs.run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: docs_only
+        run: python3 -I tools/ci/docs_only.py "${{ github.event_name }}" "${{ github.event.pull_request.base.sha }}"
   # SEC-09 (REQ-SEC-005, INV-03, INV-25; SR's answer on noema#692): the key-rotation drill runs in the core image with a tmpfs work directory, no network, no secret and no capability. It makes
   # synthetic keys, loads them with the loader the core uses and runs the drill on simulated time; exit 0 only if no valid grant is rejected, no forgery is accepted and its control is detected.
   # What only the stack can show (the CORE container loading the two mounted keys) waits for the core's wiring of NOEMA_GRANT_KEY_DIR.
   grantdrill:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -23,6 +37,8 @@ jobs:
       - run: |
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true             --tmpfs /work:rw,noexec,nosuid,nodev,size=1m,mode=0700,uid=65532,gid=65532             --entrypoint /usr/local/bin/grantdrill noema-core:drill --work /work
   compose:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

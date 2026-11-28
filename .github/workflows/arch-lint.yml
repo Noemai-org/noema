@@ -10,7 +10,21 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  # A770 (on A455): the runners are saturated, so a pull request that changes only documentation or status notes skips the heavy jobs below. Push and dispatch runs always run them.
+  changed:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.docs_only.outputs.run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: docs_only
+        run: python3 -I tools/ci/docs_only.py "${{ github.event_name }}" "${{ github.event.pull_request.base.sha }}"
   arch-lint:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
