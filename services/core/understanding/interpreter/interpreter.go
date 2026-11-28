@@ -114,6 +114,10 @@ type Input struct {
 	CorrelationID string // the investigation's, minted by the core
 	Request       understanding.CompileRequest
 	RawRef        string // the object_ref of the recorded INPUT_RECEIVED (A184, A219); the core writes it over the model's source.raw_ref
+	// Prior is the latest admitted version of the investigation this turn follows (REQ-INP-004, REQ-INT-004; A743). The caller reads it as the session's tenant and principal; nil for a
+	// first turn. The turn is compiled alone (A404, A712); with a Prior the core, never the model, names the identity of the new version: the prior's intent id, its version plus one,
+	// and a `supersedes` link to it.
+	Prior *intentstore.Admitted
 }
 
 // Result is an admitted and saved intent: the admitted intent and the reference of its INTENT_ADMITTED event.
