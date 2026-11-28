@@ -95,6 +95,10 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 	if err != nil {
 		return trustWired{}, err
 	}
+	reconcileTimeout, reconcileGiven, err := givenSetting(in.Env, EnvTrustReconcileTimeout, recorderSettingMS)
+	if err != nil {
+		return trustWired{}, err
+	}
 	lists := in.ListEntities
 	if lists == nil && in.Pack != nil && in.Understanding.Mapping != nil {
 		if lists, err = listEntitiesFromDescriptors(in.Pack.PackBytes(), in.Understanding.Mapping); err != nil { // A545: from the mapping and the pack's descriptors
@@ -103,9 +107,12 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 	}
 	ti := trustInputsIn{
 		Pack: in.Pack, Tenants: in.Tenants, Pools: in.Pools, Timeout: timeout, Clock: in.Clock, RuleSet: in.Understanding.RuleSet, Mapping: in.Understanding.Mapping,
-		Screen: in.Screen, ListEntities: lists, OwnershipReader: in.OwnershipReader,
+		Screen: in.Screen, ListEntities: lists, OwnershipReader: in.OwnershipReader, ReconcileTimeout: reconcileTimeout,
 	}
-	if in.Pack != nil {
+	switch {
+	case len(in.Verified.Pack) > 0:
+		ti.Verified = in.Verified // the one verified load, with the limits file the manifest pinned (A722)
+	case in.Pack != nil:
 		ti.Verified = packload.Pack{Pack: in.Pack.PackBytes()} // the one source of the pack's bytes (A548, INV-16)
 	}
 	if timeoutGiven && boundGiven && len(in.Pools) > 0 {
@@ -124,12 +131,12 @@ func wireTrustInputs(in trustWiringIn) (trustWired, error) {
 		return trustWired{}, err
 	}
 	w := trustWired{Inputs: inputs, Decisions: decisions, Reasons: map[string][]string{}}
-	w.reasons(in, timeoutGiven, boundGiven, len(lists) > 0)
+	w.reasons(in, timeoutGiven, boundGiven, len(lists) > 0, reconcileGiven)
 	return w, nil
 }
 
 // reasons fills Reasons for every adapter that is still unbuilt.
-func (w *trustWired) reasons(in trustWiringIn, timeoutGiven, boundGiven, haveLists bool) {
+func (w *trustWired) reasons(in trustWiringIn, timeoutGiven, boundGiven, haveLists, reconcileGiven bool) {
 	for _, g := range w.Decisions.Gaps {
 		if slices.Contains(wiredAdapters, g.Adapter) {
 			w.Reasons[g.Adapter] = slices.Clone(g.Missing)
@@ -164,7 +171,11 @@ func (w *trustWired) reasons(in trustWiringIn, timeoutGiven, boundGiven, haveLis
 	add("Candidates", needCandidatesRead, needLabeller)
 	add("Ownership", needScopedRead)
 	add("Evidence", read...)
-	add("Reconciler", needReconcilerData)
+	rec := []string{needReconcilerData}
+	if !reconcileGiven {
+		rec = append(rec, EnvTrustReconcileTimeout)
+	}
+	add("Reconciler", rec...)
 	policies := slices.Clone(read)
 	if !haveLists {
 		policies = append(policies, needListEntities)
