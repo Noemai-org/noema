@@ -41,7 +41,7 @@ var _ intake.Ownership = ownershipport.Ownership{}
 
 type owned struct {
 	tenant, principal string
-	c                 contracts.CandidatesResponseV1Candidate
+	c                 contracts.CandidatesResponseV2Candidate
 }
 
 type store struct {
@@ -49,22 +49,22 @@ type store struct {
 	rows   []owned
 	calls  []contracts.CandidatesRequestV1
 	fail   error
-	tamper func(*contracts.CandidatesResponseV1)
+	tamper func(*contracts.CandidatesResponseV2)
 }
 
-func (s *store) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV1, error) {
+func (s *store) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV2, error) {
 	if err := ctx.Err(); err != nil {
-		return contracts.CandidatesResponseV1{}, err
+		return contracts.CandidatesResponseV2{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, req)
 	if s.fail != nil {
-		return contracts.CandidatesResponseV1{}, s.fail
+		return contracts.CandidatesResponseV2{}, s.fail
 	}
 	from, _ := time.Parse(time.RFC3339Nano, string(req.Filters.TimeWindow.From))
 	to, _ := time.Parse(time.RFC3339Nano, string(req.Filters.TimeWindow.To))
-	var out []contracts.CandidatesResponseV1Candidate
+	var out []contracts.CandidatesResponseV2Candidate
 	for _, r := range s.rows {
 		at, _ := time.Parse(time.RFC3339Nano, string(r.c.OccurredAt))
 		if string(contracts.CommonV1TenantId(r.tenant)) != string(req.TenantId) || string(contracts.CommonV1PrincipalId(r.principal)) != string(req.PrincipalRef) ||
@@ -82,7 +82,7 @@ func (s *store) Read(ctx context.Context, req contracts.CandidatesRequestV1) (co
 	if len(out) > capRows {
 		out = out[:capRows]
 	}
-	resp := contracts.CandidatesResponseV1{SchemaVersion: "1.0", TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: out}
+	resp := contracts.CandidatesResponseV2{SchemaVersion: "1.0", TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: out}
 	if s.tamper != nil {
 		s.tamper(&resp)
 	}
@@ -95,11 +95,11 @@ func (s *store) reads() int {
 	return len(s.calls)
 }
 
-func cand(id string, k string, at time.Time) contracts.CandidatesResponseV1Candidate {
-	return contracts.CandidatesResponseV1Candidate{
+func cand(id string, k string, at time.Time) contracts.CandidatesResponseV2Candidate {
+	return contracts.CandidatesResponseV2Candidate{
 		CandidateId: "cand_" + id, ResourceRef: contracts.CommonV1ResourceRef(k + ":" + id), AmountMinor: 1000, Currency: contracts.MoneyV1CurrencyCodeNGN,
-		OccurredAt: contracts.CommonV1Timestamp(at.UTC().Format(time.RFC3339Nano)), CounterpartyDisplay: "Synthetic Shop", AccountLast4: "1234",
-		Direction: contracts.CandidatesResponseV1CandidateDirectionOUTGOING,
+		OccurredAt: contracts.CommonV1Timestamp(at.UTC().Format(time.RFC3339Nano)), CounterpartyRef: "cp_1", RecipientMatch: contracts.CandidatesResponseV2CandidateRecipientMatch{Numerator: 1, Denominator: 1}, AccountLast4: "1234",
+		Direction: contracts.CandidatesResponseV2CandidateDirectionOUTGOING,
 	}
 }
 
@@ -399,78 +399,75 @@ func TestAnswerOneShortOfFullIsComplete(t *testing.T) {
 // An answer outside the contract or not for this request is refused whole, even when it holds the target: nothing of it is used.
 func TestAnswerOutsideTheContractIsRefused(t *testing.T) {
 	target := kind + ":TX0001"
-	rowAt := func(r *contracts.CandidatesResponseV1, f func(c *contracts.CandidatesResponseV1Candidate)) {
+	rowAt := func(r *contracts.CandidatesResponseV2, f func(c *contracts.CandidatesResponseV2Candidate)) {
 		f(&r.Candidates[0])
 	}
-	cases := map[string]func(*contracts.CandidatesResponseV1){
-		"another tenant":       func(r *contracts.CandidatesResponseV1) { r.TenantId = foreignTenant },
-		"another correlation":  func(r *contracts.CandidatesResponseV1) { r.CorrelationId = "corr_other01" },
-		"another major":        func(r *contracts.CandidatesResponseV1) { r.SchemaVersion = "2.0" },
-		"not a version":        func(r *contracts.CandidatesResponseV1) { r.SchemaVersion = "one" },
-		"no version":           func(r *contracts.CandidatesResponseV1) { r.SchemaVersion = "" },
-		"more than the cap":    func(r *contracts.CandidatesResponseV1) { r.Candidates = append(r.Candidates, fillers(capRows)...) },
-		"same candidate twice": func(r *contracts.CandidatesResponseV1) { r.Candidates = append(r.Candidates, r.Candidates[0]) },
-		"same candidate id, another ref": func(r *contracts.CandidatesResponseV1) {
+	cases := map[string]func(*contracts.CandidatesResponseV2){
+		"another tenant":       func(r *contracts.CandidatesResponseV2) { r.TenantId = foreignTenant },
+		"another correlation":  func(r *contracts.CandidatesResponseV2) { r.CorrelationId = "corr_other01" },
+		"another major":        func(r *contracts.CandidatesResponseV2) { r.SchemaVersion = "2.0" },
+		"not a version":        func(r *contracts.CandidatesResponseV2) { r.SchemaVersion = "one" },
+		"no version":           func(r *contracts.CandidatesResponseV2) { r.SchemaVersion = "" },
+		"more than the cap":    func(r *contracts.CandidatesResponseV2) { r.Candidates = append(r.Candidates, fillers(capRows)...) },
+		"same candidate twice": func(r *contracts.CandidatesResponseV2) { r.Candidates = append(r.Candidates, r.Candidates[0]) },
+		"same candidate id, another ref": func(r *contracts.CandidatesResponseV2) {
 			c := cand("TX0009", kind, base)
 			c.CandidateId = r.Candidates[0].CandidateId
 			r.Candidates = append(r.Candidates, c)
 		},
-		"same ref twice": func(r *contracts.CandidatesResponseV1) {
+		"same ref twice": func(r *contracts.CandidatesResponseV2) {
 			c := r.Candidates[0]
 			c.CandidateId = "cand_other"
 			r.Candidates = append(r.Candidates, c)
 		},
-		"a ref of another kind": func(r *contracts.CandidatesResponseV1) {
+		"a ref of another kind": func(r *contracts.CandidatesResponseV2) {
 			c := cand("AC0009", otherKind, base)
 			r.Candidates = append(r.Candidates, c)
 		},
-		"a ref off its shape": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.ResourceRef = kind + ":TX 0001" })
+		"a ref off its shape": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.ResourceRef = kind + ":TX 0001" })
 		},
-		"a ref with no id": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.ResourceRef = kind + ":" })
+		"a ref with no id": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.ResourceRef = kind + ":" })
 		},
-		"a candidate id off": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.CandidateId = "cand_" })
+		"a candidate id off": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.CandidateId = "cand_" })
 		},
-		"no candidate id": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.CandidateId = "" })
+		"no candidate id": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.CandidateId = "" })
 		},
-		"a negative amount": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.AmountMinor = -1 })
+		"a negative amount": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.AmountMinor = -1 })
 		},
-		"an amount over max": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.AmountMinor = 9007199254740992 })
+		"an amount over max": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.AmountMinor = 9007199254740992 })
 		},
-		"a currency off": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.Currency = "ZZZ" })
+		"a currency off": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.Currency = "ZZZ" })
 		},
-		"a time off its shape": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.OccurredAt = "2026-11-01 09:00:00" })
+		"a time off its shape": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.OccurredAt = "2026-11-01 09:00:00" })
 		},
-		"a last4 off": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.AccountLast4 = "12" })
+		"a last4 off": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.AccountLast4 = "12" })
 		},
-		"a direction off": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.Direction = "SIDEWAYS" })
+		"a direction off": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.Direction = "SIDEWAYS" })
 		},
-		"a display with a long digit run": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.CounterpartyDisplay = "Shop 12345" })
+		"a counterparty ref that is a name": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.CounterpartyRef = "Shop Two" })
 		},
-		"a display with a newline": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.CounterpartyDisplay = "Shop\nTwo" })
+		"no counterparty ref": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.CounterpartyRef = "" })
 		},
-		"no display": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.CounterpartyDisplay = "" })
-		},
-		"a display too long": func(r *contracts.CandidatesResponseV1) {
-			rowAt(r, func(c *contracts.CandidatesResponseV1Candidate) { c.CounterpartyDisplay = strings.Repeat("x", 65) })
+		"a match above one": func(r *contracts.CandidatesResponseV2) {
+			rowAt(r, func(c *contracts.CandidatesResponseV2Candidate) { c.RecipientMatch.Numerator = 2 })
 		},
 	}
 	for name, mut := range cases {
 		s := newStore()
-		s.tamper = func(r *contracts.CandidatesResponseV1) {
-			r.Candidates = []contracts.CandidatesResponseV1Candidate{cand("TX0001", kind, base)}
+		s.tamper = func(r *contracts.CandidatesResponseV2) {
+			r.Candidates = []contracts.CandidatesResponseV2Candidate{cand("TX0001", kind, base)}
 			mut(r)
 		}
 		got, err := ask(t, build(t, s), alice, target)
@@ -480,8 +477,8 @@ func TestAnswerOutsideTheContractIsRefused(t *testing.T) {
 	}
 }
 
-func fillers(n int) []contracts.CandidatesResponseV1Candidate {
-	out := make([]contracts.CandidatesResponseV1Candidate, 0, n)
+func fillers(n int) []contracts.CandidatesResponseV2Candidate {
+	out := make([]contracts.CandidatesResponseV2Candidate, 0, n)
 	for i := 0; i < n; i++ {
 		out = append(out, cand(fmt.Sprintf("FIL%02d", i), kind, base.Add(time.Duration(i)*time.Hour)))
 	}
@@ -491,13 +488,12 @@ func fillers(n int) []contracts.CandidatesResponseV1Candidate {
 // The contract's own bounds are accepted: the most rows, the largest amount, the longest display.
 func TestAnswerAtTheContractsBoundsIsAccepted(t *testing.T) {
 	s := newStore()
-	s.tamper = func(r *contracts.CandidatesResponseV1) {
+	s.tamper = func(r *contracts.CandidatesResponseV2) {
 		rows := fillers(capRows - 1)
 		top := cand("TX0001", kind, base)
 		top.AmountMinor = 9007199254740991
-		top.CounterpartyDisplay = strings.Repeat("x", 64-4) + "1234"
 		top.AccountLast4 = "0000"
-		top.Direction = contracts.CandidatesResponseV1CandidateDirectionINCOMING
+		top.Direction = contracts.CandidatesResponseV2CandidateDirectionINCOMING
 		r.Candidates = append(rows, top)
 		r.SchemaVersion = "1.7"
 	}
@@ -520,7 +516,7 @@ func TestErrorsHaveFixedTextAndKeepTheCause(t *testing.T) {
 	failing := newStore()
 	failing.fail = cause
 	badAnswer := newStore()
-	badAnswer.tamper = func(r *contracts.CandidatesResponseV1) { r.TenantId = foreignTenant }
+	badAnswer.tamper = func(r *contracts.CandidatesResponseV2) { r.TenantId = foreignTenant }
 	full := newStore()
 	full.fill(capRows)
 	wrongIntent := intent(alice, kind+":TX0001")
