@@ -1,4 +1,4 @@
-# Hand-dispatched run of one named benchmark suite (BEN-29; REQ-BEN-004, REQ-TST-005): us, chaos, evil, full, or the BEN-05 g1 pair.
+# Hand-dispatched run of one named benchmark suite (BEN-29; REQ-BEN-004, REQ-TST-005): us, chaos, evil, full, smoke-30 (TST-02, A776) or the BEN-05 g1 pair.
 # It exists so each `make bench-*` target is executed for real in CI at least once, where `make reset` is safe (a fresh runner), and its run link is recorded.
 # workflow_dispatch only. It reads no secret and calls no model provider. Inputs reach the shell only through the environment, never expanded into the script.
 # Only a suite that RAN and was scored with Tier 0 at zero (exit 0) passes. A suite that did not run ("not run, no access", exit 3) FAILS the job: a skipped execution is
@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "us, chaos, evil, full, or g1 (the BEN-05 G1 evidence pair)"
+        description: "us, chaos, evil, full, smoke-30 (the TST-02 30-case smoke, hand-dispatched until the first /readyz 200; A776), or g1 (the BEN-05 G1 evidence pair)"
         type: choice
-        options: [us, chaos, evil, full, g1]
+        options: [us, chaos, evil, full, smoke-30, g1]
         required: true
       reset:
         description: "Run `make reset` first (the recorded reset_done is true). Uncheck only to test without Docker."
