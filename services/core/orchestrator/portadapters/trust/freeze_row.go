@@ -32,6 +32,9 @@ var ErrNothingToClear = errors.New("trustport: no recorded freeze to clear")
 // ErrClearingDecision is returned when the decision named by a clearing does not exist for the tenant or is not of the kind that lifts a freeze.
 var ErrClearingDecision = errors.New("trustport: the decision does not lift a freeze")
 
+// ErrFreezeCorrelation is returned when a freeze is recorded with no correlation: a clearing is tied to the investigation the SET names.
+var ErrFreezeCorrelation = errors.New("trustport: a freeze is recorded with the correlation of its investigation")
+
 // FreezeRowConfig builds a FreezeRow. Begin opens a transaction as the tenant's own Trust login; Reads gives the tenant's Record read login (nil: no reader, the answer is unknown).
 type FreezeRowConfig struct {
 	Begin    TxBeginner
@@ -70,26 +73,29 @@ func (f *FreezeRow) RecordedFreeze(ctx context.Context, tenantID, target string)
 	if err != nil {
 		return reconcile.FreezeUnknown, fmt.Errorf("trustport: read the freeze row: %w", err)
 	}
+	state, _, err := freezeOf(rows, target)
+	return state, err
+}
+
+// freezeOf gives the state the latest freeze row of the target gives and the SET it follows, if any. A row that does not name the target it is recorded for is an error (A756): the answer
+// is then unknown, which is frozen.
+func freezeOf(rows []chain.Row, target string) (reconcile.RecordedFreeze, chain.Row, error) {
 	state := reconcile.FreezeNone
+	var set chain.Row
 	for _, r := range rows {
-		if r.ObjectRef != target {
+		if r.ObjectRef != target || (r.EventType != eventSet && r.EventType != eventCleared) {
 			continue
 		}
-		if r.EventType != eventSet && r.EventType != eventCleared {
-			continue
-		}
-		// A756 (interim, relayed): the target reference is in the payload and is verified against the freeze row's own object reference. A row that names another target, or none, is a defect:
-		// the answer is an error, which reconcile.ReadFreeze turns into FreezeUnknown (frozen).
 		if !payloadNamesTarget(r, target) {
-			return reconcile.FreezeUnknown, errFreezeRow
+			return reconcile.FreezeUnknown, chain.Row{}, errFreezeRow
 		}
 		if r.EventType == eventSet {
-			state = reconcile.FreezeRecorded
+			state, set = reconcile.FreezeRecorded, r
 		} else {
 			state = reconcile.FreezeCleared
 		}
 	}
-	return state, nil
+	return state, set, nil
 }
 
 var errFreezeRow = errors.New("trustport: a freeze row does not name the target it is recorded for")
@@ -113,28 +119,47 @@ func (f *FreezeRow) RecordFreezeSet(ctx context.Context, s reconcile.FreezeSet) 
 	if err := f.ready(); err != nil {
 		return err
 	}
+	if s.CorrelationID == "" {
+		return ErrFreezeCorrelation // the SET names the investigation it belongs to: a SET that names none is not written
+	}
 	return f.append(ctx, s.TenantID, chain.Event{TenantID: s.TenantID, CorrelationID: s.CorrelationID, WrittenBy: freezeEmitter, Actor: freezeEmitter, EventType: eventSet, ObjectRef: s.Target,
 		Payload: map[string]any{"target_ref": s.Target, "ruleset_id": s.RulesetID, "rule_id": s.RuleID, "evidence": s.Evidence, "labels": s.Labels}})
 }
 
-// RecordFreezeCleared appends CONTRADICTION_FREEZE_CLEARED for the target when a freeze is recorded for it and the named decision is the tenant's and lifts it: an ESCALATE for an
-// escalation, an ALLOW for a resolution. That the decision names the target is not checked here: the Record holds no link from a decision to a target (listed in the PR).
+// RecordFreezeCleared appends CONTRADICTION_FREEZE_CLEARED for the target when a freeze is recorded for it and the named decision lifts it: an ESCALATE for an escalation, an ALLOW for
+// a resolution, of the SAME investigation as the recorded SET (the same correlation) and recorded after it (SR on #1035). The Decision Record has no target member, so the link is the
+// correlation and the order on the chain. Two clearings at once are serialised on the target by a transaction-scoped advisory lock, so one CLEARED is written and the other reads the
+// clearing and is refused.
 func (f *FreezeRow) RecordFreezeCleared(ctx context.Context, c reconcile.FreezeLift) error {
 	if err := f.ready(); err != nil {
 		return err
-	}
-	state, err := f.RecordedFreeze(ctx, c.TenantID, c.Target)
-	if err != nil {
-		return err
-	}
-	if state != reconcile.FreezeRecorded {
-		return ErrNothingToClear
 	}
 	tx, err := f.c.Begin.Begin(ctx, c.TenantID)
 	if err != nil {
 		return fmt.Errorf("trustport: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, c.TenantID+"/freeze/"+c.Target); err != nil {
+		return fmt.Errorf("trustport: lock the freeze row: %w", err)
+	}
+	q := f.c.Reads(c.TenantID)
+	if q == nil {
+		return fmt.Errorf("trustport: no Record reader for the tenant")
+	}
+	rows, err := chain.ReadChain(ctx, q)
+	if err != nil {
+		return fmt.Errorf("trustport: read the freeze row: %w", err)
+	}
+	state, set, err := freezeOf(rows, c.Target)
+	if err != nil {
+		return err
+	}
+	if state != reconcile.FreezeRecorded {
+		return ErrNothingToClear
+	}
+	if !decisionFollows(rows, set, c.DecisionID) {
+		return ErrClearingDecision
+	}
 	var outcome, correlation string
 	err = tx.QueryRow(ctx, `SELECT outcome, json ->> 'correlation_id' FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`, c.TenantID, c.DecisionID).Scan(&outcome, &correlation)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -151,6 +176,22 @@ func (f *FreezeRow) RecordFreezeCleared(ctx context.Context, c reconcile.FreezeL
 		return fmt.Errorf("trustport: append %s: %w", eventCleared, err)
 	}
 	return tx.Commit(ctx)
+}
+
+// decisionFollows reports that the Record holds a DECISION_MADE for the decision, after the SET and of the SET's own correlation.
+func decisionFollows(rows []chain.Row, set chain.Row, decisionID string) bool {
+	for _, r := range rows {
+		if r.EventType != "DECISION_MADE" || r.Seq <= set.Seq || r.CorrelationID != set.CorrelationID || r.Payload == nil {
+			continue
+		}
+		var p struct {
+			DecisionID string `json:"decision_id"`
+		}
+		if json.Unmarshal([]byte(*r.Payload), &p) == nil && p.DecisionID == decisionID {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *FreezeRow) append(ctx context.Context, tenantID string, ev chain.Event) error {
