@@ -30,7 +30,7 @@ from noema_model.harness.errors import Reason
 from noema_model.harness.rawjson import RawNumber
 from noema_model.understanding.pipeline.catalogue import NodeCatalogue, NodeInfo, SlotInfo
 from noema_model.understanding.pipeline.templates import SLOT_GATE_V1, SLOT_MENTIONS_V1, SLOT_PICK_V1
-from noema_model.understanding.pipeline.types import FlagSpec, LocaleOption, MentionProposal, PipelineInput
+from noema_model.understanding.pipeline.types import FlagSpec, GateRecord, LocaleOption, MentionProposal, PipelineInput
 
 NONE_LABEL = "None of these, or not sure"
 
@@ -70,7 +70,7 @@ async def classify_node(
     question, ids = choice(
         "intent_node",
         "Which of these requests is the customer making?",
-        [(n.node_id, f"{n.display_name} ({n.node_id})") for n in catalogue.nodes.values()],
+        [(n.node_id, f"{n.display_name}: {n.description} ({n.node_id})" if n.description else f"{n.display_name} ({n.node_id})") for n in catalogue.nodes.values()],
     )
     result = await harness.decide(
         DecideRequest(DecisionTask.INTENT_NODE, _state(inp), (question,), inp.locale_hint, inp.correlation_id)
@@ -150,26 +150,28 @@ def gate_asserted(answer: GateAnswer, threshold_bp: int) -> bool:
 
 async def gate_slots(
     harness: Harness, node: NodeInfo, inp: PipelineInput, gates: Mapping[str, int]
-) -> tuple[tuple[str, ...], Mapping[str, Mapping[str, float]], CallRecord | None]:
-    """Stage 1 of every gated slot: one yes/no question, in the one fixed sentence (`SLOT_GATE_V1`), whether the customer explicitly asks for something to be done. Returns the slots whose gate passed,
-    the probability of yes per gate (kept for the log, key `<slot>_gate`) and the call."""
+) -> tuple[tuple[str, ...], Mapping[str, Mapping[str, float]], Mapping[str, GateRecord], CallRecord | None]:
+    """Stage 1 of every gated slot: one yes/no question, in the one fixed sentence (`SLOT_GATE_V1`), whether the customer explicitly asks for an action to be taken. Returns the slots whose gate passed,
+    the probability of yes per gate (kept for the log, key `<slot>_gate`), what each gate decided (A772: the answer the model selected, the probability of yes and the pack's threshold) and the call."""
     slots = gated_slots(node, gates)
     if not slots:
-        return (), {}, None
+        return (), {}, {}, None
     questions = tuple(GateQuestion(f"{s.name}_gate", SLOT_GATE_V1) for s in slots)
     result = await harness.decide(
         DecideRequest(DecisionTask.ENUMERATED_SLOT, _state(inp), questions, inp.locale_hint, inp.correlation_id)
     )
     passed: list[str] = []
     probabilities: dict[str, Mapping[str, float]] = {}
+    records: dict[str, GateRecord] = {}
     for slot, answer in zip(slots, result.answers, strict=True):
         assert isinstance(answer, GateAnswer)
         basis_points = probability_bp(answer.p_yes)
         if basis_points is not None:
             probabilities[f"{slot.name}_gate"] = {"yes_bp": basis_points}  # whole basis points, an integer: what the gate compared
+        records[slot.name] = GateRecord(answer.yes, basis_points, gates[slot.name])
         if gate_asserted(answer, gates[slot.name]):
             passed.append(slot.name)
-    return tuple(passed), probabilities, result.call
+    return tuple(passed), probabilities, records, result.call
 
 
 async def pick_gated(

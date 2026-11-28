@@ -91,6 +91,18 @@ class Score(unittest.TestCase):
         lines[item.item_id] = [gate_line(item.item_id, True, 0.5)]  # the model said yes, in doubt: the gate abstains
         self.assertTrue(score(self.items, lines).no_false_assertion)
 
+    def test_a_no_answer_is_never_an_assertion_whatever_the_probability_printed_beside_it(self) -> None:
+        item = next(i for i in self.items if not i.explicit_ask and not i.borderline)
+        lines = self.lines(set())
+        lines[item.item_id] = [format_choice(item.item_id, "requested_remedy_gate", "no", {"yes": 0.95}, THRESHOLD)]
+        self.assertTrue(score(self.items, lines).no_false_assertion)
+
+    def test_one_borderline_non_ask_asserted_alone_is_enough_to_fail_the_condition_of_run_9(self) -> None:
+        edge = next(i for i in self.items if not i.explicit_ask and i.borderline)
+        report = score(self.items, self.lines({i.item_id for i in self.items if i.explicit_ask} | {edge.item_id}))
+        self.assertEqual((report.false_positive, report.borderline_false_positive), ((), (edge.item_id,)))
+        self.assertFalse(report.no_false_assertion)
+
     def test_a_yes_at_exactly_the_threshold_is_an_assertion(self) -> None:
         item = next(i for i in self.items if not i.explicit_ask and not i.borderline)
         lines = self.lines(set())

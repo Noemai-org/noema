@@ -19,7 +19,12 @@ SLOT_MENTIONS_V1 = PromptTemplate(
 )
 
 
+# A772 (interim; compile run 8): the gate's sentence is an explicit ask for an ACTION; a status question and a request to check, show, look up or explain are not one. The actions are described, never named
+# (a name of one is a pack's word and a test forbids it here); no phrasing of a labelled set is copied into it (REQ-TST-006).
 # UND-18 (ruling A603, interim). The two fixed sentences of a gated optional slot. They name no slot, no value and no example (INV-14, A533): which slot is gated, and at what threshold,
 # is pack data (`understanding.slot_gates`). One wording for every gate; nothing here is tuned against a golden.
-SLOT_GATE_V1 = "Does the customer explicitly ask for something to be done for them?"
+SLOT_GATE_V1 = (
+    "Does the customer explicitly ask for an action to be taken for them (to redo, undo, return, pass on or stop something)? "
+    "A question about status, or a request to check, show, look up or explain, is not an explicit ask."
+)
 SLOT_PICK_V1 = "Which one of these does the customer ask to be done? Choose exactly one of the listed options."

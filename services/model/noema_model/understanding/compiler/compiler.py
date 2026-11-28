@@ -121,8 +121,14 @@ class PipelineCompiler:
 
 
 def _choices(proposal: Proposal) -> tuple[SlotChoice, ...]:
-    """The closed-vocabulary choices of a turn, in slot order. No threshold is applied to a choice (`asserted` applies the pack's threshold to a yes/no answer only), so none is named."""
-    return tuple(SlotChoice(slot, chosen, dict(proposal.probabilities.get(slot, {})), None) for slot, chosen in sorted(proposal.reference_slots.items()))
+    """The closed-vocabulary choices of a turn, in slot order, then one line per gate (A772, A602). A choice names no threshold: none is applied to a pick. A gate line is filed under `<slot>_gate`: the answer
+    the model selected (`yes` or `no`; None when its reply carried none), the probability of yes, and the pack's threshold for that gate, so a log shows what the gate compared and why a slot was absent."""
+    picks = tuple(SlotChoice(slot, chosen, dict(proposal.probabilities.get(slot, {})), None) for slot, chosen in sorted(proposal.reference_slots.items()))
+    gates = tuple(
+        SlotChoice(f"{slot}_gate", None if g.answered_yes is None else ("yes" if g.answered_yes else "no"), {} if g.yes_bp is None else {"yes": g.yes_bp / 10000}, Fraction(g.threshold_bp, 10000))
+        for slot, g in sorted(proposal.gates.items())
+    )
+    return picks + gates
 
 
 def _instant(value: Any) -> datetime:

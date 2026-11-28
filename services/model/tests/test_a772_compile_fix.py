@@ -48,6 +48,11 @@ def test_the_gate_asks_for_an_explicit_ask_for_an_action_and_rules_out_a_status_
     assert "something to be done" not in text  # the wording run 8 showed read a status check as an action
 
 
+def test_the_gate_wording_fits_the_frozen_harness_limit_so_it_is_never_clipped() -> None:
+    limit = json.loads((ROOT / "benchmark" / "decisions" / "harness-gpt-6-luna.json").read_text(encoding="utf-8"))["data_limits"]["default_max_chars"]
+    assert len(SLOT_GATE_V1) <= limit, (len(SLOT_GATE_V1), limit)  # the harness clips a question's prompt at that length: a longer sentence would reach the model cut off
+
+
 def test_the_gate_wording_stays_data_neutral_and_is_one_question() -> None:
     assert SLOT_GATE_V1.count("?") >= 1 and "\n" not in SLOT_GATE_V1
     for word in (SLOT, "remedy", "capability", "fin.", "transfer", "Tunde", "morning", "G-"):
@@ -71,6 +76,13 @@ def test_the_classifier_is_shown_the_node_description() -> None:
     labels = [o["label"] for o in json.loads(body)[0]["options"]]
     shown = next(label for label in labels if NODE in label)
     assert (description() or "<none>") in shown
+
+
+def test_the_option_label_of_every_node_fits_the_frozen_harness_limit_so_the_node_id_is_never_clipped() -> None:
+    limit = json.loads((ROOT / "benchmark" / "decisions" / "harness-gpt-6-luna.json").read_text(encoding="utf-8"))["data_limits"]["default_max_chars"]
+    for node in NodeCatalogue.from_pack(PACK, out_of_scope_node=OUT_OF_SCOPE).nodes.values():
+        label = f"{node.display_name}: {node.description} ({node.node_id})" if node.description else f"{node.display_name} ({node.node_id})"
+        assert len(label) <= limit, (node.node_id, len(label), limit)
 
 
 @pytest.mark.parametrize("which", ["the gate wording", "the node description"])

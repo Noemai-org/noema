@@ -54,6 +54,17 @@ class CompileWorkflow(unittest.TestCase):
             if "${{" in line and "inputs." in line:
                 self.assertRegex(line, r"^\s+[A-Z_]+: \$\{\{ inputs\.[a-z_]+ \}\}$", f"an input is expanded outside env: {line.strip()}")
 
+    def test_the_suite_is_a_closed_choice_validated_in_both_jobs_and_only_probe_adds_the_flag(self) -> None:
+        """A772: `suite` (goldens or probe) picks what is run; a value outside the two is refused before anything is called, and the paid job's spend bounds are the same for both."""
+        suite = re.search(r"(?ms)^      suite:\n(.*?)(?=^      [a-z_]+:\n|^permissions:)", self.code)
+        assert suite
+        self.assertIn("type: choice", suite.group(1))
+        self.assertIn("options: [goldens, probe]", suite.group(1))
+        self.assertEqual(self.code.count("SUITE: ${{ inputs.suite }}"), 2)  # the dry run and the paid step, through env only
+        self.assertEqual(self.code.count('case "${SUITE:-goldens}" in goldens) ;; probe) probe=(--probe) ;;'), 2)
+        self.assertEqual(self.code.count('"${probe[@]}"'), 2)
+        self.assertIn("suite must be goldens or probe", self.code)
+
     def test_the_spend_is_bounded_and_the_inputs_are_validated(self) -> None:
         for fragment in ("326693", "[[ \"$run_id\" =~ ^[A-Za-z0-9_.-]{1,64}$ ]]", "1|2|3|4|5", "openai", "--hard-stop-usd", "--prior-spent-micros"):
             self.assertIn(fragment, self.code, fragment)

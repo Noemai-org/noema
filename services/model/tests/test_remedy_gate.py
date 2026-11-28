@@ -90,7 +90,7 @@ def test_the_gate_is_one_yes_no_in_the_fixed_words_and_the_slot_is_not_asked_as_
     calls = decide_calls(model)
     gate_call = next(c for c in calls if GATE in c)
     assert gate_call[GATE]["kind"] == "yes_no"
-    assert gate_call[GATE]["prompt"] == SLOT_GATE_V1 == "Does the customer explicitly ask for something to be done for them?"
+    assert gate_call[GATE]["prompt"] == SLOT_GATE_V1  # the sentence itself is pinned by test_a772_compile_fix.py (A772 replaced the run 7 wording)
     slots_call = next(c for c in calls if "question_type" in c)  # the required slot is still asked, in its old words, and without the gated one
     assert slots_call["question_type"]["prompt"] == "Which value of 'question_type' does the customer's message express?"
     assert SLOT not in slots_call and SLOT not in gate_call  # the capability is not offered with abstention, as a choice, in the first stage

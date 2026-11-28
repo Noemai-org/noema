@@ -154,6 +154,11 @@ class LiveBackend:
         rows = tuple(types.Candidate(f"c{n}", f"fin.transaction:TX{chr(ord('A') + n)}", amount, "NGN", CANDIDATES_AT, who, "0001", "OUTGOING", True) for n, (who, amount) in enumerate(g.candidates))
         return await self._compile(g.case_id, canonical_input(g), rows)
 
+    async def compile_probe(self, c: Any) -> Mapping[str, Any]:
+        """One phrasing of the labelled probe (A772): the same service and recorder as a golden, the case's canonical input (fixed synthetic ids; only the text is the item's) and no candidates, since the probe
+        reads the gate's line and not the proposal."""
+        return await self._compile(c.item.item_id, c.canonical, ())
+
     async def record_one(self, inp: RecordOnlyInput) -> Mapping[str, Any]:
         """One input of the record-only pass (A361, A372, A439, A460): the same service and recorder, the canonical input the core's Interpreter port built (the fixture's), and the candidates of the case's world
         rows (BO's file), newest first, so the candidate source answers what the core's would. Nothing is invented for it."""
