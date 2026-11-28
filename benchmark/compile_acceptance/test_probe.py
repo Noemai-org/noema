@@ -126,7 +126,8 @@ class Score(unittest.TestCase):
 
 class Backend:
     def __init__(self, guard: BudgetGuard, recorder: Recorder, *, asserted: set[str], dry: bool) -> None:
-        self.guard, self.recorder, self.asserted, self.dry, self._calls, self._lines = guard, recorder, asserted, dry, 0, {}
+        self.guard, self.recorder, self.asserted, self.dry, self._calls = guard, recorder, asserted, dry, 0
+        self._lines: dict[str, list[str]] = {}
 
     async def compile_probe(self, c: ProbeCase) -> Mapping[str, Any]:
         if self.dry:
@@ -156,7 +157,7 @@ class Backend:
 def run_probe_main(extra: list[str], asserted: set[str], environ: Mapping[str, str]) -> tuple[int, str, Path]:
     tmp = Path(tempfile.mkdtemp())
 
-    def factory(dry: bool, env: Mapping[str, str], guard: BudgetGuard, recorder: Recorder, args: Any) -> Backend:
+    def factory(dry: bool, env: Mapping[str, str], guard: BudgetGuard, recorder: Recorder, args: Any) -> Any:
         return Backend(guard, recorder, asserted=asserted, dry=dry)
 
     argv = ["--probe", "--pack-ref", "fin@1.0.0", "--provider", "openai", "--hard-stop-usd", "5", "--prior-spent-micros", "1000", "--out", str(tmp), "--run-id", "probe-test", *extra]
