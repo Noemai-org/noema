@@ -73,6 +73,8 @@ func faultOnSpend(t *testing.T, w *world, sqlstate string, failFirst, sleepMS in
 type statementCounter struct {
 	all     atomic.Int64
 	inserts atomic.Int64
+	// onInsert, when set before the pool is used, is called with the running count of INSERT statements at the moment the client issues one (A776: an event of the client, not a wall-clock instant).
+	onInsert func(n int64)
 }
 
 func (c *statementCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
@@ -82,7 +84,10 @@ func (c *statementCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d p
 	}
 	c.all.Add(1)
 	if strings.HasPrefix(sql, "INSERT INTO GRANT_SPEND") {
-		c.inserts.Add(1)
+		n := c.inserts.Add(1)
+		if c.onInsert != nil {
+			c.onInsert(n)
+		}
 	}
 	return ctx
 }
