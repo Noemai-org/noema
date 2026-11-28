@@ -37,3 +37,26 @@ Order of the work: A717 of `DEC-2026-11-26-architect-rulings-a704-a720` ("The EN
 - **Debt entry for the Steward (A761; not filed here: the register is in `docs`).** *The attempt count of a read is recorded nowhere.* REQ-CTX-008 wants the attempt count in the `EVIDENCE_READ` event; reads make exactly one attempt each (a fresh connection per read, A728), but neither `layer.Observation` nor the event carries an attempt count, so a replay cannot show how many times the source was reached. Safest default until it is built: the count is 1 by construction and is stated here and in the README. Proposed owner: EL (`evidence/portread`, `evidence/layer` and the event's builder); proposed due point: before the G2 review; tier for the Steward to set. Evidence that would close it: a field in the event payload, a test that asserts it for a read and for a refresh (EVD-02), and the Record projection reading it. Not decided here: owner, due point and tier are the Architect's and the Steward's (AGENT-16).
 - Tests added: the one above. Regression cases added: none (no bug). Conflicts raised: none.
 
+
+## Task card (PERD §61.4; the owner-written card the plan §4.1 requires was not found, so this card is written from the plan row and the orders, and a Founder or the Steward confirms it)
+
+```
+EVD-05  Read hostility: Retry-After, backoff, full pagination, schema drift to UNKNOWN, near-timeout handling  (the hostility-proxy part only, A717 Part A)
+Priority: P0 (REQ-CTX-008)
+Requirement IDs: REQ-CTX-008, REQ-CTX-002, REQ-TST-004; INV-07, INV-23, AGENT-12
+Rationale: a source that is slow, refuses, drifts, goes silent or answers from a stale state must never turn into a known fact; the read layer maps each fault to UNAVAILABLE or UNKNOWN and never retries a read on a reused connection.
+Modules touched (allowlist): benchmark/hostility_proxy/ (README, internal/proxy/record_read_hostility_test.go), services/core/evidence/readhostility/ (README, doc.go, the four *_test.go, testdata/read_hostility_recordings.json), status/EVD-05.md. Nothing else.
+Contracts: none; bump required? N
+Inputs/outputs: the real hostility proxy's faulted exchanges (recorded, seed 17) in; layer.Observation (status, class, no-bytes, raw hash) out.
+Acceptance criteria: plan row EVD-05 "Hostility fixtures pass"; REQ-CTX-008 ("Unknown enum values SHALL never map to known states", schema drift is UNKNOWN, a read budget exhausted is UNAVAILABLE); A728 (a fresh connection per read; every read reaches the source exactly once).
+Tests to write FIRST (AGENT-11): the replay and fault-family tests in hostility_test.go (red at ed471266c and 50bb888ee).
+Faults to exercise (AGENT-12): latency, near_timeout_before, near_timeout_after, timeout_before_commit, timeout_after_commit, drop_response, stale_read, schema drift and refusal families of the hostility proxy; none mocked.
+Dependencies: ENV-03 (waived for the hostility-proxy part by A717), STM-01 (the stand-in client).
+Out of scope: the Tushe-contract part of EVD-05 (not Done here); any change to production code (one line for EL: standin_client.go line 87, in the PR body); the retrieval-time-only freshness rule (layer.AssignStatus) is shown, not changed.
+Definition of done: tests green; boundary/lint green; the PR answers the SoT §52 questions
+```
+
+## Session 2026-11-28 · C2 (review findings on noema#1017)
+- Codex P2 (and SR's follow-up at `babc7dbd8`): the beyond-deadline branch of `TestANearTimeoutAnswerIsAcceptedOnlyWithinTheReadDeadline` checked the selected read only. Fixed: it now calls `othersAreKnown` (every read reached the source exactly once; the two companion reads are KNOWN). A hand mutant that blanks the companion payloads in the third `readOnce` call of a test is killed (12 failures); it would not be caught by the old branch when the selected read is the third one.
+- Codex NOT READY (no task card): the card above. The boundary of the part stays as A717 set it.
+- Test-only push (plus this note), so READY stands (A748).

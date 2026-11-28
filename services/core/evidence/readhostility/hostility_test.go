@@ -267,6 +267,7 @@ func TestANearTimeoutAnswerIsAcceptedOnlyWithinTheReadDeadline(t *testing.T) {
 				if rp.hitsOn(paths[read]) != 1 {
 					t.Errorf("%d requests, want 1 (no retry)", rp.hitsOn(paths[read]))
 				}
+				othersAreKnown(t, beyond, read, rp, paths) // the other two reads go on: each reached the source once and is KNOWN (Codex P2, SR on noema#1017)
 			})
 		}
 	}
