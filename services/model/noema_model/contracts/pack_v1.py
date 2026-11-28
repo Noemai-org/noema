@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, TypeAlias
 from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
@@ -22,14 +23,12 @@ from .trust_profile_v1 import TrustProfileV1
 PackV1ExactNumber: TypeAlias = Annotated[str, StringConstraints(pattern='\\A(?:[0-9]{1,18}(?:\\.[0-9]{1,18})?|[0-9]{1,18}/[1-9][0-9]{0,17})\\Z')]
 
 
-class PackV1OutcomeBinding(ContractModel):
-    """PackV1OutcomeBinding Source: pack.v1.json#$defs/OutcomeBinding"""
+class PackV1OutcomeBindingDisclosureValue(StrEnum):
+    """PackV1OutcomeBindingDisclosureValue Source: pack.v1.json#$defs/OutcomeBinding/properties/disclosure/additionalProperties"""
 
-    model_config = ConfigDict(extra="forbid")
-    capability_id: CommonV1PackId
-    outcome_id: CommonV1PackId
-    variables: dict[str, Annotated[str, StringConstraints(pattern='\\A(INTENT_ID|SUBJECT|EPOCH|PLAN_PARAM:[a-z][a-z0-9_]*)\\Z')]]
-    retry_safety: EnumsV1RetrySafety
+    VERBATIM = 'VERBATIM'
+    MASKED = 'MASKED'
+    HASHED = 'HASHED'
 
 
 class PackV1UnderstandingLocalesItem(ContractModel):
@@ -100,6 +99,17 @@ class PackV1Policy(ContractModel):
     policy_id: CommonV1PackId
     version: Annotated[str, StringConstraints(pattern='\\A[0-9]+\\.[0-9]+\\Z')]
     rules: list[PolicyRuleV1]
+
+
+class PackV1OutcomeBinding(ContractModel):
+    """PackV1OutcomeBinding Source: pack.v1.json#$defs/OutcomeBinding"""
+
+    model_config = ConfigDict(extra="forbid")
+    capability_id: CommonV1PackId
+    outcome_id: CommonV1PackId
+    variables: dict[str, Annotated[str, StringConstraints(pattern='\\A(INTENT_ID|SUBJECT|EPOCH|PLAN_PARAM:[a-z][a-z0-9_]*)\\Z')]]
+    disclosure: dict[str, PackV1OutcomeBindingDisclosureValue] | None = Field(default=None)
+    retry_safety: EnumsV1RetrySafety
 
 
 class PackV1UnderstandingRanking(ContractModel):

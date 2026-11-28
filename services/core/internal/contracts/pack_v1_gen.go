@@ -13,13 +13,14 @@ type PackV1ExactNumber string
 
 // PackV1OutcomeBinding is generated from pack.v1.json#$defs/OutcomeBinding.
 type PackV1OutcomeBinding struct {
-	CapabilityId CommonV1PackId     `json:"capability_id"`
-	OutcomeId    CommonV1PackId     `json:"outcome_id"`
-	Variables    map[string]string  `json:"variables"`
-	RetrySafety  EnumsV1RetrySafety `json:"retry_safety"`
+	CapabilityId CommonV1PackId                                  `json:"capability_id"`
+	OutcomeId    CommonV1PackId                                  `json:"outcome_id"`
+	Variables    map[string]string                               `json:"variables"`
+	Disclosure   *map[string]PackV1OutcomeBindingDisclosureValue `json:"disclosure,omitempty"`
+	RetrySafety  EnumsV1RetrySafety                              `json:"retry_safety"`
 }
 
-var PackV1OutcomeBindingShape = objectShape{name: "PackV1OutcomeBinding", props: map[string]bool{"capability_id": true, "outcome_id": true, "variables": true, "retry_safety": true}, required: []string{"capability_id", "outcome_id", "variables", "retry_safety"}, nonNull: map[string]bool{"capability_id": true, "outcome_id": true, "variables": true, "retry_safety": true}, closed: true}
+var PackV1OutcomeBindingShape = objectShape{name: "PackV1OutcomeBinding", props: map[string]bool{"capability_id": true, "outcome_id": true, "variables": true, "disclosure": true, "retry_safety": true}, required: []string{"capability_id", "outcome_id", "variables", "retry_safety"}, nonNull: map[string]bool{"capability_id": true, "outcome_id": true, "variables": true, "disclosure": true, "retry_safety": true}, closed: true}
 
 func (t *PackV1OutcomeBinding) UnmarshalJSON(b []byte) error {
 	raw, err := PackV1OutcomeBindingShape.check(b)
@@ -43,6 +44,28 @@ func (t PackV1OutcomeBinding) MarshalJSON() ([]byte, error) {
 		a.Variables = map[string]string{}
 	}
 	return json.Marshal(a)
+}
+
+// PackV1OutcomeBindingDisclosureValue is generated from pack.v1.json#$defs/OutcomeBinding/properties/disclosure/additionalProperties.
+type PackV1OutcomeBindingDisclosureValue string
+
+const (
+	PackV1OutcomeBindingDisclosureValueVERBATIM PackV1OutcomeBindingDisclosureValue = "VERBATIM"
+	PackV1OutcomeBindingDisclosureValueMASKED   PackV1OutcomeBindingDisclosureValue = "MASKED"
+	PackV1OutcomeBindingDisclosureValueHASHED   PackV1OutcomeBindingDisclosureValue = "HASHED"
+)
+
+func (e *PackV1OutcomeBindingDisclosureValue) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("contracts: PackV1OutcomeBindingDisclosureValue: %w", err)
+	}
+	switch v := PackV1OutcomeBindingDisclosureValue(s); v {
+	case PackV1OutcomeBindingDisclosureValueVERBATIM, PackV1OutcomeBindingDisclosureValueMASKED, PackV1OutcomeBindingDisclosureValueHASHED:
+		*e = v
+		return nil
+	}
+	return fmt.Errorf("contracts: PackV1OutcomeBindingDisclosureValue: %q is not one of its values", s)
 }
 
 // PackV1Understanding is generated from pack.v1.json#$defs/Understanding.

@@ -325,14 +325,22 @@ def check_recon_rules(doc: object) -> list[Problem]:
     return [("recon_rules", f"{where}: {what}") for where, what in found[:20]]
 
 
+# A774 (interim, relayed): how a bound plan param is disclosed in the receipt's step_params. A param the binding's `disclosure` does not list is HASHED, the safest of the three.
+DEFAULT_DISCLOSURE = "HASHED"
+# A param whose name has one of these words, or whose predicate variable is a Reference, is an identifier, an account or a name: VERBATIM is refused for it.
+IDENTIFIER_WORDS = frozenset({"id", "ref", "reference", "account", "name", "number", "iban", "msisdn", "phone", "email"})
+
+
 def disclosure_of(binding: dict, param: str) -> str:
-    """Red stub (A774): not built."""
-    return "NOT_BUILT"
+    """The disclosure of one bound plan param of a binding: the binding's own, else HASHED (A774)."""
+    return (binding.get("disclosure") or {}).get(param, DEFAULT_DISCLOSURE)
 
 
 def verbatim_allowed(param: str, variable_type: str | None) -> bool:
-    """Red stub (A774): not built."""
-    return True
+    """Whether a param may be written VERBATIM: not when its predicate variable is a Reference, and not when a word of its name says identifier, account or name (A774)."""
+    if variable_type == "Reference":
+        return False
+    return not (set(param.split("_")) & IDENTIFIER_WORDS)
 
 
 def check_outcome_bindings(pack: dict, pack_dir: Path) -> list[Problem]:
@@ -382,6 +390,12 @@ def check_outcome_bindings(pack: dict, pack_dir: Path) -> list[Problem]:
                 out.append(("outcome_bindings", f"{where}: the outcome's success predicate never reads {name}"))
             if source.startswith("PLAN_PARAM:") and inputs is not None and source.split(":", 1)[1] not in inputs:
                 out.append(("outcome_bindings", f"{where}: {name}: the param is not an input of {cap_id}"))
+        params = {source.split(":", 1)[1]: name for name, source in b["variables"].items() if source.startswith("PLAN_PARAM:")}
+        for param, how in sorted((b.get("disclosure") or {}).items()):
+            if param not in params:
+                out.append(("outcome_bindings", f"{where}: disclosure names {param}, which is not a PLAN_PARAM of the binding"))
+            elif how == "VERBATIM" and not verbatim_allowed(param, (declared.get(params[param]) or {}).get("type")):
+                out.append(("outcome_bindings", f"{where}: disclosure of {param} cannot be VERBATIM: it is an identifier, an account or a name"))
     return out
 
 

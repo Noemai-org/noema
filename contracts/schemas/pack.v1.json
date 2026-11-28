@@ -418,6 +418,21 @@
             "pattern": "^(INTENT_ID|SUBJECT|EPOCH|PLAN_PARAM:[a-z][a-z0-9_]*)$"
           }
         },
+        "disclosure": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "enum": [
+              "VERBATIM",
+              "MASKED",
+              "HASHED"
+            ]
+          },
+          "description": "A774 (interim, relayed): how each PLAN_PARAM of the binding is written into the execution receipt's step_params; a param not listed is HASHED."
+        },
         "retry_safety": {
           "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/RetrySafety"
         }
