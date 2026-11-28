@@ -221,6 +221,9 @@ BENCH_CORE_SETTINGS = {
     "NOEMA_EXECUTION_KEY_MAX_ACTIVE": "2",
     "NOEMA_OUTCOME_KEY_DIR": "/run/outcome-keys",
     "NOEMA_OUTCOME_KEY_MAX_ACTIVE": "2",
+    # A722 and A704: the Evidence Layer's login directory, key file and overlap, and the five injection-screen limits (bytes for the pattern length; A722 supersedes "characters").
+    "NOEMA_EVIDENCE_DSN_DIR": "/run/evidence-dsn", "NOEMA_EVIDENCE_KEY_FILE": "/run/evidence-keys/core-evidence.ed25519.1.key", "NOEMA_EVIDENCE_KEY_MAX_ACTIVE": "2", "NOEMA_EVIDENCE_RECORD_TIMEOUT_MS": "5000",
+    "NOEMA_INJECTION_MAX_PATTERNS": "64", "NOEMA_INJECTION_MAX_PATTERN_BYTES": "1024", "NOEMA_INJECTION_MAX_DOCUMENT_BYTES": "65536", "NOEMA_INJECTION_MAX_DEPTH": "8", "NOEMA_INJECTION_FIELD_CAP": "256",
     # A714: A658's eight events settings, the Execution timeouts and the plan text bound (resource limits, bench only, no default in code).
     "NOEMA_EVENTS_POLL_MS": "2000", "NOEMA_EVENTS_MAX_STREAM_MS": "300000", "NOEMA_EVENTS_WRITE_TIMEOUT_MS": "5000", "NOEMA_EVENTS_READ_TIMEOUT_MS": "2000",
     "NOEMA_EVENTS_MAX_EVENT_BYTES": "65536", "NOEMA_EVENTS_MAX_STREAMS": "100", "NOEMA_EVENTS_MAX_STREAMS_PER_PRINCIPAL": "3", "NOEMA_EVENTS_MAX_BATCH": "100",
@@ -388,9 +391,9 @@ def settings_order_problems(values):
 # A506: the DSN directories and the key directories. Each is written once by its one-shot (trust-dsn-init for the six DSN volumes, core-keys-init for the five key volumes) and mounted read-only by the
 # core and by nothing else; the five key values are held by core-keys-init only; the per-login emitter secrets are mounted by postgres and trust-dsn-init only.
 KEYS_INIT = "core-keys-init"
-DSN_VOLUMES = ("trust_dsns", "orchestrator_dsns", "record_read_dsns", "edge_dsns", "execution_dsns", "outcome_dsns")
-KEY_VOLUMES = ("orchestrator_keys", "edge_keys", "input_hash", "execution_keys", "outcome_keys")
-KEY_SECRETS = ("core_workflows_ed25519_seed_1", "core_edge_ed25519_seed_1", "input_hash_key", "core_execution_ed25519_seed_1", "core_outcome_ed25519_seed_1")
+DSN_VOLUMES = ("trust_dsns", "orchestrator_dsns", "record_read_dsns", "edge_dsns", "execution_dsns", "outcome_dsns", "evidence_dsns")
+KEY_VOLUMES = ("orchestrator_keys", "edge_keys", "input_hash", "execution_keys", "outcome_keys", "evidence_keys")
+KEY_SECRETS = ("core_workflows_ed25519_seed_1", "core_edge_ed25519_seed_1", "input_hash_key", "core_execution_ed25519_seed_1", "core_outcome_ed25519_seed_1", "core_evidence_ed25519_seed_1")
 NEVER_SET = {"NOEMA_TEMPORAL_TLS_CERT_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client certificate stays unset (A506)",
              "NOEMA_TEMPORAL_TLS_KEY_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client key stays unset (A506)",
              "NOEMA_WRITE_SWAP_DECISIONS": "a test-only switch for the proposer-swap fixture, never a Compose setting (A506)"}
@@ -933,6 +936,20 @@ def self_test(configs):
         "the model mounts the verdict keys": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "outcome_keys", "target": "/x", "read_only": True})),
         "the model mounts the execution logins": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "execution_dsns", "target": "/x", "read_only": True})),
         "the ui mounts the outcome logins": ("bench", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "volume", "source": "outcome_dsns", "target": "/x", "read_only": True})),
+        "the bench core drops the evidence DSN volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "evidence_dsns"]})),
+        "the bench core drops the evidence key volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "evidence_keys"]})),
+        "the bench core mounts the evidence keys writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "evidence_keys"]),
+        "the bench core mounts the evidence logins writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "evidence_dsns"]),
+        "the model mounts the evidence keys": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "evidence_keys", "target": "/x", "read_only": True})),
+        "the model mounts the evidence logins": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "evidence_dsns", "target": "/x", "read_only": True})),
+        "the core holds the evidence seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_evidence_ed25519_seed_1", "target": "x"})),
+        "the bench core's evidence key overlap changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EVIDENCE_KEY_MAX_ACTIVE": "5"})),
+        "the bench core loses the evidence record timeout": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_EVIDENCE_RECORD_TIMEOUT_MS")),
+        "the bench core's evidence record timeout changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EVIDENCE_RECORD_TIMEOUT_MS": "60000"})),
+        "the bench core loses the evidence key file": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_EVIDENCE_KEY_FILE")),
+        "the bench core loses an injection limit": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_INJECTION_MAX_DEPTH")),
+        "the bench core's injection pattern bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INJECTION_MAX_PATTERNS": "6400"})),
+        "the bench core's injection field cap changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INJECTION_FIELD_CAP": "100000"})),
         "the core holds the receipt seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_execution_ed25519_seed_1", "target": "x"})),
         "the core holds the verdict seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_outcome_ed25519_seed_1", "target": "x"})),
         "core-keys-init loses the verdict seed": ("bench", lambda c: c["services"]["core-keys-init"].update({"secrets": [x for x in c["services"]["core-keys-init"]["secrets"] if (x if isinstance(x, str) else x.get("source")) != "core_outcome_ed25519_seed_1"]})),
