@@ -70,7 +70,7 @@ func TestTheSameInputReturnsTheStoredDecisionAndWritesNothingMore(t *testing.T) 
 	if len(second.Grants) != 1 || asJSON(t, second.Grants[0]) != asJSON(t, first.Grants[0]) {
 		t.Fatalf("the stored grant was not returned as it was issued:\n first %s\nsecond %v", asJSON(t, first.Grants), asJSON(t, second.Grants))
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decision records, want 1", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 1 {
@@ -94,7 +94,7 @@ func TestTheSameInputReturnsAStoredRefusalToo(t *testing.T) {
 	if err != nil || second.Record.DecisionId != first.Record.DecisionId || len(second.Grants) != 0 {
 		t.Fatalf("got %+v, %v; want the stored REJECT and no grants", second, err)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decision records, want 1", n)
 	}
 }
@@ -121,7 +121,7 @@ func TestANewSnapshotOrAnotherPolicyVersionMakesANewDecision(t *testing.T) {
 		}
 		seen[string(res.Record.DecisionId)] = true
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 3 {
+	if n := w.count(t, recordsQ); n != 3 {
 		t.Errorf("%d decision records, want 3", n)
 	}
 	// and the same intent under another tenant's intent hash or intent ID is another input as well
@@ -169,7 +169,7 @@ func TestAStoredDecisionThatTheNewEvaluationContradictsIsRefused(t *testing.T) {
 			t.Errorf("%s: got %v, want ErrDecisionConflict", name, err)
 		}
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decision records after the refusals, want 1", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 1 {
@@ -245,7 +245,7 @@ func TestTwoWritersOfTheSameInputGetOneDecision(t *testing.T) {
 	if o.res.Record.DecisionId != first.Record.DecisionId || len(o.res.Grants) != 1 || o.res.Grants[0].GrantId != first.Grants[0].GrantId {
 		t.Fatalf("the second writer returned another decision: %s against %s", o.res.Record.DecisionId, first.Record.DecisionId)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decision records, want 1", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 1 {
@@ -318,14 +318,14 @@ func TestNewEvidenceGivesANewSnapshotAndANewDecision(t *testing.T) {
 	if len(ids) != 3 {
 		t.Fatalf("a new snapshot must be a new decision: %v", ids)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 3 {
+	if n := w.count(t, recordsQ); n != 3 {
 		t.Errorf("%d decision records, want 3", n)
 	}
 	// the same snapshot, named again, is the stored decision (not a fourth)
 	if back := decide1(first); back.Record.DecisionId != d1.Record.DecisionId {
 		t.Errorf("the same snapshot returned %s, want the stored %s", back.Record.DecisionId, d1.Record.DecisionId)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 3 {
+	if n := w.count(t, recordsQ); n != 3 {
 		t.Errorf("%d decision records after the repeat, want 3", n)
 	}
 }
@@ -347,7 +347,7 @@ func TestAWaitThenALaterDecisionUnderANewSnapshotAreTwoDecisions(t *testing.T) {
 	if later.Record.DecisionId == waited.Record.DecisionId {
 		t.Errorf("the re-evaluation returned the WAIT again (%s)", later.Record.DecisionId)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 2 {
+	if n := w.count(t, recordsQ); n != 2 {
 		t.Errorf("%d decision records, want 2 (the WAIT and the later decision)", n)
 	}
 }

@@ -508,3 +508,118 @@ func TestTheSourceIsPureAndHoldsNoVocabulary(t *testing.T) {
 		}
 	}
 }
+
+// EXP-01 / A727 (the Architect, 26 Nov 2026, interim, relayed; committed in DEC-2026-11-26-architect-rulings-a721-a737): a no-write outcome is explained from its Decision Record, because it
+// has no write and so no verdict row (US-01). The choice is deterministic: a verdict row of the decision's own grant wins when it exists; the record alone explains only an ALLOW decision
+// that has no grant of its own (and only when the pack's no-write outcome is configured); a write outcome with no verdict stays ErrNoVerdict, never explained from the record alone.
+// REQ-EXP-001, REQ-EXP-002, REQ-SEC-004; INV-04, INV-12, INV-13, INV-14, AGENT-13, A676.
+
+const noWriteOut = "syn.outcome.status_explained"
+
+func withNoWrite(c *rowreader.Config) { c.NoWriteOutcome = noWriteOut }
+
+func noWriteRows() rowreader.Rows {
+	return rowreader.Rows{DecisionID: decision, CorrelationID: corr, Classification: "SUCCESS_CONFIRMED", SubjectRef: string(txnRef), DecisionOutcome: string(contracts.EnumsV1DecisionOutcomeALLOW)}
+}
+
+func askFacts(t *testing.T, w *world) (contracts.ExplanationFactsV2, error) {
+	t.Helper()
+	return w.s.Facts(context.Background(), explanation.Subject{TenantID: tenantA, PrincipalID: principal}, decision)
+}
+
+// US-01: an ALLOW decision with no grant of its own is explained from its record: the configured no-write outcome, the sealed classification (the reason class the templates key on), the
+// payment facts, and the case kinds as unknowns; no write is claimed and nothing the record holds beyond that is shown.
+func TestANoWriteDecisionIsExplainedFromItsRecord(t *testing.T) {
+	w := newWorld(t, noWriteRows(), withNoWrite)
+	f, err := askFacts(t, w)
+	if err != nil {
+		t.Fatalf("Facts: %v", err)
+	}
+	if string(f.OutcomeId) != noWriteOut || f.Classification != "SUCCESS_CONFIRMED" || f.CorrelationId != corr {
+		t.Errorf("envelope %+v", f)
+	}
+	got := byKind(f)
+	for _, k := range []string{"payment.amount", "account", "payment.time"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("no %s fact", k)
+		}
+	}
+	if len(f.Facts) != 3 || len(unknownKinds(f, "case.ref", "case.team", "case.clock")) != 3 {
+		t.Errorf("facts %+v unknowns %+v", f.Facts, f.Unknowns)
+	}
+}
+
+// A verdict row of the decision's own grant wins over the record, whatever the pack's no-write outcome is.
+func TestAVerdictRowWinsOverTheRecord(t *testing.T) {
+	rows := goodRows()
+	rows.DecisionOutcome = string(contracts.EnumsV1DecisionOutcomeALLOW)
+	f, err := askFacts(t, newWorld(t, rows, withNoWrite))
+	if err != nil || string(f.OutcomeId) != caseOut {
+		t.Errorf("outcome %q err %v, want %q", f.OutcomeId, err, caseOut)
+	}
+}
+
+// Never explain a write from the record alone: a decision with a grant of its own and no verdict (no receipt yet, or a receipt not yet verified) is ErrNoVerdict.
+func TestAWriteWithNoVerdictIsNeverExplainedFromTheRecord(t *testing.T) {
+	grantOnly := noWriteRows()
+	grantOnly.Executions = []rowreader.Execution{{GrantID: "grt_0001", CapabilityID: caseCap, OwnGrant: true}}
+	receiptOnly := noWriteRows()
+	e := caseExec()
+	e.Verdict, e.OutcomeID = "", ""
+	receiptOnly.Executions = []rowreader.Execution{e}
+	for name, rows := range map[string]rowreader.Rows{"grant only": grantOnly, "receipt, no verdict": receiptOnly} {
+		f, err := askFacts(t, newWorld(t, rows, withNoWrite))
+		if !errors.Is(err, rowreader.ErrNoVerdict) || len(f.Facts) != 0 || f.OutcomeId != "" {
+			t.Errorf("%s: %+v %v", name, f, err)
+		}
+	}
+}
+
+// A grant of another decision of the investigation does not make this decision a write.
+func TestAnotherDecisionsGrantDoesNotMakeThisDecisionAWrite(t *testing.T) {
+	rows := noWriteRows()
+	e := caseExec()
+	e.OwnGrant = false
+	rows.Executions = []rowreader.Execution{e}
+	f, err := askFacts(t, newWorld(t, rows, withNoWrite))
+	if err != nil || string(f.OutcomeId) != noWriteOut {
+		t.Errorf("outcome %q err %v", f.OutcomeId, err)
+	}
+}
+
+// With no no-write outcome configured the record explains nothing: ErrNoVerdict, as before (nothing is defaulted, AGENT-16).
+func TestWithNoConfiguredNoWriteOutcomeTheRecordExplainsNothing(t *testing.T) {
+	f, err := askFacts(t, newWorld(t, noWriteRows()))
+	if !errors.Is(err, rowreader.ErrNoVerdict) || len(f.Facts) != 0 {
+		t.Errorf("%+v %v", f, err)
+	}
+}
+
+// Only ALLOW is explained from the record. Every other outcome, and a record outcome that is not one of the seven, is refused with no fact.
+func TestOnlyAnAllowRecordIsExplainedAndAnUnknownOutcomeIsAMismatch(t *testing.T) {
+	for _, o := range []string{"CLARIFY", "CONFIRM", "WAIT", "ESCALATE", "REJECT", "UNKNOWN"} {
+		rows := noWriteRows()
+		rows.DecisionOutcome = o
+		if f, err := askFacts(t, newWorld(t, rows, withNoWrite)); !errors.Is(err, rowreader.ErrNoVerdict) || len(f.Facts) != 0 {
+			t.Errorf("%s: %+v %v", o, f, err)
+		}
+	}
+	for _, o := range []string{"", "allow", "BOGUS", "ALLOW "} {
+		rows := noWriteRows()
+		rows.DecisionOutcome = o
+		if f, err := askFacts(t, newWorld(t, rows, withNoWrite)); !errors.Is(err, rowreader.ErrMismatch) || len(f.Facts) != 0 {
+			t.Errorf("%q: %+v %v", o, f, err)
+		}
+	}
+}
+
+// The no-write outcome is the pack's identifier or the source is not built.
+func TestTheNoWriteOutcomeMustBeAPackIdentifier(t *testing.T) {
+	for _, bad := range []string{"Bad Outcome", "outcome", "syn.Outcome", "syn..x", " syn.outcome.x"} {
+		c := cfg()
+		c.NoWriteOutcome = bad
+		if _, err := rowreader.NewSource(c, &readerFake{}, &paymentsFake{}, &localesFake{}, clock.NewManual(now)); !errors.Is(err, rowreader.ErrConfig) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}

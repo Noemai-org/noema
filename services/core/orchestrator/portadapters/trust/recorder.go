@@ -110,6 +110,8 @@ type RecorderAdapter struct {
 	begin  TxBeginner
 	facts  RecordFactSource
 	writer RecordWriter
+	// escalation is the pack's escalation plan, which the Writer holds too: the adapter uses it only to refuse an unusable request before a transaction opens (A534).
+	escalation recorder.EscalationSet
 
 	txTimeout time.Duration
 }
@@ -126,7 +128,7 @@ func NewRecorderAdapter(c RecorderConfig) (*RecorderAdapter, error) {
 		return nil, fmt.Errorf("%w: %v", ErrConfig, err)
 	}
 	w := &recorder.Writer{Keys: c.Keys, Issuer: issuer, Appender: c.Appender, Clock: c.Clock, IDs: c.IDs, Escalation: c.Escalation, RecordLifetime: c.RecordLifetime}
-	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w, txTimeout: c.TxTimeout}, nil
+	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w, escalation: c.Escalation, txTimeout: c.TxTimeout}, nil
 }
 
 // Record writes the decision and its grants in one transaction. The checks that need no database run first, so a refused request opens no transaction. If the context ends
@@ -193,7 +195,7 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	if r.TenantID == "" || r.PrincipalID == "" || r.Evaluated == nil {
 		return recorder.Request{}, ErrRecordRequest
 	}
-	if err := outcomeShape(r); err != nil {
+	if err := outcomeShape(r, a.escalation); err != nil {
 		return recorder.Request{}, err
 	}
 	digest, err := r.Evaluated.Digest()
@@ -252,9 +254,22 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 
 // outcomeShape is A456 (interim, relayed, not yet committed): the port serves every outcome. An ALLOW names its plan hash (a read has no steps but has its plan and its hash, A205
 // Q3; a write's steps are the intake's to count). Every other outcome has no plan hash and no step, so no grant (INV-03), and only a CONFIRM carries a confirmation request.
-func outcomeShape(r intake.RecordRequest) error {
+func outcomeShape(r intake.RecordRequest, escalation recorder.EscalationSet) error {
 	if err := declinedShape(r); err != nil {
 		return err
+	}
+	// The escalation action decision (A503, rescoped by A534, interim, relayed): a decision carrying a step of the pack's escalation plan names the ESCALATE disposition recorded before it,
+	// and a decision with no step names none. A decision whose steps are all outside the escalation plan (a complaint write) names none. A mismatch is an unusable request, refused before any
+	// transaction opens; the Writer checks the rest (the disposition exists, is the tenant's and the intent's, and every step is in the plan).
+	if r.DispositionDecisionID != "" && len(r.Steps) == 0 {
+		return fmt.Errorf("%w: a decision with no step names no escalation disposition", ErrRecordRequest)
+	}
+	if r.DispositionDecisionID == "" {
+		for _, s := range r.Steps {
+			if escalation.Contains(s.CapabilityID) {
+				return fmt.Errorf("%w: a step of the escalation plan needs its escalation disposition", ErrRecordRequest)
+			}
+		}
 	}
 	if r.Decision.Outcome() == decide.Allow {
 		if !recHashRe.MatchString(r.PlanHash) {

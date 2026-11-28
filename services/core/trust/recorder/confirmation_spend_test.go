@@ -264,7 +264,7 @@ func TestASecondDecisionThatNamesTheSameConfirmationIsRefusedAndLeavesNothing(t 
 	if !errors.Is(err, recorder.ErrConfirmationSpent) {
 		t.Fatalf("a second spend of the confirmation: err %v, want ErrConfirmationSpent", err)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decision records, want 1", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 1 {
@@ -322,7 +322,7 @@ func TestTwoDecisionsRacingForOneConfirmationLeaveExactlyOneAllow(t *testing.T) 
 	if won != 1 || spent != 1 {
 		t.Fatalf("%d decisions committed and %d refused as spent; want 1 and 1", won, spent)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decision records, want 1", n)
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 1 {
@@ -541,7 +541,7 @@ func TestARetryNamingAnotherConfirmationThanTheStoredDecisionIsATypedConflict(t 
 	if n := w.spends(t); n != 1 {
 		t.Errorf("%d spends, want 1", n)
 	}
-	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+	if n := w.count(t, recordsQ); n != 1 {
 		t.Errorf("%d decision records, want 1", n)
 	}
 	if after := w.events(t); len(after) != len(eventsBefore) {
@@ -573,7 +573,7 @@ func TestAnAllowWhoseConfirmationWasGivenForAnotherPlanIsRefused(t *testing.T) {
 			second.PlanHash, second.PlanStep = h(5), 2
 			r.Steps = append(r.Steps, second)
 		},
-		"no steps (a confirmation is for a write)": func(r *recorder.Request) { r.Steps = nil },
+		"no steps (a confirmation is for a write)": func(r *recorder.Request) { r.Steps, r.DispositionDecisionID = nil, "" },
 	} {
 		r := allowWith(t, "evs_01ABC", given)
 		mutate(&r)

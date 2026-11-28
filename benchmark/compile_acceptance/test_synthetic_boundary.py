@@ -174,9 +174,12 @@ class Fixture(unittest.TestCase):
             self.assertEqual(doc["fixture"]["run_id"], "synthetic-boundary", name)
         self.assertFalse((RECORDINGS / "boundary-findings.json").exists())
 
-    @unittest.skipIf(importlib.util.find_spec("pydantic") is None, "the model service's dependencies are not installed here (the benchmark job installs benchmark/requirements.lock only); run with services/model/requirements.lock too")
     def test_the_three_long_digit_run_boundaries_are_generated_here_and_never_committed_a604(self) -> None:
         """B02, B06 and B12 write five or more digits in a row, which the leak rule flags in any committed file, so they are generated into a temporary directory, here, and checked against A612's rule."""
+        if importlib.util.find_spec("pydantic") is None:
+            if os.environ.get("NOEMA_REQUIRE_MODEL_DEPS") == "1":
+                self.fail("the model job requires the model service's dependencies and they are not installed (A733)")  # fails closed where the test is meant to run
+            self.skipTest("the model service's dependencies are not installed here; the model job runs this test with NOEMA_REQUIRE_MODEL_DEPS=1 (A733)")
         with tempfile.TemporaryDirectory() as tmp:
             done = subprocess.run([sys.executable, "-c", "import sys; from benchmark.compile_acceptance.synthetic_boundary import main; sys.exit(main(['--out', sys.argv[1], '--include-long-digit-runs']))", tmp],
                                   capture_output=True, text=True, check=False, cwd=ROOT, env={**os.environ, "PYTHONPATH": f"{ROOT / 'services' / 'model'}:{ROOT}"})

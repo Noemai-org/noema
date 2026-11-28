@@ -26,12 +26,14 @@ var (
 
 // Config is the pack's and the deployment's data; nothing here has a default (AGENT-16). Facts is the currency table, the zone and the owner-queue names (factsource.Config). Label is the
 // source label of the case facts. CaseCapability is the pack's capability whose receipt acknowledges a case. QueueParam names the step_params member that holds the owner queue
-// of the case, as the pack's binding gives it; empty means no source for the queue.
+// of the case, as the pack's binding gives it; empty means no source for the queue. NoWriteOutcome is the pack's outcome that explains a decision with no write (A727); empty means a
+// decision with no verdict is not explained.
 type Config struct {
 	Facts          factsource.Config
 	Label          string
 	CaseCapability string
 	QueueParam     string
+	NoWriteOutcome string
 }
 
 // RowsReader reads the rows of one decision for one tenant; *Reader is the real one.
@@ -62,6 +64,9 @@ var _ explanation.FactsSource = (*Source)(nil)
 
 // NewSource refuses a missing seam or clock, an empty label or capability, and a facts configuration with no zone or no currency table.
 func NewSource(cfg Config, reader RowsReader, payments Payments, locales Locales, clk clock.Clock) (*Source, error) {
+	if cfg.NoWriteOutcome != "" && !outcomeRe.MatchString(cfg.NoWriteOutcome) {
+		return nil, ErrConfig
+	}
 	if reader == nil || payments == nil || locales == nil || clk == nil || cfg.Label == "" || cfg.CaseCapability == "" || cfg.Facts.Zone == nil || len(cfg.Facts.Exponents) == 0 {
 		return nil, ErrConfig
 	}
@@ -103,7 +108,7 @@ func (s *Source) Facts(ctx context.Context, sub explanation.Subject, decisionID 
 	if !classificationRe.MatchString(rows.Classification) {
 		return contracts.ExplanationFactsV2{}, ErrNoClassification
 	}
-	outcome, err := outcomeOf(rows)
+	outcome, err := s.outcomeOf(rows)
 	if err != nil {
 		return contracts.ExplanationFactsV2{}, err
 	}
@@ -137,8 +142,40 @@ func validLocale(l contracts.ExplanationFactsV2Locale) bool {
 	return false
 }
 
-// outcomeOf is the one outcome the verdicts of the decision's own grants name. None is ErrNoVerdict and several are ErrAmbiguous: this source never chooses.
-func outcomeOf(rows Rows) (string, error) {
+// outcomeOf is the outcome to explain, chosen the same way every time (A727): the verdict row of the decision's own grants wins when there is one; with none, the Decision Record alone
+// explains only a no-write outcome; a write with no verdict is ErrNoVerdict.
+func (s *Source) outcomeOf(rows Rows) (string, error) {
+	outcome, err := verdictOutcome(rows)
+	if !errors.Is(err, ErrNoVerdict) {
+		return outcome, err
+	}
+	return s.noWriteOutcome(rows)
+}
+
+// noWriteOutcome is the configured no-write outcome for an ALLOW record that has no grant of its own. Any other record outcome has no outcome to explain here (ErrNoVerdict), a record
+// whose outcome is not one of the seven is ErrMismatch, and a decision with a grant of its own is a write, never explained from the record alone.
+func (s *Source) noWriteOutcome(rows Rows) (string, error) {
+	if s.cfg.NoWriteOutcome == "" {
+		return "", ErrNoVerdict
+	}
+	switch contracts.EnumsV1DecisionOutcome(rows.DecisionOutcome) {
+	case contracts.EnumsV1DecisionOutcomeALLOW:
+	case contracts.EnumsV1DecisionOutcomeCLARIFY, contracts.EnumsV1DecisionOutcomeCONFIRM, contracts.EnumsV1DecisionOutcomeWAIT, contracts.EnumsV1DecisionOutcomeESCALATE,
+		contracts.EnumsV1DecisionOutcomeREJECT, contracts.EnumsV1DecisionOutcomeUNKNOWN:
+		return "", ErrNoVerdict
+	default:
+		return "", ErrMismatch
+	}
+	for _, e := range rows.Executions {
+		if e.OwnGrant {
+			return "", ErrNoVerdict
+		}
+	}
+	return s.cfg.NoWriteOutcome, nil
+}
+
+// verdictOutcome is the one outcome the verdicts of the decision's own grants name. None is ErrNoVerdict and several are ErrAmbiguous: this source never chooses.
+func verdictOutcome(rows Rows) (string, error) {
 	outcome := ""
 	for _, e := range rows.Executions {
 		if !e.OwnGrant || e.Verdict == "" {
