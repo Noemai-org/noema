@@ -51,6 +51,11 @@ if [ ! -s "$dir/core_trust_ed25519_seed_1" ]; then
   ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_trust_ed25519_seed_1" )
 fi
 chmod 600 "$dir/core_trust_ed25519_seed_1"
+# The ops listener's admin signing seed (A775; identity admin), the same form; held by ops-keys-init only, and only when the ops overlay is started.
+if [ ! -s "$dir/core_admin_ed25519_seed_1" ]; then
+  ( umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/core_admin_ed25519_seed_1" )
+fi
+chmod 600 "$dir/core_admin_ed25519_seed_1"
 
 # The core's other key files (A506, interim): the orchestrator's (`core-workflows`) and the gateway's (`core-edge`) Ed25519 seeds and the input hash key, each 32 random bytes as 64 lower-case hexadecimal
 # characters (the form the loaders read: the seeds as core-workflows.ed25519.1.key and core-edge.ed25519.1.key, the hash key as one file of at least 32 bytes), kept if present, never printed. A

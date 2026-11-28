@@ -177,18 +177,22 @@ model-bench-up:
 # directory (bench-stack.yml). The runner is a container on bench_net and edge_net (services/bench-runner.yml); the workflow runs the suite in it.
 # The optional Intron key overlay (A377 to A379): only when the host path of the key file is given (NOEMA_BENCH_INTRON_KEY_FILE); without it the model has no mount and the provider is not registered.
 BENCH_INTRON = $(if $(NOEMA_BENCH_INTRON_KEY_FILE),-f deploy/compose/bench-intron.yml)
-BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml $(BENCH_INTRON) --profile bench
+# The optional ops listener overlay (A775, A721): only when NOEMA_BENCH_OPS is set, and only once the core image holds /usr/local/bin/ops (EL's cmd/ops main). It also gives NOEMA_EMITTERS the
+# emitter `admin`, so the database makes record_emitter__<tenant>__admin and secrets_local.sh makes its own secret; without the overlay the emitters are the default (core-edge).
+BENCH_OPS = $(if $(NOEMA_BENCH_OPS),-f deploy/compose/bench-ops.yml)
+BENCH_EMITTERS = $(if $(NOEMA_BENCH_OPS),core-edge admin,core-edge)
+BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml $(BENCH_INTRON) $(BENCH_OPS) --profile bench
 # BENCH_MAX_BODY_BYTES has no default: the body limit is not an approved number, so a person gives it. bench-up refuses without it and makes the synthetic IdP first (bench-tokens), because
 # the core mounts its public key. Compose interpolates the variable for every command, so bench-down gets a placeholder when none is given (it uses no value).
 BENCH_TENANT ?= ten_alpha
 # One tenant list for the secret step and for Compose: NOEMA_TENANTS in the shell, else in Compose's .env, else the stand-in tenant (bench_tenants.sh). postgres makes a login per tenant of it and secrets_local.sh a secret per tenant of it.
 BENCH_TENANTS = $(shell sh deploy/compose/bench_tenants.sh "$(BENCH_TENANT)")
-BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) NOEMA_BENCH_MAX_BODY_BYTES=$(or $(BENCH_MAX_BODY_BYTES),1) STANDIN_TENANT_ID=$(BENCH_TENANT) NOEMA_TENANTS="$(BENCH_TENANTS)"
+BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) NOEMA_BENCH_MAX_BODY_BYTES=$(or $(BENCH_MAX_BODY_BYTES),1) STANDIN_TENANT_ID=$(BENCH_TENANT) NOEMA_TENANTS="$(BENCH_TENANTS)" NOEMA_EMITTERS="$(BENCH_EMITTERS)"
 .PHONY: bench-up bench-down
 bench-up:
 	@test -n "$(BENCH_TENANTS)" || { echo "bench-up: the tenant list is empty or was refused (see bench_tenants.sh above)" >&2; exit 2; }
 	@test -n "$(BENCH_MAX_BODY_BYTES)" || { echo "bench-up: BENCH_MAX_BODY_BYTES is required (no default: the body limit is not an approved number)" >&2; exit 2; }
-	NOEMA_TENANTS="$(BENCH_TENANTS)" deploy/compose/secrets_local.sh
+	NOEMA_TENANTS="$(BENCH_TENANTS)" NOEMA_EMITTERS="$(BENCH_EMITTERS)" deploy/compose/secrets_local.sh
 	mkdir -p $(BENCH_OUT)/cost
 	BENCH_TENANT="$(BENCH_TENANT)" BENCH_MAX_BODY_BYTES="$(BENCH_MAX_BODY_BYTES)" $(MAKE) bench-tokens
 	$(BENCH_ENV) $(BENCH_COMPOSE) up -d --build --wait

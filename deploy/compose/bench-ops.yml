@@ -1,0 +1,101 @@
+# Optional bench overlay (A775, A721, A699): the ops listener of the tenant kill switch control plane (EXE-06) and the one-shot that writes the tenants' admin emitter logins for it.
+# NOT in the default bench stack. `make bench-up` adds it only when NOEMA_BENCH_OPS is set, and only once the core image holds `/usr/local/bin/ops` (EL's `cmd/ops` main and its build line in
+# services/core/Dockerfile): until then the stack has no ops service, so a missing binary can never break it. With it, `make bench-up` also gives NOEMA_EMITTERS the emitter `admin`, so the
+# database makes the login `record_emitter__<tenant>__admin` and `secrets_local.sh` makes its own secret.
+#
+# Who holds what (A699, A721): only the `ops` service holds a tenant's admin emitter login, read-only, from the volume `ops_admin_emitter_dsns`; only `ops-dsn-init` writes it. No runtime
+# process, the core included, mounts either. The operator CA (`operator-ca.crt`) is a different CA from the service-to-service mTLS CA (`ca.crt`): a certificate the service CA signed can
+# never act as an operator, and the ops listener never trusts the service CA. `ops.crt` and `ops.key` are the listener's own server certificate, signed by the operator CA; both come from
+# tls_local.sh (SYNTHETIC throwaway material). The names of the settings are A775's; the listen address and the port to publish are EL's to name in its pull request, and this file mirrors
+# them when it appears (no port is published until then).
+volumes:
+  ops_admin_emitter_dsns: {}
+  # The ops listener's own admin signing key (EL's cmd/ops, A775: `admin.ed25519.<n>.key`), written once by ops-keys-init at mode 0400 and read-only in `ops`; nothing else holds it.
+  ops_admin_keys: {}
+
+secrets:
+  core_admin_ed25519_seed_1:
+    file: ./secrets/core_admin_ed25519_seed_1
+
+services:
+  # One-shot, as root, no network (the trust-dsn-init pattern): reads the per-login secret of the `admin` emitter of each tenant (emitter_logins/<tenant>__admin, read-only) and writes one
+  # DSN file per tenant, mode 0400, owner 65532, into the volume only the ops service reads. It holds no shared tenant password (no Compose secret) and runs the `admin` job only.
+  ops-dsn-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
+    environment:
+      TRUST_DSN_EMITTERS: /run/emitter_logins
+      TRUST_DSN_JOBS: "admin:/out/ops"
+      TRUST_DSN_UID: "65532"
+      TRUST_DSN_GID: "65532"
+      TRUST_DSN_TENANTS: "${NOEMA_TENANTS:-${STANDIN_TENANT_ID:-ten_alpha}}"
+    command: ["python3", "-I", "/init/init.py"]
+    volumes:
+      - ./trust-dsn/init.py:/init/init.py:ro
+      - ops_admin_emitter_dsns:/out/ops
+      - ./secrets/emitter_logins:/run/emitter_logins:ro
+
+  # One-shot, as root, no network (the core-trust-keys-init pattern): turns the admin signing seed into `admin.ed25519.1.key` (64 hexadecimal characters, mode 0400, owner 65532) in the volume only
+  # `ops` reads, and checks it by reading it as that user. It prints a file name, never a value. The seed is held by this step alone.
+  ops-keys-init:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [bench]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
+    environment:
+      CORE_KEYS_SRC: /run/secrets
+      CORE_KEYS_FILES: "core_admin_ed25519_seed_1=/out/admin/admin.ed25519.1.key"
+      CORE_KEYS_UID: "65532"
+      CORE_KEYS_GID: "65532"
+    command: ["python3", "-I", "/init/init.py"]
+    secrets: [core_admin_ed25519_seed_1]
+    volumes:
+      - ./core-keys/init.py:/init/init.py:ro
+      - ops_admin_keys:/out/admin
+
+  # The ops listener: mTLS, the operator CA verifies client certificates (the certificate's common name is the principal, the tenant comes from the path, TLS 1.3 floor, A721). It reaches the
+  # database on data_net only and holds no other secret, no Compose secret and no key. The image is the core's; the entrypoint is `ops`.
+  ops:
+    image: noema-core:dev
+    profiles: [bench]
+    networks: [data_net]
+    user: "65532:65532"
+    entrypoint: ["/usr/local/bin/ops"]
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    depends_on:
+      ops-dsn-init:
+        condition: service_completed_successfully
+      ops-keys-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      # Mirrors EL's cmd/ops (noema#1055): the listen address is the service's own interface inside data_net, never published; the admin key directory and its overlap (A594: 2).
+      NOEMA_OPS_LISTEN_ADDR: "0.0.0.0:8443"
+      NOEMA_OPS_KEY_DIR: /run/ops-keys
+      NOEMA_OPS_KEY_MAX_ACTIVE: "2"
+      NOEMA_OPS_DSN_DIR: /run/ops-dsn
+      NOEMA_OPS_TLS_CERT_FILE: /run/ops-tls/ops.crt
+      NOEMA_OPS_TLS_KEY_FILE: /run/ops-tls/ops.key
+      NOEMA_OPS_CLIENT_CA_FILE: /run/ops-tls/operator-ca.crt
+    volumes:
+      - ops_admin_emitter_dsns:/run/ops-dsn:ro
+      - ops_admin_keys:/run/ops-keys:ro
+      - ./secrets/tls/ops.crt:/run/ops-tls/ops.crt:ro
+      - ./secrets/tls/ops.key:/run/ops-tls/ops.key:ro
+      - ./secrets/tls/operator-ca.crt:/run/ops-tls/operator-ca.crt:ro

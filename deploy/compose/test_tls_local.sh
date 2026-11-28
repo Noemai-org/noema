@@ -22,6 +22,15 @@ for c in model core-client model-health temporal; do
   if openssl verify -CAfile "$work/tls/operator-ca.crt" "$work/tls/$c.crt" >/dev/null 2>&1; then fail "the service certificate $c verifies against the operator CA"; fi
   openssl verify -CAfile "$work/tls/ca.crt" "$work/tls/$c.crt" >/dev/null 2>&1 || fail "the service certificate $c no longer verifies against the service CA"
 done
+# the operator side (A775): the ops listener's server certificate and one synthetic operator's client certificate verify against the operator CA and NOT against the service CA
+for c in ops operator-client; do
+  [ -s "$work/tls/$c.crt" ] && [ -s "$work/tls/$c.key" ] || fail "$c is missing"
+  openssl verify -CAfile "$work/tls/operator-ca.crt" "$work/tls/$c.crt" >/dev/null 2>&1 || fail "$c does not verify against the operator CA"
+  if openssl verify -CAfile "$work/tls/ca.crt" "$work/tls/$c.crt" >/dev/null 2>&1; then fail "$c verifies against the service CA: an operator certificate would be a service certificate"; fi
+done
+openssl x509 -in "$work/tls/operator-client.crt" -noout -subject | grep -q "CN *= *op_synthetic" || fail "the synthetic operator's common name is not op_synthetic"
+openssl x509 -in "$work/tls/operator-client.crt" -noout -text | grep -q "TLS Web Client Authentication" || fail "the synthetic operator's certificate is not a client certificate"
+openssl x509 -in "$work/tls/ops.crt" -noout -text | grep -q "DNS:ops" || fail "the ops server certificate does not name ops"
 # the operator CA is a CA, and neither CA's private key is kept (nothing can mint a further certificate afterwards)
 openssl x509 -in "$work/tls/operator-ca.crt" -noout -text | grep -q "CA:TRUE" || fail "the operator CA certificate is not a CA"
 for f in ca.key operator-ca.key; do [ ! -e "$work/tls/$f" ] || fail "$f was left behind"; done

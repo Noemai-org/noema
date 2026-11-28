@@ -145,6 +145,48 @@ class InitTrustDsn(unittest.TestCase):
         for key, d in self.dirs.items():
             self.assertNotIn("ten_bb", (d / "ten_aa").read_text(encoding="utf-8"), key)
 
+    # A775 and A699: the tenant's admin emitter login. Its own job writes `record_emitter__<t>__admin` from the per-login secret `<t>__admin` into one directory, with no shared tenant password and
+    # without touching any other group; a job that does not name `admin` never reads that secret.
+    ADMIN_PASSWORD = "synthetic-admin-login-secret"  # SYNTHETIC
+
+    def test_the_admin_group_writes_only_the_admin_emitter_login_from_its_own_secret(self) -> None:
+        emitters = Path(self.tmp.name) / "adm_emitters"
+        emitters.mkdir(exist_ok=True)
+        for t in ("ten_aa", "ten_bb"):
+            (emitters / f"{t}__admin").write_text(self.ADMIN_PASSWORD + "\n", encoding="utf-8")
+        d = Path(self.tmp.name) / "adm"
+        d.mkdir(exist_ok=True)
+        r = run(self.src, self.out, TRUST_DSN_EMITTERS=str(emitters), TRUST_DSN_JOBS=f"admin:{d}")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(sorted(p.name for p in d.iterdir()), ["ten_aa", "ten_bb"])
+        for t in ("ten_aa", "ten_bb"):
+            f = d / t
+            self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o400)
+            self.assertEqual(f.read_text(encoding="utf-8").strip(), f"postgres://record_emitter__{t}__admin:{self.ADMIN_PASSWORD}@postgres:5432/noema")
+        self.assertNotIn(self.ADMIN_PASSWORD, r.stdout + r.stderr)
+
+    def test_a_job_that_does_not_name_admin_never_reads_the_admin_secret(self) -> None:
+        env = self.jobs_env()
+        for t in ("ten_aa", "ten_bb"):
+            (Path(env["TRUST_DSN_EMITTERS"]) / f"{t}__admin").write_text(self.ADMIN_PASSWORD + "\n", encoding="utf-8")
+        r = run(self.src, self.out, **env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for key, d in self.dirs.items():
+            for f in d.iterdir():
+                self.assertNotIn(self.ADMIN_PASSWORD, f.read_text(encoding="utf-8"), key)
+                self.assertNotIn("__admin", f.read_text(encoding="utf-8"), key)
+
+    def test_a_missing_admin_secret_stops_the_admin_job_and_leaves_nothing(self) -> None:
+        emitters = Path(self.tmp.name) / "adm_emitters2"
+        emitters.mkdir(exist_ok=True)
+        (emitters / "ten_aa__admin").write_text(self.ADMIN_PASSWORD + "\n", encoding="utf-8")  # ten_bb has none
+        d = Path(self.tmp.name) / "adm2"
+        d.mkdir(exist_ok=True)
+        r = run(self.src, self.out, TRUST_DSN_EMITTERS=str(emitters), TRUST_DSN_JOBS=f"admin:{d}")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(list(d.iterdir()), [])
+        self.assertNotIn(self.ADMIN_PASSWORD, r.stdout + r.stderr)
+
     def test_a_missing_per_login_secret_stops_everything_and_leaves_no_file_in_any_directory(self) -> None:
         env = self.jobs_env()
         (Path(env["TRUST_DSN_EMITTERS"]) / "ten_bb__core-edge").unlink()

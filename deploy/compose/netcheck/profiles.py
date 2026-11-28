@@ -126,6 +126,9 @@ NETWORKS = {
     "standin-anchor": {"bench_net"},
     "bench-runner": {"bench_net", "edge_net"},
     "webhook-relay": {"tushe_net", "tushe_egress"},
+    "ops": {"data_net"},
+    "ops-dsn-init": set(),
+    "ops-keys-init": set(),
     "evil-provider": {"provider_egress"},
     "mock-case-credentials": set(),
     "hostility-proxy-credentials": set(),
@@ -143,7 +146,7 @@ NETWORKS = {
     "policy-publish": {"data_net"},
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"core-tls-init", "mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init"}
+SIDECARS = {"ops-keys-init", "ops-dsn-init", "core-tls-init", "mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
@@ -179,7 +182,7 @@ ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "host
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
 # The mTLS material between the core and the model service (noema#555), from deploy/compose/tls_local.sh: each side mounts its own key and the CA certificate, never the other's key.
 TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt"}, "core-tls-init": {"core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"},
-              "temporal": {"ca.crt", "temporal.crt", "temporal.key"}}
+              "temporal": {"ca.crt", "temporal.crt", "temporal.key"}, "ops": {"ops.crt", "ops.key", "operator-ca.crt"}}  # A775: the operator side; the service CA is never here (A721)
 TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
 # The settings of the core's client of the model service (noema#555, noema#563): the core reads exactly these five and refuses to build its client unless all five are set (no default,
 # AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
@@ -472,13 +475,16 @@ def flags_of(argv):
 TEMPORAL_TLS_SETTINGS = ("TEMPORAL_TLS_FRONTEND_CERT", "TEMPORAL_TLS_FRONTEND_KEY", "TEMPORAL_TLS_SERVER_CA_CERT", "TEMPORAL_TLS_FRONTEND_SERVER_NAME", "TEMPORAL_TLS", "TEMPORAL_TLS_CA", "TEMPORAL_TLS_SERVER_NAME",
                          "TEMPORAL_TLS_SERVER_CERT", "TEMPORAL_TLS_SERVER_KEY", "TEMPORAL_TLS_INTERNODE_SERVER_NAME")
 BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
+OPS_OVERLAY = "bench-ops.yml"  # A775: the optional ops listener and its admin-login one-shot; checked as the bench stack with this overlay
+OPS_SERVICES = {"ops", "ops-dsn-init", "ops-keys-init"}
+OPS_VOLUME = "ops_admin_emitter_dsns"
 BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
 
 INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
 RELAY_SECRET_VOLUME = "webhook_relay_credentials"  # A714: the one SYNTHETIC signing secret the relay and mock-case share
 SERVICE_CA_SOURCE, SERVICE_CA_TARGET = "secrets/tls/ca.crt", "/run/tls/ca.crt"  # A721: the service-to-service mTLS CA; the operator CA must be a different file
-ADMIN_EMITTER_HOLDER = "ops"  # A699: the only service that may hold a tenant's admin emitter login; it does not exist yet (EL, G2)
+ADMIN_EMITTER_HOLDER = "ops"  # A699: the only service that reads a tenant's admin emitter login; ops-dsn-init (A775) alone writes the files it reads
 
 
 def intron_overlay_text_problems(text):
@@ -490,10 +496,12 @@ def intron_overlay_text_problems(text):
     return []
 
 
-def resolved(profile, with_intron=False):
+def resolved(profile, with_intron=False, with_ops=False):
     files = [str(COMPOSE_FILE)] + ([str(COMPOSE_FILE.parent / f) for f in BENCH_OVERLAYS] if profile == "bench" else [])
     if with_intron:
         files.append(str(COMPOSE_FILE.parent / INTRON_OVERLAY))
+    if with_ops:
+        files.append(str(COMPOSE_FILE.parent / OPS_OVERLAY))
     cmd = ["docker", "compose"] + [a for f in files for a in ("-f", f)] + ["--profile", profile, "config", "--format", "json"]
     out = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **BENCH_ENV, **({"NOEMA_BENCH_INTRON_KEY_FILE": "/tmp/noema-intron-key"} if with_intron else {})} if profile == "bench" else None)
     if out.returncode != 0:
@@ -501,10 +509,14 @@ def resolved(profile, with_intron=False):
     return json.loads(out.stdout)
 
 
+def have_ops(cfg):
+    return bool(set(cfg["services"]) & OPS_SERVICES)
+
+
 def check(cfg, profile):
     """Returns the list of violations for one resolved profile configuration."""
     bad = []
-    have, want = set(cfg["services"]), EXPECTED_SERVICES[profile]
+    have, want = set(cfg["services"]), EXPECTED_SERVICES[profile] | (OPS_SERVICES if profile == "bench" and have_ops(cfg) else set())
     for name in sorted(want - have):
         bad.append(f"{profile}: the service {name!r} is missing; the profile must build exactly {sorted(want)}")
     for name in sorted(have - want):
@@ -532,7 +544,7 @@ def check(cfg, profile):
             # every three seconds: five-digit ports are digit runs, so a clean run would fail its own scan (Codex P1 on noema#591).
             bad.append(f"{profile}: the model's uvicorn must run with --no-access-log (its access log carries the client port, a digit run the leak scan would report)")
         for flag in ("privileged", "cap_add", "devices"):
-            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT, OPERATOR_INIT, TRUST_KEYS_INIT, TLS_INIT)):  # each one-shot adds exactly the set its own rule pins, checked by its own rule below
+            if svc.get(flag) and not (flag == "cap_add" and name in (TRUST_DSN_INIT, KEYS_INIT, OPERATOR_INIT, TRUST_KEYS_INIT, TLS_INIT, "ops-dsn-init", "ops-keys-init")):  # each one-shot adds exactly the set its own rule pins, checked by its own rule below
                 bad.append(f"{profile}: {name} sets {flag}")
         for flag in ("pid", "ipc", "userns_mode"):
             if svc.get(flag) == "host":
@@ -658,8 +670,8 @@ def check(cfg, profile):
         for secret in KEY_SECRETS:
             if secret in held and name != KEYS_INIT:
                 bad.append(f"{profile}: {name} holds the secret {secret}; only {KEYS_INIT} may (INV-29, A506)")
-        if any(str(v.get("source", "")).rstrip("/").endswith("emitter_logins") for v in vols) and name not in ("postgres", TRUST_DSN_INIT):
-            bad.append(f"{profile}: {name} mounts the per-login emitter secrets; only postgres and {TRUST_DSN_INIT} may (INV-29, A506)")
+        if any(str(v.get("source", "")).rstrip("/").endswith("emitter_logins") for v in vols) and name not in ("postgres", TRUST_DSN_INIT, "ops-dsn-init"):
+            bad.append(f"{profile}: {name} mounts the per-login emitter secrets; only postgres, {TRUST_DSN_INIT} and ops-dsn-init (the admin job, A775) may (INV-29, A506)")
         for setting, why in NEVER_SET.items():
             if setting in (svc.get("environment") or {}):
                 bad.append(f"{profile}: {name} sets {setting}: {why}")
@@ -712,7 +724,7 @@ def check(cfg, profile):
         admin_refs = [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or []) if isinstance(v, dict)]
         admin_refs += [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])]
         admin_refs += list((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else []
-        if name != ADMIN_EMITTER_HOLDER and any(re.search(r"admin", r, re.I) and re.search(r"emitter|dsn", r, re.I) for r in admin_refs):
+        if name not in (ADMIN_EMITTER_HOLDER, "ops-dsn-init") and any(re.search(r"admin", r, re.I) and re.search(r"emitter|dsn", r, re.I) for r in admin_refs):
             bad.append(f"{profile}: {name} mounts or names an admin emitter login; only the ops listener may hold it (A699, INV-29)")
         # Intron's key (A249): a file mount read by the model service only. No service may carry it as an environment variable, and no service but the model may name a setting or a mount for it.
         env_names = set((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else set()
@@ -769,6 +781,46 @@ def check(cfg, profile):
             mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
             for need in sorted(TLS_REQUIRED.get(name, set()) - mounted):
                 bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
+        # A775, A721, A699: the ops listener and the one-shot that writes the admin emitter logins for it (the bench-ops.yml overlay). `ops` reads the logins read-only from the one volume, holds
+        # the operator CA (never the service CA), its own server certificate and key, no Compose secret and no other volume, and runs as the core's unprivileged user with nothing writable.
+        # `ops-dsn-init` writes that volume and holds nothing else; no other service runs the `admin` job.
+        if name == "ops":
+            want_env = {"NOEMA_OPS_LISTEN_ADDR": "0.0.0.0:8443", "NOEMA_OPS_KEY_DIR": "/run/ops-keys", "NOEMA_OPS_KEY_MAX_ACTIVE": "2", "NOEMA_OPS_DSN_DIR": "/run/ops-dsn", "NOEMA_OPS_TLS_CERT_FILE": "/run/ops-tls/ops.crt", "NOEMA_OPS_TLS_KEY_FILE": "/run/ops-tls/ops.key", "NOEMA_OPS_CLIENT_CA_FILE": "/run/ops-tls/operator-ca.crt"}
+            if dict(svc.get("environment") or {}) != want_env:
+                bad.append(f"{profile}: ops must set exactly {sorted(want_env)} to A775's values")
+            vols = [v for v in (svc.get("volumes") or []) if isinstance(v, dict)]
+            got = sorted((str(v.get("target")), bool(v.get("read_only")), str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] if v.get("type") == "bind" else str(v.get("source"))) for v in vols)
+            want_vols = sorted([("/run/ops-keys", True, "ops_admin_keys"), ("/run/ops-dsn", True, OPS_VOLUME), ("/run/ops-tls/ops.crt", True, "ops.crt"), ("/run/ops-tls/ops.key", True, "ops.key"), ("/run/ops-tls/operator-ca.crt", True, "operator-ca.crt")])
+            if got != want_vols:
+                bad.append(f"{profile}: ops mounts {got}; it must mount exactly {want_vols}, each read-only (the operator CA, never the service CA)")
+            if svc.get("secrets"):
+                bad.append(f"{profile}: ops holds a Compose secret; it holds none (A699)")
+            if str(svc.get("user")) != "65532:65532" or not svc.get("read_only") or sorted(svc.get("cap_drop") or []) != ["ALL"] or svc.get("cap_add"):
+                bad.append(f"{profile}: ops must run as 65532:65532 with a read-only root and every capability dropped")
+            for step in ("ops-dsn-init", "ops-keys-init"):
+                if (svc.get("depends_on") or {}).get(step, {}).get("condition") != "service_completed_successfully":
+                    bad.append(f"{profile}: ops must wait for {step} to complete successfully, or it starts without its login or its key")
+            if svc.get("ports"):
+                bad.append(f"{profile}: ops publishes a port; none is published until EL names the listen address (A775)")
+        if name == "ops-dsn-init":
+            if str((svc.get("environment") or {}).get("TRUST_DSN_JOBS", "")) != "admin:/out/ops" or svc.get("secrets"):
+                bad.append(f"{profile}: ops-dsn-init must run the admin job only (TRUST_DSN_JOBS admin:/out/ops) and hold no Compose secret (A775)")
+            targets = sorted((str(v.get("target")), bool(v.get("read_only"))) for v in (svc.get("volumes") or []) if isinstance(v, dict))
+            if targets != sorted([("/init/init.py", True), ("/out/ops", False), ("/run/emitter_logins", True)]):
+                bad.append(f"{profile}: ops-dsn-init mounts {targets}; it must mount the script and the emitter secrets read-only and the ops volume writable, nothing else")
+            if sorted(svc.get("cap_add") or []) != ["CHOWN", "FOWNER", "SETGID", "SETUID"] or sorted(svc.get("cap_drop") or []) != ["ALL"]:
+                bad.append(f"{profile}: ops-dsn-init keeps a different set of capabilities than CHOWN, FOWNER, SETUID and SETGID")
+        if name == "ops-keys-init":
+            if str((svc.get("environment") or {}).get("CORE_KEYS_FILES", "")) != "core_admin_ed25519_seed_1=/out/admin/admin.ed25519.1.key" or [x if isinstance(x, str) else x.get("source") for x in (svc.get("secrets") or [])] != ["core_admin_ed25519_seed_1"]:
+                bad.append(f"{profile}: ops-keys-init must turn the admin seed, and only that secret, into admin.ed25519.1.key (A775)")
+            if sorted((str(v.get("target")), bool(v.get("read_only"))) for v in (svc.get("volumes") or []) if isinstance(v, dict)) != sorted([("/init/init.py", True), ("/out/admin", False)]):
+                bad.append(f"{profile}: ops-keys-init mounts more or less than the script and the admin key volume")
+        if name != "ops-keys-init" and any((x if isinstance(x, str) else x.get("source")) == "core_admin_ed25519_seed_1" for x in (svc.get("secrets") or [])):
+            bad.append(f"{profile}: {name} holds the admin signing seed; only ops-keys-init may (A775, INV-29)")
+        if name not in ("ops", "ops-keys-init") and any(isinstance(v, dict) and v.get("source") == "ops_admin_keys" for v in (svc.get("volumes") or [])):
+            bad.append(f"{profile}: {name} mounts the admin key volume; only ops (read-only) and ops-keys-init may (A775)")
+        if name not in ("ops-dsn-init",) and re.search(r"(^|\s)admin:", str((svc.get("environment") or {}).get("TRUST_DSN_JOBS", "")) if isinstance(svc.get("environment"), dict) else ""):
+            bad.append(f"{profile}: {name} runs the admin DSN job; only ops-dsn-init may (A699)")
         # A721: "any certificate the operator CA signs is an operator" holds only because the operator CA is a different CA from the service-to-service mTLS CA, so a service certificate can never act
         # as an operator. A service that sets NOEMA_OPS_CLIENT_CA_FILE must have a mount for that path whose source is not the service CA's file (secrets/tls/ca.crt), and the path must not be the path any
         # service reads the service CA at. No service sets it today (EL's ops listener, noema#1013, is not composed yet), so this holds without effect until it does.
@@ -874,6 +926,35 @@ def self_test(configs):
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
         "the core mounts an admin emitter DSN directory": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "volume", "source": "admin_emitter_dsn", "target": "/run/admin-emitter-dsn", "read_only": True})),
         "the model names an admin emitter DSN setting": ("dev", lambda c: c["services"]["model"]["environment"].update({"NOEMA_ADMIN_EMITTER_DSN_DIR": "/x"})),
+        "ops loses a setting": ("bench+ops", lambda c: c["services"]["ops"]["environment"].pop("NOEMA_OPS_TLS_KEY_FILE")),
+        "ops names an extra setting": ("bench+ops", lambda c: c["services"]["ops"]["environment"].update({"NOEMA_OPS_X": "1"})),
+        "ops trusts the service CA as its operator CA": ("bench+ops", lambda c: [c["services"]["ops"]["volumes"].append({"type": "bind", "source": "/h/secrets/tls/ca.crt", "target": "/run/ops-tls/ca.crt", "read_only": True}), c["services"]["ops"]["environment"].update({"NOEMA_OPS_CLIENT_CA_FILE": "/run/ops-tls/ca.crt"})]),
+        "ops mounts the login volume writable": ("bench+ops", lambda c: [v.update({"read_only": False}) for v in c["services"]["ops"]["volumes"] if v.get("target") == "/run/ops-dsn"]),
+        "ops mounts the core client key": ("bench+ops", lambda c: c["services"]["ops"]["volumes"].append({"type": "bind", "source": "/h/secrets/tls/core-client.key", "target": "/run/x", "read_only": True})),
+        "ops holds a Compose secret": ("bench+ops", lambda c: c["services"]["ops"].update({"secrets": [{"source": "noema_core_password"}]})),
+        "ops runs as root": ("bench+ops", lambda c: c["services"]["ops"].update({"user": "0:0"})),
+        "ops keeps its capabilities": ("bench+ops", lambda c: c["services"]["ops"].pop("cap_drop")),
+        "ops writes its root": ("bench+ops", lambda c: c["services"]["ops"].update({"read_only": False})),
+        "ops publishes a port": ("bench+ops", lambda c: c["services"]["ops"].update({"ports": [{"host_ip": "127.0.0.1", "published": "9443"}]})),
+        "ops joins a second network": ("bench+ops", lambda c: c["services"]["ops"]["networks"].update({"edge_net": None})),
+        "ops starts before its logins are written": ("bench+ops", lambda c: c["services"]["ops"]["depends_on"].pop("ops-dsn-init")),
+        "ops-dsn-init also runs another group": ("bench+ops", lambda c: c["services"]["ops-dsn-init"]["environment"].update({"TRUST_DSN_JOBS": "admin:/out/ops trust_rw:/out/x"})),
+        "ops-dsn-init holds the shared tenant password": ("bench+ops", lambda c: c["services"]["ops-dsn-init"].update({"secrets": [{"source": "noema_tenant_login_password"}]})),
+        "ops-dsn-init gains a network": ("bench+ops", lambda c: c["services"]["ops-dsn-init"].update({"network_mode": "bridge"})),
+        "ops-dsn-init mounts the core keys": ("bench+ops", lambda c: c["services"]["ops-dsn-init"]["volumes"].append({"type": "volume", "source": "core_client_key", "target": "/out/k", "read_only": False})),
+        "the core mounts the admin login volume": ("bench+ops", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "volume", "source": "ops_admin_emitter_dsns", "target": "/run/x", "read_only": True})),
+        "trust-dsn-init runs the admin job": ("bench+ops", lambda c: c["services"]["trust-dsn-init"]["environment"].update({"TRUST_DSN_JOBS": "trust_rw:/out/trust admin:/out/edge"})),
+        "ops loses its sibling": ("bench+ops", lambda c: c["services"].pop("ops-dsn-init")),
+        "ops loses the listen address": ("bench+ops", lambda c: c["services"]["ops"]["environment"].pop("NOEMA_OPS_LISTEN_ADDR")),
+        "ops listens on a different address": ("bench+ops", lambda c: c["services"]["ops"]["environment"].update({"NOEMA_OPS_LISTEN_ADDR": "0.0.0.0:80"})),
+        "ops key overlap changes": ("bench+ops", lambda c: c["services"]["ops"]["environment"].update({"NOEMA_OPS_KEY_MAX_ACTIVE": "9"})),
+        "ops mounts its key volume writable": ("bench+ops", lambda c: [v.update({"read_only": False}) for v in c["services"]["ops"]["volumes"] if v.get("target") == "/run/ops-keys"]),
+        "ops starts before its key is written": ("bench+ops", lambda c: c["services"]["ops"]["depends_on"].pop("ops-keys-init")),
+        "the core mounts the admin key volume": ("bench+ops", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "volume", "source": "ops_admin_keys", "target": "/run/x", "read_only": True})),
+        "the core holds the admin seed": ("bench+ops", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_admin_ed25519_seed_1", "target": "x"})),
+        "ops holds the admin seed itself": ("bench+ops", lambda c: c["services"]["ops"].update({"secrets": [{"source": "core_admin_ed25519_seed_1"}]})),
+        "ops-keys-init also holds another seed": ("bench+ops", lambda c: c["services"]["ops-keys-init"].update({"secrets": [{"source": "core_admin_ed25519_seed_1"}, {"source": "core_trust_ed25519_seed_1"}]})),
+        "ops-keys-init writes another key file": ("bench+ops", lambda c: c["services"]["ops-keys-init"]["environment"].update({"CORE_KEYS_FILES": "core_admin_ed25519_seed_1=/out/admin/x.key"})),
         "the model loses the provider profile": ("dev", lambda c: c["services"]["model"]["environment"].pop("NOEMA_MODEL_PROVIDER_PROFILE")),
         "the ci model's provider profile is replay": ("ci", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": "replay"})),
         "the demo model's provider profile is empty": ("demo", lambda c: c["services"]["model"]["environment"].update({"NOEMA_MODEL_PROVIDER_PROFILE": ""})),
@@ -1201,8 +1282,12 @@ def main():
         failures += found
     # The bench stack with the optional Intron key overlay (A377 to A379): the same rules, and the key mount is the model's alone.
     configs["bench+intron"] = resolved("bench", with_intron=True)
+    configs["bench+ops"] = resolved("bench", with_ops=True)
     found = check(configs["bench+intron"], "bench") + intron_overlay_text_problems((COMPOSE_FILE.parent / INTRON_OVERLAY).read_text(encoding="utf-8"))
     print(f"{'FAIL' if found else 'ok  '} profile bench with the optional Intron key overlay")
+    failures += found
+    found = check(configs["bench+ops"], "bench")
+    print(f"{'FAIL' if found else 'ok  '} profile bench with the optional ops listener overlay (A775)")
     failures += found
     # The names the core reads are the Env... constants of its model client (noema#563). When that file is in this tree the two lists must be the same set, so the Compose file and the
     # code cannot drift apart again; on a tree without it (before noema#563 merges) only the Compose side is checked, and this line says so.

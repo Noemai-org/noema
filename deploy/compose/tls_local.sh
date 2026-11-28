@@ -7,6 +7,8 @@
 #   core-client.crt/.key   the core's client certificate (the peer identity the model accepts). Mounted into the core only.
 #   model-health.crt/.key  the model's own health-check client certificate, so the core's key never sits in the model container. Mounted into the model only.
 #   ca.crt                 the CA certificate, mounted into both.
+#   ops.crt/.key           the ops listener's server certificate (A775; DNS ops, localhost; IP 127.0.0.1), signed by the OPERATOR CA. Mounted into the ops service only.
+#   operator-client.crt/.key  one SYNTHETIC operator's client certificate (CN op_synthetic), signed by the OPERATOR CA, for the stack-check and tests; a real operator brings their own.
 #   operator-ca.crt        a SECOND, separate CA (A721): its own key and subject, signs no service certificate here. The ops listener trusts this one for operator client certificates and the
 #                          service CA never, so a service certificate can never act as an operator. Its private key is deleted with the service CA's: operator certificates are issued by whoever holds an operator CA key.
 # The CA's private key exists only while this script runs and is deleted before it ends: nothing can mint a further certificate afterwards. If any of the seven files is
@@ -20,7 +22,7 @@ dir="${1:-$here/secrets/tls}"
 # copy failed and the trap left the CA's private key behind in the work area).
 mkdir -p "$dir"
 dir="$(cd "$dir" && pwd)"
-files="ca.crt operator-ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key"
+files="ca.crt operator-ca.crt ops.crt ops.key operator-client.crt operator-client.key model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key"
 complete=1
 for f in $files; do
   [ -s "$dir/$f" ] || complete=0
@@ -45,29 +47,32 @@ ssl() {
 }
 ssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 365 -subj "/CN=noema-poc-local-ca"   -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign"
 
-# The operator CA (A721): a different key and a different name from the service CA above; it signs nothing in this script.
+# The operator CA (A721): a different key and a different name from the service CA above; it signs only the two operator-side certificates below (the ops listener's own server certificate and one synthetic operator's client certificate), never a service certificate.
 ssl req -x509 -newkey rsa:2048 -nodes -keyout operator-ca.key -out operator-ca.crt -days 365 -subj "/CN=noema-poc-local-operator-ca" -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign"
 
-# issue NAME CN EXTENDED-KEY-USAGE SAN-or-empty
+# issue NAME CN EXTENDED-KEY-USAGE SAN-or-empty [CA-PREFIX]  (CA-PREFIX defaults to ca: the service CA; "operator-ca" signs with the operator CA)
 issue() {
-  name="$1"; cn="$2"; eku="$3"; san="$4"
+  name="$1"; cn="$2"; eku="$3"; san="$4"; signer="${5:-ca}"
   { printf 'basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=%s
 ' "$eku"; [ -z "$san" ] || printf 'subjectAltName=%s
 ' "$san"; } > "$name.ext"
   ssl req -newkey rsa:2048 -nodes -keyout "$name.key" -out "$name.csr" -subj "/CN=$cn"
-  ssl x509 -req -in "$name.csr" -CA ca.crt -CAkey ca.key -CAcreateserial -out "$name.crt" -days 365 -extfile "$name.ext"
+  ssl x509 -req -in "$name.csr" -CA "$signer.crt" -CAkey "$signer.key" -CAcreateserial -out "$name.crt" -days 365 -extfile "$name.ext"
 }
 issue model model serverAuth "DNS:model,DNS:localhost,IP:127.0.0.1"
 issue core-client core clientAuth ""
 issue model-health model-health clientAuth ""
 # The Temporal frontend's server certificate (A296): the name the clients verify is "temporal"; localhost and the loopback address are there for the container's own healthcheck.
 issue temporal temporal serverAuth "DNS:temporal,DNS:localhost,IP:127.0.0.1"
+# The operator side (A775), signed by the operator CA only. `ops` is the name an operator verifies; op_synthetic is the one synthetic operator (its common name becomes the principal, A721).
+issue ops ops serverAuth "DNS:ops,DNS:localhost,IP:127.0.0.1" operator-ca
+issue operator-client op_synthetic clientAuth "" operator-ca
 
 cp ca.crt "$dir/ca.crt"
 cp operator-ca.crt "$dir/operator-ca.crt"
-for n in model core-client model-health temporal; do
+for n in model core-client model-health temporal ops operator-client; do
   cp "$n.crt" "$dir/$n.crt"
   cp "$n.key" "$dir/$n.key"
 done
