@@ -17,6 +17,7 @@ const (
 	emitter        = "core-workflows" // what the orchestrator's login is bound to write (migration 0004), as for the admitted-intent store
 	eventRejected  = "INTENT_REJECTED_AT_GATE"
 	eventSecurity  = "SECURITY_EVENT"
+	eventResumed   = "INVESTIGATION_RESUMED"
 	kindOverride   = "PRINCIPAL_OVERRIDE_ATTEMPT"
 	objectRefStart = "gat_"
 )
@@ -114,9 +115,20 @@ func (r *RecordRecorder) append(ctx context.Context, ev chain.Event) error {
 	return nil
 }
 
-// Resumed is not built yet (the red commit's stub).
+// Resumed appends INVESTIGATION_RESUMED for a follow-up (REQ-INP-004): the investigation it resumed is named by the prior's intent id and version, in the payload and as the object, and nothing of the
+// request is written (AGENT-13). An intent id or a version the store could not hold is refused and nothing is appended.
 func (r *RecordRecorder) Resumed(ctx context.Context, s Subject, priorIntentID string, priorVersion int) error {
-	return nil
+	if err := r.ready(); err != nil {
+		return err
+	}
+	if _, err := r.subject(s); err != nil {
+		return err
+	}
+	if !priorIntentRe.MatchString(priorIntentID) || priorVersion < 1 {
+		return errors.New(prefix + "a resume names the prior intent by its id and a version of one or more")
+	}
+	return r.append(ctx, chain.Event{TenantID: s.TenantID, CorrelationID: s.CorrelationID, WrittenBy: emitter, Actor: s.Actor, EventType: eventResumed, ObjectRef: priorIntentID,
+		Payload: map[string]any{"prior_intent_id": priorIntentID, "prior_version": priorVersion}})
 }
 
 var _ Recorder = (*RecordRecorder)(nil)

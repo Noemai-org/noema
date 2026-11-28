@@ -246,6 +246,12 @@ func (i *Interpreter) Interpret(ctx context.Context, in Input) (Result, error) {
 			return Result{}, wrap(ErrRecord, err)
 		}
 	}
+	if in.Prior != nil && i.c.Resumed != nil {
+		// The follow-up has passed the gate: its resume is recorded now, before anything is saved (the Record comes first, EC-E16). A Record that cannot take it stops the save.
+		if err := i.c.Resumed.Resumed(ctx, subject, in.Prior.IntentID, in.Prior.Version); err != nil {
+			return Result{}, wrap(ErrRecord, err)
+		}
+	}
 	saved := admitted(adm.Intent)
 	if i.c.Subject != nil {
 		if subject, ok := i.c.Subject(adm.Intent); ok { // an intent whose subject is not resolved has no subject: epoch 1, nothing to ask
