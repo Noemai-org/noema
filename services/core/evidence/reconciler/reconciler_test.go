@@ -308,7 +308,7 @@ func TestNewRefusesAnIncompleteConfiguration(t *testing.T) {
 		})
 	}
 	other := mustRead(t, packDir, "recon_rules", "rules.v1.json")
-	other = []byte(strings.Replace(string(other), `"version": 1`, `"version": 2`, 1))
+	other = []byte(strings.Replace(string(other), `"version": 2`, `"version": 3`, 1))
 	rs2, err := reconcile.ParseRuleSet(other)
 	if err != nil {
 		t.Skip("the rule set cannot be rewritten to another version in this fixture")
