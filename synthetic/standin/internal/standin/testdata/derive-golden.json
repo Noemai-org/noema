@@ -1,133 +1,133 @@
 {
   "candidate_lists_complete": true,
   "candidates": {
-    "usr_a": [
+    "usr_aa": [
       {
-        "account_ref": "acc_usr_a",
+        "account_ref": "acc_usr_aa",
         "amount_minor": 250000,
         "counterparty": "ben_0001",
         "currency": "NGN",
         "direction": "OUTGOING",
         "occurred_at": "2026-10-01T07:10:00+01:00",
-        "transaction_ref": "fin.transaction:TX1"
+        "transaction_ref": "TX1"
       },
       {
-        "account_ref": "acc_usr_a",
+        "account_ref": "acc_usr_aa",
         "amount_minor": 500000,
         "counterparty": "ben_0001",
         "currency": "NGN",
         "direction": "OUTGOING",
         "occurred_at": "2026-10-01T09:10:00+01:00",
-        "transaction_ref": "fin.transaction:TX2"
+        "transaction_ref": "TX2"
       },
       {
-        "account_ref": "acc_usr_a",
+        "account_ref": "acc_usr_aa",
         "amount_minor": 250000,
         "counterparty": "ben_0001",
         "currency": "NGN",
         "direction": "OUTGOING",
         "occurred_at": "2026-09-30T23:40:00+01:00",
-        "transaction_ref": "fin.transaction:TX3"
+        "transaction_ref": "TX3"
       }
     ],
-    "usr_b": [
+    "usr_bb": [
       {
-        "account_ref": "acc_usr_b",
+        "account_ref": "acc_usr_bb",
         "amount_minor": 999900,
         "counterparty": "ben_0001",
         "currency": "NGN",
         "direction": "OUTGOING",
         "occurred_at": "2026-10-01T08:55:00+01:00",
-        "transaction_ref": "fin.transaction:TX9"
+        "transaction_ref": "TX9"
       }
     ]
   },
   "clock_start": "2026-10-01T09:40:00+01:00",
   "data_source": "stand-in",
   "destination_statuses": {
-    "fin.transaction:TX1": {
+    "TX1": {
       "credit_state": "CREDITED",
       "effective_at": "2026-10-01T07:10:00+01:00",
       "observed_at": "2026-10-01T09:40:00+01:00",
       "settlement_state": "SETTLED",
-      "transaction_ref": "fin.transaction:TX1",
+      "transaction_ref": "TX1",
       "unavailable": false
     },
-    "fin.transaction:TX2": {
+    "TX2": {
       "credit_state": "PENDING",
       "effective_at": "2026-10-01T09:10:00+01:00",
       "observed_at": "2026-10-01T09:40:00+01:00",
       "settlement_state": "PENDING",
-      "transaction_ref": "fin.transaction:TX2",
+      "transaction_ref": "TX2",
       "unavailable": false
     },
-    "fin.transaction:TX3": {
+    "TX3": {
       "credit_state": "CREDITED",
       "effective_at": "2026-09-30T23:40:00+01:00",
       "observed_at": "2026-10-01T09:40:00+01:00",
       "settlement_state": "SETTLED",
-      "transaction_ref": "fin.transaction:TX3",
+      "transaction_ref": "TX3",
       "unavailable": false
     },
-    "fin.transaction:TX9": {
+    "TX9": {
       "credit_state": "CREDITED",
       "effective_at": "2026-10-01T08:55:00+01:00",
       "observed_at": "2026-10-01T09:40:00+01:00",
       "settlement_state": "SETTLED",
-      "transaction_ref": "fin.transaction:TX9",
+      "transaction_ref": "TX9",
       "unavailable": false
     }
   },
   "existing_cases": 0,
   "fixture_id": "fx_golden",
   "ledger_entries": {
-    "fin.transaction:TX1": {
+    "TX1": {
       "entries": [
         {
-          "account_ref": "acc_usr_a",
+          "account_ref": "acc_usr_aa",
           "amount_minor": 250000,
           "currency": "NGN",
           "entry_id": "le_TX1_1",
           "entry_type": "DEBIT",
           "posted_at": "2026-10-01T07:10:00+01:00",
           "posting_status": "POSTED",
-          "transaction_ref": "fin.transaction:TX1",
+          "transaction_ref": "TX1",
           "version": 1
         }
       ],
       "unavailable": false
     },
-    "fin.transaction:TX2": {
+    "TX2": {
       "entries": [
         {
-          "account_ref": "acc_usr_a",
+          "account_ref": "acc_usr_aa",
           "amount_minor": 500000,
           "currency": "NGN",
           "entry_id": "le_TX2_1",
           "entry_type": "DEBIT",
           "posted_at": "2026-10-01T09:10:00+01:00",
           "posting_status": "POSTED",
-          "transaction_ref": "fin.transaction:TX2",
+          "transaction_ref": "TX2",
           "version": 1
         }
       ],
       "unavailable": false
     },
-    "fin.transaction:TX3": {
+    "TX3": {
       "entries": [],
       "unavailable": true
     },
-    "fin.transaction:TX9": {
+    "TX9": {
       "entries": [
         {
-          "account_ref": "acc_usr_b",
+          "account_ref": "acc_usr_bb",
           "amount_minor": 999900,
           "currency": "NGN",
           "entry_id": "le_TX9_1",
           "entry_type": "DEBIT",
           "posted_at": "2026-10-01T08:55:00+01:00",
           "posting_status": "POSTED",
-          "transaction_ref": "fin.transaction:TX9",
+          "transaction_ref": "TX9",
           "version": 1
         }
       ],
@@ -135,9 +135,9 @@
     }
   },
   "principals": {
-    "usr_a": {
+    "usr_aa": {
       "accounts": [
-        "acc_usr_a"
+        "acc_usr_aa"
       ],
       "beneficiaries": [
         {
@@ -147,7 +147,7 @@
           ],
           "beneficiary_id": "ben_0001",
           "name": "Chidi Okonkwo",
-          "owner": "usr_a"
+          "owner": "usr_aa"
         }
       ],
       "display_name": "A",
@@ -155,9 +155,9 @@
         "customer"
       ]
     },
-    "usr_b": {
+    "usr_bb": {
       "accounts": [
-        "acc_usr_b"
+        "acc_usr_bb"
       ],
       "beneficiaries": [],
       "display_name": "B",
@@ -167,7 +167,7 @@
     }
   },
   "switch_records": {
-    "fin.transaction:TX1": {
+    "TX1": {
       "destination_ack": true,
       "is_terminal": true,
       "raw_code": "SYN-00",
@@ -176,10 +176,10 @@
       "received_at": "2026-10-01T07:10:00+01:00",
       "semantic_status": "ACCEPTED",
       "switch_ref": "sw_TX1",
-      "transaction_ref": "fin.transaction:TX1",
+      "transaction_ref": "TX1",
       "unavailable": false
     },
-    "fin.transaction:TX2": {
+    "TX2": {
       "destination_ack": false,
       "is_terminal": false,
       "raw_code": "SYN-91",
@@ -188,10 +188,10 @@
       "received_at": "2026-10-01T09:10:00+01:00",
       "semantic_status": "TIMED_OUT",
       "switch_ref": "sw_TX2",
-      "transaction_ref": "fin.transaction:TX2",
+      "transaction_ref": "TX2",
       "unavailable": false
     },
-    "fin.transaction:TX3": {
+    "TX3": {
       "destination_ack": true,
       "is_terminal": true,
       "raw_code": "SYN-00",
@@ -200,10 +200,10 @@
       "received_at": "2026-09-30T23:40:00+01:00",
       "semantic_status": "ACCEPTED",
       "switch_ref": "sw_TX3",
-      "transaction_ref": "fin.transaction:TX3",
+      "transaction_ref": "TX3",
       "unavailable": false
     },
-    "fin.transaction:TX9": {
+    "TX9": {
       "destination_ack": true,
       "is_terminal": true,
       "raw_code": "SYN-00",
@@ -212,7 +212,7 @@
       "received_at": "2026-10-01T08:55:00+01:00",
       "semantic_status": "ACCEPTED",
       "switch_ref": "sw_TX9",
-      "transaction_ref": "fin.transaction:TX9",
+      "transaction_ref": "TX9",
       "unavailable": false
     }
   },
