@@ -385,6 +385,18 @@ class SlotQuestions(unittest.TestCase):
         found = self.problems(lambda d: self.slot(d, "amount").__setitem__("question_key", "fin.clarify.when"))
         self.assertTrue(any("fin.clarify.when" in m and "twice" in m for m in found), found)
 
+    def test_two_nodes_may_not_share_an_options_or_attribute_key_even_when_no_slot_uses_it(self):
+        # Codex P2 on noema#1045: the single-use rule is the pack's, not one node's; check_disambiguation only looks inside a node.
+        base, _ = real()
+        original = next(n for n in base["intent_nodes"] if n.get("disambiguation"))
+        for taken in (original["disambiguation"]["options_key"], original["disambiguation"]["attribute_order"][0]["question_key"]):
+            twin = json.loads(json.dumps(original))
+            twin["node_id"] = "fin.synthetic.second_node"
+            pack = json.loads(json.dumps(base))
+            pack["intent_nodes"].append(twin)
+            found = [m for _, m in checks.check_slot_questions(pack)]
+            self.assertTrue(any(taken in m and "twice" in m for m in found), (taken, found))
+
     def test_a_slot_key_may_not_be_the_options_key_or_an_attribute_question(self):
         base, _ = real()
         disambiguation = next(n for n in base["intent_nodes"] if n.get("disambiguation"))["disambiguation"]
