@@ -390,3 +390,49 @@ func TestWhenTheRecordRefusesNothingFurtherIsRead(t *testing.T) {
 		t.Errorf("second record refused: err %v items %d calls %v; want the error, the first item, and no destination read", err, len(items), p.calls)
 	}
 }
+
+// A706, A692, A665 (REQ-EVD, INV-19): the ledger payload carries version_token, the maximum entry version as a decimal string, and complete.
+func TestTheLedgerPayloadCarriesTheMaximumEntryVersionAsItsToken(t *testing.T) {
+	ledgerPayload := func(t *testing.T, read adapters.LedgerRead) map[string]any {
+		t.Helper()
+		p, rec := healthy(), &recorder{}
+		p.ledger = func(context.Context, adapters.Scope, string) (adapters.LedgerRead, error) { return read, nil }
+		if _, err := run(t, reader(p, rec)); err != nil {
+			t.Fatal(err)
+		}
+		m, ok := rec.got[0].Payload.(map[string]any)
+		if !ok {
+			t.Fatalf("ledger payload is %T, want a map", rec.got[0].Payload)
+		}
+		return m
+	}
+	t.Run("the maximum is numeric, not lexical", func(t *testing.T) {
+		a, b, c := entry("e1", adapters.PostingPosted), entry("e2", adapters.PostingPosted), entry("e3", adapters.PostingPosted)
+		a.Version, b.Version, c.Version = 3, 12, 9
+		m := ledgerPayload(t, adapters.LedgerRead{Entries: []adapters.LedgerEntry{a, b, c}, Provenance: prov})
+		if m["version_token"] != "12" || m["complete"] != true {
+			t.Errorf("version_token %#v complete %#v; want \"12\", true", m["version_token"], m["complete"])
+		}
+	})
+	t.Run("an empty ledger stays an absence with no token", func(t *testing.T) {
+		m := ledgerPayload(t, adapters.LedgerRead{Provenance: prov})
+		if tok, has := m["version_token"]; has {
+			t.Errorf("empty ledger carries version_token %#v; want none (INV-19)", tok)
+		}
+		if m["complete"] != true {
+			t.Errorf("complete %#v; an answered read is complete", m["complete"])
+		}
+	})
+	t.Run("an unavailable read has no payload and so no token", func(t *testing.T) {
+		p, rec := healthy(), &recorder{}
+		p.ledger = func(context.Context, adapters.Scope, string) (adapters.LedgerRead, error) {
+			return adapters.LedgerRead{Unavailable: true, Provenance: prov}, nil
+		}
+		if _, err := run(t, reader(p, rec)); err != nil {
+			t.Fatal(err)
+		}
+		if rec.got[0].Payload != nil {
+			t.Errorf("unavailable ledger kept payload %#v", rec.got[0].Payload)
+		}
+	})
+}
