@@ -268,6 +268,24 @@ func TestADecisionRecordedBeforeTheFreezeCannotClearIt(t *testing.T) {
 	}
 }
 
+// Codex on #1035 (P2): a lift whose `By` is neither ESCALATION nor RESOLUTION (a literal that skipped NewFreezeCleared) is refused, whatever decision follows the SET. REQ-RES-002; INV-20.
+func TestAClearingWithAnUnknownByIsRefusedWhateverDecisionFollowsTheFreeze(t *testing.T) {
+	w := newFrzWorld(t)
+	w.set(t)
+	esc, err := w.a.Record(recCtx(t), escalateDisposition(t, 62))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, by := range []reconcile.ClearedBy{"", "BOGUS", "escalation"} {
+		if err := w.row.RecordFreezeCleared(recCtx(t), reconcile.FreezeLift{TenantID: recTenant, Target: frzTarget, By: by, DecisionID: esc.DecisionID}); !errors.Is(err, ErrClearingDecision) {
+			t.Errorf("By %q: error %v; want ErrClearingDecision", by, err)
+		}
+	}
+	if got := w.state(t); got != reconcile.FreezeRecorded {
+		t.Fatalf("state %v, want FreezeRecorded (nothing was cleared)", got)
+	}
+}
+
 // Finding 2 and condition 4: a SET that cannot be appended is an error the caller must treat as a refusal (no grant, no write, retry), and a SET with no correlation writes nothing.
 func TestAFreezeSetThatCannotBeAppendedIsAnErrorAndWritesNothing(t *testing.T) {
 	w := newFrzWorld(t)
