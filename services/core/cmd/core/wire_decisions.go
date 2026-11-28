@@ -8,9 +8,12 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Noemai-org/noema/services/core/execution/signing"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpack"
+	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg2"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -70,6 +73,8 @@ type decisionInputs struct {
 	PlanTextMaxBytes int
 	// ConfirmationTTLCeiling is the pack's confirmation_ttl_ceiling_ms as a duration (A561). Zero: the Writer writes no CONFIRM request.
 	ConfirmationTTLCeiling time.Duration
+	// RequestPools are the Trust logins of the tenants as pools: the confirmation store is the Trust login of one tenant (A710). Empty: the store is not built.
+	RequestPools map[string]*pgxpool.Pool
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.
@@ -77,7 +82,10 @@ type decisionParts struct {
 	Intents  intake.Intents
 	Recorder intake.Recorder
 	Planner  intake.Planner
-	Gaps     []decisionGap
+	// RequestStores is each tenant's confirmation store, over that tenant's own Trust login, with the Record events of the store (A710, A724). It is not the Confirmations adapter, which
+	// still lacks the request read and the confirm policy. Nil when a part it needs is absent.
+	RequestStores map[string]*trustpg2.Requests
+	Gaps          []decisionGap
 }
 
 // buildDecisions builds the adapters of the lane from its inputs and returns them with the gaps. A setting or an input that is absent is a gap (A486: the process starts, /readyz names
@@ -89,18 +97,22 @@ func buildDecisions(in decisionInputs) (decisionParts, error) {
 	if err != nil {
 		return decisionParts{}, err
 	}
-	rec, recMissing, err := decisionRecorder(in)
+	rec, stores, recMissing, err := decisionRecorderAndStores(in)
 	if err != nil {
 		return decisionParts{}, err
 	}
-	p.Intents, p.Recorder = intents, rec
+	p.Intents, p.Recorder, p.RequestStores = intents, rec, stores
 	add := func(adapter string, missing []string) {
 		if len(missing) > 0 {
 			p.Gaps = append(p.Gaps, decisionGap{Adapter: adapter, Missing: missing})
 		}
 	}
 	add("Intents", intentsMissing)
-	add("Confirmations", []string{needRequestRead, needRequestEvents, needConfirmPolicy})
+	confirmations := []string{needRequestRead, needRequestEvents, needConfirmPolicy}
+	if len(p.RequestStores) > 0 {
+		confirmations = []string{needRequestRead, needConfirmPolicy} // the store has its Record events: the request read and the confirm policy are what is still missing
+	}
+	add("Confirmations", confirmations)
 	planner, plannerMissing, err := decisionPlanner(in, intents)
 	if err != nil {
 		return decisionParts{}, err
@@ -184,17 +196,30 @@ func decisionPlanner(in decisionInputs, intents intake.Intents) (intake.Planner,
 	return buildPlanner(plannerInputs{Pack: in.Pack, Intents: intents, Docs: docs, MaxTextBytes: in.PlanTextMaxBytes})
 }
 
-// decisionRecorder builds the Decision Record writer (REQ-TRU-008, REQ-TRU-010) from decisionRecorderConfig. The DeclinedRequestID mapping is noema#892's: nothing here touches it.
-func decisionRecorder(in decisionInputs) (intake.Recorder, []string, error) {
+// decisionRecorderAndStores builds the Decision Record writer (REQ-TRU-008, REQ-TRU-010) from decisionRecorderConfig and, over the same core-trust appender, each tenant's confirmation
+// store with the Record events of the store (A710, A724): the store appends in its own transaction, so a row and its event commit together (PERD 32.4). The DeclinedRequestID mapping
+// is noema#892's: nothing here touches it. With the configuration incomplete there is no Recorder and no store (fail closed); with no tenant logins there are no stores.
+func decisionRecorderAndStores(in decisionInputs) (intake.Recorder, map[string]*trustpg2.Requests, []string, error) {
 	cfg, missing, err := decisionRecorderConfig(in)
 	if err != nil || len(missing) > 0 {
-		return nil, missing, err
+		return nil, nil, missing, err
 	}
 	ra, err := trustport.NewRecorderAdapter(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cmd/core: the Recorder: %w", err)
+		return nil, nil, nil, fmt.Errorf("cmd/core: the Recorder: %w", err)
 	}
-	return ra, nil, nil
+	gen, ok := cfg.IDs.(*ids.Generator)
+	if !ok || len(in.RequestPools) == 0 {
+		return ra, nil, nil, nil
+	}
+	stores := make(map[string]*trustpg2.Requests, len(in.RequestPools))
+	for tenant, pool := range in.RequestPools {
+		if pool == nil {
+			continue
+		}
+		stores[tenant] = &trustpg2.Requests{Pool: pool, IDs: gen, Events: trustpg2.RecordEvents{Appender: cfg.Appender}}
+	}
+	return ra, stores, nil, nil
 }
 
 // decisionRecorderConfig is the Recorder's configuration: the three lifetimes of loadRecorderSettings, the escalation set of the pack's escalation graph, and the seams no adapter on
