@@ -3,8 +3,8 @@ package trustport
 // EXP-01 (A550, A556, A665, A706, A710): the production StepFactSource of the Recorder. For one write step of an ALLOW decision it gives the target version the evidence was read at,
 // from the SEALED snapshot of the evaluation and the evidence mapping's own declaration of which source carries the token (never from the request, INV-17), and it fails closed
 // (INV-19): no item for the step's target, two items, an item that is not KNOWN, a payload that is not the sealed one, a read not marked complete, or no token is an error with no version and
-// never a guess. The freeze Permission is a NAMED GAP until the freeze row (RES-02, noema#958) and a Record reader for it exist: StepFacts refuses with ErrStepPermission, so the Recorder
-// treats the step as not permitted. REQ-TRU-009, REQ-RES-002, REQ-CTX-004; INV-17, INV-19, INV-20; AGENT-13. All data is SYNTHETIC. No database is needed.
+// never a guess. The freeze Permission is built from the T10 reconciliation of the sealed snapshot and the freeze row of the Record (RES-02, noema#1035): a frozen target is permitted only for
+// a capability the pack allows under a freeze, and any doubt is a freeze; otherwise StepFacts refuses with ErrStepPermission and the Recorder treats the step as not permitted. REQ-TRU-009, REQ-RES-002, REQ-CTX-004; INV-17, INV-19, INV-20; AGENT-13. All data is SYNTHETIC. No database is needed.
 
 import (
 	"context"
@@ -115,9 +115,49 @@ func svfWorld(t *testing.T) (SealedSnapshot, *svfPayloads) {
 	return snap, &svfPayloads{byID: map[string]map[string]any{"ev_1": svfComplete(svfToken), "ev_2": {"semantic_status": "SUCCESS"}, "ev_3": svfComplete("tok-other-1")}}
 }
 
+// svfRecon is T10's port with one fixed answer; it records what it was asked.
+type svfRecon struct {
+	rec            intake.Reconciliation
+	err            error
+	tenant, snapID string
+	calls          int
+}
+
+func (r *svfRecon) Reconcile(_ context.Context, tenantID, snapshotID string) (intake.Reconciliation, error) {
+	r.calls++
+	r.tenant, r.snapID = tenantID, snapshotID
+	return r.rec, r.err
+}
+
+// svfFreeze is the Record's freeze answer for a target; it records what it was asked.
+type svfFreeze struct {
+	state          reconcile.RecordedFreeze
+	err            error
+	tenant, target string
+	calls          int
+}
+
+func (f *svfFreeze) RecordedFreeze(_ context.Context, tenantID, target string) (reconcile.RecordedFreeze, error) {
+	f.calls++
+	f.tenant, f.target = tenantID, target
+	return f.state, f.err
+}
+
+// svfOpen is a reconciliation of a target that is not frozen, and svfNoFreeze the freeze row with no row for it.
+func svfOpen() *svfRecon {
+	return &svfRecon{rec: intake.Reconciliation{Classification: reconcile.SuccessConfirmed}}
+}
+
+func svfNoFreeze() *svfFreeze { return &svfFreeze{state: reconcile.FreezeNone} }
+
 func svfSource(t *testing.T, p *svfPayloads) *SealedSteps {
 	t.Helper()
-	s, err := NewSealedSteps(SealedStepsConfig{Mapping: svfMapping(t), Payloads: p})
+	return svfSourceWith(t, p, svfOpen(), svfNoFreeze())
+}
+
+func svfSourceWith(t *testing.T, p *svfPayloads, r *svfRecon, f *svfFreeze) *SealedSteps {
+	t.Helper()
+	s, err := NewSealedSteps(SealedStepsConfig{Mapping: svfMapping(t), Payloads: p, Reconciler: r, Freeze: f})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,39 +298,125 @@ func TestACancelledContextGivesNoVersion(t *testing.T) {
 
 func TestAStepSourceNeedsItsPartsAndNoneIsDefaulted(t *testing.T) {
 	p := &svfPayloads{}
-	for name, c := range map[string]SealedStepsConfig{"no mapping": {Payloads: p}, "no payloads": {Mapping: svfMapping(t)}, "nothing": {}} {
+	m, r, f := svfMapping(t), svfOpen(), svfNoFreeze()
+	for name, c := range map[string]SealedStepsConfig{
+		"no mapping": {Payloads: p, Reconciler: r, Freeze: f}, "no payloads": {Mapping: m, Reconciler: r, Freeze: f},
+		"no reconciler": {Mapping: m, Payloads: p, Freeze: f}, "no freeze row": {Mapping: m, Payloads: p, Reconciler: r}, "nothing": {},
+	} {
 		if s, err := NewSealedSteps(c); !errors.Is(err, ErrConfig) || s != nil {
 			t.Errorf("%s: got %v, %v; want ErrConfig", name, s, err)
 		}
 	}
 }
 
-// --- the Permission: a named gap (REQ-RES-002, INV-20) ---------------------------------------------------------------------------------------
+// --- the Permission (REQ-RES-002, INV-20; A642) -----------------------------------------------------------------------------------------
 
-// Until the freeze row and a Record reader for it exist, no Permission can be built, and one must never be guessed: StepFacts refuses even when the version is perfectly good, with the typed
-// error and no facts at all, so the Recorder cannot issue a grant for the step.
-func TestStepFactsRefuseWithTheNamedGapAndGiveNoPermission(t *testing.T) {
+func svfPermit(t *testing.T, r *svfRecon, f *svfFreeze) (RecordStepFacts, error) {
+	t.Helper()
 	snap, p := svfWorld(t)
-	src := svfSource(t, p)
-	if _, err := src.TargetVersions(recCtx(t), snap, svfStep()); err != nil {
-		t.Fatalf("control: the version part must work, or the refusal below proves nothing: %v", err)
+	return svfSourceWith(t, p, r, f).StepFacts(recCtx(t), snap, svfStep())
+}
+
+// A step on a target that is not frozen gets a valid Permission for its own capability and its own target, with the version of the same sealed snapshot.
+func TestAStepOnATargetThatIsNotFrozenGetsAPermissionForItsCapabilityAndTarget(t *testing.T) {
+	got, err := svfPermit(t, svfOpen(), svfNoFreeze())
+	if err != nil {
+		t.Fatalf("err %v", err)
 	}
-	got, err := src.StepFacts(recCtx(t), snap, svfStep())
-	if !errors.Is(err, ErrStepPermission) {
-		t.Fatalf("err %v, want ErrStepPermission", err)
+	if !got.Permission.Valid() || got.Permission.Capability() != recCap || got.Permission.Target() != recTarget {
+		t.Errorf("permission valid %v for %q on %q; want valid for %q on %q", got.Permission.Valid(), got.Permission.Capability(), got.Permission.Target(), recCap, recTarget)
 	}
-	if got.Permission.Valid() || got.TargetVersions != nil {
-		t.Errorf("facts %+v with the gap: a refusal carries no version and no permission", got)
-	}
-	if errors.Is(err, ErrStepVersion) {
-		t.Errorf("the gap is not a version failure: a caller must tell them apart: %v", err)
+	if len(got.TargetVersions) != 1 || got.TargetVersions[0].VersionToken != svfToken || string(got.TargetVersions[0].ResourceRef) != recTarget {
+		t.Errorf("versions %+v; want the one token of the step's target", got.TargetVersions)
 	}
 }
 
-// The gap is the same whatever the evidence is: no path through StepFacts returns a valid Permission.
-func TestNoPathThroughStepFactsReturnsAValidPermission(t *testing.T) {
+// The reconciliation is of the snapshot's own tenant and snapshot, and the freeze row is read for the step's target as that tenant (INV-11, INV-12).
+func TestThePermissionIsJudgedOnTheStepsOwnSnapshotTenantAndTarget(t *testing.T) {
+	r, f := svfOpen(), svfNoFreeze()
+	if _, err := svfPermit(t, r, f); err != nil {
+		t.Fatal(err)
+	}
+	if r.calls != 1 || r.tenant != recTenant || r.snapID != "evs_01ABC" {
+		t.Errorf("reconciliation asked %d times for %q/%q; want once for %q/evs_01ABC", r.calls, r.tenant, r.snapID, recTenant)
+	}
+	if f.calls != 1 || f.tenant != recTenant || f.target != recTarget {
+		t.Errorf("freeze row asked %d times for %q/%q; want once for %q/%q", f.calls, f.tenant, f.target, recTenant, recTarget)
+	}
+}
+
+// A target whose reconciliation is CONTRADICTORY_STATE is frozen: the step is permitted only for a capability the pack allows under a freeze (pack data), and then for that one only.
+func TestAFrozenTargetPermitsOnlyACapabilityThePackAllowsUnderAFreeze(t *testing.T) {
+	frozen := func(allowed ...string) *svfRecon {
+		return &svfRecon{rec: intake.Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: allowed}}
+	}
+	got, err := svfPermit(t, frozen(), svfNoFreeze())
+	if !errors.Is(err, ErrStepPermission) || got.Permission.Valid() || got.TargetVersions != nil {
+		t.Errorf("frozen, nothing allowed: got %+v, %v; want ErrStepPermission and no facts", got, err)
+	}
+	got, err = svfPermit(t, frozen("fin.cap.other"), svfNoFreeze())
+	if !errors.Is(err, ErrStepPermission) || got.Permission.Valid() {
+		t.Errorf("frozen, another capability allowed: got %+v, %v; want ErrStepPermission", got, err)
+	}
+	got, err = svfPermit(t, frozen(recCap), svfNoFreeze())
+	if err != nil || !got.Permission.Valid() || got.Permission.Capability() != recCap || got.Permission.Target() != recTarget {
+		t.Errorf("frozen, the capability allowed: got %+v, %v; want a permission for it", got, err)
+	}
+}
+
+// A freeze recorded and never cleared holds even when the classification is no longer contradictory (the safer reading, A642); a cleared freeze does not hold and does not hide a new contradiction.
+func TestARecordedFreezeHoldsUntilClearedAndAClearedOneDoesNotHideANewContradiction(t *testing.T) {
+	if got, err := svfPermit(t, svfOpen(), &svfFreeze{state: reconcile.FreezeRecorded}); !errors.Is(err, ErrStepPermission) || got.Permission.Valid() {
+		t.Errorf("a recorded freeze: got %+v, %v; want ErrStepPermission", got, err)
+	}
+	if got, err := svfPermit(t, svfOpen(), &svfFreeze{state: reconcile.FreezeCleared}); err != nil || !got.Permission.Valid() {
+		t.Errorf("a cleared freeze: got %+v, %v; want a permission", got, err)
+	}
+	again := &svfRecon{rec: intake.Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true}}
+	if got, err := svfPermit(t, again, &svfFreeze{state: reconcile.FreezeCleared}); !errors.Is(err, ErrStepPermission) || got.Permission.Valid() {
+		t.Errorf("cleared, then contradictory again: got %+v, %v; want ErrStepPermission", got, err)
+	}
+}
+
+// Doubt stays frozen (INV-20): a freeze row that cannot answer, or answers with a value out of range, is a freeze; so is a reconciliation that cannot answer or answers with no classification.
+func TestDoubtAboutTheFreezeOrTheReconciliationIsNotAPermission(t *testing.T) {
+	for name, tc := range map[string]struct {
+		r *svfRecon
+		f *svfFreeze
+	}{
+		"the freeze row errors":          {svfOpen(), &svfFreeze{state: reconcile.FreezeNone, err: errors.New("record unavailable")}},
+		"the freeze row is unknown":      {svfOpen(), &svfFreeze{state: reconcile.FreezeUnknown}},
+		"the freeze row is out of range": {svfOpen(), &svfFreeze{state: reconcile.RecordedFreeze(99)}},
+		"the reconciliation errors":      {&svfRecon{err: errors.New("drift")}, svfNoFreeze()},
+		"no classification":              {&svfRecon{}, svfNoFreeze()},
+	} {
+		got, err := svfPermit(t, tc.r, tc.f)
+		if !errors.Is(err, ErrStepPermission) || got.Permission.Valid() || got.TargetVersions != nil {
+			t.Errorf("%s: got %+v, %v; want ErrStepPermission and no facts", name, got, err)
+		}
+		if errors.Is(err, ErrStepVersion) {
+			t.Errorf("%s: a permission refusal is not a version failure: %v", name, err)
+		}
+	}
+}
+
+// A step with no usable version is refused for its version first: the reconciliation and the freeze row are not even asked, and the error is the version's.
+func TestAStepWithNoVersionIsRefusedForItsVersionBeforeThePermissionIsAsked(t *testing.T) {
+	snap, p := svfWorld(t)
+	delete(p.byID, "ev_1")
+	r, f := svfOpen(), svfNoFreeze()
+	got, err := svfSourceWith(t, p, r, f).StepFacts(recCtx(t), snap, svfStep())
+	if !errors.Is(err, ErrStepVersion) || errors.Is(err, ErrStepPermission) || got.Permission.Valid() {
+		t.Errorf("got %+v, %v; want ErrStepVersion", got, err)
+	}
+	if r.calls != 0 || f.calls != 0 {
+		t.Errorf("reconciliation asked %d times and the freeze row %d; want neither", r.calls, f.calls)
+	}
+}
+
+// A valid Permission comes only with a good version and a target that is not frozen: no other path returns one.
+func TestNoPathThroughStepFactsReturnsAValidPermissionForAFrozenTargetOrAnUnusableVersion(t *testing.T) {
 	for name, mutate := range map[string]func(*SealedSnapshot, *svfPayloads){
-		"a good version":    func(*SealedSnapshot, *svfPayloads) {},
 		"no ledger payload": func(_ *SealedSnapshot, p *svfPayloads) { delete(p.byID, "ev_1") },
 		"an incomplete one": func(_ *SealedSnapshot, p *svfPayloads) {
 			p.byID["ev_1"] = map[string]any{"version_token": svfToken, "complete": false}
@@ -305,11 +431,12 @@ func TestNoPathThroughStepFactsReturnsAValidPermission(t *testing.T) {
 	}
 }
 
-// The Recorder's own fact source takes the refusal whole: SealedFacts returns no facts and the error, and the adapter writes nothing (no transaction, no grant, EC-E16, INV-03).
-func TestTheRecorderTreatsTheNamedGapAsNotPermitted(t *testing.T) {
+// The Recorder's own fact source takes a refusal whole: a frozen step gives no facts and the error, and the adapter writes nothing (no transaction, no grant, EC-E16, INV-03).
+func TestTheRecorderTreatsAFrozenStepAsNotPermitted(t *testing.T) {
 	snap, p := svfWorld(t)
 	rd := &sfxReader{snap: snap}
-	sealed, err := NewSealedFacts(SealedFactsConfig{Snapshots: rd, PolicyID: "fin.pol", Steps: svfSource(t, p), Facts: &rbhFacts{}})
+	frozen := &svfRecon{rec: intake.Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true}}
+	sealed, err := NewSealedFacts(SealedFactsConfig{Snapshots: rd, PolicyID: "fin.pol", Steps: svfSourceWith(t, p, frozen, svfNoFreeze()), Facts: &rbhFacts{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +450,21 @@ func TestTheRecorderTreatsTheNamedGapAsNotPermitted(t *testing.T) {
 		t.Errorf("Record err %v, want ErrStepPermission", err)
 	}
 	if len(w.got) != 0 || len(b.tenants) != 0 {
-		t.Errorf("%d writes and %d transactions for a step the gap refuses; want none", len(w.got), len(b.tenants))
+		t.Errorf("%d writes and %d transactions for a step a freeze refuses; want none", len(w.got), len(b.tenants))
+	}
+}
+
+// And a step on a target that is not frozen carries its Permission into the Recorder's facts.
+func TestTheRecordersFactsCarryThePermissionOfAStepThatIsNotFrozen(t *testing.T) {
+	snap, p := svfWorld(t)
+	rd := &sfxReader{snap: snap}
+	sealed, err := NewSealedFacts(SealedFactsConfig{Snapshots: rd, PolicyID: "fin.pol", Steps: svfSource(t, p), Facts: &rbhFacts{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := sealed.Facts(recCtx(t), recRequest(t, 1))
+	if err != nil || len(facts.Steps) != 1 || !facts.Steps[0].Permission.Valid() || facts.Steps[0].Permission.Target() != recTarget {
+		t.Fatalf("facts %+v, err %v; want one step with a valid permission for %q", facts, err, recTarget)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 )
 
 // The production StepFactSource of the Recorder (EXP-01; rulings A550, A556, A665, A706, A710; REQ-TRU-009, REQ-RES-002, REQ-CTX-004; INV-17, INV-19, INV-20; AGENT-13).
@@ -48,6 +49,10 @@ type ItemPayloads interface {
 type SealedStepsConfig struct {
 	Mapping  VersionMapping
 	Payloads ItemPayloads
+	// Reconciler is T10's port: the reconciliation of the sealed snapshot the step's permission is judged on (the derived freeze and the pack's allow-list under a freeze).
+	Reconciler intake.Reconciler
+	// Freeze is the Record's answer for a target's freeze (the freeze row, RES-02); callers go through reconcile.ReadFreeze, so an error is never read as "no freeze".
+	Freeze reconcile.FreezeReader
 }
 
 // SealedSteps implements StepFactSource over the sealed snapshot of the evaluation.
