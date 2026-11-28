@@ -27,12 +27,24 @@ func insertKeyed(t *testing.T, pool *pgxpool.Pool, id, outcome, intentID string,
 	return err
 }
 
-// A null-basis decision of a turn and a principal is stored.
-func TestAnEarlyDecisionMayNameATurnAndAPrincipal(t *testing.T) {
+// A null-basis ESCALATE or REJECT of a turn and a principal is stored (A709, A680: the early gate writes an ESCALATE, and a refusal at T1 to T9 is a REJECT, both keyed by the turn).
+func TestAnEarlyEscalateOrRejectMayNameATurnAndAPrincipal(t *testing.T) {
 	pool := basisWorld(t)
-	for i, outcome := range earlyOutcomes {
-		if err := insertKeyed(t, pool, "dec_t"+string(rune('a'+i)), outcome, "int_t"+string(rune('a'+i)), allKeys("null"), dbTurnA, "usr_88213"); err != nil {
+	for i, outcome := range []string{"ESCALATE", "REJECT"} {
+		if err := insertKeyed(t, pool, "dec_ta"+string(rune('a'+i)), outcome, "int_ta"+string(rune('a'+i)), allKeys("null"), dbTurnA, "usr_88213"); err != nil {
 			t.Errorf("%s: %v; want the row stored", outcome, err)
+		}
+	}
+}
+
+// A709 and A680 (interim, relayed; migration 0043 tightens 0040's CHECK): only an ESCALATE or a REJECT names a turn and a principal. CLARIFY, WAIT and UNKNOWN with a turn are refused by the
+// database, as an ALLOW or a CONFIRM already was.
+func TestOnlyAnEscalateOrRejectMayNameATurnAndAPrincipal(t *testing.T) {
+	pool := basisWorld(t)
+	for i, outcome := range []string{"CLARIFY", "WAIT", "UNKNOWN"} {
+		err := insertKeyed(t, pool, "dec_o"+string(rune('a'+i)), outcome, "int_o"+string(rune('a'+i)), allKeys("null"), dbTurnA, "usr_88213")
+		if code, name := constraintOf(err); code != "23514" || name != earlyShape {
+			t.Errorf("%s with a turn: got %v, want a check violation of %s", outcome, err, earlyShape)
 		}
 	}
 }

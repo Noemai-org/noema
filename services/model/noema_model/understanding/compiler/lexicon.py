@@ -19,7 +19,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal, localcontext
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,9 @@ SKIPPED_CODE = "LEXICON_REF_WITHOUT_FILE"
 MARK = "[synthetic seed]"
 MAX_SAFE_INT = 9007199254740991
 MAX_SURFACE = 64
+# A758 (INV-02, INV-21): CPython refuses to turn an integer string of more than 4300 digits into an int (ValueError). A number written with more characters than this is unread, never an error; the model's
+# quote is already cut at MAX_SURFACE, so this guards the digit reader itself.
+MAX_DIGIT_RUN = 4300
 _MAX_OFFSET_MINUTES = 14 * 60
 _DIRECTIONS = frozenset({"OUTGOING", "INCOMING"})
 _CODE = re.compile(r"[A-Z]{3}")
@@ -314,20 +317,21 @@ class Normaliser:
             major = self._spoken(core)
         if major is None:
             return None, False
-        value = major * self._lexicon.minor_per_major
-        if value != value.to_integral_value() or value > MAX_SAFE_INT:
+        value = major * self._lexicon.minor_per_major  # exact: excess precision is unread, never rounded (M5)
+        if value.denominator != 1 or value > MAX_SAFE_INT:
             return None, False
         return int(value), uncertain or self._marked_uncertain(core, text)
 
-    def _digits(self, core: str) -> Decimal | None:
+    def _digits(self, core: str) -> Fraction | None:
         match = self._lexicon.amount_pattern.fullmatch(core)
         if match is None:
             return None
-        with localcontext() as context:
-            context.prec = 80
-            return Decimal(match.group("number").replace(",", "")) * self._lexicon.multipliers.get(match.group("multiplier") or "", 1)
+        number = match.group("number").replace(",", "")
+        if len(number) > MAX_DIGIT_RUN:  # unread, never an error (A758)
+            return None
+        return Fraction(number) * self._lexicon.multipliers.get(match.group("multiplier") or "", 1)
 
-    def _spoken(self, core: str) -> Decimal | None:
+    def _spoken(self, core: str) -> Fraction | None:
         """Numeral words to one whole number, or nothing. Small words build a group under a thousand (twenty five; one hundred and fifty), a scale of a thousand or more closes the group, and scales must fall
         (twenty thousand five hundred, never five hundred thousand thousand). A word that is not in the lexicon, an order that is not a number, or a joiner that is not between a hundred and its remainder
         makes the whole thing unread: the lexicon never repairs and never takes the nearest number."""
@@ -381,7 +385,7 @@ class Normaliser:
         if joining:
             return None
         total += hundreds * 100 + small
-        return Decimal(total) if total > 0 else None
+        return Fraction(total) if total > 0 else None
 
     def _marked_uncertain(self, core: str, text: str) -> bool:
         """The customer's own word just before the amount ("I sent about 20k") marks it as not exact. Any place the amount is written counts, so a doubt anywhere widens the search, never narrows it."""

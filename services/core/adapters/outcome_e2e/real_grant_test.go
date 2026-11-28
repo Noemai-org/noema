@@ -32,6 +32,7 @@ type realGrantWorld struct {
 	*stack
 	w     *recorder.Writer
 	req   recorder.Request
+	disp  recorder.Request // the ESCALATE disposition the action decision names (A503)
 	plan  controller.PlanStep
 	steps []grants.Step
 }
@@ -54,7 +55,7 @@ func newRealGrantWorld(t *testing.T) *realGrantWorld {
 	}
 	s.ctl.Keys = crypto.NewKeyRing(map[string][]byte{realGrantKeyID: secret})
 	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: &chain.Appender{Clock: s.clk, IDs: gen, Signers: recordsig.Local("outcome-e2e", nil, "core-trust")}, Clock: s.clk, IDs: gen,
-		RecordLifetime: time.Hour}
+		RecordLifetime: time.Hour, Escalation: recorder.NewEscalationSet(bridge.CapCreateEscalationCase)}
 
 	now := s.clk.Now().Unix()
 	bb, err := decide.NewBasisBuilder("fintech@1.0", now)
@@ -91,7 +92,37 @@ func newRealGrantWorld(t *testing.T) *realGrantWorld {
 	}
 	step := grants.Step{PrincipalID: principal, CapabilityID: bridge.CapCreateEscalationCase, TargetRef: target, ParamsHash: contracts.CommonV1Hash(paramsHash),
 		EvidenceSetHash: contracts.CommonV1Hash(hash(2)), PlanHash: contracts.CommonV1Hash(hash(3)), PlanStep: 1, Permission: perm}
+	// the ESCALATE disposition of the action decision: its own Trust decision with no step and no grant, recorded first through the real writer (A503, steps if and only if a
+	// disposition); the action decision names it
+	reason, err := decide.Core("NOT_AUTHORIZED")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unresolved, ok := decide.Admit(decide.IntentView{Version: 2, MaterialFlags: []string{"X"}}).Unresolved()
+	if !ok {
+		t.Fatal("the intent is not unresolved")
+	}
+	escalate, err := unresolved.Escalate(reason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// its own sealed snapshot: the disposition and the action decision are two inputs of the same intent (A186, A542)
+	dsp, err := decide.NewBasisBuilder("fintech@1.0", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dsp.RecordEvidence("evs_01DSP", []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: now - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300,
+		LimitSetBy: decide.LimitByTrustProfile}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dsp.RecordPolicy([]decide.PolicyRuleVersion{{RuleID: "r_permit", PolicyID: policyScope, Version: "1.0"}}); err != nil {
+		t.Fatal(err)
+	}
+	if escalate, err = dsp.Attach(escalate); err != nil {
+		t.Fatal(err)
+	}
 	rw := &realGrantWorld{stack: s, w: w, steps: []grants.Step{step}}
+	rw.disp = recorder.Request{TenantID: tenant, CorrelationID: correlation, IntentID: "int_realgrant", IntentHash: contracts.CommonV1Hash(hash(1)), PolicyID: policyScope, Decision: escalate, Evaluated: dsp}
 	rw.req = recorder.Request{TenantID: tenant, CorrelationID: correlation, IntentID: "int_realgrant", IntentHash: contracts.CommonV1Hash(hash(1)), PolicyID: policyScope, Decision: d,
 		Evaluated: bb, Steps: rw.steps}
 	rw.plan = controller.PlanStep{PlanHash: hash(3), Step: 1, CapabilityID: bridge.CapCreateEscalationCase, Registered: true, AdapterExists: true, Params: params,
@@ -102,6 +133,19 @@ func newRealGrantWorld(t *testing.T) *realGrantWorld {
 // write runs the real writer as Trust's own login and commits; it registers the stored plan the grant binds (E5), which is another task's store.
 func (rw *realGrantWorld) write(t *testing.T) recorder.Result {
 	t.Helper()
+	dtx, err := rw.pools["trust_rw"].Begin(bg(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	disp, err := rw.w.Write(bg(t), dtx, rw.disp)
+	if err != nil {
+		_ = dtx.Rollback(bg(t))
+		t.Fatalf("the disposition: %v", err)
+	}
+	if err := dtx.Commit(bg(t)); err != nil {
+		t.Fatal(err)
+	}
+	rw.req.DispositionDecisionID = string(disp.Record.DecisionId)
 	tx, err := rw.pools["trust_rw"].Begin(bg(t))
 	if err != nil {
 		t.Fatal(err)
