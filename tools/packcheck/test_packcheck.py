@@ -724,6 +724,138 @@ class CandidateLabels(unittest.TestCase):
             self.assertEqual(self.problems(lambda d, sep=sep: d.__setitem__("display_template", "{attr:amount_minor}" + sep + "{attr:account_last4}")), [], repr(sep))
 
 
+class OutcomeBindings(unittest.TestCase):
+    """A723 (interim, relayed; REQ-VER-001, REQ-EXE-006; INV-24): the pack's optional `outcome_bindings`: per write capability, the outcome definition it verifies against, where each
+    predicate variable of that definition gets its value (PLAN_PARAM:<param>, INTENT_ID or SUBJECT) and the capability's retry safety. The core holds none of it (INV-14). All data is SYNTHETIC."""
+
+    CAP = "fin.cap.route_to_internal_owner"
+
+    def hits(self, base):
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base) if c == "outcome_bindings"]
+
+    def with_binding(self, **changes):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == self.CAP)
+        b.update(changes)
+        return base
+
+    def test_the_real_pack_binds_each_of_its_writes_that_can_be_bound(self):
+        base, _ = real()
+        got = {b["capability_id"]: b for b in base["outcome_bindings"]}
+        self.assertEqual(sorted(got), ["fin.cap.create_escalation_case", "fin.cap.log_complaint_reference", "fin.cap.record_investigation_evidence", "fin.cap.route_to_internal_owner"])
+        self.assertEqual(got[self.CAP]["variables"], {"case_id": "PLAN_PARAM:case_id", "planned_queue": "PLAN_PARAM:owner_queue"})
+        self.assertEqual(self.hits(base), [])
+
+    def test_the_complaint_outcome_binds_its_epoch_from_the_subjects_current_epoch(self):
+        """A740 (interim, relayed): EPOCH is the fourth source, the subject's current logical resolution epoch (the NextEpoch port)."""
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        self.assertEqual(b["variables"], {"subject_resource": "SUBJECT", "logical_resolution_epoch": "EPOCH"})
+        self.assertEqual(self.hits(base), [])
+
+    def test_epoch_binds_only_an_integer_variable(self):
+        """SR on #1026 (A740): EPOCH is the subject's current logical resolution epoch, a whole number: a variable of another type is refused."""
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        b["variables"]["subject_resource"] = "SUBJECT"
+        b["variables"]["planned_queue"] = "EPOCH"
+        base["outcome_definitions"] = [dict(o, success_predicate=o["success_predicate"] + " and planned_queue == planned_queue") if o["outcome_id"] == b["outcome_id"] else o for o in base["outcome_definitions"]]
+        self.assertTrue(any("EPOCH" in m and "Integer" in m for m in self.hits(base)), self.hits(base))
+
+    def test_epoch_needs_a_subject_in_the_same_binding(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        del b["variables"]["subject_resource"]
+        self.assertTrue(any("EPOCH" in m and "SUBJECT" in m for m in self.hits(base)), self.hits(base))
+
+    def test_a_binding_has_at_most_one_epoch(self):
+        base, _ = real()
+        base["predicate_variables"]["second_epoch"] = {"type": "Integer"}
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        b["variables"]["second_epoch"] = "EPOCH"
+        base["outcome_definitions"] = [dict(o, success_predicate=o["success_predicate"] + " and second_epoch == second_epoch") if o["outcome_id"] == b["outcome_id"] else o for o in base["outcome_definitions"]]
+        self.assertTrue(any("EPOCH" in m and "once" in m for m in self.hits(base)), self.hits(base))
+
+    def test_disclosure_says_how_a_bound_param_is_written_and_defaults_to_hashed(self):
+        """A774 (interim, relayed): an optional `disclosure` per binding, from a PLAN_PARAM of that binding to VERBATIM, MASKED or HASHED; a param it does not list is HASHED."""
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.record_investigation_evidence")
+        b["disclosure"] = {"case_id": "MASKED", "payload": "HASHED"}
+        self.assertEqual(self.hits(base), [])
+        self.assertEqual(checks.disclosure_of(b, "case_id"), "MASKED")
+        self.assertEqual(checks.disclosure_of(b, "payload"), "HASHED")
+        self.assertEqual(checks.disclosure_of({"variables": {}}, "any_param"), "HASHED")
+
+    def test_verbatim_is_refused_for_a_reference_an_identifier_an_account_or_a_name(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == self.CAP)
+        b["disclosure"] = {"case_id": "VERBATIM"}
+        self.assertTrue(any("VERBATIM" in m and "case_id" in m for m in self.hits(base)), self.hits(base))
+
+    def test_verbatim_is_refused_by_the_params_name_even_when_the_variable_is_not_a_reference(self):
+        base, _ = real()
+        base["predicate_variables"]["case_id"] = {"type": "String"}
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == self.CAP)
+        b["disclosure"] = {"case_id": "VERBATIM"}
+        self.assertTrue(any("VERBATIM" in m and "case_id" in m for m in self.hits(base)), self.hits(base))
+        for name in ("account_number", "holder_name", "case_ref", "iban"):
+            self.assertFalse(checks.verbatim_allowed(name, "String"), name)
+        self.assertTrue(checks.verbatim_allowed("payload", "String"))
+        self.assertFalse(checks.verbatim_allowed("payload", "Reference"))
+
+    def test_verbatim_is_accepted_for_a_param_that_is_not_an_identifier(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.record_investigation_evidence")
+        b["disclosure"] = {"payload": "VERBATIM"}
+        self.assertEqual(self.hits(base), [])
+
+    def test_a_disclosure_names_only_a_plan_param_of_its_own_binding(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == self.CAP)
+        b["disclosure"] = {"payload": "HASHED"}
+        self.assertTrue(any("disclosure" in m and "payload" in m for m in self.hits(base)), self.hits(base))
+
+    def test_a_binding_names_the_capabilitys_own_outcome_and_retry_safety(self):
+        base, _ = real()
+        caps = {c["capability_id"]: c for c in base["capabilities"]}
+        for b in base["outcome_bindings"]:
+            self.assertEqual(b["outcome_id"], caps[b["capability_id"]]["expected_outcome"], b["capability_id"])
+            self.assertEqual(b["retry_safety"], caps[b["capability_id"]]["retry_safety"], b["capability_id"])
+
+    def test_a_capability_the_pack_does_not_declare_is_refused(self):
+        self.assertTrue(any("not declared" in m for m in self.hits(self.with_binding(capability_id="fin.cap.not_declared"))))
+
+    def test_a_prohibited_or_read_only_capability_is_refused(self):
+        for cap in ("fin.cap.transfer_funds", "fin.cap.lookup_transaction"):
+            hits = self.hits(self.with_binding(capability_id=cap))
+            self.assertTrue(any(cap in m and "write" in m for m in hits), (cap, hits))
+
+    def test_an_outcome_other_than_the_capabilitys_is_refused(self):
+        self.assertTrue(any("expected_outcome" in m for m in self.hits(self.with_binding(outcome_id="fin.outcome.exception.case_opened"))))
+
+    def test_a_retry_safety_other_than_the_capabilitys_is_refused(self):
+        self.assertTrue(any("retry_safety" in m for m in self.hits(self.with_binding(retry_safety="NONE"))))
+
+    def test_a_variable_the_pack_does_not_declare_is_refused(self):
+        self.assertTrue(any("predicate variable" in m for m in self.hits(self.with_binding(variables={"case_id": "PLAN_PARAM:case_id", "not_a_variable": "SUBJECT"}))))
+
+    def test_a_variable_the_outcomes_predicate_never_reads_is_refused(self):
+        self.assertTrue(any("never reads" in m for m in self.hits(self.with_binding(variables={"case_id": "PLAN_PARAM:case_id", "planned_queue": "PLAN_PARAM:owner_queue", "intent_id": "INTENT_ID"}))))
+
+    def test_a_plan_param_that_is_not_an_input_of_the_capability_is_refused(self):
+        self.assertTrue(any("input" in m for m in self.hits(self.with_binding(variables={"case_id": "PLAN_PARAM:case_id", "planned_queue": "PLAN_PARAM:queue_name"}))))
+
+    def test_a_capability_bound_twice_is_refused(self):
+        base, _ = real()
+        base["outcome_bindings"].append(dict(base["outcome_bindings"][0]))
+        self.assertTrue(any("twice" in m for m in self.hits(base)))
+
+    def test_a_pack_with_no_bindings_is_valid(self):
+        base, _ = real()
+        del base["outcome_bindings"]
+        self.assertEqual(self.hits(base), [])
+
+
 class HandoffRoutes(unittest.TestCase):
     """A531 (interim, relayed, not yet committed; REQ-TRU-004, REQ-AG-002). The pack's `handoff_routes`: which reason code goes to a handoff, to a queue of the pack's own
     routing allowlist, for which intent nodes (absent: all). The route is data; a free-form destination is not representable. All data is SYNTHETIC."""

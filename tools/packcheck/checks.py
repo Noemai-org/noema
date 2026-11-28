@@ -325,6 +325,80 @@ def check_recon_rules(doc: object) -> list[Problem]:
     return [("recon_rules", f"{where}: {what}") for where, what in found[:20]]
 
 
+# A774 (interim, relayed): how a bound plan param is disclosed in the receipt's step_params. A param the binding's `disclosure` does not list is HASHED, the safest of the three.
+DEFAULT_DISCLOSURE = "HASHED"
+# A param whose name has one of these words, or whose predicate variable is a Reference, is an identifier, an account or a name: VERBATIM is refused for it.
+IDENTIFIER_WORDS = frozenset({"id", "ref", "reference", "account", "name", "number", "iban", "msisdn", "phone", "email"})
+
+
+def disclosure_of(binding: dict, param: str) -> str:
+    """The disclosure of one bound plan param of a binding: the binding's own, else HASHED (A774)."""
+    return (binding.get("disclosure") or {}).get(param, DEFAULT_DISCLOSURE)
+
+
+def verbatim_allowed(param: str, variable_type: str | None) -> bool:
+    """Whether a param may be written VERBATIM: not when its predicate variable is a Reference, and not when a word of its name says identifier, account or name (A774)."""
+    if variable_type == "Reference":
+        return False
+    return not (set(param.split("_")) & IDENTIFIER_WORDS)
+
+
+def check_outcome_bindings(pack: dict, pack_dir: Path) -> list[Problem]:
+    """A723 (interim, relayed; REQ-VER-001, REQ-EXE-006; INV-14): the pack's optional `outcome_bindings`. A binding is of a declared, non-prohibited write capability (a risk class above R0),
+    once; it names that capability's own `expected_outcome` and `retry_safety`; each variable is one the pack declares in `predicate_variables` and the outcome's success predicate reads;
+    and a `PLAN_PARAM:<param>` source names an input of the capability's own input schema. A message names the place and the rule, never a value. A pack with none is valid."""
+    out: list[Problem] = []
+    caps = {c["capability_id"]: c for c in pack["capabilities"]}
+    outcomes = {o["outcome_id"]: o for o in pack["outcome_definitions"]}
+    declared = pack.get("predicate_variables", {})
+    seen: set[str] = set()
+    for b in pack.get("outcome_bindings", []):
+        cap_id = b["capability_id"]
+        where = f"outcome_bindings[{cap_id}]"
+        if cap_id in seen:
+            out.append(("outcome_bindings", f"{where}: bound twice"))
+        seen.add(cap_id)
+        cap = caps.get(cap_id)
+        if cap is None:
+            out.append(("outcome_bindings", f"{where}: the capability is not declared"))
+            continue
+        if cap["prohibited"] or RANK.get(cap["risk_class"], 0) < 1:
+            out.append(("outcome_bindings", f"{where}: only a declared, non-prohibited write capability has a binding"))
+            continue
+        if b["outcome_id"] != cap["expected_outcome"]:
+            out.append(("outcome_bindings", f"{where}: outcome_id is not the capability's expected_outcome"))
+        if b["retry_safety"] != cap["retry_safety"]:
+            out.append(("outcome_bindings", f"{where}: retry_safety is not the capability's own"))
+        predicate = (outcomes.get(b["outcome_id"]) or {}).get("success_predicate", "")
+        try:
+            inputs = set(validate.load_strict(pack_dir / cap["input_schema"]).get("properties", {}))
+        except (OSError, ValueError, KeyError):
+            inputs = None
+        epochs = sorted(n for n, source in b["variables"].items() if source == "EPOCH")
+        if len(epochs) > 1:
+            out.append(("outcome_bindings", f"{where}: EPOCH binds more than one variable ({', '.join(epochs)}), once at most"))
+        for n in epochs:
+            kind = (declared.get(n) or {}).get("type")
+            if kind is not None and kind != "Integer":
+                out.append(("outcome_bindings", f"{where}: {n}: EPOCH is a whole number, so the variable must be Integer, found {kind}"))
+        if epochs and "SUBJECT" not in b["variables"].values():
+            out.append(("outcome_bindings", f"{where}: EPOCH is the subject's epoch, so the binding also binds a variable to SUBJECT"))
+        for name, source in sorted(b["variables"].items()):
+            if name not in declared:
+                out.append(("outcome_bindings", f"{where}: {name} is not a predicate variable the pack declares"))
+            elif not re.search(rf"(?<![\w.]){re.escape(name)}(?![\w])", predicate):
+                out.append(("outcome_bindings", f"{where}: the outcome's success predicate never reads {name}"))
+            if source.startswith("PLAN_PARAM:") and inputs is not None and source.split(":", 1)[1] not in inputs:
+                out.append(("outcome_bindings", f"{where}: {name}: the param is not an input of {cap_id}"))
+        params = {source.split(":", 1)[1]: name for name, source in b["variables"].items() if source.startswith("PLAN_PARAM:")}
+        for param, how in sorted((b.get("disclosure") or {}).items()):
+            if param not in params:
+                out.append(("outcome_bindings", f"{where}: disclosure names {param}, which is not a PLAN_PARAM of the binding"))
+            elif how == "VERBATIM" and not verbatim_allowed(param, (declared.get(params[param]) or {}).get("type")):
+                out.append(("outcome_bindings", f"{where}: disclosure of {param} cannot be VERBATIM: it is an identifier, an account or a name"))
+    return out
+
+
 def check_subject_slot(pack: dict) -> list[Problem]:
     """A520 (interim; DEBT-54): an intent node's optional `subject_slot` names a Resource slot of the SAME node, the slot whose resolved reference is the subject of the intent (the
     core reads the name from the pack, INV-14). A node with no such slot declares none."""
@@ -1190,7 +1264,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += graph_problems
     if problems:  # the other checks assume a well-formed pack
         return problems
-    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack)
+    problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack) + check_outcome_bindings(pack, pack_path.parent)
     problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
