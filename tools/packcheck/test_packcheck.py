@@ -776,6 +776,45 @@ class OutcomeBindings(unittest.TestCase):
         base["outcome_definitions"] = [dict(o, success_predicate=o["success_predicate"] + " and second_epoch == second_epoch") if o["outcome_id"] == b["outcome_id"] else o for o in base["outcome_definitions"]]
         self.assertTrue(any("EPOCH" in m and "once" in m for m in self.hits(base)), self.hits(base))
 
+    def test_disclosure_says_how_a_bound_param_is_written_and_defaults_to_hashed(self):
+        """A774 (interim, relayed): an optional `disclosure` per binding, from a PLAN_PARAM of that binding to VERBATIM, MASKED or HASHED; a param it does not list is HASHED."""
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.record_investigation_evidence")
+        b["disclosure"] = {"case_id": "MASKED", "payload": "HASHED"}
+        self.assertEqual(self.hits(base), [])
+        self.assertEqual(checks.disclosure_of(b, "case_id"), "MASKED")
+        self.assertEqual(checks.disclosure_of(b, "payload"), "HASHED")
+        self.assertEqual(checks.disclosure_of({"variables": {}}, "any_param"), "HASHED")
+
+    def test_verbatim_is_refused_for_a_reference_an_identifier_an_account_or_a_name(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == self.CAP)
+        b["disclosure"] = {"case_id": "VERBATIM"}
+        self.assertTrue(any("VERBATIM" in m and "case_id" in m for m in self.hits(base)), self.hits(base))
+
+    def test_verbatim_is_refused_by_the_params_name_even_when_the_variable_is_not_a_reference(self):
+        base, _ = real()
+        base["predicate_variables"]["case_id"] = {"type": "String"}
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == self.CAP)
+        b["disclosure"] = {"case_id": "VERBATIM"}
+        self.assertTrue(any("VERBATIM" in m and "case_id" in m for m in self.hits(base)), self.hits(base))
+        for name in ("account_number", "holder_name", "case_ref", "iban"):
+            self.assertFalse(checks.verbatim_allowed(name, "String"), name)
+        self.assertTrue(checks.verbatim_allowed("payload", "String"))
+        self.assertFalse(checks.verbatim_allowed("payload", "Reference"))
+
+    def test_verbatim_is_accepted_for_a_param_that_is_not_an_identifier(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.record_investigation_evidence")
+        b["disclosure"] = {"payload": "VERBATIM"}
+        self.assertEqual(self.hits(base), [])
+
+    def test_a_disclosure_names_only_a_plan_param_of_its_own_binding(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == self.CAP)
+        b["disclosure"] = {"payload": "HASHED"}
+        self.assertTrue(any("disclosure" in m and "payload" in m for m in self.hits(base)), self.hits(base))
+
     def test_a_binding_names_the_capabilitys_own_outcome_and_retry_safety(self):
         base, _ = real()
         caps = {c["capability_id"]: c for c in base["capabilities"]}

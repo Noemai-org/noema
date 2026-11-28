@@ -325,6 +325,16 @@ def check_recon_rules(doc: object) -> list[Problem]:
     return [("recon_rules", f"{where}: {what}") for where, what in found[:20]]
 
 
+def disclosure_of(binding: dict, param: str) -> str:
+    """Red stub (A774): not built."""
+    return "NOT_BUILT"
+
+
+def verbatim_allowed(param: str, variable_type: str | None) -> bool:
+    """Red stub (A774): not built."""
+    return True
+
+
 def check_outcome_bindings(pack: dict, pack_dir: Path) -> list[Problem]:
     """A723 (interim, relayed; REQ-VER-001, REQ-EXE-006; INV-14): the pack's optional `outcome_bindings`. A binding is of a declared, non-prohibited write capability (a risk class above R0),
     once; it names that capability's own `expected_outcome` and `retry_safety`; each variable is one the pack declares in `predicate_variables` and the outcome's success predicate reads;
