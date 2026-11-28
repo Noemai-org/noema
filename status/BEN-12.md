@@ -15,3 +15,14 @@
 - Open questions (owner): none new.
 - Files to read first: `benchmark/scoring/story_table.py`.
 - Do not touch: the scorecard v3 contract.
+
+# Session 2026-11-28 · BEN-12 · A771: the G2 readiness report
+
+## Session summary
+- What changed: `benchmark/suites/g2_readiness.py` and 7 tests: for each of the fifteen G2 stories, the cases, how many this build of the runner can run now (its own `reasons_for`, so it matches `--support`), and what blocks the rest.
+- Finding (generated suite, seed 20261020, no webhook sender): eight G2 stories have cases but none the runner can run: US-03, US-08, US-13, US-14, US-15, US-18, US-20, US-21. The reasons: faults aimed at components this build cannot reach (mock-destination DEBIT_WITHOUT_CREDIT; mock-ledger DELAYED_REVERSAL, STALE_READ, HTTP_429; mock-switch SPLIT_STATE), the webhook kind (US-13, US-18; a sender exists in noema#1029), and the event `policy_publish_after_grant` (US-08, US-20). US-05, US-10 and US-19 run all but the cases that need `mock-customer INJECTION_PAYLOAD` or `provider_mode`. US-02, US-07, US-11 and US-22 run in full.
+- Why this matters: a G2 table built from a run of this build would show those eight stories as NO_CASE or INCOMPLETE; G2 needs a fault producer for the Tushe-side effects and a driver for `policy_publish_after_grant` before they can pass.
+- Risks: none to the product. Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: IL or the runner owner builds the fault producer for the Tushe-side effects; BO drives `policy_publish_after_grant` once the policy publish API is named.

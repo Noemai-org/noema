@@ -4,7 +4,7 @@ import io
 import unittest
 from contextlib import redirect_stdout
 
-from benchmark.generator.g2_families import G2_STORIES
+from benchmark.scoring.story_table import G2_STORIES
 from benchmark.runner.suite import load_suite
 from benchmark.runner.support import reasons_for
 from benchmark.runner.test_suite import suite_dir
