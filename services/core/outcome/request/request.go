@@ -40,6 +40,8 @@ const (
 	FromPrincipalID SourceKind = "PRINCIPAL_ID" // the principal the receipt's grant was issued to
 	FromPlanParam   SourceKind = "PLAN_PARAM"   // one param of the plan step of the executed capability
 	FromExternalAck SourceKind = "EXTERNAL_ACK" // the target's own acknowledgement; bound only for an ACKNOWLEDGED receipt
+	FromSubject     SourceKind = "SUBJECT"      // the subject of the intent, as the reader found it (A723: the pack's `SUBJECT` source)
+	FromEpoch       SourceKind = "EPOCH"        // the subject's current logical resolution epoch, read through the Epochs port (A740: the pack's `EPOCH` source)
 )
 
 // Source is one binding specification: the pack names the variable, this says where its value is read.
@@ -109,6 +111,8 @@ type Inputs struct {
 	StepCapabilityID string // the capability the receipt executed: it picks the plan step
 	Capability       Capability
 	Outcome          Definition
+	Subject          string            // the intent's subject, for a FromSubject binding and for the epoch read (empty: such a binding is refused)
+	Epoch            *int64            // the subject's current epoch, for a FromEpoch binding (nil: such a binding is refused)
 	SubjectVariable  string            // the predicate variable that names the subject whose cases are read
 	Bindings         map[string]Source // predicate variable to source, from the pack
 }
@@ -247,6 +251,13 @@ func value(in Inputs, step Step, s Source) (string, bool, error) {
 			return "", false, ErrBinding
 		}
 		v = step.Params[s.Name]
+	case FromSubject:
+		v = in.Subject
+	case FromEpoch:
+		if in.Epoch == nil || *in.Epoch < 0 {
+			return "", false, ErrBinding
+		}
+		v = fmt.Sprintf("%d", *in.Epoch)
 	case FromExternalAck:
 		if in.Receipt.State != acknowledged {
 			return "", false, nil
