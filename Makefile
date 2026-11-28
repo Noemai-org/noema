@@ -123,7 +123,7 @@ BENCH_JOURNEY_COUNT ?= 19
 bench-journey-tokens:
 	@test -f "$(BENCH_JOURNEYS)" || { echo "bench-journey-tokens: $(BENCH_JOURNEYS) does not exist (noema#962 has not merged)" >&2; exit 2; }
 	@principals="$$(python3 -I deploy/compose/journey_principals.py "$(BENCH_JOURNEYS)" --expect "$(BENCH_JOURNEY_COUNT)")" || exit $$?; \
-	BENCH_PRINCIPALS="$$principals" BENCH_TOKEN_TTL=15m $(MAKE) bench-tokens
+	BENCH_TENANT="$(BENCH_TENANT)" BENCH_PRINCIPALS="$$principals" BENCH_TOKEN_TTL=15m $(MAKE) bench-tokens
 
 bench-tokens-test:
 	sh deploy/compose/test_bench_tokens.sh

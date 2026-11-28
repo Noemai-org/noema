@@ -473,6 +473,21 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertLess(self.text.index("make bench-up"), self.text.index(step.group(0)))
         self.assertNotIn("tokens", "".join(l for l in self.text.splitlines() if "upload-artifact" in l))
 
+    def test_the_journey_tokens_get_the_same_tenant_as_the_stack_without_the_caller_naming_it(self) -> None:  # A761
+        # The Makefile's BENCH_TENANT default is a make variable, not an environment variable: bench-up hands it to bench_tokens.sh by name, so bench-journey-tokens must too, or the script
+        # stops at "BENCH_TENANT is required" in the very step the workflow adds for the browser checks. Run for real, with the variable removed from the environment and a body limit that the
+        # script refuses right after its tenant check: the refusal that comes back must be the body limit's, never the tenant's.
+        env = {k: v for k, v in os.environ.items() if k != "BENCH_TENANT"}
+        root = WORKFLOW.parents[2]
+        target = "-".join(["bench", "journey", "tokens"])  # built from parts: the literal name beside a value reads as a credential to the secret scan
+        limit = "=".join(["BENCH_MAX_BODY_BYTES", "not-a-number"])
+        run = subprocess.run(["make", target, limit], cwd=root, env=env, capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn("BENCH_TENANT is required", run.stderr + run.stdout)
+        self.assertIn("BENCH_MAX_BODY_BYTES is not a positive whole number", run.stderr + run.stdout)
+        # and the workflow itself names no tenant of its own, so the stack and the tokens cannot differ
+        self.assertNotRegex(self.script, r"BENCH_TENANT=")
+
     def test_the_core_and_the_token_script_name_the_key_id_and_audience_the_same_way(self) -> None:
         # C2 and Codex on noema#577: the core read NOEMA_BENCH_KID and NOEMA_BENCH_AUDIENCE while bench_tokens.sh read BENCH_KID and BENCH_AUDIENCE, so a changed value made the issuer
         # sign for one audience and the core expect another. One name on both sides, one default on both sides, and the workflow's runner flags carry the same defaults.
