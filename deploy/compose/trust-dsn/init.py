@@ -15,7 +15,7 @@ OUT = os.environ.get("TRUST_DSN_OUT", "/out")
 EMITTERS = os.environ.get("TRUST_DSN_EMITTERS", "/run/emitter_logins")
 # A506 (interim, from the code): the core loads four DSN directories, one file per tenant named by the tenant id. TRUST_DSN_JOBS is "<group>:<directory> ..."; without it there is one job, the
 # Trust login into TRUST_DSN_OUT. The first three groups use the shared tenant login password; `edge` is the per-login emitter secret of the core-edge login.
-GROUPS = ("trust_rw", "orchestrator_rw", "record_read", "edge", "execution_rw", "outcome_rw", "evidence_rw")
+GROUPS = ("trust_rw", "orchestrator_rw", "record_read", "edge", "execution_rw", "outcome_rw", "evidence_rw", "admin")
 WRITTEN: list[str] = []  # every file made by any job: a failure removes all of them, so no half-written set is left
 HOST, PORT, DATABASE = "postgres", "5432", "noema"
 TENANT = re.compile(r"^ten_[0-9A-Za-z]{2,32}$")  # the core's tenantFileRe, and provision-tenants.sh's rule
@@ -32,8 +32,13 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
+# The groups that are an emitter's own login (record_emitter__<tenant>__<emitter>, with its own per-login secret under TRUST_DSN_EMITTERS), not a power's shared tenant login.
+# `admin` (A775, A699) is the tenant's admin emitter login: only the ops listener may hold it, so its job is run by the ops-dsn-init step alone, into a volume only the ops service mounts.
+EMITTER_OF = {"edge": "core-edge", "admin": "admin"}
+
+
 def login_of(group: str, tenant: str) -> str:
-    return f"record_emitter__{tenant}__core-edge" if group == "edge" else f"{group}__{tenant}"
+    return f"record_emitter__{tenant}__{EMITTER_OF[group]}" if group in EMITTER_OF else f"{group}__{tenant}"
 
 
 def jobs() -> list[tuple[str, str]]:
@@ -98,7 +103,7 @@ def main() -> None:
     plan = jobs()  # every job is checked before any file is written
     passwords: dict[tuple[str, str], str] = {}
     shared = ""
-    if any(group != "edge" for group, _ in plan):
+    if any(group not in EMITTER_OF for group, _ in plan):
         try:
             with open(os.path.join(SRC, "noema_tenant_login_password"), "rb") as f:
                 shared = f.read().decode("utf-8", "replace").strip()
@@ -108,16 +113,16 @@ def main() -> None:
             fail("noema_tenant_login_password is not at least 16 letters, digits or . _ ~ - (a DSN would need quoting)")
     for group, _ in plan:
         for tenant in tenants:
-            if group != "edge":
+            if group not in EMITTER_OF:
                 passwords[(group, tenant)] = shared
                 continue
             try:
-                with open(os.path.join(EMITTERS, f"{tenant}__core-edge"), "rb") as f:
+                with open(os.path.join(EMITTERS, f"{tenant}__{EMITTER_OF[group]}"), "rb") as f:
                     secret = f.read().decode("utf-8", "replace").strip()
             except OSError:
-                fail("a core-edge login secret cannot be read")
+                fail(f"a {EMITTER_OF[group]} login secret cannot be read")
             if not PASSWORD.match(secret):
-                fail("a core-edge login secret is not at least 16 letters, digits or . _ ~ - (a DSN would need quoting)")
+                fail(f"a {EMITTER_OF[group]} login secret is not at least 16 letters, digits or . _ ~ - (a DSN would need quoting)")
             passwords[(group, tenant)] = secret
     for group, out in plan:
         run_job(group, out, tenants, passwords, uid, gid)
