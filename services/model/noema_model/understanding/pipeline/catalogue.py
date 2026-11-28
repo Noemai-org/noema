@@ -64,6 +64,7 @@ class NodeInfo:
     slots: tuple[SlotInfo, ...]
     mention_slots: tuple[str, ...]
     mention_model: type[BaseModel] | None
+    description: str | None = None  # A772: what the node covers, in the pack's own words; shown to the classifier beside the display name
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +93,10 @@ class NodeCatalogue:
                     __config__=ConfigDict(extra="forbid", strict=True, frozen=True),
                     **fields,
                 )
-            nodes[node_id] = NodeInfo(node_id, require_str(node, "display_name", where), slots, mention_slots, model)
+            described = node.get("description")
+            if described is not None and (not isinstance(described, str) or not described.strip()):
+                raise ConfigError(f"{where}: description is not a non-empty string")
+            nodes[node_id] = NodeInfo(node_id, require_str(node, "display_name", where), slots, mention_slots, model, described)
         if out_of_scope_node not in nodes:
             raise ConfigError("the pack has no out-of-scope node under that id")
         capabilities = tuple(sorted(

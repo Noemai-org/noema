@@ -9,7 +9,7 @@ from fractions import Fraction
 
 ABSTAIN = "none_or_other"
 TOP = 5
-_ID = re.compile(r"[a-z][a-z0-9_.]{0,63}")
+_ID = re.compile(r"[a-z][a-z0-9_.]{0,63}|[A-Z][A-Z0-9_]{0,63}")  # a pack id, or a vocabulary value of the pack (STATUS): A772, run 8 printed invalid_id for every one of them
 _CASE = re.compile(r"[A-Z][A-Z0-9-]{0,31}")  # G-A, BEN-CLEAN-0001: the examples' own ids
 _DIGITS = re.compile(r"\d(?:[ -]?\d){4}")  # the leak scan's own reading of a number worth hiding: five digits, even across dashes
 INVALID = "invalid_id"

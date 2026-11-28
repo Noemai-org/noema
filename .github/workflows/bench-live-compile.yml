@@ -39,6 +39,12 @@ on:
         type: string
         required: true
         default: "5"
+      suite:
+        description: "goldens: the five golden examples and the record-only pass (as before). probe: BO's 28 labelled phrasings, each once, scored on the gate's own line (A772; ids and counts only)"
+        type: choice
+        options: [goldens, probe]
+        required: true
+        default: goldens
       run_id:
         description: "Run ID to record (letters, digits, dot, dash, underscore; default compile-gh<github run id>)"
         type: string
@@ -70,6 +76,7 @@ jobs:
           PACK_REF: ${{ inputs.pack_ref }}
           PRIOR: ${{ inputs.prior_spent_micros }}
           HARD_STOP_USD: ${{ inputs.hard_stop_usd }}
+          SUITE: ${{ inputs.suite }}
           GIVEN_RUN_ID: ${{ inputs.run_id }}
           GITHUB_RUN: ${{ github.run_id }}
           PYTHONPATH: services/model:.
@@ -83,10 +90,12 @@ jobs:
           case "$PRIOR" in ''|*[!0-9]*) echo "prior_spent_micros must be a non-negative integer"; exit 2;; esac
           [ "$PRIOR" -ge 326693 ] || { echo "prior_spent_micros must be at least 326693 (already spent, noema#338): a run may not start with an unknown spend"; exit 2; }
           case "$HARD_STOP_USD" in 1|2|3|4|5) ;; *) echo "hard_stop_usd must be a whole number from 1 to 5"; exit 2;; esac
+          probe=()
+          case "${SUITE:-goldens}" in goldens) ;; probe) probe=(--probe) ;; *) echo "suite must be goldens or probe"; exit 2;; esac
           mkdir -p out
           # A dry run calls no provider, so the runner exits 3 (NOT RUN, A285). Here that is "dry run complete"; any other code, including 0, fails the job, so the paid job never starts without a cost.
           code=0
-          /tmp/venv/bin/python -m benchmark.compile_acceptance --dry-run --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/dry-run --run-id "$run_id" | tee out/dry-run.txt || code=${PIPESTATUS[0]}
+          /tmp/venv/bin/python -m benchmark.compile_acceptance --dry-run "${probe[@]}" --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/dry-run --run-id "$run_id" | tee out/dry-run.txt || code=${PIPESTATUS[0]}
           [ "$code" -eq 3 ] || { echo "the dry run must exit 3 (NOT RUN); it exited $code"; exit 1; }
           { echo "## bench-live-compile dry run (no provider call, no secret)"; echo; echo '```'; cat out/dry-run.txt; echo '```'; echo; echo "Approve the \`run\` job only if this cost is inside the Founders' ceiling."; } >> "$GITHUB_STEP_SUMMARY"
   run:
@@ -114,6 +123,7 @@ jobs:
           PACK_REF: ${{ inputs.pack_ref }}
           PRIOR: ${{ inputs.prior_spent_micros }}
           HARD_STOP_USD: ${{ inputs.hard_stop_usd }}
+          SUITE: ${{ inputs.suite }}
           GIVEN_RUN_ID: ${{ inputs.run_id }}
           GITHUB_RUN: ${{ github.run_id }}
           PYTHONPATH: services/model:.
@@ -127,11 +137,13 @@ jobs:
           [ "$PROVIDER" = openai ] || valid=0
           case "$PRIOR" in ''|*[!0-9]*) valid=0 ;; *) [ "${#PRIOR}" -le 15 ] && [ "$PRIOR" -ge 326693 ] || valid=0 ;; esac
           case "$HARD_STOP_USD" in 1|2|3|4|5) ;; *) valid=0 ;; esac
+          probe=()
+          case "${SUITE:-goldens}" in goldens) ;; probe) probe=(--probe) ;; *) valid=0 ;; esac
           code=2
           if [ "$valid" = 1 ]; then
             mkdir -p out
             set +e
-            /tmp/venv/bin/python -m benchmark.compile_acceptance --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/compile-acceptance --run-id "$run_id"
+            /tmp/venv/bin/python -m benchmark.compile_acceptance "${probe[@]}" --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/compile-acceptance --run-id "$run_id"
             code=$?
             set -e
           else
@@ -176,6 +188,7 @@ jobs:
             if [ "$SCAN" != 0 ]; then echo "The manifest and the recordings are not shown: the leak scan did not pass."; fi
             # The runner's own summary (ids, statuses and fixed texts; no utterance, no proposal) names the failing goldens and the failed record-only inputs, so nobody has to read the log. Shown only after a clean scan, like the manifest.
             if [ "$SCAN" = 0 ] && [ -f out/compile-acceptance/summary.md ]; then echo; cat out/compile-acceptance/summary.md; fi
+          if [ "$SCAN" = 0 ] && [ -f out/compile-acceptance/probe.md ]; then echo; cat out/compile-acceptance/probe.md; fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the recordings and the run record (only if the leak scan is clean)
         if: always() && steps.scan.outputs.scan == '0'

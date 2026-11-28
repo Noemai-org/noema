@@ -181,6 +181,7 @@ type IntentNodeV1 struct {
 	PackVersion        CommonV1Semver              `json:"pack_version"`
 	Parent             Opt[string]                 `json:"parent,omitzero"`
 	DisplayName        string                      `json:"display_name"`
+	Description        *string                     `json:"description,omitempty"`
 	Slots              []IntentNodeV1SlotsItem     `json:"slots"`
 	Disambiguation     *IntentNodeV1Disambiguation `json:"disambiguation,omitempty"`
 	LexiconRefs        *[]CommonV1PackId           `json:"lexicon_refs,omitempty"`
@@ -192,7 +193,7 @@ type IntentNodeV1 struct {
 	ActionGraph        *CommonV1PackId             `json:"action_graph,omitempty"`
 }
 
-var IntentNodeV1Shape = objectShape{name: "IntentNodeV1", props: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "parent": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "trust_profile": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true, "action_graph": true}, required: []string{"node_id", "pack", "pack_version", "display_name", "slots", "trust_profile", "outcome_definitions", "examples"}, nonNull: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "display_name": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true, "action_graph": true}, closed: true}
+var IntentNodeV1Shape = objectShape{name: "IntentNodeV1", props: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "parent": true, "display_name": true, "description": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "trust_profile": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true, "action_graph": true}, required: []string{"node_id", "pack", "pack_version", "display_name", "slots", "trust_profile", "outcome_definitions", "examples"}, nonNull: map[string]bool{"node_id": true, "pack": true, "pack_version": true, "display_name": true, "description": true, "slots": true, "disambiguation": true, "lexicon_refs": true, "outcome_definitions": true, "write_when": true, "subject_slot": true, "examples": true, "action_graph": true}, closed: true}
 
 func (t *IntentNodeV1) UnmarshalJSON(b []byte) error {
 	raw, err := IntentNodeV1Shape.check(b)

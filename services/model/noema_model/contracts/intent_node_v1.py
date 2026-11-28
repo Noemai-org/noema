@@ -81,6 +81,7 @@ class IntentNodeV1(ContractModel):
     pack_version: CommonV1Semver
     parent: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')] | None = Field(default=None)
     display_name: Annotated[str, StringConstraints(min_length=1)]
+    description: Annotated[str, StringConstraints(min_length=1, max_length=200)] | None = Field(default=None)
     slots: list[IntentNodeV1SlotsItem]
     disambiguation: IntentNodeV1Disambiguation | None = Field(default=None)
     lexicon_refs: list[CommonV1PackId] | None = Field(default=None)

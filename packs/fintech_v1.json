@@ -11,6 +11,7 @@
       "pack_version": "1.0.0",
       "parent": "fin.payments.exception",
       "display_name": "Investigate a payment that did not arrive",
+      "description": "Questions, advice and remedy requests about a payment that did not arrive (resend, refund, reverse, escalate, cancel), including a remedy the customer may not be given.",
       "slots": [
         {
           "name": "subject_resource",

@@ -25,6 +25,12 @@
       "type": "string",
       "minLength": 1
     },
+    "description": {
+      "description": "A772 (interim; compile run 8): what the node covers, in the pack's own words, shown to the intent classifier beside the display name (the harness clips an option's label at its configured length, 256 characters in the frozen configurations, so this is kept short). Optional. It states what a customer may ask (including advice and a remedy the customer may not be given) and names no example phrasing: Trust decides, not the classifier.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
     "slots": {
       "type": "array",
       "items": {

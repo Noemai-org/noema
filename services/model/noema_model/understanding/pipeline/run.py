@@ -131,7 +131,7 @@ async def run_pipeline(
         # A437: the utterance screen is the last of the five steps; if it is among the refusals it is named, whatever else was refused (the turn keeps the first refusal's code).
         not_run = (ScreenStage.UTTERANCE,) if isinstance(gathered[-1], HarnessRejection) else ()
         return _stopped(Outcome.REJECTED_AT_GATE, calls, errors=(rejections[0].code,), screen_not_run=not_run)
-    (slot_values, slot_probs, c_slots), (gate_passed, gate_probs, c_gate), (flags, flag_probs, c_flags), (locale, switching, locale_probs, c_locale), (
+    (slot_values, slot_probs, c_slots), (gate_passed, gate_probs, gate_records, c_gate), (flags, flag_probs, c_flags), (locale, switching, locale_probs, c_locale), (
         mentions, c_mentions), (signals, c_screen) = gathered  # type: ignore[misc]
     calls.extend(c for c in (c_slots, c_gate, c_flags, c_locale, c_mentions, c_screen) if c is not None)
     slot_values, slot_probs = dict(slot_values), {**slot_probs, **gate_probs}
@@ -160,6 +160,7 @@ async def run_pipeline(
         locale=locale,
         code_switching=switching,
         probabilities=probabilities,
+        gates=dict(gate_records),
     )
 
     # 3. The deterministic lexicon, then the gate.

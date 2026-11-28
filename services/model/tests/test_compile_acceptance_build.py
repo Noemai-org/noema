@@ -237,6 +237,28 @@ def test_the_dry_backend_builds_the_real_pipeline_and_prices_the_first_request_o
 
     run(go())
 
+def test_the_dry_backend_prices_the_first_request_of_each_labelled_phrasing_through_the_real_pipeline_with_no_socket(tmp_path: Path) -> None:
+    """A772: the probe's 28 phrasings go through the same real pipeline as a golden. The dry backend prices the first request of each and sends nothing."""
+    from benchmark.compile_acceptance.probe import cases  # type: ignore[import-not-found,unused-ignore]
+
+    async def go() -> None:
+        restore = deny_sockets()
+        try:
+            guard, rec = BudgetGuard(limit_micros=5_000_000, spent_micros=326_693), recorder(tmp_path)
+            backend = build_backend(True, {}, guard, rec, args())
+            built = cases()
+            for c in built:
+                with pytest.raises(CompileFailed):
+                    await backend.compile_probe(c)
+            costs = backend.dry_costs()
+            assert [c for c, _ in costs] == [c.item.item_id for c in built] and all(m > 0 for _, m in costs)
+            assert backend.calls() == 0 and guard.spent_micros == 326_693
+        finally:
+            restore()
+
+    run(go())
+
+
 def test_the_first_request_names_no_digit_run_over_four_and_carries_no_key(tmp_path: Path) -> None:
     async def go() -> None:
         from noema_model.platform.redaction.digit_runs import longest_digit_run

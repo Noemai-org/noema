@@ -7,7 +7,7 @@ generated contract types (CON-03). Each is a function the caller supplies; none 
 """
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from fractions import Fraction
@@ -111,6 +111,16 @@ class MentionProposal:
 
 
 @dataclass(frozen=True, slots=True)
+class GateRecord:
+    """What one gate decided, for the benchmark's job log (A772, A602): the answer the model selected (yes, no, or None when the reply carried none), the probability of yes in whole basis points (None when
+    it was missing or malformed) and the pack's threshold in whole basis points. Numbers and a flag only: never a word of the request (AGENT-13)."""
+
+    answered_yes: bool | None
+    yes_bp: int | None
+    threshold_bp: int
+
+
+@dataclass(frozen=True, slots=True)
 class Proposal:
     """What the models proposed. Every field is untrusted until the gate, the lexicon and Trust have judged it."""
 
@@ -121,6 +131,7 @@ class Proposal:
     locale: str | None
     code_switching: bool | None
     probabilities: Mapping[str, Mapping[str, float]]
+    gates: Mapping[str, GateRecord] = field(default_factory=dict)  # by slot name, for every gated slot of the node (A772)
 
 
 @dataclass(frozen=True, slots=True)

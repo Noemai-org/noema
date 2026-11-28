@@ -33,6 +33,13 @@ class Format(unittest.TestCase):
         self.assertEqual(line, "CHOICE G-A slot=requested_remedy chosen=fin.cap.lookup_transaction top5=fin.cap.lookup_transaction:0.5000,none_or_other:0.3100,fin.cap.create_escalation_case:0.1000,"
                                "fin.cap.log_complaint_reference:0.0500,fin.cap.a:0.0300 threshold=n/a")
 
+    def test_a_vocabulary_value_of_the_pack_is_printed_as_it_is_and_a_word_of_a_request_still_is_not(self) -> None:
+        """Run 8's log printed `invalid_id` for every question_type option: the pack's vocabulary values are upper-case ids (STATUS, REVERSAL_STATUS), which the lower-case shape refused (A772 item 3)."""
+        line = format_choice("G-A", "question_type", "STATUS", {"STATUS": 0.86, "REVERSAL_STATUS": 0.04, "none_or_other": 0.03}, None)
+        self.assertEqual(line, "CHOICE G-A slot=question_type chosen=STATUS top5=STATUS:0.8600,REVERSAL_STATUS:0.0400,none_or_other:0.0300 threshold=n/a")
+        for word in ("Tunde", "Send 5000 to Tunde", "status of my payment", "STATUS OF MY PAYMENT"):
+            self.assertIn("invalid_id", format_choice("G-A", "question_type", word, {word: 0.9}, None))
+
     def test_the_abstention_is_a_choice_and_is_named(self) -> None:
         self.assertIn("chosen=none_or_other", format_choice("G-C", "requested_remedy", None, PROBS, None))
 
@@ -72,7 +79,7 @@ class Format(unittest.TestCase):
         self.assertIn("b:0.0000", line)
 
 
-ID = r"(?:[a-z][a-z0-9_.]{0,63}|invalid_id)"
+ID = r"(?:[a-z][a-z0-9_.]{0,63}|[A-Z][A-Z0-9_]{0,63}|invalid_id)"
 DEC = r"[01]\.\d{4}"
 LINE = re.compile(rf"CHOICE (?:[A-Z][A-Z0-9-]{{0,31}}|invalid_id) slot={ID} chosen={ID} top5=(?:{ID}:{DEC}(?:,{ID}:{DEC}){{0,4}}|none) threshold=(?:{DEC}|n/a)")
 HOSTILE = ["Wetin happen to the 20k wey I send Tunde this morning?", "Send 5000 to Tunde Adeyemi", "usr_evil ten_evil", "0123456789012345", "a b", "a\nb", "a,b:c=d", "x" * 200, "", "é", "A", "9abc",
