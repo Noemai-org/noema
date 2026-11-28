@@ -107,7 +107,7 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(t, admin, clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute,
-		Escalation: recorder.NewEscalationSet(packEscalationCapabilities(t)...)}
+		ConfirmationTTLCeiling: 10 * time.Minute, Escalation: recorder.NewEscalationSet(packEscalationCapabilities(t)...)}
 	return &world{dsn: dsn, admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
 }
 

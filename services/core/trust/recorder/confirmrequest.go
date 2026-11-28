@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/Noemai-org/noema/services/core/platform/ceilings"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -72,6 +73,10 @@ func (w *Writer) checkRequest(r Request, basis decide.Basis) error {
 		return fmt.Errorf("%w: the requester is missing or not an identifier", ErrRequest)
 	case c.ExpiresAt <= w.Clock.Now().Unix():
 		return fmt.Errorf("%w: the confirmation request does not expire after now", ErrRequest)
+	case ceilingSeconds(w.ConfirmationTTLCeiling) <= 0:
+		return fmt.Errorf("%w: no confirmation TTL ceiling is configured", ErrRequest)
+	case c.ExpiresAt-w.Clock.Now().Unix() > ceilingSeconds(w.ConfirmationTTLCeiling):
+		return fmt.Errorf("%w: the confirmation request lives longer than the pack's TTL ceiling", ErrRequest)
 	}
 	if _, err := bindingOfRequest(c); err != nil {
 		return fmt.Errorf("%w: the binding cannot be computed: %v", ErrRequest, err)
@@ -124,4 +129,14 @@ func (w *Writer) insertRequest(ctx context.Context, tx pgx.Tx, r Request, reques
 		return time.Time{}, fmt.Errorf("%sinsert the confirmation request: %w", errPrefix, err)
 	}
 	return expires, nil
+}
+
+// ceilingSeconds is the confirmation TTL ceiling in whole seconds, clamped to the platform bound (A758, interim, relayed): the TTL and the ceiling are compared as integer seconds, never as a
+// time.Duration, whose product with a far-future expiry (the year 2400) wraps. A zero or negative ceiling stays at or below zero: no ceiling is configured.
+func ceilingSeconds(d time.Duration) int64 {
+	secs := int64(d / time.Second)
+	if max := int64(ceilings.MaxConfirmationTTLMillis) / int64(time.Second/time.Millisecond); secs > max {
+		return max
+	}
+	return secs
 }
