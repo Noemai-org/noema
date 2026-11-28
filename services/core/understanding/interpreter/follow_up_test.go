@@ -149,6 +149,10 @@ func TestAPriorThatIsNotThisSessionsOwnInvestigationIsRefusedBeforeTheModelIsCal
 		"another principal": func(p *intentstore.Admitted) {
 			p.JSON = []byte(replaceOnce(string(p.JSON), session.PrincipalID, "usr_99999"))
 		},
+		"a document of another intent": func(p *intentstore.Admitted) { p.JSON = []byte(replaceOnce(string(p.JSON), p.IntentID, "int_ANOTHER")) },
+		"a document of another version": func(p *intentstore.Admitted) {
+			p.JSON = []byte(strings.Replace(string(p.JSON), `"version":1`, `"version":5`, 1))
+		},
 		"a version below one": func(p *intentstore.Admitted) { p.Version = 0 },
 		"no document":         func(p *intentstore.Admitted) { p.JSON = nil },
 	}
