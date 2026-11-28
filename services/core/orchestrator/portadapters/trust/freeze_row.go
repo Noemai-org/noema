@@ -168,8 +168,17 @@ func (f *FreezeRow) RecordFreezeCleared(ctx context.Context, c reconcile.FreezeL
 	if err != nil {
 		return fmt.Errorf("trustport: read the decision: %w", err)
 	}
-	if (c.By == reconcile.ClearedByEscalation && outcome != "ESCALATE") || (c.By == reconcile.ClearedByResolution && outcome != "ALLOW") {
-		return ErrClearingDecision
+	switch c.By {
+	case reconcile.ClearedByEscalation:
+		if outcome != "ESCALATE" {
+			return ErrClearingDecision
+		}
+	case reconcile.ClearedByResolution:
+		if outcome != "ALLOW" {
+			return ErrClearingDecision
+		}
+	default:
+		return ErrClearingDecision // a lift that skipped NewFreezeCleared and names neither kind lifts nothing (Codex on #1035)
 	}
 	if _, err := f.c.Appender.Append(ctx, tx, chain.Event{TenantID: c.TenantID, CorrelationID: correlation, WrittenBy: freezeEmitter, Actor: freezeEmitter, EventType: eventCleared, ObjectRef: c.Target,
 		Payload: map[string]any{"target_ref": c.Target, "cleared_by": string(c.By), "decision_id": c.DecisionID}}); err != nil {
