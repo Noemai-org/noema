@@ -204,7 +204,7 @@ func TestAnEarlyEscalateTheKeyDoesNotCoverIsRefusedAndWritesNothing(t *testing.T
 // Only an ESCALATE takes the early form, and a decision with a complete basis names no turn and no principal: both are ErrRequest. ALLOW, CONFIRM and every other outcome with an incomplete
 // basis keep the refusal they had (INV-17, INV-03).
 func TestOnlyAnEscalateTakesTheEarlyFormAndACompleteBasisNamesNoTurn(t *testing.T) { // A663, INV-17, INV-03
-	for _, o := range []decide.Outcome{decide.Allow, decide.Reject, decide.Wait} {
+	for _, o := range []decide.Outcome{decide.Allow, decide.Wait} { // a REJECT with an incomplete basis is the early form of A680, tested in early_reject_test.go
 		w := newWorld(t)
 		b, err := decide.NewBasisBuilder("fin.pack@1.0.0", epoch.Unix())
 		if err != nil {
@@ -215,8 +215,6 @@ func TestOnlyAnEscalateTakesTheEarlyFormAndACompleteBasisNamesNoTurn(t *testing.
 		switch o {
 		case decide.Allow:
 			d, err = resolved(t).Allow(pass)
-		case decide.Reject:
-			d, err = resolved(t).Reject(decide.Authority{Technical: decide.Pass, Policy: decide.Fail, Business: decide.NotEvaluated}, reason)
 		case decide.Wait:
 			d, err = resolved(t).Wait(pass, epoch.Unix()+60, reason)
 		}
@@ -243,6 +241,22 @@ func TestOnlyAnEscalateTakesTheEarlyFormAndACompleteBasisNamesNoTurn(t *testing.
 		t.Errorf("an ESCALATE with a complete basis that names a turn: err %v, want ErrRequest", err)
 	}
 	w.nothingRemains(t, "a complete basis naming a turn")
+	// A680: a REJECT with a complete basis (a policy refusal, T11) names no turn either.
+	w = newWorld(t)
+	rej, err := resolved(t).Reject(decide.Authority{Technical: decide.Pass, Policy: decide.Fail, Business: decide.NotEvaluated}, mustCore(t, "NOT_AUTHORIZED"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb := evaluated(t)
+	if rej, err = rb.Attach(rej); err != nil {
+		t.Fatal(err)
+	}
+	r = request(t, rej, rb)
+	r.TurnID, r.TurnPrincipalID = turnA, principalA
+	if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrRequest) {
+		t.Errorf("a REJECT with a complete basis that names a turn: err %v, want ErrRequest", err)
+	}
+	w.nothingRemains(t, "a complete-basis REJECT naming a turn")
 	r.TurnID, r.TurnPrincipalID = "", ""
 	if res, err := w.write(t, r, true); err != nil || res.Record.EvidenceSnapshotId == nil {
 		t.Errorf("an ESCALATE with a complete basis and no turn: %v, snapshot %v; want it recorded as before", err, res.Record.EvidenceSnapshotId)
@@ -276,4 +290,13 @@ func TestTheEarlyKeyIsTheTurnAndThePrincipalProperty(t *testing.T) { // A581, A5
 			rt.Fatalf("%d stored rows for %d distinct pairs", got, len(seen))
 		}
 	})
+}
+
+func mustCore(t *testing.T, code string) decide.ReasonCode {
+	t.Helper()
+	r, err := decide.Core(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

@@ -110,3 +110,50 @@ func recAllowEscalate(t *testing.T) decide.Decision {
 	}
 	return d
 }
+
+// recEarlyReject is the record request the intake builds for a refusal at a gate (T4: a prohibited capability) over a builder that has read nothing.
+func recEarlyReject(t *testing.T, turn string) intake.RecordRequest {
+	t.Helper()
+	r := recEarlyEscalate(t, turn)
+	b, err := decide.NewBasisBuilder("fin.pack@1.0.0", recEpoch.Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := decide.FailAtGate(decide.T4Capability, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err = b.Attach(d); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := b.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Decision, r.Evaluated, r.BasisDigest = d, b.Sealed(), digest
+	return r
+}
+
+// A680 (interim, relayed): an early REJECT is served like an early ESCALATE: the facts are not asked and the Writer gets the turn and the principal.
+func TestA680AnEarlyRejectReachesTheWriterWithTheTurnAndThePrincipalAndNoFacts(t *testing.T) {
+	r := recEarlyReject(t, recTurn)
+	w, tx, f := &recWriter{res: recGrants(0)}, &recTx{}, newRecFacts()
+	got, err := recAdapter(t, &recBegin{tx: tx}, f, w).Record(recCtx(t), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DecisionID != "dec_01DEC" || len(got.GrantIDs) != 0 || f.calls != 0 {
+		t.Errorf("result %+v, facts asked %d times", got, f.calls)
+	}
+	if len(w.got) != 1 || w.got[0].TurnID != recTurn || w.got[0].TurnPrincipalID != r.PrincipalID || len(w.got[0].Steps) != 0 {
+		t.Fatalf("writer got %+v", w.got)
+	}
+}
+
+func TestA680AnEarlyRejectWithNoWellFormedTurnIsRefusedBeforeATransaction(t *testing.T) {
+	w, b := &recWriter{res: recGrants(0)}, &recBegin{tx: &recTx{}}
+	_, err := recAdapter(t, b, newRecFacts(), w).Record(recCtx(t), recEarlyReject(t, ""))
+	if !errors.Is(err, ErrRecordRequest) || len(w.got) != 0 || len(b.tenants) != 0 {
+		t.Errorf("err %v, writer calls %d, begin calls %d; want ErrRecordRequest and nothing opened", err, len(w.got), len(b.tenants))
+	}
+}

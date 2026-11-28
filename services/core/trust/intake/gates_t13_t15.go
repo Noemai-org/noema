@@ -517,3 +517,40 @@ func (e *evaluation) recordEscalate(ctx context.Context, d decide.Decision, trac
 	e.late.recorded = RecordResult{DecisionID: rec.DecisionID}
 	return d, trace
 }
+
+// recordRefusal records a refusal at T1 to T9 (A680, interim, relayed; A574, A581, A590; EC-E16, INV-25): a REJECT whose basis is incomplete, because the evidence and the policy were not
+// evaluated, is recorded through the Recorder before it is returned, in the null-basis form keyed by the turn of the request and the verified principal, with no step and no grant. It runs in
+// run, after EvaluateBound, so the decision is the one that is returned. A refusal that needs no record is returned as it is: one with a complete basis (T11; its basis is the policy's), one the
+// intake cannot key (no admitted intent, or a request that names no well-formed turn: the evaluation refuses as it always did and records nothing), and the declined approval of T13, which
+// recorded itself. When the Record fails, when the context has ended since, or when the Recorder answers what a refusal cannot be (no or malformed decision ID, a grant, a request), the
+// result is UNKNOWN INTERNAL_ERROR, never a REJECT the Record does not hold.
+func (e *evaluation) recordRefusal(ctx context.Context, d decide.Decision, trace []decide.TraceEntry) (decide.Decision, []decide.TraceEntry) {
+	if e.intent == nil || d.HasCompleteBasis() || !turnIDRe.MatchString(e.req.TurnID) {
+		return d, trace
+	}
+	failed := func() (decide.Decision, []decide.TraceEntry) {
+		if n := len(trace); n > 0 {
+			trace[n-1].Result = decide.StepFailed
+		}
+		return decide.InternalError(e.version), trace
+	}
+	if ctx.Err() != nil {
+		return failed()
+	}
+	d, err := e.withBasis(d)
+	if err != nil {
+		return failed()
+	}
+	digest, err := e.bb.Digest()
+	if err != nil {
+		return failed()
+	}
+	a := e.intent
+	rec, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, TurnID: e.req.TurnID})
+	if err != nil || !decisionIDRe.MatchString(rec.DecisionID) || len(rec.GrantIDs) != 0 || rec.ConfirmationRequestID != "" {
+		return failed()
+	}
+	e.late.recorded = RecordResult{DecisionID: rec.DecisionID}
+	return d, trace
+}

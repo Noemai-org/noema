@@ -101,6 +101,9 @@ func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 	if d.Outcome() == decide.Escalate {
 		d, trace = e.recordEscalate(ctx, d, trace)
 	}
+	if d.Outcome() == decide.Reject && e.late.recorded.DecisionID == "" {
+		d, trace = e.recordRefusal(ctx, d, trace)
+	}
 	res := Result{Decision: d, Trace: trace}
 	switch d.Outcome() {
 	case decide.Allow, decide.Confirm:
@@ -110,7 +113,7 @@ func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 		// that follow it name as their disposition.
 		res.DecisionID = e.late.recorded.DecisionID
 	case decide.Reject:
-		// A435 (interim, relayed, not yet committed): only a decline that T13 recorded is a recorded REJECT here; it carries its decision ID, no grant and no request.
+		// A435 (interim, relayed, not yet committed): a decline that T13 recorded carries its decision ID, no grant and no request; so does a refusal at T1 to T9 that recordRefusal recorded (A680).
 		res.DecisionID = e.late.recorded.DecisionID
 	}
 	return res
