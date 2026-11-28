@@ -457,5 +457,12 @@ var ErrNoQuestion = errors.New("explanation: no question text for this key and l
 // Question is the text of a declared question key in one locale (A757): the pack's own words, fixed, with nothing of the customer's in them. It never falls back to another locale and never
 // returns the key. A key of the form `<outcome>/<classification>` names an explanation template and is not a question.
 func (t Templates) Question(locale, key string) (string, error) {
-	return "", ErrNoQuestion
+	if locale == "" || key == "" || strings.Contains(key, "/") {
+		return "", ErrNoQuestion
+	}
+	e, found := t.byLocale[locale][key]
+	if !found || strings.TrimSpace(e.text) == "" {
+		return "", ErrNoQuestion
+	}
+	return e.text, nil
 }
