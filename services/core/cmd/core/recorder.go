@@ -36,6 +36,8 @@ const (
 // orchestratorRecorder is an orchestrator.Recorder over one investigation store per tenant. A tenant with no store is an error and never another tenant's store (INV-12).
 type orchestratorRecorder struct {
 	stores map[string]*investigations.Store
+	// pools is the per-tenant orchestrator logins the stores run on, kept for recovery's reader (A696).
+	pools map[string]*pgxpool.Pool
 }
 
 var _ orchestrator.Recorder = (*orchestratorRecorder)(nil)
@@ -112,7 +114,7 @@ func buildRecorder(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSo
 	for tenant, pool := range pools {
 		stores[tenant] = newStore(pool, clk, ids, ring, inputs)
 	}
-	return &orchestratorRecorder{stores: stores}, closer, nil
+	return &orchestratorRecorder{stores: stores, pools: pools}, closer, nil
 }
 
 func newStore(pool *pgxpool.Pool, clk clock.Clock, ids chain.IDSource, ring *signing.Ring, inputs investigations.Inputs) *investigations.Store {

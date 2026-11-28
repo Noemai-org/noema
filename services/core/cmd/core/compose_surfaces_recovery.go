@@ -43,6 +43,9 @@ func recoveryWritePorts(wp orchestrator.WritePorts) orchestrator.WritePorts {
 	return wp
 }
 
+// EnvRecoveryReadTimeout bounds one read of the recovery reader, in whole milliseconds. Required when recovery is built by this composition, no default (AGENT-16).
+const EnvRecoveryReadTimeout = "NOEMA_RECOVERY_READ_TIMEOUT_MS"
+
 // recoverySettingNames is every setting of a pass, in the one order its gaps are named.
 var recoverySettingNames = []string{recovery.EnvIdleMS, recovery.EnvBatchSize, recovery.EnvRunTimeoutMS}
 
