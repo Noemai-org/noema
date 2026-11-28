@@ -47,6 +47,10 @@ type Config struct {
 	CorrelationIDs func() (string, error)
 	// HeaderTimeout bounds reading a request's headers and the graceful stop of Serve.
 	HeaderTimeout time.Duration
+	// ReadTimeout bounds reading a whole request, body included. IdleTimeout bounds a kept-alive connection between requests. MaxHeaderBytes bounds the request headers.
+	ReadTimeout    time.Duration
+	IdleTimeout    time.Duration
+	MaxHeaderBytes int
 }
 
 var (
@@ -72,6 +76,7 @@ func New(cfg Config) (*Listener, error) {
 		{EnvServerCertFile, cfg.ServerCertFile != ""}, {EnvServerKeyFile, cfg.ServerKeyFile != ""}, {EnvClientCAFile, cfg.ClientCAFile != ""},
 		{"ReadFile", cfg.ReadFile != nil}, {"ReadSecret", cfg.ReadSecret != nil}, {"Clock", cfg.Clock != nil}, {"Switch", cfg.Switch != nil},
 		{"CorrelationIDs", cfg.CorrelationIDs != nil}, {"HeaderTimeout", cfg.HeaderTimeout > 0},
+		{"ReadTimeout", cfg.ReadTimeout > 0}, {"IdleTimeout", cfg.IdleTimeout > 0}, {"MaxHeaderBytes", cfg.MaxHeaderBytes > 0},
 	} {
 		if !s.ok {
 			return nil, fmt.Errorf("opslistener: %s is required and has no default", s.name)
@@ -115,7 +120,8 @@ func (l *Listener) Handler() http.Handler {
 
 // Serve answers on ln over mutual TLS until ctx ends, then stops gracefully and returns nil.
 func (l *Listener) Serve(ctx context.Context, ln net.Listener) error {
-	srv := &http.Server{Handler: l.Handler(), TLSConfig: l.TLSConfig(), ReadHeaderTimeout: l.cfg.HeaderTimeout}
+	srv := &http.Server{Handler: l.Handler(), TLSConfig: l.TLSConfig(), ReadHeaderTimeout: l.cfg.HeaderTimeout,
+		ReadTimeout: l.cfg.ReadTimeout, IdleTimeout: l.cfg.IdleTimeout, MaxHeaderBytes: l.cfg.MaxHeaderBytes}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

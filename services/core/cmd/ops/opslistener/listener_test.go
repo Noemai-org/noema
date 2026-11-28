@@ -83,6 +83,7 @@ func newWorld(t *testing.T) *world {
 	w.cfg = opslistener.Config{
 		ServerCertFile: writeFile(t, dir, "server.crt", sc), ServerKeyFile: writeFile(t, dir, "server.key", sk), ClientCAFile: writeFile(t, dir, "operator-ca.crt", w.opCA.pem),
 		ReadFile: read, ReadSecret: read, Clock: fixedClock(), Switch: w.sw, CorrelationIDs: func() (string, error) { return corrID, nil }, HeaderTimeout: 5 * time.Second,
+		ReadTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 8192,
 	}
 	w.srvPool = x509.NewCertPool()
 	w.srvPool.AddCert(w.srvCA.cert)
@@ -417,6 +418,9 @@ func TestNewRefusesAnIncompleteOrBadConfiguration(t *testing.T) { // AGENT-16, R
 		"no kill switch path":                 {func(c *opslistener.Config) { c.Switch = nil }, "Switch"},
 		"no correlation source":               {func(c *opslistener.Config) { c.CorrelationIDs = nil }, "CorrelationIDs"},
 		"no header timeout":                   {func(c *opslistener.Config) { c.HeaderTimeout = 0 }, "HeaderTimeout"},
+		"no read timeout":                     {func(c *opslistener.Config) { c.ReadTimeout = 0 }, "ReadTimeout"},
+		"no idle timeout":                     {func(c *opslistener.Config) { c.IdleTimeout = 0 }, "IdleTimeout"},
+		"no header size bound":                {func(c *opslistener.Config) { c.MaxHeaderBytes = 0 }, "MaxHeaderBytes"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
@@ -512,5 +516,76 @@ func TestASlowClientIsCutOff(t *testing.T) { // REQ-OPS-003
 	case <-closed:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the connection was not closed by the server after the header timeout")
+	}
+}
+
+// A certificate holder that sends the headers and then stalls on a body is cut off by the read timeout, not held for ever (REQ-OPS-003; SR condition 3 on #1013).
+func TestAStalledBodyIsCutOffByTheReadTimeout(t *testing.T) { // REQ-OPS-003
+	w := newWorld(t)
+	w.cfg.ReadTimeout = 300 * time.Millisecond
+	l, err := opslistener.New(w.cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- l.Serve(ctx, ln) }()
+	t.Cleanup(func() { cancel(); <-done })
+	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{RootCAs: w.srvPool, Certificates: []tls.Certificate{w.operator}, Time: func() time.Time { return synthNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	req := "POST /v1/ops/tenants/ten_ABC/kill-switch:set HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nab"
+	if _, err := conn.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan struct{})
+	go func() { _, _ = io.ReadAll(conn); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the connection was held open past the read timeout")
+	}
+}
+
+// A request whose headers exceed the bound is refused with 431 (REQ-OPS-003).
+func TestOversizedHeadersAreRefused(t *testing.T) { // REQ-OPS-003
+	w := newWorld(t)
+	w.cfg.MaxHeaderBytes = 1024
+	l, err := opslistener.New(w.cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- l.Serve(ctx, ln) }()
+	t.Cleanup(func() { cancel(); <-done })
+	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{RootCAs: w.srvPool, Certificates: []tls.Certificate{w.operator}, Time: func() time.Time { return synthNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	req := "POST /v1/ops/tenants/ten_ABC/kill-switch:set HTTP/1.1\r\nHost: localhost\r\nX-Pad: " + strings.Repeat("a", 16384) + "\r\n\r\n"
+	if _, err := conn.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan []byte, 1)
+	go func() { b, _ := io.ReadAll(conn); got <- b }()
+	select {
+	case b := <-got:
+		if !strings.HasPrefix(string(b), "HTTP/1.1 431") {
+			t.Fatalf("response %q; want 431", string(b))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no response to oversized headers")
 	}
 }
