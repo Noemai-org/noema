@@ -27,9 +27,9 @@ var features = [...]string{"amount", "recipient", "temporal", "relationship", "t
 
 // Ranker implements trustport.CandidateRanker.
 type Ranker struct {
-	weights   [len(features)]*big.Rat
+	weights       [len(features)]*big.Rat
 	matchRatioTol *big.Rat
-	timeTol   *big.Rat
+	timeTol       *big.Rat
 }
 
 var _ trustport.CandidateRanker = (*Ranker)(nil)
