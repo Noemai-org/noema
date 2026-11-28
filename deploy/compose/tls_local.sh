@@ -7,6 +7,8 @@
 #   core-client.crt/.key   the core's client certificate (the peer identity the model accepts). Mounted into the core only.
 #   model-health.crt/.key  the model's own health-check client certificate, so the core's key never sits in the model container. Mounted into the model only.
 #   ca.crt                 the CA certificate, mounted into both.
+#   operator-ca.crt        a SECOND, separate CA (A721): its own key and subject, signs no service certificate here. The ops listener trusts this one for operator client certificates and the
+#                          service CA never, so a service certificate can never act as an operator. Its private key is deleted with the service CA's: operator certificates are issued by whoever holds an operator CA key.
 # The CA's private key exists only while this script runs and is deleted before it ends: nothing can mint a further certificate afterwards. If any of the seven files is
 # missing or empty, ALL are made again (a partial set would pair keys with certificates of different CAs). Existing complete sets are kept. Values are never printed.
 set -eu
@@ -18,7 +20,7 @@ dir="${1:-$here/secrets/tls}"
 # copy failed and the trap left the CA's private key behind in the work area).
 mkdir -p "$dir"
 dir="$(cd "$dir" && pwd)"
-files="ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key"
+files="ca.crt operator-ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key"
 complete=1
 for f in $files; do
   [ -s "$dir/$f" ] || complete=0
@@ -43,6 +45,9 @@ ssl() {
 }
 ssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 365 -subj "/CN=noema-poc-local-ca"   -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign"
 
+# The operator CA (A721): a different key and a different name from the service CA above; it signs nothing in this script.
+ssl req -x509 -newkey rsa:2048 -nodes -keyout operator-ca.key -out operator-ca.crt -days 365 -subj "/CN=noema-poc-local-operator-ca" -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign"
+
 # issue NAME CN EXTENDED-KEY-USAGE SAN-or-empty
 issue() {
   name="$1"; cn="$2"; eku="$3"; san="$4"
@@ -61,6 +66,7 @@ issue model-health model-health clientAuth ""
 issue temporal temporal serverAuth "DNS:temporal,DNS:localhost,IP:127.0.0.1"
 
 cp ca.crt "$dir/ca.crt"
+cp operator-ca.crt "$dir/operator-ca.crt"
 for n in model core-client model-health temporal; do
   cp "$n.crt" "$dir/$n.crt"
   cp "$n.key" "$dir/$n.key"

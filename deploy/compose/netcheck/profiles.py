@@ -477,6 +477,7 @@ BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000
 
 INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
 RELAY_SECRET_VOLUME = "webhook_relay_credentials"  # A714: the one SYNTHETIC signing secret the relay and mock-case share
+SERVICE_CA_SOURCE, SERVICE_CA_TARGET = "secrets/tls/ca.crt", "/run/tls/ca.crt"  # A721: the service-to-service mTLS CA; the operator CA must be a different file
 ADMIN_EMITTER_HOLDER = "ops"  # A699: the only service that may hold a tenant's admin emitter login; it does not exist yet (EL, G2)
 
 
@@ -768,6 +769,19 @@ def check(cfg, profile):
             mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
             for need in sorted(TLS_REQUIRED.get(name, set()) - mounted):
                 bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
+        # A721: "any certificate the operator CA signs is an operator" holds only because the operator CA is a different CA from the service-to-service mTLS CA, so a service certificate can never act
+        # as an operator. A service that sets NOEMA_OPS_CLIENT_CA_FILE must have a mount for that path whose source is not the service CA's file (secrets/tls/ca.crt), and the path must not be the path any
+        # service reads the service CA at. No service sets it today (EL's ops listener, noema#1013, is not composed yet), so this holds without effect until it does.
+        ops_ca = str((svc.get("environment") or {}).get("NOEMA_OPS_CLIENT_CA_FILE", "")) if isinstance(svc.get("environment"), dict) else ""
+        if ops_ca:
+            ops_mounts = [v for v in (svc.get("volumes") or []) if isinstance(v, dict) and str(v.get("target", "")) == ops_ca]
+            service_ca_sources = {str(v.get("source", "")).replace("\\", "/") for v in (svc.get("volumes") or []) if isinstance(v, dict) and str(v.get("source", "")).replace("\\", "/").endswith(SERVICE_CA_SOURCE)}
+            if len(ops_mounts) != 1:
+                bad.append(f"{profile}: {name} sets NOEMA_OPS_CLIENT_CA_FILE to {ops_ca} but mounts nothing there (or more than one thing): the operator CA must be its own file (A721)")
+            elif str(ops_mounts[0].get("source", "")).replace("\\", "/").endswith(SERVICE_CA_SOURCE) or ops_ca == SERVICE_CA_TARGET:
+                bad.append(f"{profile}: {name}'s operator CA is the service-to-service mTLS CA; a service certificate would act as an operator (A721)")
+            elif service_ca_sources and str(ops_mounts[0].get("source", "")) in service_ca_sources:
+                bad.append(f"{profile}: {name}'s operator CA and the service CA are the same file (A721)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
     for net, spec in cfg.get("networks", {}).items():
@@ -1136,6 +1150,9 @@ def self_test(configs):
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
         "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
+        "the core uses the service CA as the operator CA": ("bench", lambda c: [c["services"]["core"]["environment"].update({"NOEMA_OPS_CLIENT_CA_FILE": "/run/ops/ca.crt"}), c["services"]["core"]["volumes"].append({"type": "bind", "source": "/h/secrets/tls/ca.crt", "target": "/run/ops/ca.crt", "read_only": True})]),
+        "the core reads the operator CA at the service CA path": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_OPS_CLIENT_CA_FILE": "/run/tls/ca.crt"})),
+        "the core names an operator CA it does not mount": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_OPS_CLIENT_CA_FILE": "/run/ops/ca.crt"})),
         "the core's model URL is empty": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_MODEL_URL": ""})),
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
