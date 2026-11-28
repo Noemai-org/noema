@@ -340,6 +340,7 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 				return Components{}, TrustParts{}, closeAll, err
 			}
 			closers = append(closers, closeLogins)
+			c.TrustLogins = logins   // the one shared set, kept for recovery's reader (A696)
 			pack, err := d.Pack(env) // the same memoized answer the adapter source got: never a second read of the pack
 			if err != nil && !errors.Is(err, errPackNotConfigured) {
 				closeAll()
