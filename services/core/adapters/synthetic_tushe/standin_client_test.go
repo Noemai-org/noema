@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -510,5 +511,60 @@ func TestAnAnswerForAnotherTenantIsMalformed(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The client opens a new connection for every call and never reuses one (A738 follow-up of noema#1017's runs: a kept-alive connection to the stand-in was reset between runs and surfaced as a
+// spurious UNAVAILABLE). Two sequential reads over the default HTTP client open two connections; with keep-alive the second would reuse the first (REQ-EVD-001; INV-19).
+func TestTheDefaultHTTPClientOpensANewConnectionForEveryCall(t *testing.T) {
+	var mu sync.Mutex
+	opened := 0
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(ledgerBody))
+	}))
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			mu.Lock()
+			opened++
+			mu.Unlock()
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	c := newStandinClient(t, &fakeStandin{srv: srv})
+	for i := 0; i < 2; i++ {
+		if _, err := c.LedgerEntries(sdl(t, 5*time.Second), sScope, "tx:1"); err != nil {
+			t.Fatalf("read %d: %v", i, err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if opened != 2 {
+		t.Errorf("the client opened %d connections for two calls, want 2 (no keep-alive)", opened)
+	}
+}
+
+type notATransport struct{}
+
+func (notATransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("not used")
+}
+
+// SR (A761): the default transport is built explicitly, with no type assertion on http.DefaultTransport: a process that replaced the default transport (a tracing or test round tripper) must not
+// make the constructor panic, and the client it builds still opens a new connection for every call.
+func TestTheDefaultClientDoesNotAssumeTheShapeOfTheProcessWideTransport(t *testing.T) {
+	saved := http.DefaultTransport
+	http.DefaultTransport = notATransport{}
+	t.Cleanup(func() { http.DefaultTransport = saved })
+	f := newFakeStandin(t)
+	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, ledgerBody)
+	c := newStandinClient(t, f) // panicked on the unchecked assertion
+	if _, err := c.LedgerEntries(sdl(t, 5*time.Second), sScope, "tx:1"); err != nil {
+		t.Fatalf("the read failed: %v", err)
+	}
+	tr, ok := c.http.Transport.(*http.Transport)
+	if !ok || !tr.DisableKeepAlives {
+		t.Errorf("the default client's transport is %T (keep-alive disabled: %v), want an explicit *http.Transport with DisableKeepAlives", c.http.Transport, ok && tr.DisableKeepAlives)
 	}
 }
