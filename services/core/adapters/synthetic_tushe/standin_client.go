@@ -85,8 +85,11 @@ func NewStandinClient(o StandinOptions) (*StandinClient, error) {
 	hc := o.HTTP
 	if hc == nil {
 		// A738: no kept-alive connection. One the stand-in closed between runs was reused and read as UNAVAILABLE; every call opens its own.
-		tr := http.DefaultTransport.(*http.Transport).Clone()
-		tr.DisableKeepAlives = true
+		// The transport is built here, not cloned from the process-wide default, whose type nothing here may assume.
+		tr := &http.Transport{
+			Proxy:             http.ProxyFromEnvironment, // every call carries its own context deadline, so no timeout is chosen here
+			DisableKeepAlives: true,
+		}
 		hc = &http.Client{Transport: tr}
 	}
 	c := *hc
