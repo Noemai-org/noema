@@ -5,11 +5,12 @@ import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ScorecardInspector } from "../build/js/scorecard-inspector.js";
+import { parseScorecardViewV1 } from "../build/js/contract_types/benchmark.js";
 
 let scorecard;
 try {
   if (process.argv.length !== 3) throw new Error("A scorecard file is required");
-  scorecard = JSON.parse(await readFile(process.argv[2], "utf8"));
+  scorecard = parseScorecardViewV1(JSON.parse(await readFile(process.argv[2], "utf8")));
 } catch {
   // Never print file paths, input text, or error details.
   scorecard = null;

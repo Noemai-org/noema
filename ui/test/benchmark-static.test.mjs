@@ -24,9 +24,13 @@ test("A326 INV-22: static rendering refuses a file with a case list", async () =
     fixture.failure_list = ["BEN-AMB-0001"];
     const file = join(temp, "unsafe.json");
     await writeFile(file, JSON.stringify(fixture));
-    const { stdout } = await run(process.execPath, ["scripts/render-benchmark.mjs", file]);
-    assert.match(stdout, /unavailable/i);
-    assert.deepEqual(scanScorecardText(stdout), []);
+    await assert.rejects(run(process.execPath, ["scripts/render-benchmark.mjs", file]), (error) => {
+      assert.notEqual(error.code, 0);
+      assert.match(error.stdout, /unavailable/i);
+      assert.deepEqual(scanScorecardText(error.stdout), []);
+      assert.doesNotMatch(error.stdout + error.stderr, /BEN-AMB-0001/u);
+      return true;
+    });
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
 
