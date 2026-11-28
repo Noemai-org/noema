@@ -1,0 +1,934 @@
+{
+  "generator": {
+    "name": "noema-casegen",
+    "seed": 20261020,
+    "version": "1.3.3"
+  },
+  "label": "SYNTHETIC generated cases for the fifteen G2 user stories: what a run loads for each, no expectation and no oracle (INV-22, AGENT-25)",
+  "materialise": "python -m benchmark.generator generate --seed 20261020 --out DIR",
+  "plan": "plan 3.1 (G2 Trust depth)",
+  "seed": 20261020,
+  "stories": [
+    {
+      "cases": [
+        {
+          "case_id": "BEN-AMB-0001",
+          "category": "AMBIGUITY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_amb_0001.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AMB-0014",
+          "category": "AMBIGUITY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_amb_0014.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AMB-0019",
+          "category": "AMBIGUITY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_amb_0019.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-AMB-0032",
+          "category": "AMBIGUITY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_amb_0032.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-02"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-STATE-0001",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "DEBIT_WITHOUT_CREDIT"
+          ],
+          "fault_plan": "fp_ben_state_0001",
+          "known_facts_fixture": "fixtures/fx_state_0001.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0021",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "DEBIT_WITHOUT_CREDIT"
+          ],
+          "fault_plan": "fp_ben_state_0021",
+          "known_facts_fixture": "fixtures/fx_state_0021.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0041",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "DEBIT_WITHOUT_CREDIT"
+          ],
+          "fault_plan": "fp_ben_state_0041",
+          "known_facts_fixture": "fixtures/fx_state_0041.json",
+          "locale_mix": [
+            "pcm",
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-03"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-DUP-0001",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_dup_0001.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-DUP-0008",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_dup_0008.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-DUP-0009",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_dup_0009.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-DUP-0016",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_dup_0016.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-DUP-0017",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_dup_0017.json",
+          "locale_mix": [
+            "pcm",
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-DUP-1004",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4",
+            "B6"
+          ],
+          "fault_effects": [
+            "INJECTION_PAYLOAD"
+          ],
+          "fault_plan": "fp_ben_dup_1004",
+          "known_facts_fixture": "fixtures/fx_dup_1004.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        }
+      ],
+      "story": "US-05"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-AUTH-0001",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0001.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-0020",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0020.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-1001",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_1001.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-1002",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_1002.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-1004",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B5",
+            "B7"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_1004.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-1005",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_1005.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-1007",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B1"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_1007.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-1008",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B5",
+            "B7"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_1008.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        }
+      ],
+      "story": "US-07"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-POL-0002",
+          "category": "POLICY_CLOCK",
+          "event_kinds": [
+            "session_start",
+            "policy_publish_after_grant"
+          ],
+          "families": [
+            "B3",
+            "B4"
+          ],
+          "fault_effects": [
+            "POLICY_MUTATION"
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_pol_0002.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-POL-0011",
+          "category": "POLICY_CLOCK",
+          "event_kinds": [
+            "session_start",
+            "policy_publish_after_grant"
+          ],
+          "families": [
+            "B3",
+            "B4"
+          ],
+          "fault_effects": [
+            "POLICY_MUTATION"
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_pol_0011.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-08"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-AUTH-0012",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0012.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-0015",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0015.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-0017",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0017.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-0018",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0018.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-AUTH-0019",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0019.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-INJ-0014",
+          "category": "PROMPT_INJECTION",
+          "event_kinds": [
+            "session_start",
+            "provider_mode"
+          ],
+          "families": [
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_inj_0014.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-INJ-0017",
+          "category": "PROMPT_INJECTION",
+          "event_kinds": [
+            "session_start",
+            "provider_mode"
+          ],
+          "families": [
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_inj_0017.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        }
+      ],
+      "story": "US-10"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-SESS-0001",
+          "category": "STALE_SESSION",
+          "event_kinds": [
+            "session_start",
+            "session_resume"
+          ],
+          "families": [
+            "B1",
+            "B3"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_sess_0001.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-SESS-0007",
+          "category": "STALE_SESSION",
+          "event_kinds": [
+            "session_start",
+            "session_resume"
+          ],
+          "families": [
+            "B1",
+            "B3"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_sess_0007.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-11"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-STATE-0006",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start",
+            "webhook"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "DELAYED_REVERSAL"
+          ],
+          "fault_plan": "fp_ben_state_0006",
+          "known_facts_fixture": "fixtures/fx_state_0006.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0026",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start",
+            "webhook"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "DELAYED_REVERSAL"
+          ],
+          "fault_plan": "fp_ben_state_0026",
+          "known_facts_fixture": "fixtures/fx_state_0026.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-13"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-STATE-0002",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "SPLIT_STATE"
+          ],
+          "fault_plan": "fp_ben_state_0002",
+          "known_facts_fixture": "fixtures/fx_state_0002.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0022",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "SPLIT_STATE"
+          ],
+          "fault_plan": "fp_ben_state_0022",
+          "known_facts_fixture": "fixtures/fx_state_0022.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0042",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "SPLIT_STATE"
+          ],
+          "fault_plan": "fp_ben_state_0042",
+          "known_facts_fixture": "fixtures/fx_state_0042.json",
+          "locale_mix": [
+            "pcm",
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-14"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-STATE-0011",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start",
+            "clock_advance"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "STALE_READ"
+          ],
+          "fault_plan": "fp_ben_state_0011",
+          "known_facts_fixture": "fixtures/fx_state_0011.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-STATE-0031",
+          "category": "STATE_CONFLICT",
+          "event_kinds": [
+            "session_start",
+            "clock_advance"
+          ],
+          "families": [
+            "B2"
+          ],
+          "fault_effects": [
+            "STALE_READ"
+          ],
+          "fault_plan": "fp_ben_state_0031",
+          "known_facts_fixture": "fixtures/fx_state_0031.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-15"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-POL-0007",
+          "category": "POLICY_CLOCK",
+          "event_kinds": [
+            "session_start",
+            "webhook",
+            "confirm"
+          ],
+          "families": [
+            "B3"
+          ],
+          "fault_effects": [
+            "DELAYED_REVERSAL"
+          ],
+          "fault_plan": "fp_ben_pol_0007",
+          "known_facts_fixture": "fixtures/fx_pol_0007.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        }
+      ],
+      "story": "US-18"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-DUP-0007",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [
+            "CONCURRENT_MODIFICATION"
+          ],
+          "fault_plan": "fp_ben_dup_0007",
+          "known_facts_fixture": "fixtures/fx_dup_0007.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-DUP-0015",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [
+            "CONCURRENT_MODIFICATION"
+          ],
+          "fault_plan": "fp_ben_dup_0015",
+          "known_facts_fixture": "fixtures/fx_dup_0015.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        },
+        {
+          "case_id": "BEN-DUP-1006",
+          "category": "DUPLICATE_REPLAY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4",
+            "B6"
+          ],
+          "fault_effects": [
+            "CONCURRENT_MODIFICATION",
+            "INJECTION_PAYLOAD"
+          ],
+          "fault_plan": "fp_ben_dup_1006",
+          "known_facts_fixture": "fixtures/fx_dup_1006.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        }
+      ],
+      "story": "US-19"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-POL-0002",
+          "category": "POLICY_CLOCK",
+          "event_kinds": [
+            "session_start",
+            "policy_publish_after_grant"
+          ],
+          "families": [
+            "B3",
+            "B4"
+          ],
+          "fault_effects": [
+            "POLICY_MUTATION"
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_pol_0002.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-POL-0011",
+          "category": "POLICY_CLOCK",
+          "event_kinds": [
+            "session_start",
+            "policy_publish_after_grant"
+          ],
+          "families": [
+            "B3",
+            "B4"
+          ],
+          "fault_effects": [
+            "POLICY_MUTATION"
+          ],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_pol_0011.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-20"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-HOST-0001",
+          "category": "INTEGRATION_HOSTILITY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [
+            "HTTP_429"
+          ],
+          "fault_plan": "fp_ben_host_0001",
+          "known_facts_fixture": "fixtures/fx_host_0001.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        },
+        {
+          "case_id": "BEN-HOST-0011",
+          "category": "INTEGRATION_HOSTILITY",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B4"
+          ],
+          "fault_effects": [
+            "HTTP_429"
+          ],
+          "fault_plan": "fp_ben_host_0011",
+          "known_facts_fixture": "fixtures/fx_host_0011.json",
+          "locale_mix": [
+            "en-NG"
+          ]
+        }
+      ],
+      "story": "US-21"
+    },
+    {
+      "cases": [
+        {
+          "case_id": "BEN-AUTH-0016",
+          "category": "AUTHORISATION",
+          "event_kinds": [
+            "session_start"
+          ],
+          "families": [
+            "B3",
+            "B6"
+          ],
+          "fault_effects": [],
+          "fault_plan": "fp_none",
+          "known_facts_fixture": "fixtures/fx_auth_0016.json",
+          "locale_mix": [
+            "pcm"
+          ]
+        }
+      ],
+      "story": "US-22"
+    }
+  ]
+}

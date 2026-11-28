@@ -15,3 +15,14 @@
 - Open questions (owner): none new.
 - Files to read first: `benchmark/scoring/story_table.py`.
 - Do not touch: the scorecard v3 contract.
+
+# Session 2026-11-28 · BEN-12 · A771, A637: the G2 family case fixtures
+
+## Session summary
+- What changed: `benchmark/generator/g2_families.py` builds `benchmark/g2/g2-families.v1.json` from the generated suite of one seed: for each of the fifteen stories G2 names (US-02, 03, 05, 07, 08, 10, 11, 13, 14, 15, 18, 19, 20, 21, 22), every generated case tagged with it (48 case entries) and what a run loads for it (facts fixture, fault plan, fault effects, event kinds, locale mix, category, families). No expectation, no oracle (INV-22). The BEN-12 table generator itself is already merged (`story_table.py`, A300, #701); this names the cases the table is built over.
+- Why: A771 and A637: G2 builds start now.
+- Evidence: all fifteen stories have at least one case. Seen failing first (no module; the red commit is on the PR). The same seed gives the same bytes and the committed copy is checked for staleness.
+- Risks: none to the product. Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: `benchmark.suites.g2_readiness` (its own PR) reports which of these cases this build of the runner can run now; the run itself needs the stack.
