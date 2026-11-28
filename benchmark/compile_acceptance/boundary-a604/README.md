@@ -52,3 +52,19 @@ PYTHONPATH=services/model:. python3 -c "import sys; from benchmark.compile_accep
 ```
 
 then reduce `DIR/recordings` with `fixtures.reduce_run(src, dst, head_sha=<the commit>)`. The script exits 1 when any boundary disagrees. Add `--include-long-digit-runs` to generate B02, B06 and B12 (not for a committed file). The recorded date is fixed, so two runs are byte-identical (INV-21).
+
+## The offline probe set and the B14 and B15 to B20 evidence (A772)
+
+`probe-set.v1.json` is the 28 labelled phrasings of `remedy_labelled.v1.json` as one offline probe set for C2. Each phrasing lists the boundary it was asked at (the boundaries take the phrasings in order; the rest have no recording), the gate recording that answers it and what replay does with it: `SERVED`, `EVIDENCE_ONLY` (a reply the harness refuses as a whole) or `NOT_COMMITTED` (B02, B06 and B12, whose probability text holds a digit run of five or more; a test generates them). Rebuild it with `python -m benchmark.compile_acceptance.probe_set --out benchmark/compile_acceptance/boundary-a604/probe-set.v1.json`; a test fails when the committed copy is stale.
+
+| Boundary | Written | A612 expects | The gate gave | Replay |
+|---|---|---|---|---|
+| B14 | `9e-1` | absent | ABSENT | SERVED (an exponent form is malformed and the slot abstains, A649) |
+| B15 | `-0.1` | absent | ABSENT | SERVED |
+| B16 | `NaN` | absent | ABSENT | EVIDENCE_ONLY (rec-0094, `NOT_JSON`) |
+| B17 | `Infinity` | absent | ABSENT | EVIDENCE_ONLY (rec-0101, `NOT_JSON`) |
+| B18 | `null` | absent | ABSENT | EVIDENCE_ONLY (rec-0108, `SCHEMA_MISMATCH`) |
+| B19 | member missing | absent | ABSENT | EVIDENCE_ONLY (rec-0115, `SCHEMA_MISMATCH`) |
+| B20 | `"0.95"` | absent | ABSENT | EVIDENCE_ONLY (rec-0122, `SCHEMA_MISMATCH`) |
+
+B14 and B15 are served by replay, so C2 reproduces their outcome offline from the fixture. B16 to B20 are not: replay refuses them as `EVIDENCE_ONLY`, so C2 exercises those five through the generator (`synthetic_boundary`, scripted inner transport).
