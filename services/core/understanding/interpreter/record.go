@@ -17,7 +17,9 @@ const (
 	emitter        = "core-workflows" // what the orchestrator's login is bound to write (migration 0004), as for the admitted-intent store
 	eventRejected  = "INTENT_REJECTED_AT_GATE"
 	eventSecurity  = "SECURITY_EVENT"
+	eventResumed   = "INVESTIGATION_RESUMED"
 	kindOverride   = "PRINCIPAL_OVERRIDE_ATTEMPT"
+	kindCrossScope = "CROSS_SCOPE_ATTEMPT"
 	objectRefStart = "gat_"
 )
 
@@ -114,4 +116,39 @@ func (r *RecordRecorder) append(ctx context.Context, ev chain.Event) error {
 	return nil
 }
 
+// Resumed appends INVESTIGATION_RESUMED for a follow-up (REQ-INP-004): the investigation it resumed is named by the prior's intent id and version, in the payload and as the object, and nothing of the
+// request is written (AGENT-13). An intent id or a version the store could not hold is refused and nothing is appended.
+func (r *RecordRecorder) Resumed(ctx context.Context, s Subject, priorIntentID string, priorVersion int) error {
+	if err := r.ready(); err != nil {
+		return err
+	}
+	if _, err := r.subject(s); err != nil {
+		return err
+	}
+	if !priorIntentRe.MatchString(priorIntentID) || priorVersion < 1 {
+		return errors.New(prefix + "a resume names the prior intent by its id and a version of one or more")
+	}
+	return r.append(ctx, chain.Event{TenantID: s.TenantID, CorrelationID: s.CorrelationID, WrittenBy: emitter, Actor: s.Actor, EventType: eventResumed, ObjectRef: priorIntentID,
+		Payload: map[string]any{"prior_intent_id": priorIntentID, "prior_version": priorVersion}})
+}
+
+// Denied appends SECURITY_EVENT of kind CROSS_SCOPE_ATTEMPT for a follow-up that named another principal's investigation (REQ-INP-004; understanding/resume.Denials): for the session's tenant and the
+// asking actor, with the chain it asked for as the subject. The payload names the scope only, never a principal or a reference of the other customer (AGENT-13). A missing tenant, actor or chain is
+// refused and nothing is appended.
+func (r *RecordRecorder) Denied(ctx context.Context, tenantID, actor, correlationID string) error {
+	if err := r.ready(); err != nil {
+		return err
+	}
+	s := Subject{TenantID: tenantID, Actor: actor, CorrelationID: correlationID}
+	ref, err := r.subject(s)
+	if err != nil {
+		return err
+	}
+	return r.append(ctx, chain.Event{TenantID: s.TenantID, CorrelationID: s.CorrelationID, WrittenBy: emitter, Actor: s.Actor, EventType: eventSecurity, Kind: kindCrossScope, ObjectRef: ref,
+		Payload: map[string]any{"scope": "PRINCIPAL"}})
+}
+
 var _ Recorder = (*RecordRecorder)(nil)
+var _ Resumes = (*RecordRecorder)(nil)
+
+// Denied has the shape of understanding/resume.Denials; this package does not import resume, so the composition in cmd/core is where the assignment is checked.

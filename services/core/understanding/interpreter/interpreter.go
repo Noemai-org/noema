@@ -93,6 +93,11 @@ type Epochs interface {
 	EpochOf(ctx context.Context, tenantID, principalID, subjectRef string) (int, error)
 }
 
+// Resumes appends INVESTIGATION_RESUMED for a follow-up: the investigation it resumed is named by the prior's intent id and version, and nothing of the request (REQ-INP-004; AGENT-13).
+type Resumes interface {
+	Resumed(ctx context.Context, s Subject, priorIntentID string, priorVersion int) error
+}
+
 // Config is what New needs. The first four parts are required; there are no defaults. Subject and Epochs are optional and come together: with neither, an admitted intent is
 // saved with no subject and epoch 1 (the G1 path); with both, the subject of the intent is read from the pack's subject slot and its epoch from the case list.
 type Config struct {
@@ -102,6 +107,9 @@ type Config struct {
 	Saver    Saver
 	Subject  func(understanding.AdmittedIntent) (subjectRef string, ok bool) // understanding.SubjectOf(pack view)
 	Epochs   Epochs
+	// Resumed records INVESTIGATION_RESUMED when a follow-up (an Input with a Prior) has passed the gate, BEFORE the intent is saved (the Record comes first, EC-E16). Optional: nil records no resume
+	// (a first turn never does). An error means nothing was recorded and nothing is saved (ErrRecord). RecordRecorder implements it.
+	Resumed Resumes
 	// ContradictionFlag is the pack's ambiguity flag for a follow-up that contradicts the turn before it (the pack lists it as proposable; the core names none, INV-14). Empty: the core applies no rule
 	// and the model's flags stand. With a flag and a Prior the core decides it (A320, A404, A712): present exactly when a slot the prior had resolved now holds a different value; the model's flag is advisory.
 	ContradictionFlag string
@@ -235,6 +243,12 @@ func (i *Interpreter) Interpret(ctx context.Context, in Input) (Result, error) {
 	}
 	if len(adm.Overrides) > 0 {
 		if err := i.c.Recorder.OverrideAttempt(ctx, subject, adm.Overrides); err != nil {
+			return Result{}, wrap(ErrRecord, err)
+		}
+	}
+	if in.Prior != nil && i.c.Resumed != nil {
+		// The follow-up has passed the gate: its resume is recorded now, before anything is saved (the Record comes first, EC-E16). A Record that cannot take it stops the save.
+		if err := i.c.Resumed.Resumed(ctx, subject, in.Prior.IntentID, in.Prior.Version); err != nil {
 			return Result{}, wrap(ErrRecord, err)
 		}
 	}
