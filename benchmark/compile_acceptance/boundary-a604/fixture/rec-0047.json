@@ -5,7 +5,7 @@
   "failure": null,
   "failure_class": "OK",
   "fixture": {
-    "head_sha": "d2f83578a7c7195891eab753ee9963f52388bf7d",
+    "head_sha": "1fb26e7f23bceb5d21ef0542849cfcd1b279042f",
     "label": "Understanding: recorded replay of live output",
     "labels": {
       "reason": "OK",
