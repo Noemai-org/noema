@@ -6,6 +6,7 @@ package trustpg2_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -124,5 +125,41 @@ func TestExpireAppendsConfirmationExpiredAsTheCoresOwnEvent(t *testing.T) {
 	got := w.recorded(t)
 	if len(got) != 1 || got[0].eventType != "CONFIRMATION_EXPIRED" || got[0].actor != "core-trust" || got[0].objectRef != id {
 		t.Fatalf("Record events = %+v, want one CONFIRMATION_EXPIRED by core-trust about %s", got, id)
+	}
+}
+
+// A761 (interim, relayed): the actor of CONFIRMATION_RECEIVED is "<kind>:<approver>", so an approver id that holds a ':' could be read as another kind or id. The store refuses it before any
+// transaction opens, and the appender refuses it again.
+func TestAnApproverIDWithAColonIsRefusedAndNothingIsStored(t *testing.T) {
+	w := newReqWorld(t)
+	id, err := w.a.Open(reqCtx(t), w.recReq("sha256:r5", time.Hour, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, approver := range []string{"prn:2", "approver:prn_2", ":prn_2", "prn_2:"} {
+		_, err := w.realStore(t, true).Answer(reqCtx(t), trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: id, ApproverID: approver, ApproverKind: "approver", Roles: []string{"approver"}, Response: confirm.Accept})
+		if !errors.Is(err, trustpg2.ErrRequestForm) {
+			t.Errorf("approver %q: got %v, want ErrRequestForm", approver, err)
+		}
+	}
+	if n := w.rows(t, "confirmation_answer"); n != 0 {
+		t.Fatalf("confirmation_answer rows = %d, want 0", n)
+	}
+	if got := w.recorded(t); len(got) != 0 {
+		t.Fatalf("Record events = %+v, want none", got)
+	}
+}
+
+func TestTheAppenderRefusesAnApproverIDWithAColonToo(t *testing.T) {
+	w := newReqWorld(t)
+	ev := trustpg2.RecordEvents{Appender: w.realStore(t, true).Events.(trustpg2.RecordEvents).Appender}
+	tx, err := w.a.Pool.Begin(reqCtx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(reqCtx(t)) }()
+	err = ev.Received(reqCtx(t), tx, trustpg2.ReceivedEvent{TenantID: "ten_aa", CorrelationID: "corr_Rec1", RequestID: "cfr_01M7SKZC80VQY5M44C65C5T755", EventID: "cfe_01M7SKZC80835XXGVANDTJ6285", ApproverID: "prn:2", ApproverKind: "approver", Accepted: true})
+	if err == nil {
+		t.Fatal("the appender wrote an actor from an approver id with a colon")
 	}
 }

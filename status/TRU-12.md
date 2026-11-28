@@ -10,3 +10,7 @@
 ## Pre-work for the next agent
 - Exact next step: the composition builds `trustpg2.Requests{Events: trustpg2.RecordEvents{Appender: ...}}` and removes the gap text `needRequestEvents` from `cmd/core/wire_decisions.go`.
 - Do not touch: `trust/recorder` (it appends CONFIRMATION_REQUESTED).
+
+# Session 2026-11-27 · TRU-12 · A761 (C1, interim, relayed): an approver id with a colon
+
+- `Requests.Answer` refuses an approver id that holds a ':' (`ErrRequestForm`, before any transaction) and `RecordEvents.Received` refuses it again: the actor of CONFIRMATION_RECEIVED is `<kind>:<approver>`, so a colon could read as another kind or id. Tests: `record_events_test.go` (four ids; nothing stored, no event). Red at `939ab5eb2`. This is a code push after READY: a fresh SR read is needed (A669).
