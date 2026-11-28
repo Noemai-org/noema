@@ -42,10 +42,12 @@ type statesSpy struct {
 	ended bool
 	err   error
 	calls int
+	got   string
 }
 
-func (s *statesSpy) Terminal(context.Context, string, string) (bool, error) {
+func (s *statesSpy) Terminal(_ context.Context, tenantID, principalID, correlationID string) (bool, error) {
 	s.calls++
+	s.got = tenantID + "|" + principalID + "|" + correlationID
 	return s.ended, s.err
 }
 
@@ -75,6 +77,9 @@ func TestTheSessionsOwnOpenInvestigationResolvesToItsLatestIntentReadByItsChainC
 	got, err := r.Open(context.Background(), session, actor, ref)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if want := session.TenantID + "|" + session.PrincipalID + "|" + corr; st.got != want {
+		t.Errorf("the state was asked as %q, want the session's tenant and principal and the chain %q", st.got, want)
 	}
 	if got.IntentID != "int_1" || got.Version != 2 || len(rd.got) != 1 || rd.got[0] != corr || st.calls != 1 || len(dn.got) != 0 {
 		t.Errorf("got %+v; reader asked %v; states %d; denials %v", got, rd.got, st.calls, dn.got)

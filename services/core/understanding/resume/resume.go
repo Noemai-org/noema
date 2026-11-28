@@ -31,9 +31,10 @@ type Reader interface {
 	Latest(ctx context.Context, correlationID string) (intentstore.Admitted, error)
 }
 
-// States says whether an investigation has ended.
+// States says whether an investigation has ended. The tenant and the principal are the verified session's (INV-12): the adapter reads the investigation of that tenant and never selects a row by the
+// principal.
 type States interface {
-	Terminal(ctx context.Context, tenantID, correlationID string) (bool, error)
+	Terminal(ctx context.Context, tenantID, principalID, correlationID string) (bool, error)
 }
 
 // Denials records a follow-up that named another principal's investigation (SECURITY_EVENT, REQ-INP-004).
@@ -81,7 +82,7 @@ func (r Resolver) Open(ctx context.Context, s understanding.Session, actor, conv
 		}
 		return intentstore.Admitted{}, ErrNotFound
 	}
-	ended, err := r.States.Terminal(ctx, s.TenantID, chain)
+	ended, err := r.States.Terminal(ctx, s.TenantID, s.PrincipalID, chain)
 	if err != nil {
 		return intentstore.Admitted{}, fmt.Errorf("%w: %w", ErrRead, err)
 	}
