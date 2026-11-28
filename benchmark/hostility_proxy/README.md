@@ -73,6 +73,7 @@ Tushe's test accounts are `9999SSMMMM` (REQ-ENV-005). A system that saw them cou
 | control API refuses every other identity; plans validated; profile guard | `internal/proxy/control_test.go`, `internal/config` |
 | the schema's fixtures and the loader agree (v1 and v2), and the effect lists equal `fault-plan.v2.json` | `internal/plan` (`TestContractFixtures*`, `TestEffectListsMatchTheV2Schema`) |
 | every corrupted-payload family is observed as not-a-fact by a strict adapter; pagination loses and doubles nothing; forged cursors are refused | `internal/proxy/corrupt_test.go` |
+| 22 fault families by the ledger, switch and destination reads, recorded for the Evidence read path (EVD-05, A717); the core replays them (`services/core/evidence/readhostility`) | `internal/proxy/record_read_hostility_test.go` |
 
 ## Run
 

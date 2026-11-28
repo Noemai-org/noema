@@ -17,9 +17,9 @@ def reasons_for(lc: LoadedCase, *, webhooks: bool = False) -> set[str]:
     return reasons
 
 
-def report(suite: Suite) -> Json:
+def report(suite: Suite, *, webhooks: bool = False) -> Json:
     """`runnable` and `blocked` partition the cases. `blocked_by` counts cases per reason, so a case with two reasons is in two entries."""
-    per_case = [reasons_for(lc) for lc in suite.cases]
+    per_case = [reasons_for(lc, webhooks=webhooks) for lc in suite.cases]
     by_reason: dict[str, int] = {}
     for reasons in per_case:
         for reason in reasons:
