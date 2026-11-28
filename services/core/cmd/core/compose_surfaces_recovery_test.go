@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	"github.com/Noemai-org/noema/services/core/orchestrator/recovery"
 )
@@ -207,4 +209,37 @@ func TestTheStartupPassLogsTheReportCountsAndNoRow(t *testing.T) {
 	if !strings.Contains(line, `"refused":1`) || !strings.Contains(line, `"no_recorded_session":0`) || strings.Contains(line, "inv_ZZ99") || strings.Contains(line, "usr_zz") {
 		t.Fatalf("log %q; want the counts refused 1 and no_recorded_session 0, and no row", line)
 	}
+}
+
+// A696, A776 (STM-01): with no seam the composition builds the recovery reader itself, over the orchestrator's logins and the Trust logins, with a required read bound.
+func TestTheCompositionBuildsTheRecoveryReaderWhenNoSeamIsGiven(t *testing.T) {
+	ctx := context.Background()
+	mk := func() map[string]*pgxpool.Pool {
+		p, err := pgxpool.New(ctx, "postgres://synthetic@127.0.0.1:1/db") // lazy: nothing is dialled
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(p.Close)
+		return map[string]*pgxpool.Pool{"ten_aa": p}
+	}
+	c := full()
+	c.TrustLogins = mk()
+	e := sfRecoveryEnv()
+	e[EnvRecoveryReadTimeout] = "1000"
+	s, gaps, err, _ := sfBuildRecoveryWith(t, c, e, SurfaceSeams{}, &orchestratorRecorder{pools: mk()}, "ten_aa")
+	if err != nil || s == nil || len(gaps) != 0 {
+		t.Fatalf("surface %v, gaps %v, error %v; want the surface built with no gap", s, gaps, err)
+	}
+	delete(e, EnvRecoveryReadTimeout)
+	s, gaps, err, _ = sfBuildRecoveryWith(t, c, e, SurfaceSeams{}, &orchestratorRecorder{pools: mk()}, "ten_aa")
+	if s != nil || err != nil || len(gaps) == 0 || !strings.Contains(strings.Join(gaps, ","), EnvRecoveryReadTimeout) {
+		t.Fatalf("without the read bound: surface %v, gaps %v, error %v; want a gap naming %s", s, gaps, err, EnvRecoveryReadTimeout)
+	}
+}
+
+func sfBuildRecoveryWith(t *testing.T, c Components, e envMap, seams SurfaceSeams, rec *orchestratorRecorder, tenants ...string) (*recoverySurface, []string, error, *bytes.Buffer) {
+	t.Helper()
+	var buf bytes.Buffer
+	s, gaps, err := buildRecoverySurface(osEnv(e), c, seams, rec, sfWritePorts(), tenants, slog.New(slog.NewJSONHandler(&buf, nil)))
+	return s, gaps, err, &buf
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/events"
 	"github.com/Noemai-org/noema/services/core/edge/session"
@@ -50,6 +52,8 @@ type Components struct {
 	// ServedTenants is every tenant this deployment serves, as the session settings name them (NOEMA_SESSION_TENANTS). It is not a component: the Record reader is checked against
 	// it, and a served tenant with no Record login makes /readyz name "record logins" (A434).
 	ServedTenants []string
+	// TrustLogins is the per-tenant Trust logins of the one shared set (A643), kept so recovery's reader reads the ALLOW decision as Trust's own login. Nil when Trust is not wired.
+	TrustLogins map[string]*pgxpool.Pool
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
 	// TrustUnbuilt names the Trust adapters that are not yet built when Trust is configured but cannot be plugged (the named, expected gaps of UnbuiltAdaptersError). It is not a
@@ -336,6 +340,7 @@ func buildComponentsWith(ctx context.Context, env Env, clk clock.Clock, ids chai
 				return Components{}, TrustParts{}, closeAll, err
 			}
 			closers = append(closers, closeLogins)
+			c.TrustLogins = logins   // the one shared set, kept for recovery's reader (A696)
 			pack, err := d.Pack(env) // the same memoized answer the adapter source got: never a second read of the pack
 			if err != nil && !errors.Is(err, errPackNotConfigured) {
 				closeAll()

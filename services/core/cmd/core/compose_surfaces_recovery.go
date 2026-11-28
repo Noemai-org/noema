@@ -12,6 +12,8 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
+	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/recoverypg"
+	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg"
 	"github.com/Noemai-org/noema/services/core/orchestrator/recovery"
 )
 
@@ -42,6 +44,9 @@ func recoveryWritePorts(wp orchestrator.WritePorts) orchestrator.WritePorts {
 	wp.Executor = recovery.NoDispatch{}
 	return wp
 }
+
+// EnvRecoveryReadTimeout bounds one read of the recovery reader, in whole milliseconds. Required when recovery is built by this composition, no default (AGENT-16).
+const EnvRecoveryReadTimeout = "NOEMA_RECOVERY_READ_TIMEOUT_MS"
 
 // recoverySettingNames is every setting of a pass, in the one order its gaps are named.
 var recoverySettingNames = []string{recovery.EnvIdleMS, recovery.EnvBatchSize, recovery.EnvRunTimeoutMS}
@@ -97,7 +102,14 @@ func buildRecoverySurface(env Env, c Components, seams SurfaceSeams, rec *orches
 	var gaps []string
 	var rn *orchestrator.WriteRunner
 	if seams.Recovery == nil {
-		gaps = append(gaps, "recovery: reader not built")
+		reader, gap, err := recoveryReader(env, c, rec)
+		if err != nil {
+			return nil, nil, err
+		}
+		seams.Recovery = reader
+		if gap != "" {
+			gaps = append(gaps, gap)
+		}
 	}
 	if rec == nil {
 		gaps = append(gaps, "recovery: recorder not built")
@@ -228,3 +240,37 @@ func (r *recoverySurface) Ready() (bool, string) {
 
 // Fatal delivers the error of a startup pass that could not read its list: the process then exits non-zero (A442).
 func (r *recoverySurface) Fatal() <-chan error { return r.fatal }
+
+// recoveryStates are the investigation states a recovery pass takes up: the in-flight ones, whose last move can be resumed from the Record (the reader's own tests use the same set).
+var recoveryStates = []orchestrator.State{"PLANNED", "EXECUTING", "AWAITING_VERIFICATION"}
+
+// recoveryReader builds the reader of the idle investigations over the orchestrator's per-tenant logins and Trust's own logins (the ALLOW decision is Trust's to read). A part that is
+// absent is a named gap, with no value; a read bound that is given and invalid is the error. The bound has no default (AGENT-16).
+func recoveryReader(env Env, c Components, rec *orchestratorRecorder) (recovery.Reader, string, error) {
+	if rec == nil || len(rec.pools) == 0 {
+		return nil, "recovery: reader not built", nil
+	}
+	if len(c.TrustLogins) == 0 {
+		return nil, "recovery: reader needs the Trust logins", nil
+	}
+	if env.Getenv(EnvRecoveryReadTimeout) == "" {
+		return nil, "recovery: " + EnvRecoveryReadTimeout + " missing", nil
+	}
+	timeout, err := recorderSettingMS(env, EnvRecoveryReadTimeout)
+	if err != nil {
+		return nil, "", err
+	}
+	trustPools, err := trustpg.NewPools(c.TrustLogins)
+	if err != nil {
+		return nil, "", fmt.Errorf("cmd/core: recovery: the Trust logins are not usable")
+	}
+	decisions, err := trustpg.NewDecisions(trustPools, timeout)
+	if err != nil {
+		return nil, "", fmt.Errorf("cmd/core: recovery: the decision reader cannot be built")
+	}
+	r, err := recoverypg.New(rec.pools, decisions, recoveryStates, timeout)
+	if err != nil {
+		return nil, "", fmt.Errorf("cmd/core: recovery: the reader cannot be built")
+	}
+	return r, "", nil
+}
