@@ -115,9 +115,32 @@ func svfWorld(t *testing.T) (SealedSnapshot, *svfPayloads) {
 	return snap, &svfPayloads{byID: map[string]map[string]any{"ev_1": svfComplete(svfToken), "ev_2": {"semantic_status": "SUCCESS"}, "ev_3": svfComplete("tok-other-1")}}
 }
 
+// svfResults and svfFreeze are the two ports of the freeze Permission. Their answers are the test's own; the gate is the real one.
+type svfResults struct {
+	res reconcile.Result
+	err error
+}
+
+func (r svfResults) ResultOf(context.Context, SealedSnapshot, string) (reconcile.Result, error) {
+	return r.res, r.err
+}
+
+type svfFreeze struct {
+	state reconcile.RecordedFreeze
+	err   error
+}
+
+func (f svfFreeze) RecordedFreeze(context.Context, string, string) (reconcile.RecordedFreeze, error) {
+	return f.state, f.err
+}
+
 func svfSource(t *testing.T, p *svfPayloads) *SealedSteps {
+	return svfSourceWith(t, p, svfResults{res: reconcile.Result{Classification: reconcile.SuccessConfirmed}}, svfFreeze{state: reconcile.FreezeNone}, reconcile.NewFreezeGate(nil))
+}
+
+func svfSourceWith(t *testing.T, p *svfPayloads, r ResultSource, f reconcile.FreezeReader, g reconcile.FreezeGate) *SealedSteps {
 	t.Helper()
-	s, err := NewSealedSteps(SealedStepsConfig{Mapping: svfMapping(t), Payloads: p})
+	s, err := NewSealedSteps(SealedStepsConfig{Mapping: svfMapping(t), Payloads: p, Results: r, Freeze: f, Gate: g})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,32 +288,78 @@ func TestAStepSourceNeedsItsPartsAndNoneIsDefaulted(t *testing.T) {
 	}
 }
 
-// --- the Permission: a named gap (REQ-RES-002, INV-20) ---------------------------------------------------------------------------------------
+// --- the Permission: the freeze gate over the reconciliation and the effective freeze (REQ-RES-002, INV-20) ---------------------------------------------
 
-// Until the freeze row and a Record reader for it exist, no Permission can be built, and one must never be guessed: StepFacts refuses even when the version is perfectly good, with the typed
-// error and no facts at all, so the Recorder cannot issue a grant for the step.
-func TestStepFactsRefuseWithTheNamedGapAndGiveNoPermission(t *testing.T) {
+// A target that is not frozen, with a good version, gets a valid Permission for the step's own capability and target.
+func TestAStepOfATargetThatIsNotFrozenGetsAPermission(t *testing.T) {
 	snap, p := svfWorld(t)
-	src := svfSource(t, p)
-	if _, err := src.TargetVersions(recCtx(t), snap, svfStep()); err != nil {
-		t.Fatalf("control: the version part must work, or the refusal below proves nothing: %v", err)
-	}
-	got, err := src.StepFacts(recCtx(t), snap, svfStep())
-	if !errors.Is(err, ErrStepPermission) {
-		t.Fatalf("err %v, want ErrStepPermission", err)
-	}
-	if got.Permission.Valid() || got.TargetVersions != nil {
-		t.Errorf("facts %+v with the gap: a refusal carries no version and no permission", got)
-	}
-	if errors.Is(err, ErrStepVersion) {
-		t.Errorf("the gap is not a version failure: a caller must tell them apart: %v", err)
+	got, err := svfSource(t, p).StepFacts(recCtx(t), snap, svfStep())
+	if err != nil || !got.Permission.Valid() || len(got.TargetVersions) != 1 {
+		t.Fatalf("facts %+v, err %v; want a valid permission and one version", got, err)
 	}
 }
 
-// The gap is the same whatever the evidence is: no path through StepFacts returns a valid Permission.
-func TestNoPathThroughStepFactsReturnsAValidPermission(t *testing.T) {
+// A derived freeze, a recorded freeze never cleared and a freeze row that cannot be read each refuse a capability the pack does not allow under a freeze, with no facts at all.
+func TestAFrozenTargetRefusesACapabilityTheFreezeDoesNotAllow(t *testing.T) {
+	for name, c := range map[string]struct {
+		res reconcile.Result
+		fr  svfFreeze
+	}{
+		"a derived freeze":        {reconcile.Result{Classification: reconcile.ContradictoryState}, svfFreeze{state: reconcile.FreezeNone}},
+		"a recorded freeze":       {reconcile.Result{Classification: reconcile.SuccessConfirmed}, svfFreeze{state: reconcile.FreezeRecorded}},
+		"a freeze that is unread": {reconcile.Result{Classification: reconcile.SuccessConfirmed}, svfFreeze{err: errors.New("read failed")}},
+	} {
+		snap, p := svfWorld(t)
+		got, err := svfSourceWith(t, p, svfResults{res: c.res}, c.fr, reconcile.NewFreezeGate(nil)).StepFacts(recCtx(t), snap, svfStep())
+		if !errors.Is(err, ErrStepPermission) || got.Permission.Valid() || got.TargetVersions != nil {
+			t.Errorf("%s: facts %+v, err %v; want ErrStepPermission and no facts", name, got, err)
+		}
+	}
+}
+
+// A capability the pack allows under a freeze is permitted on a frozen target; a cleared freeze with no derived freeze is not a freeze.
+func TestACapabilityAllowedUnderAFreezeIsPermittedAndAClearedFreezeIsNone(t *testing.T) {
+	snap, p := svfWorld(t)
+	frozen := svfResults{res: reconcile.Result{Classification: reconcile.ContradictoryState}}
+	got, err := svfSourceWith(t, p, frozen, svfFreeze{state: reconcile.FreezeRecorded}, reconcile.NewFreezeGate([]string{recCap})).StepFacts(recCtx(t), snap, svfStep())
+	if err != nil || !got.Permission.Valid() {
+		t.Errorf("allowed under a freeze: %+v, %v", got, err)
+	}
+	ok := svfResults{res: reconcile.Result{Classification: reconcile.SuccessConfirmed}}
+	if got, err = svfSourceWith(t, p, ok, svfFreeze{state: reconcile.FreezeCleared}, reconcile.NewFreezeGate(nil)).StepFacts(recCtx(t), snap, svfStep()); err != nil || !got.Permission.Valid() {
+		t.Errorf("a cleared freeze: %+v, %v", got, err)
+	}
+}
+
+// A reconciliation that waits inside its window, and one that cannot be had, allow no write, not even one a freeze allows (A642).
+func TestAWaitingOrMissingReconciliationAllowsNoWrite(t *testing.T) {
+	snap, p := svfWorld(t)
+	gate := reconcile.NewFreezeGate([]string{recCap})
+	waiting := svfResults{res: reconcile.Result{Classification: reconcile.SuccessConfirmed, Wait: &reconcile.Wait{}}}
+	for name, r := range map[string]svfResults{"a waiting one": waiting, "a missing one": {err: errors.New("no result")}} {
+		got, err := svfSourceWith(t, p, r, svfFreeze{state: reconcile.FreezeNone}, gate).StepFacts(recCtx(t), snap, svfStep())
+		if !errors.Is(err, ErrStepPermission) || got.Permission.Valid() {
+			t.Errorf("%s: %+v, %v; want ErrStepPermission", name, got, err)
+		}
+	}
+}
+
+// The ports are required: a source without either is not built (AGENT-16).
+func TestTheStepSourceNeedsBothPorts(t *testing.T) {
+	_, p := svfWorld(t)
+	for name, c := range map[string]SealedStepsConfig{
+		"no results": {Mapping: svfMapping(t), Payloads: p, Freeze: svfFreeze{}},
+		"no freeze":  {Mapping: svfMapping(t), Payloads: p, Results: svfResults{}},
+	} {
+		if _, err := NewSealedSteps(c); !errors.Is(err, ErrConfig) {
+			t.Errorf("%s: err %v, want ErrConfig", name, err)
+		}
+	}
+}
+
+// No version, no Permission: a step whose version cannot be had is ErrStepVersion whatever the freeze says.
+func TestNoPathThroughStepFactsReturnsAValidPermissionWithoutAVersion(t *testing.T) {
 	for name, mutate := range map[string]func(*SealedSnapshot, *svfPayloads){
-		"a good version":    func(*SealedSnapshot, *svfPayloads) {},
 		"no ledger payload": func(_ *SealedSnapshot, p *svfPayloads) { delete(p.byID, "ev_1") },
 		"an incomplete one": func(_ *SealedSnapshot, p *svfPayloads) {
 			p.byID["ev_1"] = map[string]any{"version_token": svfToken, "complete": false}
@@ -299,8 +368,8 @@ func TestNoPathThroughStepFactsReturnsAValidPermission(t *testing.T) {
 		snap, p := svfWorld(t)
 		mutate(&snap, p)
 		got, err := svfSource(t, p).StepFacts(recCtx(t), snap, svfStep())
-		if err == nil || got.Permission.Valid() {
-			t.Errorf("%s: got %+v, %v; want an error and no permission", name, got, err)
+		if !errors.Is(err, ErrStepVersion) || got.Permission.Valid() {
+			t.Errorf("%s: got %+v, %v; want ErrStepVersion and no permission", name, got, err)
 		}
 	}
 }
@@ -309,7 +378,8 @@ func TestNoPathThroughStepFactsReturnsAValidPermission(t *testing.T) {
 func TestTheRecorderTreatsTheNamedGapAsNotPermitted(t *testing.T) {
 	snap, p := svfWorld(t)
 	rd := &sfxReader{snap: snap}
-	sealed, err := NewSealedFacts(SealedFactsConfig{Snapshots: rd, PolicyID: "fin.pol", Steps: svfSource(t, p), Facts: &rbhFacts{}})
+	frozen := svfResults{res: reconcile.Result{Classification: reconcile.ContradictoryState}}
+	sealed, err := NewSealedFacts(SealedFactsConfig{Snapshots: rd, PolicyID: "fin.pol", Steps: svfSourceWith(t, p, frozen, svfFreeze{state: reconcile.FreezeNone}, reconcile.NewFreezeGate(nil)), Facts: &rbhFacts{}})
 	if err != nil {
 		t.Fatal(err)
 	}
