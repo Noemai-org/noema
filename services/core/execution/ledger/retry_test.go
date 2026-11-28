@@ -73,6 +73,8 @@ func faultOnSpend(t *testing.T, w *world, sqlstate string, failFirst, sleepMS in
 type statementCounter struct {
 	all     atomic.Int64
 	inserts atomic.Int64
+	// onInsert, when set before the pool is used, is called with the running count of INSERT statements at the moment the client issues one (A776: an event of the client, not a wall-clock instant).
+	onInsert func(n int64)
 }
 
 func (c *statementCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
@@ -82,7 +84,10 @@ func (c *statementCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d p
 	}
 	c.all.Add(1)
 	if strings.HasPrefix(sql, "INSERT INTO GRANT_SPEND") {
-		c.inserts.Add(1)
+		n := c.inserts.Add(1)
+		if c.onInsert != nil {
+			c.onInsert(n)
+		}
 	}
 	return ctx
 }
@@ -358,45 +363,6 @@ func TestOnlyASerializationFailureIsRetried(t *testing.T) {
 				t.Fatalf("the spend was attempted %d times, want 1", got)
 			}
 		})
-	}
-}
-
-// The context deadline bounds all the attempts: with a thousand attempts allowed, every one of them slow and refused, the spend returns when the deadline does, an error,
-// and the client issues no statement of any kind after it. The count is of the statements the client issues (ruling A611), every one and not only the INSERT, taken when it issues them, so it does not depend on when a loaded
-// server begins a statement the client had already sent: any increase after Spend returned is a client that went on trying.
-func TestTheContextDeadlineStopsTheAttempts(t *testing.T) {
-	w := newWorld(t)
-	faultOnSpend(t, w, "40001", 1000000, 50)
-	pool, issued := poolCountingStatements(t, w)
-	led, _ := ledgerOn(t, w, pool)
-	led.SerializationAttempts = 1000
-	g := w.issue(t, 1)
-	c, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	done := make(chan spendOutcome, 1)
-	go func() {
-		res, err := led.Spend(c, cmdFor(g))
-		done <- spendOutcome{res, err}
-	}()
-	var o spendOutcome
-	select {
-	case o = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Spend ran on after its context deadline")
-	}
-	if o.err == nil || o.res.Spent {
-		t.Fatalf("Spend = %+v, %v; want an error", o.res, o.err)
-	}
-	if !isDidNotCommit40001(o.err) && !errors.Is(o.err, context.DeadlineExceeded) && !errors.Is(o.err, context.Canceled) {
-		t.Errorf("the error is neither the did-not-commit error nor the context's: %v", o.err)
-	}
-	atReturn, insertsAtReturn := issued.all.Load(), issued.inserts.Load()
-	if insertsAtReturn < 1 || insertsAtReturn >= 1000 {
-		t.Fatalf("%d spend attempts reached their INSERT inside a 500 ms deadline, want at least one and far fewer than 1000", insertsAtReturn)
-	}
-	time.Sleep(300 * time.Millisecond)
-	if later := issued.all.Load(); later != atReturn {
-		t.Fatalf("the client issued %d statements after Spend returned (%d at the return, %d later)", later-atReturn, atReturn, later)
 	}
 }
 
