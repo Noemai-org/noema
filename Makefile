@@ -62,7 +62,7 @@ codegen-check:
 	python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test bench-venv bench-reproduce bench bench-live bench-tokens bench-tokens-test bench-journey-tokens bench-us bench-chaos bench-evil bench-full bench-g1
+.PHONY: bench-test bench-venv bench-reproduce bench bench-live bench-tokens bench-tokens-test bench-journey-tokens bench-us bench-chaos bench-evil bench-full bench-smoke-30 bench-g1
 BENCH_VENV := .venv-bench
 BENCH_PY := $(BENCH_VENV)/bin/python
 BENCH_SEED ?= 20261020
@@ -142,6 +142,15 @@ BENCH_UP ?= model-bench-up
 BENCH_SUITE_ARGS ?=
 bench-us bench-chaos bench-evil bench-full: bench-venv
 	@suite=$(patsubst bench-%,%,$@); \
+	if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; $(MAKE) $(BENCH_UP) || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
+	run_id="$${BENCH_SUITE_RUN_ID:-$$suite-$$(date -u +%Y%m%dT%H%M%SZ)}"; \
+	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite > /dev/null || exit $$?; \
+	$(BENCH_PY) -m benchmark.suites run $$suite --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/$$suite --run-id "$$run_id" $$reset_flag -- --cost-dir $(BENCH_OUT)/cost $(BENCH_SUITE_ARGS)
+
+# TST-02 (A776): the 30-case smoke suite, hand-dispatched (bench-suites.yml) until the first /readyz 200, then a per-merge job. The recipe is the suite recipe above with the suite `smoke`
+# (benchmark/suites/suites.json); it is its own target because the suite name of the shared recipe is read from the target name. `make bench-smoke` is a different, older script.
+bench-smoke-30: bench-venv
+	@suite=smoke; \
 	if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; $(MAKE) $(BENCH_UP) || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
 	run_id="$${BENCH_SUITE_RUN_ID:-$$suite-$$(date -u +%Y%m%dT%H%M%SZ)}"; \
 	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite > /dev/null || exit $$?; \
