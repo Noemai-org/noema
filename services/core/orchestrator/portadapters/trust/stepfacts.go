@@ -18,16 +18,18 @@ import (
 // (INV-17: a RecordRequest has no field for it). The item is the snapshot's own: its source is declared by the mapping, its source record is the id of the step's target, it is KNOWN, and it
 // is the only one; its payload is the stored one, verified against the item's hash by the payload port, and marked complete. Anything else is no version, never a guess (INV-19).
 //
-// The freeze Permission of the step is a NAMED GAP. It can only come from reconcile.FreezeGate.PermitResult over the reconciliation of the target and the effective freeze (REQ-RES-002,
-// INV-20), and the freeze row and a Record reader for it are not on main (noema#958 and its Record side, C1 and EL). Until they are, StepFacts refuses with ErrStepPermission and returns no
-// facts, so the Recorder issues no grant for the step: the step is not permitted. Nothing here builds a Permission, fills a zero one or defaults to "not frozen".
+// The freeze Permission of the step is built from the reconciliation of the sealed snapshot (T10's port: the derived freeze and the pack's allow-list under a freeze) and the freeze row of
+// the Record (RES-02): the target is frozen when the classification is CONTRADICTORY_STATE or a recorded freeze was never cleared, and any doubt, a row that cannot answer or a
+// reconciliation that cannot, is a freeze (INV-20; A642). A frozen target is permitted only for a capability the pack allows under a freeze. A step that is not permitted gives
+// ErrStepPermission and no facts, so the Recorder issues no grant for it. Waiting inside a convergence window ends the evaluation earlier (RES-05, T11), before the Recorder.
 
 var (
 	// ErrStepVersion is returned when a step has no usable target version: no or more than one item for its target, an item that is not KNOWN, a payload that is not the sealed one or not
 	// marked complete, no token, a snapshot that is not the sealed one, or a target that is not a resource reference. The cause stays reachable behind the fixed text.
 	ErrStepVersion = errors.New("trustport: the step has no usable target version")
-	// ErrStepPermission is the named gap: the freeze permission of a step cannot be built yet. A Recorder that gets it writes nothing.
-	ErrStepPermission = errors.New("trustport: the freeze permission of the step cannot be built yet")
+	// ErrStepPermission is returned when the step has no freeze permission: the target is frozen for the capability, or the reconciliation or the freeze row could not answer. A Recorder
+	// that gets it writes nothing. The cause stays reachable behind the fixed text.
+	ErrStepPermission = errors.New("trustport: the step has no freeze permission")
 )
 
 // targetRefRe is the contract's resource reference, `<vertical>.<kind>:<id>`, with the id in the group (common.v1 ResourceRef).
@@ -57,18 +59,20 @@ type SealedStepsConfig struct {
 
 // SealedSteps implements StepFactSource over the sealed snapshot of the evaluation.
 type SealedSteps struct {
-	mapping  VersionMapping
-	payloads ItemPayloads
+	mapping    VersionMapping
+	payloads   ItemPayloads
+	reconciler intake.Reconciler
+	freeze     reconcile.FreezeReader
 }
 
 var _ StepFactSource = (*SealedSteps)(nil)
 
 // NewSealedSteps builds the step source. A missing mapping or payload port is ErrConfig.
 func NewSealedSteps(c SealedStepsConfig) (*SealedSteps, error) {
-	if c.Mapping == nil || c.Payloads == nil {
+	if c.Mapping == nil || c.Payloads == nil || c.Reconciler == nil || c.Freeze == nil {
 		return nil, ErrConfig
 	}
-	return &SealedSteps{mapping: c.Mapping, payloads: c.Payloads}, nil
+	return &SealedSteps{mapping: c.Mapping, payloads: c.Payloads, reconciler: c.Reconciler, freeze: c.Freeze}, nil
 }
 
 // TargetVersions gives the one target version of a write step, from the sealed snapshot it is handed (SealedFacts has read it as the request's tenant and checked it is intact; it is checked
@@ -111,11 +115,27 @@ func (s *SealedSteps) TargetVersions(ctx context.Context, snap SealedSnapshot, s
 	return []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: contracts.CommonV1ResourceRef(st.TargetRef), Source: contracts.CommonV1PackId(it.Source), VersionToken: token}}, nil
 }
 
-// StepFacts is the Recorder's port. The version part is TargetVersions; the Permission is the named gap, so StepFacts always ends in an error and returns no facts: with a good version it is
-// ErrStepPermission, with no usable version it is ErrStepVersion. It never returns a valid Permission.
+// StepFacts is the Recorder's port: the version of the step's target (TargetVersions) and the freeze Permission for the step's capability on that target. The version is judged first,
+// and a step with no usable version is ErrStepVersion without the reconciliation or the freeze row being asked. Then the sealed snapshot is reconciled as the snapshot's own tenant, the
+// freeze row is read for the step's target as that tenant, and the target is frozen if the reconciliation says so or a freeze was recorded and not cleared (reconcile.EffectiveFrozen);
+// a freeze row that cannot answer reads as unknown, which is frozen (reconcile.ReadFreeze). The Permission is the pack's gate over that, for this capability and this target. On any
+// refusal the facts are empty. The error text names no tenant, target, token or payload (AGENT-13).
 func (s *SealedSteps) StepFacts(ctx context.Context, snap SealedSnapshot, st intake.RecordStep) (RecordStepFacts, error) {
-	if _, err := s.TargetVersions(ctx, snap, st); err != nil {
+	versions, err := s.TargetVersions(ctx, snap, st)
+	if err != nil {
 		return RecordStepFacts{}, err
 	}
-	return RecordStepFacts{}, ErrStepPermission
+	rec, err := s.reconciler.Reconcile(ctx, snap.TenantID, snap.SnapshotID)
+	if err != nil {
+		return RecordStepFacts{}, wrapped(ErrStepPermission, err)
+	}
+	if rec.Classification == "" {
+		return RecordStepFacts{}, wrapped(ErrStepPermission, nil)
+	}
+	frozen := reconcile.EffectiveFrozen(rec.Frozen, reconcile.ReadFreeze(ctx, s.freeze, snap.TenantID, st.TargetRef))
+	perm, err := reconcile.NewFreezeGate(rec.AllowedUnderFreeze).PermitTarget(frozen, st.CapabilityID, st.TargetRef)
+	if err != nil {
+		return RecordStepFacts{}, wrapped(ErrStepPermission, err)
+	}
+	return RecordStepFacts{TargetVersions: versions, Permission: perm}, nil
 }

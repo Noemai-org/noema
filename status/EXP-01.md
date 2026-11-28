@@ -194,3 +194,20 @@ No task row names StepFactSource; A550 and A710 give it to C2 and the order name
 - Open questions (owner): items 1 to 6 above.
 - Files to read first: `services/core/explanation/factsource/rowreader/{read.go,source.go}`.
 - Do not touch: `explanation/factsource/factsource.go` (the pure core), `orchestrator/portadapters/trust/reconciler` (the pattern copied, not edited).
+
+# Session 2026-11-28 · EXP-01 · the freeze Permission of a step (STACKED ON noema#1035)
+
+Order (relayed, 27 Nov 2026): "Wire the StepFactSource permission once C1's FreezeReader exists." Ordered stacked on #1035 by the Founder (A769, relayed, not committed; committed A749 and AGENTS §11 say stacking is off). This PR (noema#1051) is based on `feat/RES-02-freeze-reader`; retarget it to `main` when #1035 has merged, and do not merge it before.
+
+## Session summary
+- What changed: `SealedSteps.StepFacts` now builds the Permission. It judges the step's version first (unchanged), then asks T10's port for the reconciliation of the sealed snapshot as the snapshot's tenant, reads the freeze row for the step's target as that tenant (`reconcile.ReadFreeze`: an error or an out-of-range value is unknown), takes `reconcile.EffectiveFrozen(derived, recorded)` and gives `reconcile.NewFreezeGate(<the reconciliation's allow-list>).PermitTarget(frozen, capability, target)`. A refusal is `ErrStepPermission` with no facts, so the Recorder issues no grant. `SealedStepsConfig` gains the two ports; `NewSealedSteps` refuses a config without them (`ErrConfig`). The three named-gap tests are replaced by the tests below; the version tests are unchanged.
+- Why: REQ-RES-002, INV-20: no grant for a frozen target unless the pack allows the capability under a freeze; doubt stays frozen (A642).
+- Risks, and how they are contained: the Permission gates a write. Fail closed on every doubt (reader error, unknown value, empty classification, reconciliation error), covered by `TestDoubtAboutTheFreezeOrTheReconciliationIsNotAPermission`; the Permission names its target and capability (`PermitTarget`), so it opens no grant for another. Waiting inside a convergence window is not decided here: RES-05 (#1039) ends T11 in WAIT before the Recorder.
+- Tests added (REQ-RES-002, INV-20, INV-17): not frozen gets a permission for its capability and target; the snapshot's tenant, snapshot and the step's target are what is asked; a frozen target permits only a capability the pack allows; a recorded freeze holds until cleared and a cleared one does not hide a new contradiction; doubt is a freeze; no version means no permission is asked; the Recorder writes nothing for a frozen step and carries the permission for an open one.
+- Hand mutants: 9 killed (freeze row ignored; derived freeze ignored; allow-list ignored; allow-list is everything; empty classification allowed; freeze row read for another target or as another tenant; reconciliation of another snapshot; no target on the permission); a tenth (versions dropped) does not compile.
+- Not done, and who owns it: composing `SealedSteps` with the T10 adapter and `FreezeRow` in `cmd/core` (EL's composition; `NewSealedSteps` now needs both); the `contradiction_freeze` read in the T10 adapter (the adapter still derives `Frozen` from the classification alone, which the step now corrects with the row).
+- Debt entries: none. Conflicts raised: the stacking order against A749 and AGENTS §11 (PR body).
+
+## Pre-work for the next agent
+- Exact next step: EL passes `Reconciler` (the T10 adapter) and `Freeze` (`FreezeRow`) to `NewSealedSteps` in `cmd/core`.
+- Do not touch: `trust/reconcile` (the pure rules), `FreezeRow` (#1035).
