@@ -12,7 +12,8 @@
 # WEBHOOK_RELAY_PUBLISH (e.g. 0.0.0.0:8090) behind the TLS terminator of the deployment. The relay serves plain HTTP
 # and holds no TLS key. Networks the main file declares are repeated here, identically.
 #
-# Profiles: relay, ci, netcheck. Never dev or demo unless asked for with --profile relay.
+# Profiles: relay, ci, bench, netcheck (A714: the bench and the test profiles only). Never dev or demo unless asked for with --profile relay.
+# In the bench profile mock-case delivers its webhooks to this relay (bench-stack.yml): both read the ONE synthetic signing secret in webhook_relay_credentials, mock-case read-only.
 networks:
   tushe_net:
     internal: true
@@ -27,7 +28,7 @@ services:
     image: noema-webhook-relay:dev
     build:
       context: ../../../synthetic/webhook_relay
-    profiles: [relay, ci, netcheck]
+    profiles: [relay, ci, bench, netcheck]
     user: "0:0"
     network_mode: none
     restart: "no"
@@ -40,7 +41,7 @@ services:
     image: noema-webhook-relay:dev
     build:
       context: ../../../synthetic/webhook_relay
-    profiles: [relay, ci, netcheck]
+    profiles: [relay, ci, bench, netcheck]
     networks: [tushe_net, tushe_egress]
     ports:
       - "${WEBHOOK_RELAY_PUBLISH:-127.0.0.1:8090}:8090"

@@ -48,11 +48,12 @@ func wrapped(kind, cause error) error { return &failure{kind: kind, cause: cause
 
 // Rows is what the stored rows say about one decision.
 type Rows struct {
-	DecisionID     string
-	CorrelationID  string // the decision's: every other row below names it
-	Classification string // the sealed snapshot's reconciliation classification
-	SubjectRef     string // the resolved subject of the decision's admitted intent, or empty
-	Executions     []Execution
+	DecisionID      string
+	DecisionOutcome string // the Decision Record's outcome (ALLOW, CLARIFY, ...), as its column holds it
+	CorrelationID   string // the decision's: every other row below names it
+	Classification  string // the sealed snapshot's reconciliation classification
+	SubjectRef      string // the resolved subject of the decision's admitted intent, or empty
+	Executions      []Execution
 }
 
 // Execution is one grant of the investigation with the receipt and the current verdict it led to. The receipt fields are empty for a grant that has no receipt, and Verdict and OutcomeID
@@ -115,7 +116,7 @@ func NewReader(pools map[string]Beginner, timeout time.Duration, subjectSlot str
 }
 
 const (
-	decisionSQL = `SELECT json ->> 'correlation_id', json ->> 'intent_id', intent_hash, json ->> 'evidence_snapshot_id'
+	decisionSQL = `SELECT json ->> 'correlation_id', json ->> 'intent_id', intent_hash, json ->> 'evidence_snapshot_id', outcome
 		FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`
 	snapshotSQL = `SELECT correlation_id, reconciliation_classification FROM context_snapshot WHERE tenant_id = $1 AND snapshot_id = $2`
 	intentSQL   = `SELECT json FROM admitted_intent WHERE tenant_id = $1 AND intent_id = $2 AND intent_hash = $3 AND correlation_id = $4`
@@ -161,7 +162,7 @@ func (r *Reader) read(ctx context.Context, tx pgx.Tx, tenantID, decisionID strin
 	out := Rows{DecisionID: decisionID}
 	var intentID, intentHash string
 	var snapshotID *string
-	switch err := tx.QueryRow(ctx, decisionSQL, tenantID, decisionID).Scan(&out.CorrelationID, &intentID, &intentHash, &snapshotID); {
+	switch err := tx.QueryRow(ctx, decisionSQL, tenantID, decisionID).Scan(&out.CorrelationID, &intentID, &intentHash, &snapshotID, &out.DecisionOutcome); {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Rows{}, ErrNotFound
 	case err != nil:

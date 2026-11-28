@@ -194,3 +194,20 @@ No task row names StepFactSource; A550 and A710 give it to C2 and the order name
 - Open questions (owner): items 1 to 6 above.
 - Files to read first: `services/core/explanation/factsource/rowreader/{read.go,source.go}`.
 - Do not touch: `explanation/factsource/factsource.go` (the pure core), `orchestrator/portadapters/trust/reconciler` (the pattern copied, not edited).
+
+# Session 2026-11-27 · EXP-01 · a no-write outcome is explained from its Decision Record (A727; C2)
+
+## Task card (PERD §61.4)
+- Task: EXP-01 (REQ-EXP-001, REQ-EXP-002, REQ-SEC-004). SoT: INV-04, INV-12, INV-13, INV-14, INV-29, AGENT-13, AGENT-16. Ruling: A727 (`DEC-2026-11-26-architect-rulings-a721-a737`): a no-write outcome is explained from its Decision Record, in a follow-up PR once #1015 merged (US-01 has no write and so no verdict row); latest verdict wins if verdicts are append-only; the reader refuses whole when two verdicts of one receipt disagree; no signature re-check in the explainer.
+- Allowlist: `services/core/explanation/factsource/rowreader/`, the paragraph in `services/core/explanation/README.md`, this file. The same `trust_rw` login already holds SELECT on `decision_record` (0012), so no migration, grant, contract or pack change.
+
+## Session summary
+- What changed (PR noema#1031): `Rows.DecisionOutcome` (the record's `outcome` column, read in the existing decision statement) and `Config.NoWriteOutcome` (the pack's outcome for a no-write decision; empty means off). `Source.outcomeOf` chooses deterministically: a verdict row of the decision's own grant wins; with none, an ALLOW record with no grant of its own gives the configured no-write outcome; a decision with a grant of its own and no verdict is `ErrNoVerdict` (a write is never explained from the record alone); any other record outcome is `ErrNoVerdict`; an outcome that is not one of the seven is `ErrMismatch`.
+- Already in #1015, so not re-added: the latest verdict of a receipt wins (`ORDER BY verified_at DESC`; `outcome_verdict` is insert-only by trigger) and two verdicts of one instant that differ are `ErrAmbiguous`, refusing the whole read (`TestDBTheLatestVerdictIsTheCurrentOneAndATieIsAmbiguous`). No signature is re-checked (INV-29).
+- Reason class: the classification the templates key on is the sealed snapshot's, as for a write; no reason code or internal code is read from the record and no recipient name is read anywhere (A676).
+- Risks, and how they are contained: an ALLOW record whose grant is not yet issued would read as no-write; the explanation then states only the state (the configured no-write outcome), never a case or a write. The record names no capability, so the grant is the only test of "no write"; SR to confirm.
+- Tests added (REQ-EXP-001, REQ-EXP-002, REQ-SEC-004; INV-04, INV-12): seven pure cases and two over the real store. Regression cases: the same.
+
+## Pre-work for the next agent
+- Exact next step: EL sets `Config.NoWriteOutcome` from the pack in the composition. ESCALATE, CLARIFY, WAIT, REJECT, UNKNOWN and CONFIRM records stay `ErrNoVerdict`: which outcome explains them is the Architect's.
+- Do not touch: the migrations.

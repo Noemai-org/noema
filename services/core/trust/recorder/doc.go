@@ -66,15 +66,17 @@
 // confirmations cannot give two grants on one input. An ALLOW or a REJECT that rests on no confirmation, on the tuple of a stored CONFIRM, is still ErrDecisionConflict (same state, other
 // outcome). DECISION_MADE names the state it rests on as confirmation_request_id.
 //
-// Disposition linkage (TRU-10; REQ-TRU-010, INV-25; PERD 23.1; ruling A297, interim). An action decision is the per-write-step decision of an escalation: the decision of one step of the
-// escalation plan, which names its ESCALATE disposition in Request.DispositionDecisionID. Two rules, both refused before anything is written (no row, no Record event; the caller still
-// rolls back). (1) A decision that names a disposition names an existing ESCALATE decision of its own tenant (read in the caller's transaction; a missing decision, another tenant's and one
-// with another outcome are one answer, ErrDispositionNotValid). The database's foreign key (migration 0012) says the same behind it and its failure maps to the same error. (2) Every step of
-// such a decision must carry a capability of the pack's escalation plan, which the composition root injects as Writer.Escalation (an EscalationSet built from pack data; this package holds no
-// capability ID, INV-14). A step outside the set is ErrStepOutsideEscalation; the zero set allows no step. A decision that names no disposition is written as before, with or without steps: PERD
-// 23.1 does not say whether such an ALLOW (the complaint write of another graph, for one) needs a disposition, so none is required (open reading, status/TRU-10.md). Building the set from the
-// pack's escalation plan is the production adapter's job and is not built here. The disposition's intent is not compared with the action decision's: the PERD gives the disposition "for the
-// investigation intent" and each step its own decision, so the two need not share an intent ID.
+// Disposition linkage (TRU-10; REQ-TRU-010, INV-25; PERD 23.1; rulings A297 and A317 to A328, interim). An action decision is the per-write-step decision of an escalation: the decision of
+// one step of the escalation plan, which names its ESCALATE disposition in Request.DispositionDecisionID. Three rules, all refused before anything is written (no row, no Record event; the
+// caller still rolls back). (1) Every decision that issues grants, an ALLOW with steps, must name a disposition: none is ErrDispositionRequired (A317 to A328: "every grant-issuing action
+// decision links a disposition"). (2) A decision that names a disposition names an existing ESCALATE decision of its own tenant (read in the caller's transaction; a missing decision, another
+// tenant's and one with another outcome are one answer, ErrDispositionNotValid). The database's foreign key (migration 0012) says the same behind it and its failure maps to the same error.
+// (3) Every step of such a decision must carry a capability of the pack's escalation plan, which the composition root injects as Writer.Escalation (an EscalationSet built from pack data;
+// this package holds no capability ID, INV-14). A step outside the set is ErrStepOutsideEscalation; the zero set allows no step. A decision with no steps (a refusal, a WAIT, an ALLOW of a
+// disclosure) needs no disposition. Consequence, for the Architect (status/TRU-10.md): a write outside the escalation plan, the complaint write of another graph for one, can no longer be
+// recorded with grants through Write: it would need an ESCALATE disposition and a step in the escalation set. Building the set from the pack's escalation plan is the production adapter's
+// job and is not built here. The disposition's intent is not compared with the action decision's: the PERD gives the disposition "for the investigation intent" and each step its own
+// decision, so the two need not share an intent ID.
 //
 // Not built here: CLARIFY (its clarification is not mapped to the contract), a refusal before any evidence is read (decision-record.v2 requires a snapshot
 // and a policy, which T1 to T6 do not have: a gap in the contract, named in status/TRU-05.md), KEY_ROTATED and key loading.

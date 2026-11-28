@@ -311,7 +311,7 @@ func TestAMappingThatIsNotWholeIsRefusedAtLoad(t *testing.T) {
 	bad := map[string]func(m map[string]any){
 		"an unknown top-level member": func(m map[string]any) { m["surprise"] = 1 },
 		"no rows":                     func(m map[string]any) { m["rows"] = []any{} },
-		"another rule set":            func(m map[string]any) { m["ruleset"] = "fin.recon.rules@2" },
+		"another rule set":            func(m map[string]any) { m["ruleset"] = "fin.recon.rules@3" },
 		"no rule set":                 func(m map[string]any) { delete(m, "ruleset") },
 		"an unknown entity":           func(m map[string]any) { firstRowFor(m, "debit")["entity"] = "invented" },
 		"an unknown field": func(m map[string]any) {

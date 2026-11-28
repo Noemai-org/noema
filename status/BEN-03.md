@@ -90,3 +90,27 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Test-first, seen failing in CI: the red commit `41c0b6af` (tests only, 3 failing by design) was pushed before the fix. Tests: the report blocks a confirm at the start and names it, blocks a driven kind at the start even with a sender, does not block a kill switch or a clock advance at the start, blocks by name every suite case the run refuses at the start, and the README count equals the one the report computes.
 - Risks, and how they are contained: none for the run; the report only gets stricter. Tests added (A667, A689): 4 new, plus 1 guard. Regression cases added: none. Debt entries: none. Conflicts raised: none.
 
+
+# Session 2026-11-26 · BEN-03 · A667, A682: the runner's WebhookSender for mock-case
+
+## Session summary
+- What changed: `benchmark/runner/webhooks.py` (`MockCaseWebhooks`, `read_payloads`), two methods on `MockCaseControl`, the `--webhook-payloads` flag (it also feeds `--support`), the runner README. Built on #979's port; it goes in its own PR after #979 merges.
+- Why: A682 and IL's endpoints (`POST /control/v1/webhooks/deliver`, `POST /control/v1/webhooks/{message_id}/replay`; status/ENV-05.md) give #979's `WebhookSender` a real transport.
+- Risks, and how they are contained: the object delivered for each kind is the caller's file, because no governing document states Tushe's body members; nothing is invented here. A relay that does not accept is an ERROR, never an OK.
+- Tests added (A667, A682): 9 in `test_webhooks.py`, on a real TCP server. Seen failing first (the red commit has no module).
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: IL says which members the relay's consumer needs in each body, so a payload file can be written; the runner then needs no change.
+- Do not touch: the mock-case routes.
+
+# Session 2026-11-27 · BEN-03 · A758: the webhook message id carries the run id, and the replay URL quotes it
+
+## Session summary
+- What changed (noema#1029): the message id is `<run id>:<case id>:<kind>` (`MockCaseWebhooks` now takes the run id; the CLI passes `--run-id`); the replay route quotes it (`quote(id, safe="")`, so the colons go as `%3A`). A run id or case id that cannot make a valid id (a colon, a space, a slash, or over 128 characters in all) is refused before anything is sent.
+- Why: A758. A repeat of one run still gives the same id and is stored once; another run never meets an earlier run's id.
+- Tests added (A758): the id format and its four-way distinctness, the quoted replay URL, and the refusals (seen failing first would need a red commit; here the change and the tests went in one commit, which the PR says).
+- Risks: none to the product. Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: SR or an independent reviewer reads #1029 at its new head.
