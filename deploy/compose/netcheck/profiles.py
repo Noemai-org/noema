@@ -167,11 +167,11 @@ EXPECTED_SERVICES = {
     "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "migrate", "tenants-create", "tenants-provision", "tenant-init", "policy-publish"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner", "trust-dsn-init", "core-keys-init", "operator-dsn-init", "core-trust-keys-init", "migrate", "tenants-create", "tenants-provision", "tenant-init", "policy-publish"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "core-tls-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
-           "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
+           "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci", "bench"}, "webhook-relay-credentials": {"ci", "bench"},
            "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}, "bench-runner": {"bench"},
            "operator-dsn-init": {"bench"}, "core-trust-keys-init": {"bench"}, "migrate": {"bench"}, "tenants-create": {"bench"}, "tenants-provision": {"bench"}, "tenant-init": {"bench"}, "policy-publish": {"bench"}}
 
@@ -221,6 +221,9 @@ BENCH_CORE_SETTINGS = {
     "NOEMA_EXECUTION_KEY_MAX_ACTIVE": "2",
     "NOEMA_OUTCOME_KEY_DIR": "/run/outcome-keys",
     "NOEMA_OUTCOME_KEY_MAX_ACTIVE": "2",
+    # A722 and A704: the Evidence Layer's login directory, key file and overlap, and the five injection-screen limits (bytes for the pattern length; A722 supersedes "characters").
+    "NOEMA_EVIDENCE_DSN_DIR": "/run/evidence-dsn", "NOEMA_EVIDENCE_KEY_FILE": "/run/evidence-keys/core-evidence.ed25519.1.key", "NOEMA_EVIDENCE_KEY_MAX_ACTIVE": "2", "NOEMA_EVIDENCE_RECORD_TIMEOUT_MS": "5000",
+    "NOEMA_INJECTION_MAX_PATTERNS": "64", "NOEMA_INJECTION_MAX_PATTERN_BYTES": "1024", "NOEMA_INJECTION_MAX_DOCUMENT_BYTES": "65536", "NOEMA_INJECTION_MAX_DEPTH": "8", "NOEMA_INJECTION_FIELD_CAP": "256",
     # A714: A658's eight events settings, the Execution timeouts and the plan text bound (resource limits, bench only, no default in code).
     "NOEMA_EVENTS_POLL_MS": "2000", "NOEMA_EVENTS_MAX_STREAM_MS": "300000", "NOEMA_EVENTS_WRITE_TIMEOUT_MS": "5000", "NOEMA_EVENTS_READ_TIMEOUT_MS": "2000",
     "NOEMA_EVENTS_MAX_EVENT_BYTES": "65536", "NOEMA_EVENTS_MAX_STREAMS": "100", "NOEMA_EVENTS_MAX_STREAMS_PER_PRINCIPAL": "3", "NOEMA_EVENTS_MAX_BATCH": "100",
@@ -388,9 +391,9 @@ def settings_order_problems(values):
 # A506: the DSN directories and the key directories. Each is written once by its one-shot (trust-dsn-init for the six DSN volumes, core-keys-init for the five key volumes) and mounted read-only by the
 # core and by nothing else; the five key values are held by core-keys-init only; the per-login emitter secrets are mounted by postgres and trust-dsn-init only.
 KEYS_INIT = "core-keys-init"
-DSN_VOLUMES = ("trust_dsns", "orchestrator_dsns", "record_read_dsns", "edge_dsns", "execution_dsns", "outcome_dsns")
-KEY_VOLUMES = ("orchestrator_keys", "edge_keys", "input_hash", "execution_keys", "outcome_keys")
-KEY_SECRETS = ("core_workflows_ed25519_seed_1", "core_edge_ed25519_seed_1", "input_hash_key", "core_execution_ed25519_seed_1", "core_outcome_ed25519_seed_1")
+DSN_VOLUMES = ("trust_dsns", "orchestrator_dsns", "record_read_dsns", "edge_dsns", "execution_dsns", "outcome_dsns", "evidence_dsns")
+KEY_VOLUMES = ("orchestrator_keys", "edge_keys", "input_hash", "execution_keys", "outcome_keys", "evidence_keys")
+KEY_SECRETS = ("core_workflows_ed25519_seed_1", "core_edge_ed25519_seed_1", "input_hash_key", "core_execution_ed25519_seed_1", "core_outcome_ed25519_seed_1", "core_evidence_ed25519_seed_1")
 NEVER_SET = {"NOEMA_TEMPORAL_TLS_CERT_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client certificate stays unset (A506)",
              "NOEMA_TEMPORAL_TLS_KEY_FILE": "the bench Temporal serves server-side TLS only (DEBT-46): the client key stays unset (A506)",
              "NOEMA_WRITE_SWAP_DECISIONS": "a test-only switch for the proposer-swap fixture, never a Compose setting (A506)"}
@@ -473,6 +476,8 @@ BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000
 
 
 INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
+RELAY_SECRET_VOLUME = "webhook_relay_credentials"  # A714: the one SYNTHETIC signing secret the relay and mock-case share
+SERVICE_CA_SOURCE, SERVICE_CA_TARGET = "secrets/tls/ca.crt", "/run/tls/ca.crt"  # A721: the service-to-service mTLS CA; the operator CA must be a different file
 ADMIN_EMITTER_HOLDER = "ops"  # A699: the only service that may hold a tenant's admin emitter login; it does not exist yet (EL, G2)
 
 
@@ -731,6 +736,22 @@ def check(cfg, profile):
             for v in key_mounts:
                 if v.get("type") != "bind" or not v.get("read_only") or str(v.get("source", "")).rstrip("/").endswith(("secrets", "/")) or len(key_mounts) != 1:
                     bad.append(f"{profile}: the Intron key must be one read-only bind of one file, never a folder (A379)")
+        # A714: the shared SYNTHETIC webhook signing secret. In the bench profile mock-case sends to the relay and reads the relay's one secret file, read-only; in every other profile it has neither
+        # sender setting and no such mount. Nothing but mock-case (read-only), the relay (read-only) and the step that writes it mounts the volume.
+        relay_mounts = [v for v in (svc.get("volumes") or []) if isinstance(v, dict) and v.get("source") == RELAY_SECRET_VOLUME]
+        if name not in ("mock-case", "webhook-relay", "webhook-relay-credentials") and relay_mounts:
+            bad.append(f"{profile}: {name} mounts the webhook signing secret; only mock-case and the relay may read it (A714)")
+        if name in ("mock-case", "webhook-relay") and any(not v.get("read_only") for v in relay_mounts):
+            bad.append(f"{profile}: {name} mounts the webhook signing secret writable; only its writing step may (A714)")
+        if name == "mock-case":
+            wenv = svc.get("environment") or {}
+            target, secret_file = str(wenv.get("MOCK_CASE_WEBHOOK_TARGET_URL", "")), str(wenv.get("MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE", ""))
+            mounted = [v for v in relay_mounts if v.get("target") == "/run/mock-case/webhook"]
+            if profile == "bench":
+                if target != "http://webhook-relay:8090/webhooks" or secret_file != "/run/mock-case/webhook/signing_secret" or len(relay_mounts) != 1 or len(mounted) != 1:
+                    bad.append(f"{profile}: mock-case must send to the relay (http://webhook-relay:8090/webhooks) with the one shared signing secret mounted read-only at /run/mock-case/webhook (A714)")
+            elif target or secret_file or relay_mounts:
+                bad.append(f"{profile}: mock-case has the webhook sender settings or the relay's secret; they exist in the bench profile only (A714)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "model":
@@ -748,6 +769,19 @@ def check(cfg, profile):
             mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
             for need in sorted(TLS_REQUIRED.get(name, set()) - mounted):
                 bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
+        # A721: "any certificate the operator CA signs is an operator" holds only because the operator CA is a different CA from the service-to-service mTLS CA, so a service certificate can never act
+        # as an operator. A service that sets NOEMA_OPS_CLIENT_CA_FILE must have a mount for that path whose source is not the service CA's file (secrets/tls/ca.crt), and the path must not be the path any
+        # service reads the service CA at. No service sets it today (EL's ops listener, noema#1013, is not composed yet), so this holds without effect until it does.
+        ops_ca = str((svc.get("environment") or {}).get("NOEMA_OPS_CLIENT_CA_FILE", "")) if isinstance(svc.get("environment"), dict) else ""
+        if ops_ca:
+            ops_mounts = [v for v in (svc.get("volumes") or []) if isinstance(v, dict) and str(v.get("target", "")) == ops_ca]
+            service_ca_sources = {str(v.get("source", "")).replace("\\", "/") for v in (svc.get("volumes") or []) if isinstance(v, dict) and str(v.get("source", "")).replace("\\", "/").endswith(SERVICE_CA_SOURCE)}
+            if len(ops_mounts) != 1:
+                bad.append(f"{profile}: {name} sets NOEMA_OPS_CLIENT_CA_FILE to {ops_ca} but mounts nothing there (or more than one thing): the operator CA must be its own file (A721)")
+            elif str(ops_mounts[0].get("source", "")).replace("\\", "/").endswith(SERVICE_CA_SOURCE) or ops_ca == SERVICE_CA_TARGET:
+                bad.append(f"{profile}: {name}'s operator CA is the service-to-service mTLS CA; a service certificate would act as an operator (A721)")
+            elif service_ca_sources and str(ops_mounts[0].get("source", "")) in service_ca_sources:
+                bad.append(f"{profile}: {name}'s operator CA and the service CA are the same file (A721)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
     for net, spec in cfg.get("networks", {}).items():
@@ -806,9 +840,9 @@ def self_test(configs):
         "the hostility proxy appears in dev": ("dev", lambda c: c["services"].update({"hostility-proxy": {"networks": {"tushe_net": None, "bench_net": None, "tushe_egress": None}}})),
         "the hostility proxy anchor appears in demo": ("demo", lambda c: c["services"].update({"hostility-proxy-anchor": {"networks": {"bench_net": None}}})),
         "the hostility proxy credentials appear in dev": ("dev", lambda c: c["services"].update({"hostility-proxy-credentials": dict(sidecar)})),
-        "the webhook relay appears in bench": ("bench", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
+        "the webhook relay appears in dev": ("dev", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
         "the webhook relay appears in demo": ("demo", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
-        "the webhook relay credentials appear in bench": ("bench", lambda c: c["services"].update({"webhook-relay-credentials": dict(sidecar)})),
+        "the webhook relay credentials appear in dev": ("dev", lambda c: c["services"].update({"webhook-relay-credentials": dict(sidecar)})),
         "the stand-in appears in dev": ("dev", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
         "the stand-in appears in demo": ("demo", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
         "the stand-in anchor appears in demo": ("demo", lambda c: c["services"].update({"standin-anchor": {"networks": {"bench_net": None}}})),
@@ -855,6 +889,16 @@ def self_test(configs):
         "the key file variable points elsewhere": ("bench+intron", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/other"})),
         "the core mounts the key file too": ("bench+intron", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp/noema-intron-key", "target": "/run/intron/key", "read_only": True})),
         "the dev model has the key file variable": ("dev", lambda c: [c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"}), c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/k", "target": "/run/intron/key", "read_only": True})]),
+        "bench mock-case loses the webhook target": ("bench", lambda c: c["services"]["mock-case"]["environment"].pop("MOCK_CASE_WEBHOOK_TARGET_URL")),
+        "bench mock-case sends somewhere else": ("bench", lambda c: c["services"]["mock-case"]["environment"].update({"MOCK_CASE_WEBHOOK_TARGET_URL": "http://hostility-proxy:8090/webhooks"})),
+        "bench mock-case loses the signing secret file": ("bench", lambda c: c["services"]["mock-case"]["environment"].pop("MOCK_CASE_WEBHOOK_SIGNING_SECRET_FILE")),
+        "bench mock-case mounts the signing secret writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["mock-case"]["volumes"] if v.get("source") == "webhook_relay_credentials"]),
+        "bench mock-case loses the signing secret mount": ("bench", lambda c: c["services"]["mock-case"].update({"volumes": [v for v in c["services"]["mock-case"]["volumes"] if v.get("source") != "webhook_relay_credentials"]})),
+        "the ci mock-case sends webhooks": ("ci", lambda c: c["services"]["mock-case"]["environment"].update({"MOCK_CASE_WEBHOOK_TARGET_URL": "http://webhook-relay:8090/webhooks"})),
+        "the demo mock-case mounts the signing secret": ("demo", lambda c: c["services"]["mock-case"]["volumes"].append({"type": "volume", "source": "webhook_relay_credentials", "target": "/run/mock-case/webhook", "read_only": True})),
+        "the core mounts the webhook signing secret": ("ci", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "volume", "source": "webhook_relay_credentials", "target": "/x", "read_only": True})),
+        "the hostility proxy mounts the webhook signing secret": ("bench", lambda c: c["services"]["hostility-proxy"].setdefault("volumes", []).append({"type": "volume", "source": "webhook_relay_credentials", "target": "/x", "read_only": True})),
+        "the bench relay mounts its own secret writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["webhook-relay"]["volumes"] if v.get("source") == "webhook_relay_credentials"]),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
         "the ui lists a grant key as a secret": ("dev", lambda c: c["services"]["ui"].update({"secrets": [{"source": "grant_hmac_key_a"}]})),
         "the model carries a grant key file setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "/x"})),
@@ -933,6 +977,20 @@ def self_test(configs):
         "the model mounts the verdict keys": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "outcome_keys", "target": "/x", "read_only": True})),
         "the model mounts the execution logins": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "execution_dsns", "target": "/x", "read_only": True})),
         "the ui mounts the outcome logins": ("bench", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "volume", "source": "outcome_dsns", "target": "/x", "read_only": True})),
+        "the bench core drops the evidence DSN volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "evidence_dsns"]})),
+        "the bench core drops the evidence key volume": ("bench", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if v.get("source") != "evidence_keys"]})),
+        "the bench core mounts the evidence keys writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "evidence_keys"]),
+        "the bench core mounts the evidence logins writable": ("bench", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if v.get("source") == "evidence_dsns"]),
+        "the model mounts the evidence keys": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "evidence_keys", "target": "/x", "read_only": True})),
+        "the model mounts the evidence logins": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "evidence_dsns", "target": "/x", "read_only": True})),
+        "the core holds the evidence seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_evidence_ed25519_seed_1", "target": "x"})),
+        "the bench core's evidence key overlap changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EVIDENCE_KEY_MAX_ACTIVE": "5"})),
+        "the bench core loses the evidence record timeout": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_EVIDENCE_RECORD_TIMEOUT_MS")),
+        "the bench core's evidence record timeout changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_EVIDENCE_RECORD_TIMEOUT_MS": "60000"})),
+        "the bench core loses the evidence key file": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_EVIDENCE_KEY_FILE")),
+        "the bench core loses an injection limit": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_INJECTION_MAX_DEPTH")),
+        "the bench core's injection pattern bound changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INJECTION_MAX_PATTERNS": "6400"})),
+        "the bench core's injection field cap changes": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_INJECTION_FIELD_CAP": "100000"})),
         "the core holds the receipt seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_execution_ed25519_seed_1", "target": "x"})),
         "the core holds the verdict seed": ("bench", lambda c: c["services"]["core"].setdefault("secrets", []).append({"source": "core_outcome_ed25519_seed_1", "target": "x"})),
         "core-keys-init loses the verdict seed": ("bench", lambda c: c["services"]["core-keys-init"].update({"secrets": [x for x in c["services"]["core-keys-init"]["secrets"] if (x if isinstance(x, str) else x.get("source")) != "core_outcome_ed25519_seed_1"]})),
@@ -1092,6 +1150,9 @@ def self_test(configs):
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
         "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
+        "the core uses the service CA as the operator CA": ("bench", lambda c: [c["services"]["core"]["environment"].update({"NOEMA_OPS_CLIENT_CA_FILE": "/run/ops/ca.crt"}), c["services"]["core"]["volumes"].append({"type": "bind", "source": "/h/secrets/tls/ca.crt", "target": "/run/ops/ca.crt", "read_only": True})]),
+        "the core reads the operator CA at the service CA path": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_OPS_CLIENT_CA_FILE": "/run/tls/ca.crt"})),
+        "the core names an operator CA it does not mount": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_OPS_CLIENT_CA_FILE": "/run/ops/ca.crt"})),
         "the core's model URL is empty": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_MODEL_URL": ""})),
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }

@@ -94,7 +94,7 @@ func payloadOf(t *testing.T, r chain.Row) map[string]any {
 
 func (w *world) nothingWritten(t *testing.T, what string) {
 	t.Helper()
-	for _, q := range []string{`SELECT count(*) FROM decision_record`, `SELECT count(*) FROM record_event`, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM confirmation_spend`} {
+	for _, q := range []string{recordsQ, `SELECT count(*) FROM record_event`, `SELECT count(*) FROM decision_grant`, `SELECT count(*) FROM confirmation_spend`} {
 		if n := w.count(t, q); n != 0 {
 			t.Errorf("%s: %q is %d, want nothing written", what, q, n)
 		}
@@ -246,6 +246,7 @@ func TestARequestOnAnyOutcomeButConfirmIsRefusedAndNothingIsWritten(t *testing.T
 		r.IntentHash = contracts.CommonV1Hash(letters(0))
 		if o == decide.Allow {
 			r.Steps = []grants.Step{step(t)}
+			r.DispositionDecisionID = seededDisposition // so the request is what is refused, not a missing disposition (A317 to A328)
 		}
 		r.ConfirmationRequest = newCfr(w)
 		if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrRequest) {
@@ -407,7 +408,7 @@ func TestAStoredConfirmAnswersItsTupleAndStateOnlyAndAnotherOutcomeOfNoConfirmat
 	if err != nil {
 		t.Fatal(err)
 	}
-	decisions := func() int { return w.count(t, `SELECT count(*) FROM decision_record`) }
+	decisions := func() int { return w.count(t, recordsQ) }
 	events := func() int { return w.count(t, `SELECT count(*) FROM record_event`) }
 	d0, e0 := decisions(), events()
 

@@ -5,10 +5,10 @@
 
 | ref | owner | amount_minor | age_minutes | ledger | switch | destination | settlement |
 |---|---|---|---|---|---|---|---|
-| fin.transaction:TX1 | usr_a | 250000 | 150 | POSTED | APPROVED | CREDITED | SETTLED |
-| fin.transaction:TX2 | usr_a | 500000 | 30 | POSTED | TIMED_OUT | PENDING | PENDING |
-| fin.transaction:TX3 | usr_a | 250000 | 600 | UNAVAILABLE | APPROVED | CREDITED | SETTLED |
-| fin.transaction:TX9 | usr_b | 999900 | 45 | POSTED | APPROVED | CREDITED | SETTLED |
+| TX1 | usr_aa | 250000 | 150 | POSTED | APPROVED | CREDITED | SETTLED |
+| TX2 | usr_aa | 500000 | 30 | POSTED | TIMED_OUT | PENDING | PENDING |
+| TX3 | usr_aa | 250000 | 600 | UNAVAILABLE | APPROVED | CREDITED | SETTLED |
+| TX9 | usr_bb | 999900 | 45 | POSTED | APPROVED | CREDITED | SETTLED |
 
-One beneficiary (`ben_0001`, owner `usr_a`); principals `usr_a` and `usr_b`. Regenerate it only by running `derive` on that fixture; never edit it by hand.
+One beneficiary (`ben_0001`, owner `usr_aa`); principals `usr_aa` and `usr_bb`. Regenerate it only by running `derive` on that fixture; never edit it by hand.
 If `derive` changes, the contract changed: update this file and the service together.
