@@ -118,32 +118,32 @@ type tiCandidates struct {
 	fail  error
 }
 
-func (s *tiCandidates) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV1, error) {
+func (s *tiCandidates) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV2, error) {
 	if err := ctx.Err(); err != nil {
-		return contracts.CandidatesResponseV1{}, err
+		return contracts.CandidatesResponseV2{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, req)
 	if s.fail != nil {
-		return contracts.CandidatesResponseV1{}, s.fail
+		return contracts.CandidatesResponseV2{}, s.fail
 	}
-	var out []contracts.CandidatesResponseV1Candidate
+	var out []contracts.CandidatesResponseV2Candidate
 	for i, r := range s.rows {
 		if contracts.CommonV1TenantId(r.tenant) != req.TenantId || contracts.CommonV1PrincipalId(r.principal) != req.PrincipalRef || !strings.HasPrefix(r.ref, req.ResourceKind+":") {
 			continue
 		}
 		id := strings.TrimPrefix(r.ref, req.ResourceKind+":")
-		out = append(out, contracts.CandidatesResponseV1Candidate{
+		out = append(out, contracts.CandidatesResponseV2Candidate{
 			CandidateId: "cand_" + id + string(rune('a'+i)), ResourceRef: contracts.CommonV1ResourceRef(r.ref), AmountMinor: 1000, Currency: contracts.MoneyV1CurrencyCodeNGN,
-			OccurredAt: "2026-11-01T09:00:00Z", CounterpartyDisplay: "Synthetic Shop", AccountLast4: "1234", Direction: contracts.CandidatesResponseV1CandidateDirectionOUTGOING,
+			OccurredAt: "2026-11-01T09:00:00Z", CounterpartyRef: "cp_1", RecipientMatch: contracts.CandidatesResponseV2CandidateRecipientMatch{Numerator: 0, Denominator: 1}, AccountLast4: "1234", Direction: contracts.CandidatesResponseV2CandidateDirectionOUTGOING,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CandidateId < out[j].CandidateId })
 	if len(out) > 20 {
 		out = out[:20]
 	}
-	return contracts.CandidatesResponseV1{SchemaVersion: "1.0", TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: out}, nil
+	return contracts.CandidatesResponseV2{SchemaVersion: "1.0", TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: out}, nil
 }
 
 func (s *tiCandidates) reads() int {
