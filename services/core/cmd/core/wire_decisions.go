@@ -8,9 +8,12 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Noemai-org/noema/services/core/execution/signing"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpack"
+	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg2"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -70,6 +73,8 @@ type decisionInputs struct {
 	PlanTextMaxBytes int
 	// ConfirmationTTLCeiling is the pack's confirmation_ttl_ceiling_ms as a duration (A561). Zero: the Writer writes no CONFIRM request.
 	ConfirmationTTLCeiling time.Duration
+	// RequestPools are the Trust logins of the tenants as pools: the confirmation store is the Trust login of one tenant (A710). Empty: the store is not built.
+	RequestPools map[string]*pgxpool.Pool
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.
@@ -77,7 +82,10 @@ type decisionParts struct {
 	Intents  intake.Intents
 	Recorder intake.Recorder
 	Planner  intake.Planner
-	Gaps     []decisionGap
+	// RequestStores is each tenant's confirmation store, over that tenant's own Trust login, with the Record events of the store (A710, A724). It is not the Confirmations adapter, which
+	// still lacks the request read and the confirm policy. Nil when a part it needs is absent.
+	RequestStores map[string]*trustpg2.Requests
+	Gaps          []decisionGap
 }
 
 // buildDecisions builds the adapters of the lane from its inputs and returns them with the gaps. A setting or an input that is absent is a gap (A486: the process starts, /readyz names
