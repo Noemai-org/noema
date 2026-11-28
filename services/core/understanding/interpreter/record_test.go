@@ -196,6 +196,39 @@ func TestAResumeNamingNoIntentOrAVersionBelowOneIsRefusedAndNothingStands(t *tes
 	}
 }
 
+// INP-01 slice 6: a follow-up that named another principal's investigation is a SECURITY_EVENT of kind CROSS_SCOPE_ATTEMPT (REQ-INP-004), for the session's tenant and the asking actor, with the
+// chain it asked for as its subject and no payload that names anyone.
+func TestAFollowUpOnAnotherPrincipalsInvestigationIsAppendedAsACrossScopeAttempt(t *testing.T) {
+	w := newDBWorld(t)
+	if err := w.recorder(tenantA).Denied(ctx(t), tenantA, actor, corr); err != nil {
+		t.Fatal(err)
+	}
+	evs := w.events()
+	if len(evs) != 1 {
+		t.Fatalf("%d events, want 1", len(evs))
+	}
+	e := evs[0]
+	if e.EventType != "SECURITY_EVENT" || e.Body["kind"] != "CROSS_SCOPE_ATTEMPT" || e.WrittenBy != "core-workflows" || e.Actor != actor || e.Corr != corr || e.Body["tenant_id"] != tenantA || e.ObjectRef != "gat_4c21f9" {
+		t.Errorf("event %+v", e)
+	}
+	if want := map[string]any{"scope": "PRINCIPAL"}; !reflect.DeepEqual(e.Payload, want) {
+		t.Errorf("payload %v, want only the scope %v", e.Payload, want)
+	}
+}
+
+func TestADenialWithNoTenantActorOrChainIsRefusedAndNothingStands(t *testing.T) {
+	w := newDBWorld(t)
+	r := w.recorder(tenantA)
+	for _, bad := range []struct{ tenant, actor, corr string }{{"", actor, corr}, {tenantA, "", corr}, {tenantA, actor, ""}, {tenantA, actor, "not_a_chain"}} {
+		if err := r.Denied(ctx(t), bad.tenant, bad.actor, bad.corr); err == nil {
+			t.Errorf("%+v was recorded", bad)
+		}
+	}
+	if n := len(w.events()); n != 0 {
+		t.Errorf("%d events stand", n)
+	}
+}
+
 // EC-E16: when the Record refuses the append the recorder reports it and nothing stands.
 func TestAnAppendTheRecordRefusesStoresNothing(t *testing.T) {
 	w := newDBWorld(t)

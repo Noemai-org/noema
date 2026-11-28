@@ -131,5 +131,10 @@ func (r *RecordRecorder) Resumed(ctx context.Context, s Subject, priorIntentID s
 		Payload: map[string]any{"prior_intent_id": priorIntentID, "prior_version": priorVersion}})
 }
 
+// Denied is not built yet (the red commit's stub).
+func (r *RecordRecorder) Denied(ctx context.Context, tenantID, actor, correlationID string) error {
+	return nil
+}
+
 var _ Recorder = (*RecordRecorder)(nil)
 var _ Resumes = (*RecordRecorder)(nil)
