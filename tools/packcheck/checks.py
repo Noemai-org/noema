@@ -356,6 +356,15 @@ def check_outcome_bindings(pack: dict, pack_dir: Path) -> list[Problem]:
             inputs = set(validate.load_strict(pack_dir / cap["input_schema"]).get("properties", {}))
         except (OSError, ValueError, KeyError):
             inputs = None
+        epochs = sorted(n for n, source in b["variables"].items() if source == "EPOCH")
+        if len(epochs) > 1:
+            out.append(("outcome_bindings", f"{where}: EPOCH binds more than one variable ({', '.join(epochs)}), once at most"))
+        for n in epochs:
+            kind = (declared.get(n) or {}).get("type")
+            if kind is not None and kind != "Integer":
+                out.append(("outcome_bindings", f"{where}: {n}: EPOCH is a whole number, so the variable must be Integer, found {kind}"))
+        if epochs and "SUBJECT" not in b["variables"].values():
+            out.append(("outcome_bindings", f"{where}: EPOCH is the subject's epoch, so the binding also binds a variable to SUBJECT"))
         for name, source in sorted(b["variables"].items()):
             if name not in declared:
                 out.append(("outcome_bindings", f"{where}: {name} is not a predicate variable the pack declares"))

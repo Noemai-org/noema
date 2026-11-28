@@ -9,3 +9,6 @@
 ## Pre-work for the next agent
 - Exact next step: EL's slice 4 reader consumes `outcome_bindings` with the receipt's `step_params`.
 - Do not touch: the values of `rules.v1.json`, the capability descriptors.
+
+# Session 2026-11-28 · LANE-5 · SR on #1026 (C1)
+- Packcheck now enforces what EPOCH means: it binds an Integer variable only, at most once per binding, and only with a SUBJECT in the same binding (red at `6e34d20c2`). The runtime source (`outcome/request.Source`, #1019) does not expose EPOCH yet: that is a PR stacked on #1019 that adds the `EPOCH` kind and the NextEpoch port; nothing reads an EPOCH binding until it lands, and an unbound variable fails closed.
