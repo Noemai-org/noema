@@ -57,9 +57,10 @@ type executionSeams struct {
 	Revalidator controller.Revalidator
 	Intents     ledger.IntentSource
 	Plans       ledger.PlanSource
-	Verifier    orchestrator.Verifier // verifierport.Port, which needs slice 4's request reader
-	Bindings    orchestrator.Bindings // the Trust adapter
-	Log         *slog.Logger          // optional; must run through the redactor
+	StepParams  controller.StepParamPolicy // the pack's outcome_bindings read by stepParamPolicyFromPack (A774)
+	Verifier    orchestrator.Verifier      // verifierport.Port, which needs slice 4's request reader
+	Bindings    orchestrator.Bindings      // the Trust adapter
+	Log         *slog.Logger               // optional; must run through the redactor
 }
 
 // executionSide is what was built: a Controller for each tenant, the Executor over them, the two pass-through ports, and the gap lines of what is missing.
@@ -118,6 +119,7 @@ func buildExecutionSide(env Env, parts *executionParts, s executionSeams) (*exec
 		{s.Revalidator == nil, "execution: revalidator missing"},
 		{s.Intents == nil, "execution: intent source missing"},
 		{s.Plans == nil, "execution: plan source missing"},
+		{s.StepParams == nil, "execution: step param policy missing"},
 		{!haveRollback, "execution: " + EnvExecutionRollbackTimeout + " missing"},
 		{!haveExecute, "execution: " + EnvExecutionExecuteTimeout + " missing"},
 		{!haveAttempts, "execution: " + ledger.EnvSerializationAttempts + " missing"},
@@ -141,7 +143,7 @@ func buildExecutionSide(env Env, parts *executionParts, s executionSeams) (*exec
 		pool := parts.ExecutionPools[t]
 		l := &ledger.Ledger{Pool: pool, Clock: s.Clock, IDs: s.IDs, Rec: rec, RollbackTimeout: rollback, SerializationAttempts: attempts, Log: s.Log}
 		ctl := &controller.Controller{Clock: s.Clock, Keys: s.Keys, Receipts: parts.Receipts, Grants: l, Bind: &ledger.StoreBinder{Pool: pool, Ledger: l, Intents: s.Intents, Plans: s.Plans},
-			Reval: s.Revalidator, Ledger: l, Out: s.Dispatcher, IDs: s.IDs}
+			Reval: s.Revalidator, Ledger: l, Out: s.Dispatcher, IDs: s.IDs, StepParams: s.StepParams}
 		ctls[t] = ctl
 		byTenant[t] = executorport.Port{Controller: ctl, Timeout: execute}
 	}
