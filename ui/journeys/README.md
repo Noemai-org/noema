@@ -28,6 +28,7 @@ The benchmark runner drives each generated case through the public API and recor
    make bench-up \
      BENCH_TENANT="$BENCH_TENANT" \
      BENCH_MAX_BODY_BYTES=32768 \
+     BENCH_TOKEN_TTL=900s \
      BENCH_COMPOSE='docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml -f ui/browser-stack/compose.real-core.yml --profile bench'
    ```
 
