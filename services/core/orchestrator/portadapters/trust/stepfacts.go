@@ -129,7 +129,7 @@ func (s *SealedSteps) StepFacts(ctx context.Context, snap SealedSnapshot, st int
 	if err != nil {
 		return RecordStepFacts{}, wrapped(ErrStepPermission, err)
 	}
-	if rec.Classification == "" {
+	if rec.Classification == "" || rec.Classification == reconcile.InsufficientEvidence { // a waiting answer is sealed as INSUFFICIENT_EVIDENCE (A659): nothing is permitted on it
 		return RecordStepFacts{}, wrapped(ErrStepPermission, nil)
 	}
 	frozen := reconcile.EffectiveFrozen(rec.Frozen, reconcile.ReadFreeze(ctx, s.freeze, snap.TenantID, st.TargetRef))

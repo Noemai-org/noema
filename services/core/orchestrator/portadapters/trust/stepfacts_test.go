@@ -400,6 +400,21 @@ func TestDoubtAboutTheFreezeOrTheReconciliationIsNotAPermission(t *testing.T) {
 	}
 }
 
+// A reconciliation that waits inside a convergence window is sealed as INSUFFICIENT_EVIDENCE (A659; RES-05): nothing is permitted on it, not even a capability the pack allows under a freeze,
+// whatever the freeze row says. This holds here too, so a waiting answer cannot reach a grant even if T10 let it go on.
+func TestAnAnswerThatIsInsufficientEvidenceOrWaitingPermitsNothing(t *testing.T) {
+	for name, rec := range map[string]intake.Reconciliation{
+		"insufficient evidence":                      {Classification: reconcile.InsufficientEvidence},
+		"insufficient evidence, not frozen, allowed": {Classification: reconcile.InsufficientEvidence, AllowedUnderFreeze: []string{recCap}},
+		"insufficient evidence, frozen, allowed":     {Classification: reconcile.InsufficientEvidence, Frozen: true, AllowedUnderFreeze: []string{recCap}},
+	} {
+		got, err := svfPermit(t, &svfRecon{rec: rec}, svfNoFreeze())
+		if !errors.Is(err, ErrStepPermission) || got.Permission.Valid() || got.TargetVersions != nil {
+			t.Errorf("%s: got %+v, %v; want ErrStepPermission and no facts", name, got, err)
+		}
+	}
+}
+
 // A step with no usable version is refused for its version first: the reconciliation and the freeze row are not even asked, and the error is the version's.
 func TestAStepWithNoVersionIsRefusedForItsVersionBeforeThePermissionIsAsked(t *testing.T) {
 	snap, p := svfWorld(t)

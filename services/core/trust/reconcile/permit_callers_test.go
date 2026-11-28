@@ -15,9 +15,10 @@ import (
 
 // allowed lists the production files that may call Permit or PermitTarget, and why. Paths are relative to services/core.
 var allowed = map[string]string{
-	"trust/intake/steps_t10_t12.go": "T10 asks the freeze gate for one capability on the sealed reconciliation; a waiting result is sealed as INSUFFICIENT_EVIDENCE, which T10 never lets go on",
-	"cmd/grantdrill/drill.go":       "the grant drill builds one permission for a synthetic target that is not frozen; it reconciles nothing",
-	"trust/reconcile/freeze.go":     "PermitResult and PermitTarget are the gate itself",
+	"trust/intake/steps_t10_t12.go":                "T10 asks the freeze gate for one capability on the sealed reconciliation; a waiting result is sealed as INSUFFICIENT_EVIDENCE, which T10 never lets go on",
+	"orchestrator/portadapters/trust/stepfacts.go": "the Recorder's step source builds one permission on the sealed reconciliation; a waiting result is sealed as INSUFFICIENT_EVIDENCE, which the step source refuses itself (TestAnAnswerThatIsInsufficientEvidenceOrWaitingPermitsNothing), so a waiting answer permits nothing",
+	"cmd/grantdrill/drill.go":                      "the grant drill builds one permission for a synthetic target that is not frozen; it reconciles nothing",
+	"trust/reconcile/freeze.go":                    "PermitResult and PermitTarget are the gate itself",
 }
 
 func TestA659EveryProductionCallerOfPermitIsAccountedFor(t *testing.T) {
