@@ -149,3 +149,13 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 
 ## Pre-work for the next agent
 - Exact next step: C2 scores the five malformed boundaries through the generator, and the other fourteen through replay.
+
+# Session 2026-11-28 · BEN-23 · A772: the 28 labelled phrasings as the offline probe set
+
+## Session summary
+- What changed: `probe_set.py` and `probe-set.v1.json`: the 28 phrasings with, for each, the boundary it was asked at, the gate recording and what replay does (14 SERVED, 5 EVIDENCE_ONLY, 3 NOT_COMMITTED, 6 with no recording on main today), and the B14 and B15 to B20 evidence in one table (README). 5 tests (seen failing first, no module).
+- Evidence as before: B14 (`9e-1`) and B15 (`-0.1`) are served by replay and the gate abstains; B16 to B20 give ABSENT at the gate and replay refuses them as EVIDENCE_ONLY, so they are exercised through the generator.
+- Risks: none to the product. Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 runs the 28 through replay (the 14 SERVED) and the generator (the five EVIDENCE_ONLY).

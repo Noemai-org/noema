@@ -1,4 +1,4 @@
-"""BEN-23 (A772): the 28 labelled phrasings as the offline probe set for the `requested_remedy` gate, and the B14 and B15 to B20 evidence in one table. For each phrasing: the boundary it was asked at (23 of the 28 are),
+"""BEN-23 (A772): the 28 labelled phrasings as the offline probe set for the `requested_remedy` gate, and the B14 and B15 to B20 evidence in one table. For each phrasing: the boundary it was asked at (one for each boundary, in order),
 the gate recording that answers it and what replay does with that recording (SERVED, or EVIDENCE_ONLY for a reply the harness refuses as a whole). SYNTHETIC (AGENT-25). Seen failing first: no module."""
 import json
 import unittest
@@ -6,6 +6,7 @@ from pathlib import Path
 
 from benchmark.compile_acceptance.probe_set import build, render
 from benchmark.compile_acceptance.remedy_labelled import load
+from benchmark.compile_acceptance.synthetic_boundary import BOUNDARIES
 
 HERE = Path(__file__).resolve().parent
 COMMITTED = HERE / "boundary-a604" / "probe-set.v1.json"
@@ -22,9 +23,9 @@ class ProbeSet(unittest.TestCase):
         self.assertEqual([i["text"] for i in self.doc["items"]], [i.text for i in labelled])
         self.assertEqual(len(self.doc["items"]), 28)
 
-    def test_twenty_three_are_asked_at_a_boundary_and_five_have_no_recording(self) -> None:
+    def test_every_boundary_has_its_phrasing_and_the_rest_have_no_recording(self) -> None:
         asked = [i for i in self.doc["items"] if i["boundary"] is not None]
-        self.assertEqual(len(asked), 23)
+        self.assertEqual([i['boundary'] for i in asked], [b.boundary_id for b in BOUNDARIES])  # the boundaries take the set's phrasings in order
         for item in self.doc["items"]:
             if item["boundary"] is None:
                 self.assertEqual((item["replay"], item["gate_recording"]), ("NO_RECORDING", None), item["item_id"])

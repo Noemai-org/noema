@@ -1,0 +1,310 @@
+{
+  "evidence": [
+    {
+      "agree": true,
+      "boundary": "B14",
+      "expected": "ABSENT",
+      "gate_outcome": "ABSENT",
+      "gate_recording": "rec-0080",
+      "item_id": "RL-014",
+      "replay": "SERVED",
+      "why": "an exponent for 0.9: not a plain decimal, whatever it equals",
+      "written": "9e-1"
+    },
+    {
+      "agree": true,
+      "boundary": "B15",
+      "expected": "ABSENT",
+      "gate_outcome": "ABSENT",
+      "gate_recording": "rec-0087",
+      "item_id": "RL-015",
+      "replay": "SERVED",
+      "why": "a sign",
+      "written": "-0.1"
+    },
+    {
+      "agree": true,
+      "boundary": "B16",
+      "expected": "ABSENT",
+      "gate_outcome": "ABSENT",
+      "gate_recording": "rec-0094",
+      "item_id": "RL-016",
+      "replay": "EVIDENCE_ONLY",
+      "why": "not a number",
+      "written": "NaN"
+    },
+    {
+      "agree": true,
+      "boundary": "B17",
+      "expected": "ABSENT",
+      "gate_outcome": "ABSENT",
+      "gate_recording": "rec-0101",
+      "item_id": "RL-017",
+      "replay": "EVIDENCE_ONLY",
+      "why": "not a finite number",
+      "written": "Infinity"
+    },
+    {
+      "agree": true,
+      "boundary": "B18",
+      "expected": "ABSENT",
+      "gate_outcome": "ABSENT",
+      "gate_recording": "rec-0108",
+      "item_id": "RL-018",
+      "replay": "EVIDENCE_ONLY",
+      "why": "the member is present and null",
+      "written": "null"
+    },
+    {
+      "agree": true,
+      "boundary": "B19",
+      "expected": "ABSENT",
+      "gate_outcome": "ABSENT",
+      "gate_recording": "rec-0115",
+      "item_id": "RL-019",
+      "replay": "EVIDENCE_ONLY",
+      "why": "the probability member is missing",
+      "written": null
+    },
+    {
+      "agree": true,
+      "boundary": "B20",
+      "expected": "ABSENT",
+      "gate_outcome": "ABSENT",
+      "gate_recording": "rec-0122",
+      "item_id": "RL-020",
+      "replay": "EVIDENCE_ONLY",
+      "why": "a string where a number is required",
+      "written": "\"0.95\""
+    }
+  ],
+  "items": [
+    {
+      "boundary": "B01",
+      "gate_recording": "rec-0003",
+      "item_id": "RL-001",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Where is the 15k I sent to Chinedu this afternoon?"
+    },
+    {
+      "boundary": "B02",
+      "gate_recording": null,
+      "item_id": "RL-002",
+      "locale": "en-NG",
+      "replay": "NOT_COMMITTED",
+      "text": "Did the transfer to Halima go through yesterday?"
+    },
+    {
+      "boundary": "B03",
+      "gate_recording": "rec-0010",
+      "item_id": "RL-003",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "What is the status of my payment to Femi?"
+    },
+    {
+      "boundary": "B04",
+      "gate_recording": "rec-0018",
+      "item_id": "RL-004",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Has the 8k I paid to Ngozi been credited yet?"
+    },
+    {
+      "boundary": "B05",
+      "gate_recording": "rec-0026",
+      "item_id": "RL-005",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Please tell me if the money I sent last night has reached Segun."
+    },
+    {
+      "boundary": "B06",
+      "gate_recording": null,
+      "item_id": "RL-006",
+      "locale": "en-NG",
+      "replay": "NOT_COMMITTED",
+      "text": "I want to know why the transfer to Kayode is still pending."
+    },
+    {
+      "boundary": "B07",
+      "gate_recording": "rec-0034",
+      "item_id": "RL-007",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Is it safe to send the money to Yetunde again, or should I wait?"
+    },
+    {
+      "boundary": "B08",
+      "gate_recording": "rec-0042",
+      "item_id": "RL-008",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Please resend the 12k to Adaeze, it never arrived."
+    },
+    {
+      "boundary": "B09",
+      "gate_recording": "rec-0049",
+      "item_id": "RL-009",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Reverse the transfer I made to Musa this morning."
+    },
+    {
+      "boundary": "B10",
+      "gate_recording": "rec-0057",
+      "item_id": "RL-010",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "I need a refund of the 30k I sent to Tosin by mistake."
+    },
+    {
+      "boundary": "B11",
+      "gate_recording": "rec-0065",
+      "item_id": "RL-011",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Escalate my complaint about the missing payment to a supervisor."
+    },
+    {
+      "boundary": "B12",
+      "gate_recording": null,
+      "item_id": "RL-012",
+      "locale": "en-NG",
+      "replay": "NOT_COMMITTED",
+      "text": "Send the money to Ifeoma again for me, the first one failed."
+    },
+    {
+      "boundary": "B13",
+      "gate_recording": "rec-0073",
+      "item_id": "RL-013",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Cancel the pending transfer to Bayo and return the money."
+    },
+    {
+      "boundary": "B14",
+      "gate_recording": "rec-0080",
+      "item_id": "RL-014",
+      "locale": "en-NG",
+      "replay": "SERVED",
+      "text": "Please open a case for the transfer that did not reach Rotimi and have someone call me."
+    },
+    {
+      "boundary": "B15",
+      "gate_recording": "rec-0087",
+      "item_id": "RL-015",
+      "locale": "pcm",
+      "replay": "SERVED",
+      "text": "Wetin happen to the 5k wey I send Emeka yesterday?"
+    },
+    {
+      "boundary": "B16",
+      "gate_recording": "rec-0094",
+      "item_id": "RL-016",
+      "locale": "pcm",
+      "replay": "EVIDENCE_ONLY",
+      "text": "Abeg, the money wey I send Chioma don reach?"
+    },
+    {
+      "boundary": "B17",
+      "gate_recording": "rec-0101",
+      "item_id": "RL-017",
+      "locale": "pcm",
+      "replay": "EVIDENCE_ONLY",
+      "text": "Where my payment to Dayo dey? E don long."
+    },
+    {
+      "boundary": "B18",
+      "gate_recording": "rec-0108",
+      "item_id": "RL-018",
+      "locale": "pcm",
+      "replay": "EVIDENCE_ONLY",
+      "text": "I wan know if the transfer to Zainab don enter."
+    },
+    {
+      "boundary": "B19",
+      "gate_recording": "rec-0115",
+      "item_id": "RL-019",
+      "locale": "pcm",
+      "replay": "EVIDENCE_ONLY",
+      "text": "Why the money wey I send Obinna never land?"
+    },
+    {
+      "boundary": "B20",
+      "gate_recording": "rec-0122",
+      "item_id": "RL-020",
+      "locale": "pcm",
+      "replay": "EVIDENCE_ONLY",
+      "text": "Make I resend am or I go wait small?"
+    },
+    {
+      "boundary": "B21",
+      "gate_recording": "rec-0129",
+      "item_id": "RL-021",
+      "locale": "pcm",
+      "replay": "SERVED",
+      "text": "The payment to Adaobi dey show pending, wetin that one mean?"
+    },
+    {
+      "boundary": "B22",
+      "gate_recording": "rec-0136",
+      "item_id": "RL-022",
+      "locale": "pcm",
+      "replay": "SERVED",
+      "text": "Abeg resend the 10k to Lami for me, e no reach."
+    },
+    {
+      "boundary": null,
+      "gate_recording": null,
+      "item_id": "RL-023",
+      "locale": "pcm",
+      "replay": "NO_RECORDING",
+      "text": "Reverse the money wey I send Gbenga, I send am by mistake."
+    },
+    {
+      "boundary": null,
+      "gate_recording": null,
+      "item_id": "RL-024",
+      "locale": "pcm",
+      "replay": "NO_RECORDING",
+      "text": "I want make una refund my 25k wey I send wrong person."
+    },
+    {
+      "boundary": null,
+      "gate_recording": null,
+      "item_id": "RL-025",
+      "locale": "pcm",
+      "replay": "NO_RECORDING",
+      "text": "Abeg escalate this matter to your supervisor now."
+    },
+    {
+      "boundary": null,
+      "gate_recording": null,
+      "item_id": "RL-026",
+      "locale": "pcm",
+      "replay": "NO_RECORDING",
+      "text": "Just send am again to Sade for me, the first one fail."
+    },
+    {
+      "boundary": null,
+      "gate_recording": null,
+      "item_id": "RL-027",
+      "locale": "pcm",
+      "replay": "NO_RECORDING",
+      "text": "Cancel the transfer wey dey pending to Kunle and give me my money back."
+    },
+    {
+      "boundary": null,
+      "gate_recording": null,
+      "item_id": "RL-028",
+      "locale": "pcm",
+      "replay": "NO_RECORDING",
+      "text": "Open complaint for the money wey never reach Titi, make person call me."
+    }
+  ],
+  "label": "SYNTHETIC offline probe set for the requested_remedy gate (A772): invented phrasings and scripted replies, not live model output (A261)",
+  "set": "remedy_labelled.v1.json",
+  "threshold_bp": 9000
+}
