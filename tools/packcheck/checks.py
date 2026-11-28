@@ -610,7 +610,7 @@ def check_slot_questions(pack: dict) -> list[Problem]:
             if s.get("resolution") == "candidate_search":
                 out.append(("slot_questions", f"{at}: a candidate_search slot is never asked for by a SLOT question, so it carries no question_key"))
             taken.setdefault(s["question_key"], []).append(at)
-    for key in sorted(k for k, users in taken.items() if len(users) > 1 and any("slot " in u for u in users)):
+    for key in sorted(k for k, users in taken.items() if len(users) > 1):
         out.append(("slot_questions", f"the question key {key!r} is used twice ({'; '.join(taken[key])})"))
     return out
 
