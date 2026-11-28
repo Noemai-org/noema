@@ -59,7 +59,7 @@ func refuseCandidates(kind, cause error) error { return &candidatesError{kind: k
 // CandidateReader is the principal-scoped candidates read (REQ-CTX-006), in its contract's own types. The real one is built in evidence (the orchestrator area may not import the
 // adapters); this package never reaches an enterprise system.
 type CandidateReader interface {
-	Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV1, error)
+	Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV2, error)
 }
 
 // CandidateIntents reads one stored intent as the adapter's tenant; intentstore.Reader is the real one.
@@ -85,7 +85,7 @@ type CandidateScore struct {
 
 // CandidateRanker scores candidates by the pack's weights (REQ-AMB-003). It has no default: an adapter without one is not built. It must answer one score for each candidate.
 type CandidateRanker interface {
-	Rank(ctx context.Context, terms CandidateSearch, rows []contracts.CandidatesResponseV1Candidate) ([]CandidateScore, error)
+	Rank(ctx context.Context, terms CandidateSearch, rows []contracts.CandidatesResponseV2Candidate) ([]CandidateScore, error)
 }
 
 // CandidateLabel is the pre-formatted, masked text of one candidate: Display for OPTIONS mode and the value of each askable attribute (REQ-AMB-004).
@@ -96,7 +96,7 @@ type CandidateLabel struct {
 
 // CandidateLabeller makes labels from the pack's templates and the masked candidate. It has no default. The adapter checks what it returns.
 type CandidateLabeller interface {
-	Label(c contracts.CandidatesResponseV1Candidate) (CandidateLabel, error)
+	Label(c contracts.CandidatesResponseV2Candidate) (CandidateLabel, error)
 }
 
 // CandidateNode is the pack's data for one intent node that needs candidates. The composition fills it from the pack; nothing in it is held here.
@@ -419,7 +419,7 @@ func candSearchRequest(tenantID, principalID, correlationID string, n CandidateN
 // candCheckAnswer holds the answer to the contract before any of it is used: for this tenant and this correlation, within the pack's raw bound, and each candidate of the contract's
 // shape and of the pack's resource kind, none twice. A candidate that fails is a refusal of the whole answer, never a trimmed list. The reader has already scoped its rows to the
 // principal; the response has no member that could prove it again, so the request is where the scope is held (REQ-CTX-006).
-func candCheckAnswer(r contracts.CandidatesResponseV1, req contracts.CandidatesRequestV1, n CandidateNode) ([]contracts.CandidatesResponseV1Candidate, error) {
+func candCheckAnswer(r contracts.CandidatesResponseV2, req contracts.CandidatesRequestV1, n CandidateNode) ([]contracts.CandidatesResponseV2Candidate, error) {
 	bad := refuseCandidates(ErrBadAnswer, nil)
 	if !candVersionShape.MatchString(string(r.SchemaVersion)) || r.TenantId != req.TenantId || r.CorrelationId != req.CorrelationId || len(r.Candidates) > n.MaxRaw {
 		return nil, bad
@@ -431,25 +431,32 @@ func candCheckAnswer(r contracts.CandidatesResponseV1, req contracts.CandidatesR
 		}
 		seen[c.CandidateId] = true
 	}
-	return append([]contracts.CandidatesResponseV1Candidate(nil), r.Candidates...), nil
+	return append([]contracts.CandidatesResponseV2Candidate(nil), r.Candidates...), nil
 }
 
-func candidateOK(c contracts.CandidatesResponseV1Candidate, kind string) bool {
+func candidateOK(c contracts.CandidatesResponseV2Candidate, kind string) bool {
 	id, found := strings.CutPrefix(string(c.ResourceRef), kind+":")
 	var cur contracts.MoneyV1CurrencyCode
-	var dir contracts.CandidatesResponseV1CandidateDirection
+	var dir contracts.CandidatesResponseV2CandidateDirection
 	return candIDShape.MatchString(c.CandidateId) && found && candRefIDShape.MatchString(id) && c.AmountMinor >= 0 && c.AmountMinor <= candMaxMinor &&
 		json.Unmarshal([]byte(strconv.Quote(string(c.Currency))), &cur) == nil && candInstantShape.MatchString(string(c.OccurredAt)) &&
-		utf8.RuneCountInString(c.CounterpartyDisplay) >= 1 && utf8.RuneCountInString(c.CounterpartyDisplay) <= candMaxSurfaceRunes && !strings.Contains(c.CounterpartyDisplay, "\n") &&
-		candDigitRun(c.CounterpartyDisplay) <= ceilings.MaxLabelDigitRun && candLast4Shape.MatchString(c.AccountLast4) &&
+		candCounterpartyRef.MatchString(c.CounterpartyRef) && candMatchOK(c.RecipientMatch) && candLast4Shape.MatchString(c.AccountLast4) &&
 		json.Unmarshal([]byte(strconv.Quote(string(c.Direction))), &dir) == nil && candEnumsOK(c)
+}
+
+// candCounterpartyRef is the counterparty reference of candidates-response.v2: `cp_` and an ordinal, never a name (A676).
+var candCounterpartyRef = regexp.MustCompile(`\Acp_[1-9][0-9]{0,2}\z`)
+
+// candMatchOK reports that the recipient match is an exact share in [0, 1]: a non-negative numerator not above a positive denominator.
+func candMatchOK(m contracts.CandidatesResponseV2CandidateRecipientMatch) bool {
+	return m.Denominator >= 1 && m.Numerator >= 0 && m.Numerator <= m.Denominator
 }
 
 // candEnumsOK checks, by name and without the decoder, that the direction and the currency of a candidate are values of the contract's own generated enums (A350, Codex's review of
 // noema#741). The decoder in candidateOK refuses the same values; this check is explicit so that the refusal does not depend on how a generated type decodes.
-func candEnumsOK(c contracts.CandidatesResponseV1Candidate) bool {
+func candEnumsOK(c contracts.CandidatesResponseV2Candidate) bool {
 	switch c.Direction {
-	case contracts.CandidatesResponseV1CandidateDirectionOUTGOING, contracts.CandidatesResponseV1CandidateDirectionINCOMING:
+	case contracts.CandidatesResponseV2CandidateDirectionOUTGOING, contracts.CandidatesResponseV2CandidateDirectionINCOMING:
 	default:
 		return false
 	}
@@ -479,11 +486,11 @@ func candDigitRun(s string) int {
 // rankAndLabel scores and labels the candidates through the two ports and checks what they answer. No candidate is scored here, no label made, and none defaulted: a score
 // that is missing, repeated, for a stranger or outside 0 to 10000, and a label that is empty, too long a digit run, outside the listed attributes or naming the resource, is a
 // refusal of the whole answer.
-func (c Candidates) rankAndLabel(ctx context.Context, search CandidateSearch, rows []contracts.CandidatesResponseV1Candidate, n CandidateNode) ([]intake.RankedCandidate, error) {
+func (c Candidates) rankAndLabel(ctx context.Context, search CandidateSearch, rows []contracts.CandidatesResponseV2Candidate, n CandidateNode) ([]intake.RankedCandidate, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	scores, err := c.ranker.Rank(ctx, search, append([]contracts.CandidatesResponseV1Candidate(nil), rows...))
+	scores, err := c.ranker.Rank(ctx, search, append([]contracts.CandidatesResponseV2Candidate(nil), rows...))
 	if err != nil {
 		return nil, refuseCandidates(ErrCandidatesRank, err)
 	}
@@ -521,7 +528,7 @@ func (c Candidates) rankAndLabel(ctx context.Context, search CandidateSearch, ro
 }
 
 // candCheckLabel holds a label to what REQ-AMB-004 and AGENT-13 ask of it, and returns its own copy of the attributes.
-func candCheckLabel(l CandidateLabel, row contracts.CandidatesResponseV1Candidate, maxRun int, askable map[string]bool) (map[string]string, bool) {
+func candCheckLabel(l CandidateLabel, row contracts.CandidatesResponseV2Candidate, maxRun int, askable map[string]bool) (map[string]string, bool) {
 	_, resourceID, _ := strings.Cut(string(row.ResourceRef), ":")
 	shows := func(s string) bool {
 		return candDigitRun(s) <= maxRun && !strings.Contains(s, resourceID) && !strings.Contains(s, row.CandidateId)

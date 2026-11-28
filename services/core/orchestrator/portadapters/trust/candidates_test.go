@@ -64,14 +64,14 @@ func cdNodeConfig() trustport.CandidateNode {
 // cdRow is one row of the world: whose it is, and what the reader may show of it.
 type cdRow struct {
 	tenant, principal string
-	cand              contracts.CandidatesResponseV1Candidate
+	cand              contracts.CandidatesResponseV2Candidate
 }
 
-func cdCand(id, ref string, minor int64, at string) contracts.CandidatesResponseV1Candidate {
-	return contracts.CandidatesResponseV1Candidate{
+func cdCand(id, ref string, minor int64, at string) contracts.CandidatesResponseV2Candidate {
+	return contracts.CandidatesResponseV2Candidate{
 		CandidateId: id, ResourceRef: contracts.CommonV1ResourceRef("test.item:" + ref), AmountMinor: contracts.MoneyV1MinorAmount(minor),
-		Currency: contracts.MoneyV1CurrencyCode(cdCurrency), OccurredAt: contracts.CommonV1Timestamp(at), CounterpartyDisplay: "A. Synthetic", AccountLast4: "4321",
-		Direction: contracts.CandidatesResponseV1CandidateDirection("OUTGOING"),
+		Currency: contracts.MoneyV1CurrencyCode(cdCurrency), OccurredAt: contracts.CommonV1Timestamp(at), CounterpartyRef: "cp_1", RecipientMatch: contracts.CandidatesResponseV2CandidateRecipientMatch{Numerator: 1, Denominator: 1}, AccountLast4: "4321",
+		Direction: contracts.CandidatesResponseV2CandidateDirection("OUTGOING"),
 	}
 }
 
@@ -83,22 +83,22 @@ type cdWorld struct {
 	reqs   []contracts.CandidatesRequestV1
 	hang   bool
 	err    error
-	answer func(*contracts.CandidatesResponseV1)
+	answer func(*contracts.CandidatesResponseV2)
 }
 
-func (w *cdWorld) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV1, error) {
+func (w *cdWorld) Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV2, error) {
 	w.reqs = append(w.reqs, req)
 	if w.hang {
 		<-ctx.Done()
-		return contracts.CandidatesResponseV1{}, ctx.Err()
+		return contracts.CandidatesResponseV2{}, ctx.Err()
 	}
 	if w.err != nil {
-		return contracts.CandidatesResponseV1{}, w.err
+		return contracts.CandidatesResponseV2{}, w.err
 	}
 	from, _ := time.Parse(time.RFC3339, string(req.Filters.TimeWindow.From))
 	to, _ := time.Parse(time.RFC3339, string(req.Filters.TimeWindow.To))
-	out := contracts.CandidatesResponseV1{SchemaVersion: "1.0", TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: []contracts.CandidatesResponseV1Candidate{}}
-	var hit []contracts.CandidatesResponseV1Candidate
+	out := contracts.CandidatesResponseV2{SchemaVersion: "1.0", TenantId: req.TenantId, CorrelationId: req.CorrelationId, Candidates: []contracts.CandidatesResponseV2Candidate{}}
+	var hit []contracts.CandidatesResponseV2Candidate
 	for _, r := range w.rows {
 		if r.tenant != string(req.TenantId) || r.principal != string(req.PrincipalRef) {
 			continue
@@ -148,14 +148,14 @@ func (i *cdIntents) Get(_ context.Context, intentID string, version int) (intent
 }
 
 type cdRanker struct {
-	score func(c contracts.CandidatesResponseV1Candidate) int64
+	score func(c contracts.CandidatesResponseV2Candidate) int64
 	err   error
 	out   func([]trustport.CandidateScore) []trustport.CandidateScore
 	terms []trustport.CandidateSearch
 	calls int
 }
 
-func (r *cdRanker) Rank(_ context.Context, t trustport.CandidateSearch, rows []contracts.CandidatesResponseV1Candidate) ([]trustport.CandidateScore, error) {
+func (r *cdRanker) Rank(_ context.Context, t trustport.CandidateSearch, rows []contracts.CandidatesResponseV2Candidate) ([]trustport.CandidateScore, error) {
 	r.calls++
 	r.terms = append(r.terms, t)
 	if r.err != nil {
@@ -176,11 +176,11 @@ func (r *cdRanker) Rank(_ context.Context, t trustport.CandidateSearch, rows []c
 }
 
 type cdLabeller struct {
-	label func(c contracts.CandidatesResponseV1Candidate) (trustport.CandidateLabel, error)
+	label func(c contracts.CandidatesResponseV2Candidate) (trustport.CandidateLabel, error)
 	calls int
 }
 
-func (l *cdLabeller) Label(c contracts.CandidatesResponseV1Candidate) (trustport.CandidateLabel, error) {
+func (l *cdLabeller) Label(c contracts.CandidatesResponseV2Candidate) (trustport.CandidateLabel, error) {
 	l.calls++
 	if l.label != nil {
 		return l.label(c)
@@ -631,7 +631,7 @@ func TestAReaderThatDoesNotAnswerInTimeEndsWhenTheCallersDeadlineDoes(t *testing
 
 // REQ-CTX-006, REQ-AMB-002, AGENT-13: an answer that is out of the contract is refused whole, never trimmed and never repaired, and the error carries none of it.
 func TestAnAnswerOutsideTheContractIsRefusedWhole(t *testing.T) {
-	good := func() contracts.CandidatesResponseV1 {
+	good := func() contracts.CandidatesResponseV2 {
 		w := newCdRig(t).world
 		out, _ := w.Read(context.Background(), contracts.CandidatesRequestV1{TenantId: cdTenant, PrincipalRef: cdAlice, CorrelationId: cdCorr,
 			Filters: contracts.CandidatesRequestV1Filters{TimeWindow: contracts.CandidatesRequestV1FiltersTimeWindow{From: "2026-11-18T07:00:00Z", To: "2026-11-18T12:00:00Z"}}})
@@ -640,35 +640,34 @@ func TestAnAnswerOutsideTheContractIsRefusedWhole(t *testing.T) {
 	if len(good().Candidates) != 2 {
 		t.Fatal("the control answer is not two candidates")
 	}
-	many := func(n int) func(*contracts.CandidatesResponseV1) {
-		return func(o *contracts.CandidatesResponseV1) {
+	many := func(n int) func(*contracts.CandidatesResponseV2) {
+		return func(o *contracts.CandidatesResponseV2) {
 			o.Candidates = nil
 			for i := 0; i < n; i++ {
 				o.Candidates = append(o.Candidates, cdCand(fmt.Sprintf("cand_many%02d", i), fmt.Sprintf("M%d", i), cdAmountBase, "2026-11-18T09:00:00Z"))
 			}
 		}
 	}
-	for name, mut := range map[string]func(*contracts.CandidatesResponseV1){
-		"another tenant's answer":         func(o *contracts.CandidatesResponseV1) { o.TenantId = cdOtherTen },
-		"another correlation's answer":    func(o *contracts.CandidatesResponseV1) { o.CorrelationId = "corr_other001" },
-		"more than the pack's raw bound":  many(21),
-		"a candidate listed twice":        func(o *contracts.CandidatesResponseV1) { o.Candidates = append(o.Candidates, o.Candidates[0]) },
-		"a candidate id off its shape":    func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CandidateId = "tx 1; drop" },
-		"a direction off the enum":        func(o *contracts.CandidatesResponseV1) { o.Candidates[0].Direction = "SIDEWAYS" },
-		"an account tail that is no tail": func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AccountLast4 = "0123456789" },
-		"a display with a digit run": func(o *contracts.CandidatesResponseV1) {
-			o.Candidates[0].CounterpartyDisplay = "A. Synthetic 4000123456"
-		},
-		"an empty display":                 func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = "" },
-		"a negative amount":                func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = -1 },
-		"an instant that is not UTC":       func(o *contracts.CandidatesResponseV1) { o.Candidates[0].OccurredAt = "2026-11-18T09:30:00+01:00" },
-		"a currency the contract has not":  func(o *contracts.CandidatesResponseV1) { o.Candidates[0].Currency = "USD" },
-		"an answer with no version":        func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "" },
-		"an answer of another major (2.0)": func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "2.0" },
-		"an answer of an earlier major":    func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "0.9" },
-		"an amount past the contract":      func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = 9007199254740992 },
-		"a display over 64 characters":     func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = strings.Repeat("x", 65) },
-		"a resource ref of another kind":   func(o *contracts.CandidatesResponseV1) { o.Candidates[0].ResourceRef = "other.kind:TX1" },
+	for name, mut := range map[string]func(*contracts.CandidatesResponseV2){
+		"another tenant's answer":           func(o *contracts.CandidatesResponseV2) { o.TenantId = cdOtherTen },
+		"another correlation's answer":      func(o *contracts.CandidatesResponseV2) { o.CorrelationId = "corr_other001" },
+		"more than the pack's raw bound":    many(21),
+		"a candidate listed twice":          func(o *contracts.CandidatesResponseV2) { o.Candidates = append(o.Candidates, o.Candidates[0]) },
+		"a candidate id off its shape":      func(o *contracts.CandidatesResponseV2) { o.Candidates[0].CandidateId = "tx 1; drop" },
+		"a direction off the enum":          func(o *contracts.CandidatesResponseV2) { o.Candidates[0].Direction = "SIDEWAYS" },
+		"an account tail that is no tail":   func(o *contracts.CandidatesResponseV2) { o.Candidates[0].AccountLast4 = "0123456789" },
+		"a counterparty ref that is a name": func(o *contracts.CandidatesResponseV2) { o.Candidates[0].CounterpartyRef = "A. Synthetic" },
+		"an empty counterparty ref":         func(o *contracts.CandidatesResponseV2) { o.Candidates[0].CounterpartyRef = "" },
+		"a match above one":                 func(o *contracts.CandidatesResponseV2) { o.Candidates[0].RecipientMatch.Numerator = 2 },
+		"a match with no denominator":       func(o *contracts.CandidatesResponseV2) { o.Candidates[0].RecipientMatch.Denominator = 0 },
+		"a negative amount":                 func(o *contracts.CandidatesResponseV2) { o.Candidates[0].AmountMinor = -1 },
+		"an instant that is not UTC":        func(o *contracts.CandidatesResponseV2) { o.Candidates[0].OccurredAt = "2026-11-18T09:30:00+01:00" },
+		"a currency the contract has not":   func(o *contracts.CandidatesResponseV2) { o.Candidates[0].Currency = "USD" },
+		"an answer with no version":         func(o *contracts.CandidatesResponseV2) { o.SchemaVersion = "" },
+		"an answer of another major (2.0)":  func(o *contracts.CandidatesResponseV2) { o.SchemaVersion = "2.0" },
+		"an answer of an earlier major":     func(o *contracts.CandidatesResponseV2) { o.SchemaVersion = "0.9" },
+		"an amount past the contract":       func(o *contracts.CandidatesResponseV2) { o.Candidates[0].AmountMinor = 9007199254740992 },
+		"a resource ref of another kind":    func(o *contracts.CandidatesResponseV2) { o.Candidates[0].ResourceRef = "other.kind:TX1" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newCdRig(t)
@@ -705,7 +704,7 @@ func TestAnEmptyAnswerIsAnAnswerWithThePacksDataAndNoCandidates(t *testing.T) {
 // (common.v1.json SchemaVersion, "major.minor") and is accepted; another major is refused whole, because its shape is not the one checked here (REQ-CTX-006, INV-16).
 func TestALaterMinorOfVersionOneIsAcceptedAndAnotherMajorIsNot(t *testing.T) {
 	r := newCdRig(t)
-	r.world.answer = func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "1.3" }
+	r.world.answer = func(o *contracts.CandidatesResponseV2) { o.SchemaVersion = "1.3" }
 	if _, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, cdAdmitted(cdAlice)); err != nil {
 		t.Fatalf("version 1.3: %v, want it accepted", err)
 	}
@@ -715,7 +714,7 @@ func TestALaterMinorOfVersionOneIsAcceptedAndAnotherMajorIsNot(t *testing.T) {
 // or a port that fails, ends in an error: the adapter never scores a candidate itself and never defaults one.
 func TestTheRankersAnswerIsUsedOnlyWhenItIsOneScorePerCandidateInRange(t *testing.T) {
 	r := newCdRig(t)
-	r.ranker.score = func(c contracts.CandidatesResponseV1Candidate) int64 {
+	r.ranker.score = func(c contracts.CandidatesResponseV2Candidate) int64 {
 		if c.CandidateId == "cand_aliceA" {
 			return 9500
 		}
@@ -767,7 +766,7 @@ func TestTheRankersAnswerIsUsedOnlyWhenItIsOneScorePerCandidateInRange(t *testin
 // REQ-AMB-004, AGENT-13: a label is the pack's making and is checked here again: not empty, no longer a digit run than the pack's limit, no attribute the pack did not list, and
 // never the reference of the resource itself. A label that fails is an error, not a trimmed label.
 func TestALabelIsUsedOnlyWhenItIsMaskedBoundedAndFromTheListedAttributes(t *testing.T) {
-	ok := func(c contracts.CandidatesResponseV1Candidate) (trustport.CandidateLabel, error) {
+	ok := func(c contracts.CandidatesResponseV2Candidate) (trustport.CandidateLabel, error) {
 		return trustport.CandidateLabel{Display: "Item at 09:30", Attrs: map[string]string{"time": "09:30"}}, nil
 	}
 	r := newCdRig(t)
@@ -791,7 +790,7 @@ func TestALabelIsUsedOnlyWhenItIsMaskedBoundedAndFromTheListedAttributes(t *test
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newCdRig(t)
-			r.label.label = func(contracts.CandidatesResponseV1Candidate) (trustport.CandidateLabel, error) { return l, nil }
+			r.label.label = func(contracts.CandidatesResponseV2Candidate) (trustport.CandidateLabel, error) { return l, nil }
 			got, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, cdAdmitted(cdAlice))
 			if !errors.Is(err, trustport.ErrBadAnswer) || len(got.Ranked) != 0 {
 				t.Fatalf("got %+v, %v, want ErrBadAnswer and nothing", got, err)
@@ -802,7 +801,7 @@ func TestALabelIsUsedOnlyWhenItIsMaskedBoundedAndFromTheListedAttributes(t *test
 	t.Run("the labeller fails", func(t *testing.T) {
 		r := newCdRig(t)
 		cause := errors.New("canary: no template for usr_bob0001")
-		r.label.label = func(contracts.CandidatesResponseV1Candidate) (trustport.CandidateLabel, error) {
+		r.label.label = func(contracts.CandidatesResponseV2Candidate) (trustport.CandidateLabel, error) {
 			return trustport.CandidateLabel{}, cause
 		}
 		got, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, cdAdmitted(cdAlice))
@@ -1058,7 +1057,7 @@ func TestAnAdmittedIntentWithAnIdentityThatDoesNotMatchTheStoreIsRefused(t *test
 func TestTheLabelsAreCopiedFromTheLabeller(t *testing.T) {
 	r := newCdRig(t)
 	kept := map[string]string{"time": "09:30"}
-	r.label.label = func(contracts.CandidatesResponseV1Candidate) (trustport.CandidateLabel, error) {
+	r.label.label = func(contracts.CandidatesResponseV2Candidate) (trustport.CandidateLabel, error) {
 		return trustport.CandidateLabel{Display: "Item", Attrs: kept}, nil
 	}
 	got, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, cdAdmitted(cdAlice))
