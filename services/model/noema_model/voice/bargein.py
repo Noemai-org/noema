@@ -42,7 +42,7 @@ class BargeInMonitor:
             raise ValueError("the barge-in stop limit must be positive")
         if config.min_speech_ms > max_stop_ms:
             raise ValueError("min_speech_ms is longer than the barge-in stop limit")
-        self._detector = EndpointDetector(config)
+        self._detector = EndpointDetector(config, recording_limited=False)  # listening while an answer plays is not a recording: no 30 s maximum (A715; Codex P2 on noema#1009)
         self._max_stop_ms = max_stop_ms
 
     def feed(self, chunk: AudioChunk) -> bool:

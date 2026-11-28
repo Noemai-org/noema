@@ -3,6 +3,7 @@ package candidaterank
 import (
 	"errors"
 	"math/big"
+	"regexp"
 	"sort"
 	"time"
 )
@@ -70,7 +71,13 @@ type Candidate struct {
 	RecipientBP int64
 	AliasMatch  bool
 	Direction   string
+	// ResourceRef is the candidate's opaque resource reference (`<vertical>.<kind>:<id>`, as in the candidates read). It takes no part in the score; the payload names it as the resolved target
+	// of an AUTO_RESOLVED set (A725). It may be empty; a value that is not a reference is refused.
+	ResourceRef string
 }
+
+// resourceRefShape is common.v1 ResourceRef. A reference of any other shape could carry a name or free text into the Record, so Rank refuses it.
+var resourceRefShape = regexp.MustCompile(`\A[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}\z`)
 
 // Target is what the customer described: the values the candidates are compared to. A part the customer did not say is absent, and its feature is 0.
 type Target struct {
@@ -115,22 +122,24 @@ const (
 	TooManyAboveFloor Why = "TOO_MANY_ABOVE_FLOOR"
 )
 
-// Scored is one candidate's score in basis points.
+// Scored is one candidate's score in basis points, with the five feature values it was made from (REQ-AMB-003: scores and feature values are recorded).
 type Scored struct {
-	ID      string
-	ScoreBP int64
+	ID       string
+	ScoreBP  int64
+	Features Features
 }
 
 // Resolution is the result. Ranked is in presentation order: score, then the newer time, then the ID (REQ-AMB-004); an order never breaks a tie for resolving.
 type Resolution struct {
-	State      State
-	Ranked     []Scored
-	TopBP      int64
-	SecondBP   int64
-	MarginBP   int64
-	AboveFloor int
-	WhyNot     []Why
-	ResolvedID string
+	State       State
+	Ranked      []Scored
+	TopBP       int64
+	SecondBP    int64
+	MarginBP    int64
+	AboveFloor  int
+	WhyNot      []Why
+	ResolvedID  string
+	ResolvedRef string
 }
 
 // scaledScore is the exact weighted sum of the features, unrounded: the sum of weight x feature, each in basis points, so it is the score in basis points times UnitBP (an integer, at
@@ -220,13 +229,15 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 	}
 	seen := make(map[string]bool, len(cands))
 	type row struct {
-		id     string
-		scaled int64
-		at     time.Time
+		id       string
+		scaled   int64
+		at       time.Time
+		features Features
+		ref      string
 	}
 	rows := make([]row, 0, len(cands))
 	for _, cand := range cands {
-		if cand.ID == "" || seen[cand.ID] || cand.AmountMinor < 0 || cand.RecipientBP < 0 || cand.RecipientBP > UnitBP || cand.OccurredAt.IsZero() {
+		if cand.ID == "" || seen[cand.ID] || cand.AmountMinor < 0 || cand.RecipientBP < 0 || cand.RecipientBP > UnitBP || cand.OccurredAt.IsZero() || (cand.ResourceRef != "" && !resourceRefShape.MatchString(cand.ResourceRef)) {
 			return Resolution{}, ErrCandidates
 		}
 		seen[cand.ID] = true
@@ -234,7 +245,7 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 			AmountBP: c.AmountFeatureBP(t, cand), RecipientBP: cand.RecipientBP, TemporalBP: c.TemporalFeatureBP(t, cand),
 			RelationshipBP: RelationshipFeatureBP(cand), TypeDirectionBP: TypeDirectionFeatureBP(t, cand),
 		}
-		rows = append(rows, row{id: cand.ID, scaled: c.scaledScore(f), at: cand.OccurredAt})
+		rows = append(rows, row{id: cand.ID, scaled: c.scaledScore(f), at: cand.OccurredAt, features: f, ref: cand.ResourceRef})
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].scaled != rows[j].scaled {
@@ -248,7 +259,7 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 	res := Resolution{Ranked: make([]Scored, 0, len(rows))}
 	floorScaled, marginScaled := c.FloorBP*UnitBP, c.MarginBP*UnitBP
 	for _, r := range rows {
-		res.Ranked = append(res.Ranked, Scored{ID: r.id, ScoreBP: r.scaled / UnitBP})
+		res.Ranked = append(res.Ranked, Scored{ID: r.id, ScoreBP: r.scaled / UnitBP, Features: r.features})
 		if r.scaled >= floorScaled {
 			res.AboveFloor++
 		}
@@ -289,6 +300,7 @@ func (c Config) Rank(cands []Candidate, t Target, ctx Context) (Resolution, erro
 	default:
 		res.State = AutoResolved
 		res.ResolvedID = rows[0].id
+		res.ResolvedRef = rows[0].ref
 	}
 	return res, nil
 }

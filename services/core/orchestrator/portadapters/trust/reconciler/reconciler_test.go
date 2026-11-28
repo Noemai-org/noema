@@ -41,7 +41,7 @@ const (
 	ledger   = "fin.src.core_ledger"
 	sw       = "fin.src.switch"
 	dest     = "fin.src.destination"
-	expected = "fin.map.v1@2"
+	expected = "fin.map.v1@3"
 	leak     = "payload-body-must-not-leak"
 	dsnLeak  = "postgres://trust_rw:hunter2@db.internal:5432/noema"
 )
@@ -206,7 +206,7 @@ func newWorld(t *testing.T, specs ...spec) *world {
 			st = contracts.EnumsV1FactStatusKNOWN
 		}
 		items = append(items, layer.Item{EvidenceID: id, PayloadRef: ref, PayloadHash: hashOf(t, s.payload), Status: st, Source: s.source, ReadAt: readAt,
-			EffectiveAt: readAt.Add(-time.Minute), EffectiveFreshnessSeconds: 300})
+			EffectiveAt: readAt.Add(-10 * time.Minute), EffectiveFreshnessSeconds: 900}) // older than the shipped 300 s convergence windows (PCK-05) and still fresh
 	}
 	var pairs []snapshot.Pair
 	ids := make([]string, len(items))
@@ -770,3 +770,20 @@ func corrOf(context.Context) string { return "cor_SYNTHETIC" }
 type noAlert struct{}
 
 func (noAlert) ScreenFlagged(context.Context, payloadread.Flag) {}
+
+// RES-05 (REQ-RES-005; interim, relayed): a snapshot whose items still wait inside their window comes back with the end of the window; one that does not wait comes back with none.
+func TestAWaitingReclassificationCarriesTheEndOfTheWindow(t *testing.T) {
+	for name, until := range map[string]int64{"waits": 1794906540, "does not wait": 0} {
+		w := newWorld(t, agree()...)
+		a, err := reconcilerport.New(reconcilerport.Config{Snapshots: w.store, Classifiers: func(time.Time) (reconcilerport.Classifier, error) {
+			return fixedClassifier{readseal.Classified{ReconciliationID: "rec_synth", Classification: w.sealed.Classification, WaitUntil: until}}, nil
+		}, Pack: finPack(), Timeout: time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := a.Reconcile(ctx(t), tenant, snapID)
+		if err != nil || got.WaitUntil != until {
+			t.Errorf("%s: got %+v %v, want WaitUntil %d", name, got, err, until)
+		}
+	}
+}

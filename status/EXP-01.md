@@ -147,3 +147,67 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 ## Pre-work for the next agent
 - Exact next step: after the Founder's A155 approval, EL builds the real `FactsSource` over the Record reader, the sealed snapshot items and the `PayloadReader`; one fact per slot, KNOWN only; a slot with no source refuses.
 - Do not touch: the pack templates in this PR (noema#595 holds them).
+
+# Session 2026-11-26 · EXP-01 · StepFactSource for the Recorder (A550, A556, A706, A710)
+
+No task row names StepFactSource; A550 and A710 give it to C2 and the order names EXP-01, so this is the row used.
+
+## Session summary
+- What changed (PR noema#1027): `orchestrator/portadapters/trust/stepfacts.go` (`SealedSteps`, the production `StepFactSource` of the Recorder: `TargetVersions` and `StepFacts`); `trust/reconcile/mapping/target_versions.go` (the mapping's optional `target_versions` member: `TargetVersion`, `DeclaresTargetVersion`); the pack's evidence mapping `fin.map.v1@3` declares the ledger source's `version_token` and `complete` members, with its manifest pin and id; packcheck checks the member as the loader does; READMEs. The explainer's own facts source (A710's other C2 row) is a separate piece and is not touched.
+- Why: A550 and A710 (the Recorder's StepFactSource, from the sealed-snapshot reader), A556 (the target version token is a mapped field in the pack mapping, C2's), A706 (`version_token` is the maximum entry version as a string; `complete` means the read answered and was not unavailable; EL's reader change is noema#1004).
+- Risks, and how they are contained: a wrong version would bind a grant to a stale target. The token is read only from the sealed snapshot's item for the step's own target (one item, KNOWN, payload verified against its hash, marker true); every other case is `ErrStepVersion` with no version. The freeze Permission is a named gap (`ErrStepPermission`), so no grant can be issued from this source until the freeze row (noema#958) and a Record `FreezeReader` exist.
+- Tests added (REQ-TRU-009, REQ-RES-002, REQ-CTX-004; INV-17, INV-19, INV-20, INV-21; AGENT-13): `stepfacts_test.go`, `mapping/target_versions_test.go`, `tools/packcheck/test_manifest.py` (`MappingTargetVersions`).
+- Regression cases added: the three files above. Debt entries: none new.
+- Conflicts raised: none. Deviations stated in the PR: the mapping loader (`trust/reconcile/mapping`) and packcheck are outside the first allowlist; they were needed for the member to load and be checked, as noema#818 did for `rows_from`.
+
+## Pre-work for the next agent
+- Exact next step: when noema#958 merges and C1 or EL provide a Record `FreezeReader`, add a port that gives `FreezeGate.PermitResult` the reconciliation of the step's target and the effective freeze, and make `SealedSteps.StepFacts` return `RecordStepFacts{TargetVersions, Permission}`; the named-gap tests change with it. EL wires `SealedSteps` (the mapping from `packload`, the payload reader) in the composition.
+- Open questions (owner): the freeze allow-list consumer fails closed on a missing entry (EL); a pack whose write capability has `concurrency_control: NONE` has no token, and this source gives every step one or refuses (the two write capabilities of the fintech pack are `CONDITIONAL_WRITE`); the item's resource kind is not compared with the step target's kind (the sealed item has no resource scope; the source record id and the mapping's declared source decide).
+- Files to read first: `orchestrator/portadapters/trust/stepfacts.go`, `trust/reconcile/mapping/target_versions.go`, `packs/fintech/evidence_mapping/mapping.v1.json`.
+- Do not touch: `fin.map.v1@3` pins without recomputing `sha256sum`; noema#988 (PCK-05) also changes this mapping file (the rule set id), so whichever merges second merges main and recomputes the pin.
+
+# Session 2026-11-26 · EXP-01 · the explainer row reader behind `FactsSource` (A710, A675; C2)
+
+## Task card (PERD §61.4)
+- Task: EXP-01 (REQ-EXP-001, REQ-EXP-002, REQ-SEC-004). SoT: INV-04, INV-07, INV-12, INV-13, INV-14, INV-19, AGENT-13, AGENT-16, AGENT-17. Rulings: A710 (committed in `DEC-2026-11-26-architect-rulings-a704-a720`: "Explainer row reader for `explanation.FactsSource`: C2"), A550, A556, A665, A675, A692, A711.
+- Allowlist: `services/core/explanation/factsource/rowreader/` (new), one paragraph in `services/core/explanation/README.md`, this file. No migration, role grant, contract, pack or composition change.
+- Acceptance: (1) the rows are read as the tenant's own Trust login, in one read-only transaction, with the tenant in every WHERE; another tenant's decision is `ErrNotFound`, the same as an absent one. (2) An absent, ambiguous or mismatched row is a typed error and no fact. (3) A case reference only from an ACKNOWLEDGED receipt with its acknowledgement and an ACHIEVED verdict. (4) The outcome is the one the verdicts of the decision's own grants name; none or several is an error. (5) No recipient name, no pack vocabulary in code, nothing defaulted.
+
+## Session summary
+- What changed (PR noema#1015): `explanation/factsource/rowreader`: `Reader` (`read.go`: six statements over `decision_record`, `context_snapshot`, `admitted_intent`, `decision_grant`, `execution_receipt` and `outcome_verdict`) and `Source` (`source.go`: `explanation.FactsSource`, built over a `RowsReader`, a `Payments` seam, a `Locales` seam and a clock). It builds the case kinds through `factsource.Case` and the envelope (schema "2.0", correlation, outcome, classification, locale).
+- Why: A710 gives the explainer row reader to C2; A556 said the case kinds stay unknown until lane 5 has a reader for the receipt; the receipt, the grant and the verdict are rows the Trust login can already read, so no new login or grant is needed.
+- The login: the tenant's own `trust_rw` login (the one `reconcilerport.Store` uses), because it holds SELECT on every table read here (`0001`, `0007`, `0008`, `0012`, `0020`, `0026`) and row-level security binds each to the login's tenant (`0018`). `outcome_rw` cannot read `context_snapshot` (the classification) and the `core-edge` emitter login holds no SELECT at all.
+- Risks, and how they are contained: a read of a stored receipt is not a signature check; the receipt reached its table only through `receipt_insert`, which verifies the Ed25519 signature (0013), and a case reference additionally needs the ACHIEVED verdict row, which `outcome_record_verdict` wrote after reading the target (INV-04). The investigation is found by the signed document's correlation (`json ->> 'correlation_id'`), which no index covers: an indexed path would need a migration (Tier 1, A463), so it is a [OPEN] below.
+- Tests added: `source_test.go` (16, no database: REQ-EXP-001, REQ-EXP-002; INV-04, INV-07, INV-12, INV-13, INV-14, INV-19, A676) and `read_db_test.go` (11 `TestDB`, CI only: REQ-SEC-004, INV-11, INV-12, INV-21).
+- Regression cases added: the tests above. Debt entries: none. Conflicts raised: none.
+
+## What the rows cannot give yet (each is an unknown or an empty array, never a guess; owners named)
+1. **The plan.** No `plan` table exists (`migrations/README.md`, "Not built"). The owner queue can only come from the signed receipt's `step_params` (C1's `step_params`, #994, merged): the Controller does not fill it yet, and the pack declares no `PLAN_PARAM` binding, so the member's name is configuration (`Config.QueueParam`) and `case.team` is `QUEUE_NOT_NAMED` until both exist. Owners: C1 (Controller fill), Architect/C2 (the pack binding).
+2. **The SLA clock.** `SLA_EVALUATED` is a Record event, and the Record is read through `record_read_chain_t` by a login of the `record_read` group, which cannot also be a Trust login; the event is also not written by any call site yet (noema#977 is open). `case.clock` is `CLOCK_NOT_COMMITTED`. Owner: C1 lane 5, the Record reader for the SLA (A556).
+3. **The locale.** No row holds the conversation's locale the answer is in (the intent's `locale_detected` is what was detected, not the register EXP-04 follows). It is a `Locales` seam. Owner: EL's composition, with the Architect's rule for the source.
+4. **Actions, advice and next steps.** `capability_label` is pack data, the advice codes come from the reconciliation rules and the next steps from the SLA and the watch; none is a stored row. They are empty arrays, so the templates that need them block (`NO_TEMPLATE`), never borrow. Owner: the Architect (which source), then C2.
+5. **A decision with no verdict** (an ESCALATE disposition, or a read-only answer): the outcome is the verdict's own definition, so there is none and the source returns `ErrNoVerdict`. PERD §11.1 (J1, step 6) says Outcome verifies `status_explained` "from its own fresh reads", but `outcome_verdict.receipt_id` is `NOT NULL` and a read has no receipt. Owner: the Architect (which outcome explains a decision with no write).
+6. **An index.** `grantsSQL` and `receiptsSQL` filter on the signed document's `correlation_id` and `grant_id` (no index on the document). Fine for the POC's volume; an index is a migration. Owner: C1 if it measures slow.
+
+## Pre-work for the next agent
+- Exact next step: EL composes `rowreader.NewSource(Config, reader, payments, locales, clock)` in `cmd/core` (the payments seam is #970's `PaymentSource`, whose `PaymentFacts` has the shape of `rowreader.Payments`), reading the pack for `CaseCapability` and the owner-queue names.
+- Open questions (owner): items 1 to 6 above.
+- Files to read first: `services/core/explanation/factsource/rowreader/{read.go,source.go}`.
+- Do not touch: `explanation/factsource/factsource.go` (the pure core), `orchestrator/portadapters/trust/reconciler` (the pattern copied, not edited).
+
+# Session 2026-11-27 · EXP-01 · a no-write outcome is explained from its Decision Record (A727; C2)
+
+## Task card (PERD §61.4)
+- Task: EXP-01 (REQ-EXP-001, REQ-EXP-002, REQ-SEC-004). SoT: INV-04, INV-12, INV-13, INV-14, INV-29, AGENT-13, AGENT-16. Ruling: A727 (`DEC-2026-11-26-architect-rulings-a721-a737`): a no-write outcome is explained from its Decision Record, in a follow-up PR once #1015 merged (US-01 has no write and so no verdict row); latest verdict wins if verdicts are append-only; the reader refuses whole when two verdicts of one receipt disagree; no signature re-check in the explainer.
+- Allowlist: `services/core/explanation/factsource/rowreader/`, the paragraph in `services/core/explanation/README.md`, this file. The same `trust_rw` login already holds SELECT on `decision_record` (0012), so no migration, grant, contract or pack change.
+
+## Session summary
+- What changed (PR noema#1031): `Rows.DecisionOutcome` (the record's `outcome` column, read in the existing decision statement) and `Config.NoWriteOutcome` (the pack's outcome for a no-write decision; empty means off). `Source.outcomeOf` chooses deterministically: a verdict row of the decision's own grant wins; with none, an ALLOW record with no grant of its own gives the configured no-write outcome; a decision with a grant of its own and no verdict is `ErrNoVerdict` (a write is never explained from the record alone); any other record outcome is `ErrNoVerdict`; an outcome that is not one of the seven is `ErrMismatch`.
+- Already in #1015, so not re-added: the latest verdict of a receipt wins (`ORDER BY verified_at DESC`; `outcome_verdict` is insert-only by trigger) and two verdicts of one instant that differ are `ErrAmbiguous`, refusing the whole read (`TestDBTheLatestVerdictIsTheCurrentOneAndATieIsAmbiguous`). No signature is re-checked (INV-29).
+- Reason class: the classification the templates key on is the sealed snapshot's, as for a write; no reason code or internal code is read from the record and no recipient name is read anywhere (A676).
+- Risks, and how they are contained: an ALLOW record whose grant is not yet issued would read as no-write; the explanation then states only the state (the configured no-write outcome), never a case or a write. The record names no capability, so the grant is the only test of "no write"; SR to confirm.
+- Tests added (REQ-EXP-001, REQ-EXP-002, REQ-SEC-004; INV-04, INV-12): seven pure cases and two over the real store. Regression cases: the same.
+
+## Pre-work for the next agent
+- Exact next step: EL sets `Config.NoWriteOutcome` from the pack in the composition. ESCALATE, CLARIFY, WAIT, REJECT, UNKNOWN and CONFIRM records stay `ErrNoVerdict`: which outcome explains them is the Architect's.
+- Do not touch: the migrations.

@@ -1,0 +1,1438 @@
+{
+  "calls": 140,
+  "date": "2026-11-24",
+  "failure_classes": {
+    "OK": 140
+  },
+  "fixture": {
+    "head_sha": "d2f83578a7c7195891eab753ee9963f52388bf7d",
+    "label": "Understanding: recorded replay of live output",
+    "reduced": true,
+    "run_id": "synthetic-boundary",
+    "synthetic": true
+  },
+  "label": "Understanding: compile acceptance on synthetic golden examples, recorded live output (SYNTHETIC)",
+  "model_id": "gpt-6-luna",
+  "pin": {
+    "harness_config_sha256": "1b8c026b12c990047d96eb654174df10744865b67a262b6fa2f48f414c4fda6f",
+    "lexicon_sha256": "e524829a057059a51c389e3e12cab31073b25b44c102955a65536584a6f9b93d",
+    "masking_limits_sha256": "37071a85fe119256914c7dad0a51d6b2e748f2eb16135cf640df335765dffd0b",
+    "max_output_tokens": 4000,
+    "pack_ref": "fin@1.0.0",
+    "pack_sha256": "0cd3f7747c6577d48c36cb1824a4a541b14980eeebea42b7471bc40ac4065a5b",
+    "pinned_model_id": "gpt-6-luna",
+    "rate_card": {
+      "as_of": "2026-10-27",
+      "input_micro_per_mtok": 100000,
+      "output_micro_per_mtok": 500000
+    },
+    "reasoning_effort": "medium"
+  },
+  "provider": "openai",
+  "recordings": [
+    {
+      "case_id": "SB-A",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0001",
+      "request_sha256": "sha256:91c23a4b333a80b8e7f834ccfba634746a1887a610d1a922f4cfb2e2bd1012e4",
+      "status": 200
+    },
+    {
+      "case_id": "SB-A",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0002",
+      "request_sha256": "sha256:0802a7d0297e724ec6834f7d5e463f7344b0a48c063d2b3a1e377d98483edb85",
+      "status": 200
+    },
+    {
+      "case_id": "SB-A",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0003",
+      "request_sha256": "sha256:c5bb1fdb48689c4b532711af54b1ddf5073f35ad2fa23fe203fe3d4725d2df4a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-A",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0004",
+      "request_sha256": "sha256:4e6580a866903b4a5cd03de352c4c785863668cedf98466f84e8d9af4b63315a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-A",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0005",
+      "request_sha256": "sha256:dce56354fc96f4889878760237352a81c4f5eefc55258fbcfcb8792e214ade5f",
+      "status": 200
+    },
+    {
+      "case_id": "SB-A",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0006",
+      "request_sha256": "sha256:4072838092761ad85de6ffcb4ee94c42fced4f128ca205198283759ef02d9add",
+      "status": 200
+    },
+    {
+      "case_id": "SB-A",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0007",
+      "request_sha256": "sha256:a5847764c9e214e54b61e0cf589fd716aa005af47cf5db285b1b4f07c290532c",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0008",
+      "request_sha256": "sha256:d71a93e9cea223c5f69380d0a28e1c959d0991f2c949b55cfbdcd4bb32d23c05",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0009",
+      "request_sha256": "sha256:a7075b8b92abc7bfdbf4e1b847eab755c22d50f9e90f4a5b643942b3c2983b06",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0010",
+      "request_sha256": "sha256:a12a2f0fd98ca0fe12f4c62a55fe7dd2fae4564eed3efaec6369139654f54391",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0011",
+      "request_sha256": "sha256:5194a45d51c3e776792c1e458600bd941e296106f3025b79bcc71406b098896a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0012",
+      "request_sha256": "sha256:b494330eaab763067381edd2f5e77c7d9850110c64ba2b8aa69474c1e54166ec",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0013",
+      "request_sha256": "sha256:db8ab3744a84e0be6162dfcfc8ee8d17c096b36d453e1f2485cf8c22a25f1e87",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0014",
+      "request_sha256": "sha256:0996efbb1b2478c7d65d4b003e2d75dd23d509e942449b8f68500d1a7dc30147",
+      "status": 200
+    },
+    {
+      "case_id": "SB-C",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0015",
+      "request_sha256": "sha256:719d1e00c2eca63395c072f376e5a0a27d957394f83a05c3ea4816fb39aeaa15",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0016",
+      "request_sha256": "sha256:06bff42d37f56a334e7881cb5ce5a8f6a79d8ade5450e514abacb222a0e0c848",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0017",
+      "request_sha256": "sha256:b051147f3442e85ea875aa74666a3ca3b8188abd05aeb9911d307c485198ba83",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0018",
+      "request_sha256": "sha256:7463690e2c597f41d7558728d7726386e34b6543c8fb37422e6273812f2efa3a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0019",
+      "request_sha256": "sha256:b3803c19d91118802e8fba58930a8476f0e70eb98318908a71748ce313efd96e",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0020",
+      "request_sha256": "sha256:6d05dac9f53c6775ab2a2e2f73baae68f6a20bceaf310131a65e5006185263f9",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0021",
+      "request_sha256": "sha256:09f9a30e1de40b92bb8195ea301dc7a8cf469ede684ff340f3ef9f6889f280c3",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0022",
+      "request_sha256": "sha256:ec7be568524adb2b99bf2dc466d060c5e0e0a29326f7cad6a9d5ea5c07d990e4",
+      "status": 200
+    },
+    {
+      "case_id": "SB-D",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0023",
+      "request_sha256": "sha256:54d04112ee171562c5a9348c3065545c80c6529014c0ba99fae388aeedae6f27",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0024",
+      "request_sha256": "sha256:ca2a573b8e79b915bbccc8195a55af5efc4a07f7436492e5d83fd6d46b332229",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0025",
+      "request_sha256": "sha256:2a4c767af612ac464116acb2f7b2fec748e462e5991fc29fb2cffb2bbb7c3eab",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0026",
+      "request_sha256": "sha256:db37df6ee6c1ae9469607b6a6582238d51d88122675927bb0ed86e29b9fb1e7a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0027",
+      "request_sha256": "sha256:5c73af8811de96d7d26a3fd5f73932c39a3792ce51bf58362e3f4f961bb7e183",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0028",
+      "request_sha256": "sha256:88cdbb9d01234e65f9b271ceae925a2e128695bbc2e332c3d8dfd87fd1fa4d98",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0029",
+      "request_sha256": "sha256:5e59ce5cf82d487bf9f7c44d05bb95cec60808c416379e81d7981753f1d16815",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0030",
+      "request_sha256": "sha256:1418bea9cbdcf5675f07fc07752609760540a9d619ee2373531984983558f057",
+      "status": 200
+    },
+    {
+      "case_id": "SB-E",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0031",
+      "request_sha256": "sha256:975600eb641bc8536b55015ed8121daac96127cac21468f66de61a654f2c85a6",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0032",
+      "request_sha256": "sha256:98de19812394ff050abbb1db9163a3ea70b7562adda1c604543e11c98e80e731",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0033",
+      "request_sha256": "sha256:d938eb5665afa64518a66963226b3824008aadbc1d8746d384347b07c6ae1cc8",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0034",
+      "request_sha256": "sha256:5657f660ba8caef3162225a19ae9f3e14c134d95d0e13297c9be11ceffe3464a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0035",
+      "request_sha256": "sha256:856e040be86de05b253b1eccfc368318b11b7346bc1c2d3f5cf5b95c36b34dae",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0036",
+      "request_sha256": "sha256:fa66547bf54f1f91fb72b2a81ff1b5fadcd4a85bcb59ffbc03edd90da0cea617",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0037",
+      "request_sha256": "sha256:20b62ae225dac365bbaed7e63a8c356fb82b2d0791e9014339bca0029f35b728",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0038",
+      "request_sha256": "sha256:6d42a70899599dfe5b7930134824fa67ca293b5df5284af0d70400bc9f57707d",
+      "status": 200
+    },
+    {
+      "case_id": "SB-G",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0039",
+      "request_sha256": "sha256:52a4a050be61677d582a55084de937dcbfdbb9b55952591e274393b21b872967",
+      "status": 200
+    },
+    {
+      "case_id": "SB-H",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0040",
+      "request_sha256": "sha256:b6a3a6433f781f95a112d2a171997b7feeb8fcf0fab7b3121fccb8226f6c953e",
+      "status": 200
+    },
+    {
+      "case_id": "SB-H",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0041",
+      "request_sha256": "sha256:46ad7fdcc094b2a79533f5b4d8a9d37b3c1b9dd8ab535a9db0ac8e8e32e97c0f",
+      "status": 200
+    },
+    {
+      "case_id": "SB-H",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0042",
+      "request_sha256": "sha256:ab5fc2c0ea59fc8cbfe9d6cb0b7f6c8d3921200726d07dd23fe46632fe31b785",
+      "status": 200
+    },
+    {
+      "case_id": "SB-H",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0043",
+      "request_sha256": "sha256:247e6bf4ee6692ffe40ec92ad56220dec2236392de3466d1b1c1a65c31ce5f0a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-H",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0044",
+      "request_sha256": "sha256:d39c77fba93c15389254bc500dd26d9e6425afcda433238f16288c3f4a03e9c9",
+      "status": 200
+    },
+    {
+      "case_id": "SB-H",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0045",
+      "request_sha256": "sha256:fe3570363443284cc43213d4be973a28619ef39948e65d71bc8abf92a2a51a7b",
+      "status": 200
+    },
+    {
+      "case_id": "SB-H",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0046",
+      "request_sha256": "sha256:9bd39d1baf14538df96d182c6876fbd0b718f16a8f0c98e6a8c36c6ebbd0261c",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0047",
+      "request_sha256": "sha256:4b97de43a70d06ad7d962c4df4b6000336d2a9bb69ac359fb79200dcc23eb06f",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0048",
+      "request_sha256": "sha256:4800768010c1bae1a186b439dbceecb880e56411d9052997d62eacf574065ee1",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0049",
+      "request_sha256": "sha256:96d7d7548ad331830ff6a5a8b4a5649754073e2e7bbffa300cd4f820297db5f8",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0050",
+      "request_sha256": "sha256:ff5f99fa06c1c603d4c6a8b9a7086c251f14c2c906a6dd42150032e2db2b3a08",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0051",
+      "request_sha256": "sha256:5db2a915e663a291ffcb2f1fa2a0e42e7e1537c69500c192f06e9641e0eb3f83",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0052",
+      "request_sha256": "sha256:168d5fbeab04aded9380c44f417fdbb89d5d218954bedc2a027a2c401495c98d",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0053",
+      "request_sha256": "sha256:0141bbb972f121529fcd4b51831ff57ca6dacbbd8de0d887073ed696564da9bd",
+      "status": 200
+    },
+    {
+      "case_id": "SB-I",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0054",
+      "request_sha256": "sha256:6fd0a3f8e86434e45a99b516a75bb2757459140b13bf2d53f3f99692f6efd812",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0055",
+      "request_sha256": "sha256:aaeafbab126e6cafd8bf5d29342943efacdc10ea52b4767c143cd6c926e543f9",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0056",
+      "request_sha256": "sha256:b2c3ad45fea490a9ce3ea2776dfe9729ecd2a670279de1791c13de526e126d2d",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0057",
+      "request_sha256": "sha256:933cc93ba8752d23b1de21616a111c812f9aba123176165ee7b457093154686b",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0058",
+      "request_sha256": "sha256:c8e66251d6214517261ce6ab2fd417da6038d3741af6e475fbc83da51482574e",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0059",
+      "request_sha256": "sha256:8bcbaba9448a85bb6f693f0c676e2b441aebfcd77e48e0e43d3e00e17c87aa94",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0060",
+      "request_sha256": "sha256:91d16ecdbb50f9ffc3637b4e6fb5a1c5505a84418c241b42e32183fb37202d9f",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0061",
+      "request_sha256": "sha256:1fc07bd3fe15dcfa641cdd964facd49a82dc2e3045aa0d80e6fd7306a5c8f222",
+      "status": 200
+    },
+    {
+      "case_id": "SB-J",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0062",
+      "request_sha256": "sha256:e4cb5702850152ecbd3b0fa9120c35412ca44d3b50018c7daaf43d07073ae743",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0063",
+      "request_sha256": "sha256:b63aa0388b1aa604c50a3ec078e148756ad0e582a25aaf6fe874d2f39a5f1f19",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0064",
+      "request_sha256": "sha256:4df8280ab787b7cc252eb876adf9223401da3591da1c2e32c961a2c6ee66e49e",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0065",
+      "request_sha256": "sha256:136b34338be1f7c2ac2f1bc5ee9e0ae8bf97fad687498b903c437fbfceb195b3",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0066",
+      "request_sha256": "sha256:39100d96b6a1f1117cac7cc6bb0dfb21492ba6efbe4db42030ea9deab0c84f34",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0067",
+      "request_sha256": "sha256:224e598d2faedad0d3da1af46dbba5602ac445781308266dcf4456f9c93c2bd1",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0068",
+      "request_sha256": "sha256:22aba2d6882aba83dda290246074f8c8bdc6180a20b5ae52279198263c59152e",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0069",
+      "request_sha256": "sha256:176f919cd6532751401a61bef53ba7e347f0047453addc6b5346bb78b094d0d1",
+      "status": 200
+    },
+    {
+      "case_id": "SB-K",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0070",
+      "request_sha256": "sha256:0f3115455ecb8bec8390e10553595be0a780c69303da0f5e658a8207c59fc204",
+      "status": 200
+    },
+    {
+      "case_id": "SB-M",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0071",
+      "request_sha256": "sha256:86fed27c07db2302fe9bd992c244abd0c3dc63d38c919f512db63b3c6021fc0a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-M",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0072",
+      "request_sha256": "sha256:0bd57ffb67addf6d3a5c5d3fab7218bbe8520af78adafd287f451b7482b8507d",
+      "status": 200
+    },
+    {
+      "case_id": "SB-M",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0073",
+      "request_sha256": "sha256:8c74ee1d6839a3e578ce76f11c75bbdc907894ba460b47db13022a6ac4a77105",
+      "status": 200
+    },
+    {
+      "case_id": "SB-M",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0074",
+      "request_sha256": "sha256:e75e8eb5146b89d4e7e06dfecb225d8bef1c8b56bc3bb42ae9e496e3658a4918",
+      "status": 200
+    },
+    {
+      "case_id": "SB-M",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0075",
+      "request_sha256": "sha256:192e81e91019f57eefed6365fa0c2478a621dac0e723a918b65c3521ddbef433",
+      "status": 200
+    },
+    {
+      "case_id": "SB-M",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0076",
+      "request_sha256": "sha256:f4b2d8b12febacd23834eedb354463cc654974ed9e2a762f08fda0bfaafd446c",
+      "status": 200
+    },
+    {
+      "case_id": "SB-M",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0077",
+      "request_sha256": "sha256:bbdedaaf59afc5ae1d05da418cfb331010562b0f16b592c39a2969a482f3da7e",
+      "status": 200
+    },
+    {
+      "case_id": "SB-N",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0078",
+      "request_sha256": "sha256:ec34a31ac1297cad65a432af3d7c04a109cb6ce1c0db38f3bbdaa215c26ff8ad",
+      "status": 200
+    },
+    {
+      "case_id": "SB-N",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0079",
+      "request_sha256": "sha256:79841d6759cfaf5e1f3449d0a88b3adb7181d3f41d7c816c4277d190be6632d5",
+      "status": 200
+    },
+    {
+      "case_id": "SB-N",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0080",
+      "request_sha256": "sha256:8d097dbee1ae108ff584c2368c11f3de778490bb94c2d554fd943c1204114d25",
+      "status": 200
+    },
+    {
+      "case_id": "SB-N",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0081",
+      "request_sha256": "sha256:2c82b4f0bff87d6bcdab41367a5453c569a2c627c827c09a5d69c5e98e9a1fed",
+      "status": 200
+    },
+    {
+      "case_id": "SB-N",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0082",
+      "request_sha256": "sha256:53d47a0e8c2663d6c5d7b1a28b4ea6d5b910540fc3ddb3d186ffd049e01e87e5",
+      "status": 200
+    },
+    {
+      "case_id": "SB-N",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0083",
+      "request_sha256": "sha256:cf94a5016a39c847b0ed10f1c11f713fca2c0b0170264dd2101efd6ac647f052",
+      "status": 200
+    },
+    {
+      "case_id": "SB-N",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0084",
+      "request_sha256": "sha256:6113d29ac62500ec67702511f6718b85c08c7c693be47de7fb31c30fbfe58186",
+      "status": 200
+    },
+    {
+      "case_id": "SB-O",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0085",
+      "request_sha256": "sha256:22b975f54083fb7401478eaef0d0648b3e51613838f1c8a59a2d721e7e4c6dee",
+      "status": 200
+    },
+    {
+      "case_id": "SB-O",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0086",
+      "request_sha256": "sha256:80784b1e488f05d8ff6a381aa5893692fba5c19b98aa770f33339d06b558b8ea",
+      "status": 200
+    },
+    {
+      "case_id": "SB-O",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0087",
+      "request_sha256": "sha256:6cf6ff17a4968a6e7b7ebf014cfefc014443414a835d8ff678e5298618144268",
+      "status": 200
+    },
+    {
+      "case_id": "SB-O",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0088",
+      "request_sha256": "sha256:711ac03af14e86064609ec9073064c951cdc73668851371ddbc7973fe30d9268",
+      "status": 200
+    },
+    {
+      "case_id": "SB-O",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0089",
+      "request_sha256": "sha256:d37f7d521d255ca441158d661511e9141af76918b4a8a877ca445d72393671cf",
+      "status": 200
+    },
+    {
+      "case_id": "SB-O",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0090",
+      "request_sha256": "sha256:e49e61481d1776cec9f4ecf306a7bf21df8429b96a284176d298cc2f91975f57",
+      "status": 200
+    },
+    {
+      "case_id": "SB-O",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0091",
+      "request_sha256": "sha256:6089ef932da7e1d0a94a5380f245416685c3c91840a34d97b04c9bbfa275e2dd",
+      "status": 200
+    },
+    {
+      "case_id": "SB-P",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0092",
+      "request_sha256": "sha256:3afdd7f0a15eec515612c045f07fe88a48a3da047521cfcbc05953edcfa9d2cf",
+      "status": 200
+    },
+    {
+      "case_id": "SB-P",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0093",
+      "request_sha256": "sha256:61a929824ebeee22d1b2ed76200fbc11c328bd3d51fb60c938593ab2a7a4265d",
+      "status": 200
+    },
+    {
+      "case_id": "SB-P",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0094",
+      "request_sha256": "sha256:4925a704794dc1ca1dd39f0acef2f27e316131224ee639eac7b320602ce309fc",
+      "status": 200
+    },
+    {
+      "case_id": "SB-P",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0095",
+      "request_sha256": "sha256:d1c013e287cea9c5e6d587da59c1752a469f4671a0bd202aa69f5414655e11e5",
+      "status": 200
+    },
+    {
+      "case_id": "SB-P",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0096",
+      "request_sha256": "sha256:453df1e016b55b467d3db2a89bf57dd0da2abf337161201cccd41433e085ef21",
+      "status": 200
+    },
+    {
+      "case_id": "SB-P",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0097",
+      "request_sha256": "sha256:67601ddfe617bd73c3a3970fd2de2e1193a2e4e91f9ada93b646377817b96e04",
+      "status": 200
+    },
+    {
+      "case_id": "SB-P",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0098",
+      "request_sha256": "sha256:18919d17917a62de92ee70ee07bb0219fd54d8246f14d2ae3c57b13cf1714a0a",
+      "status": 200
+    },
+    {
+      "case_id": "SB-Q",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0099",
+      "request_sha256": "sha256:2397d13cccb8d5783377386c3aef8017aca26c056ff5c79f1802ff43233e1e29",
+      "status": 200
+    },
+    {
+      "case_id": "SB-Q",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0100",
+      "request_sha256": "sha256:1975cb43a390d74d5766a8918812c2d4a6fece76135f581cb97b26e1b1c5f826",
+      "status": 200
+    },
+    {
+      "case_id": "SB-Q",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0101",
+      "request_sha256": "sha256:dad21f7fa5bf76a0296ed68917fde9b2e66a59fd0c3aa8e5294813933d0603f2",
+      "status": 200
+    },
+    {
+      "case_id": "SB-Q",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0102",
+      "request_sha256": "sha256:869abab3908843f0f5cd555c2cb20931df11b49c7bfc6bf888e07fcebab19bef",
+      "status": 200
+    },
+    {
+      "case_id": "SB-Q",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0103",
+      "request_sha256": "sha256:8bab9d46ce06904f98b07ba3c8958a3f3c937ea169edb66c979aa28a33149972",
+      "status": 200
+    },
+    {
+      "case_id": "SB-Q",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0104",
+      "request_sha256": "sha256:54470da461c56bd3794235a93c09606590862198e1ec0656bc461a6860f3cff5",
+      "status": 200
+    },
+    {
+      "case_id": "SB-Q",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0105",
+      "request_sha256": "sha256:db213b72f8fb39aeee5b6231cc1f860a8d40432c62dd36193e7e0d2210a54324",
+      "status": 200
+    },
+    {
+      "case_id": "SB-R",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0106",
+      "request_sha256": "sha256:1d34cf9f679aec25efc9d7f5e7ec7e4d553a8af8772839efc6d1ce90268a377c",
+      "status": 200
+    },
+    {
+      "case_id": "SB-R",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0107",
+      "request_sha256": "sha256:f84e198e09dcde5aeefb119271b27ed17e5f943246d7afb52e5dbb8b507d05ae",
+      "status": 200
+    },
+    {
+      "case_id": "SB-R",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0108",
+      "request_sha256": "sha256:dedde39022a46bc7137b352162b427ebfdb33f04fab85d47bfa4bebb10be0cd1",
+      "status": 200
+    },
+    {
+      "case_id": "SB-R",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0109",
+      "request_sha256": "sha256:5a45db975bcd5edca888db54ac6497bd44f0c73d977d77627e596ac049a12130",
+      "status": 200
+    },
+    {
+      "case_id": "SB-R",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0110",
+      "request_sha256": "sha256:da2dc173b0d5074bc1ca8d73f5114e4993c3a71771a817a5e95e10d18626abcb",
+      "status": 200
+    },
+    {
+      "case_id": "SB-R",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0111",
+      "request_sha256": "sha256:d92df4c4924cf29d9d00dc612f33646b7db773e93311ebb83ad615072117370f",
+      "status": 200
+    },
+    {
+      "case_id": "SB-R",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0112",
+      "request_sha256": "sha256:9baba4385b0c2f090f7130c4b0fe3e73122dda4e264ebbec875a466c15290581",
+      "status": 200
+    },
+    {
+      "case_id": "SB-S",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0113",
+      "request_sha256": "sha256:f761ae84367995447f590802a477d9987466c941327a02da8029c224a8e35cf7",
+      "status": 200
+    },
+    {
+      "case_id": "SB-S",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0114",
+      "request_sha256": "sha256:ca3deb1574ebb9ed1a2986d0ae5be073c48f6ed9fb3f29cdd939eaa44460deff",
+      "status": 200
+    },
+    {
+      "case_id": "SB-S",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0115",
+      "request_sha256": "sha256:c6d8d3fba33ac147be16d7258f67609e646ae00ec02af34405c852aaa0ff1457",
+      "status": 200
+    },
+    {
+      "case_id": "SB-S",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0116",
+      "request_sha256": "sha256:9ae1239672e687bbd904ddec29c0c47e2afdf70978dfd0f65e03670025fdfb0d",
+      "status": 200
+    },
+    {
+      "case_id": "SB-S",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0117",
+      "request_sha256": "sha256:54ffeac60f21411c79c89e92ca29fbdc12d6f4c9803858708ec2445f8e395eac",
+      "status": 200
+    },
+    {
+      "case_id": "SB-S",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0118",
+      "request_sha256": "sha256:61a692f5dfe933288bae310a5f816728e1285e220aa80cf74dfc0bc285a364b3",
+      "status": 200
+    },
+    {
+      "case_id": "SB-S",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0119",
+      "request_sha256": "sha256:8f44656c4d01d264ede285abcea20c847ced8e39e068c6bc8051650de88f9378",
+      "status": 200
+    },
+    {
+      "case_id": "SB-T",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0120",
+      "request_sha256": "sha256:3ba79c25ab70c2c3ce60486a62f985e78472c98fd37b91c0bab2989f7faaebbf",
+      "status": 200
+    },
+    {
+      "case_id": "SB-T",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0121",
+      "request_sha256": "sha256:3850e17e0001c6d3201b0092975369de18f5fa295b39f17e8d9c55b954216558",
+      "status": 200
+    },
+    {
+      "case_id": "SB-T",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0122",
+      "request_sha256": "sha256:621b093e7a528ea11dc84d3e429373cfe99f39a5812c9ea9aad25915071b8d51",
+      "status": 200
+    },
+    {
+      "case_id": "SB-T",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0123",
+      "request_sha256": "sha256:0e57b0097ebbcde2c94b1a5bea5d2c9601ef1ecd628434d33ebfe497d499c4d7",
+      "status": 200
+    },
+    {
+      "case_id": "SB-T",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0124",
+      "request_sha256": "sha256:9f15ab9f6739432f3697c9eb0c7a253e2be1b5e1b38eb2db23432be1f0652636",
+      "status": 200
+    },
+    {
+      "case_id": "SB-T",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0125",
+      "request_sha256": "sha256:fb49f1fa310b185a822914a9d69a417b4715261a92f4bb8afc276ca775acc267",
+      "status": 200
+    },
+    {
+      "case_id": "SB-T",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0126",
+      "request_sha256": "sha256:c06c7d8f9e7355b6469341f37d30e4b365fd12b53da7cb600a41c162cab2cfd3",
+      "status": 200
+    },
+    {
+      "case_id": "SB-U",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0127",
+      "request_sha256": "sha256:5a04c7ee193d20781568aaca66b007ef11184de9c3a9b9738949c858dc8d76ca",
+      "status": 200
+    },
+    {
+      "case_id": "SB-U",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0128",
+      "request_sha256": "sha256:a38140046caa0cb7215f9ebd9782be82d12276007aceab3ccf1a173267ca0fd3",
+      "status": 200
+    },
+    {
+      "case_id": "SB-U",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0129",
+      "request_sha256": "sha256:64168e78db0a0ff333a4ab001d8b72ce660f0174163b389def16b8dc07c898e7",
+      "status": 200
+    },
+    {
+      "case_id": "SB-U",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0130",
+      "request_sha256": "sha256:6f79965be43ef16a7c62324264dafeaf1e1041c13d88adf1c6ecbab6a3f05e0f",
+      "status": 200
+    },
+    {
+      "case_id": "SB-U",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0131",
+      "request_sha256": "sha256:d9fbd5f8872011d46beda6284a6e4e7f67ed82cd913fbec1d39bb4f1e8a6f17e",
+      "status": 200
+    },
+    {
+      "case_id": "SB-U",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0132",
+      "request_sha256": "sha256:92a9869d547751ffdd07dcdce75f964454ec08bae7e2d91a7e21081c5a29a93c",
+      "status": 200
+    },
+    {
+      "case_id": "SB-U",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0133",
+      "request_sha256": "sha256:ee41125e982f09b5645dc33bf0c055a4c6cfef4e61fcc6407255abe1db030726",
+      "status": 200
+    },
+    {
+      "case_id": "SB-V",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0134",
+      "request_sha256": "sha256:b530d19f476a117d534b304010cc58554b993aeaf5022d19b1b8d8f24d6e726c",
+      "status": 200
+    },
+    {
+      "case_id": "SB-V",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0135",
+      "request_sha256": "sha256:3640824d9eb48bc7b26b2dc93e0df17c19111e4fb7aa1fb30e6db715d9889941",
+      "status": 200
+    },
+    {
+      "case_id": "SB-V",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0136",
+      "request_sha256": "sha256:d9ca0c98e52f1b8e1b8cba61b9dd7ac9dcafb5882d23055132206b4b613e27db",
+      "status": 200
+    },
+    {
+      "case_id": "SB-V",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0137",
+      "request_sha256": "sha256:bc73725e251eb1abf706eb122841e7f345c5c8792f1bc6b849c0b1563290e031",
+      "status": 200
+    },
+    {
+      "case_id": "SB-V",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0138",
+      "request_sha256": "sha256:ecef511fd67453a01f4c63ac8ff109840bf37f2d24bab32b8e162875368c2830",
+      "status": 200
+    },
+    {
+      "case_id": "SB-V",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0139",
+      "request_sha256": "sha256:64a7140e9fb5b14d1e648d2f09fc6d3a4f16578277188fcce67bbd9207061f44",
+      "status": 200
+    },
+    {
+      "case_id": "SB-V",
+      "cost_micros": 20,
+      "error": null,
+      "failure": null,
+      "failure_class": "OK",
+      "recording_id": "rec-0140",
+      "request_sha256": "sha256:f7cf6ce5e8788eaa7d8c5ebd9cb213014d30327cacc254dee5ad61a1f89e7afd",
+      "status": 200
+    }
+  ],
+  "reported_model_ids": [
+    "gpt-6-luna"
+  ],
+  "run_id": "synthetic-boundary"
+}

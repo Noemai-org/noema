@@ -152,8 +152,10 @@ type Receipt struct {
 	RawCode         string // the raw status next to the class (REQ-EXE-007); stored and put on the Record, not signed
 	ExternalAck     *string
 	State           ExecutionState
-	Sig             Sig
-	SignedJCS       []byte // the exact bytes that were signed (the document without sig), stored so the database can verify them (D8)
+	// StepParams is the receipt's `step_params` member (A692, A709): the bound params of the executed plan step, masked or hashed where they are identifiers. Nil means the member is absent.
+	StepParams map[string]any
+	Sig        Sig
+	SignedJCS  []byte // the exact bytes that were signed (the document without sig), stored so the database can verify them (D8)
 }
 
 // Outcome of one Execute call. Exactly one field group is set.

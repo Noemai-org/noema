@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
@@ -27,16 +26,15 @@ type Config struct {
 	OwnerQueues map[string]string
 }
 
-// Payment is the recorded evidence payload of the resolved transaction (the inventory's field names: account_ref, amount_minor with currency, counterparty, occurred_at, direction)
-// and the status of its evidence item.
+// Payment is the recorded evidence payload of the resolved transaction (the inventory's field names: account_ref, amount_minor with currency, occurred_at, direction)
+// and the status of its evidence item. It holds no recipient: no name leaves the candidates read (A676, A711).
 type Payment struct {
-	AccountRef   string
-	AmountMinor  int64
-	Currency     string
-	Counterparty string
-	OccurredAt   time.Time
-	Direction    string
-	Status       contracts.EnumsV1FactStatus
+	AccountRef  string
+	AmountMinor int64
+	Currency    string
+	OccurredAt  time.Time
+	Direction   string
+	Status      contracts.EnumsV1FactStatus
 }
 
 // CaseRow is what the create-case receipt and the plan hold: the target's own reference (`external_ack`), the owner queue and the time the SLA clock committed (zero when the SLA
@@ -116,10 +114,10 @@ func (b *builder) why() string {
 	return "SOURCE_NOT_KNOWN"
 }
 
-// PaymentFacts makes payment.amount, account, payment.time and payment.counterparty. A row that is not KNOWN gives four unknowns and no fact (A155: only KNOWN fills a slot).
+// PaymentFacts makes payment.amount, account and payment.time. A row that is not KNOWN gives three unknowns and no fact (A155: only KNOWN fills a slot).
 func PaymentFacts(cfg Config, p Payment, asOf time.Time, label string) ([]contracts.ExplanationFactsV2FactsItem, []contracts.ExplanationFactsV2UnknownsItem) {
 	b := newBuilder(asOf, label, p.Status)
-	kinds := []string{"payment.amount", "account", "payment.time", "payment.counterparty"}
+	kinds := []string{"payment.amount", "account", "payment.time"}
 	if !b.known() {
 		for _, k := range kinds {
 			b.unknown(k, b.why())
@@ -140,11 +138,6 @@ func PaymentFacts(cfg Config, p Payment, asOf time.Time, label string) ([]contra
 		b.add("payment.time", v)
 	} else {
 		b.unknown("payment.time", "FIELD_UNUSABLE")
-	}
-	if v, ok := counterparty(p.Counterparty); ok {
-		b.add("payment.counterparty", v)
-	} else {
-		b.unknown("payment.counterparty", "FIELD_UNUSABLE")
 	}
 	return b.facts, b.unkn
 }
@@ -231,18 +224,4 @@ func suffixDigits(s string, n int) string {
 		return ""
 	}
 	return s[end-n:]
-}
-
-// counterparty is the masked form only: the initial of the first letter, and "ending dddd" when the source holds four or more digits. [REC] (the inventory): never the full name.
-func counterparty(s string) (string, bool) {
-	for _, r := range s {
-		if unicode.IsLetter(r) {
-			v := strings.ToUpper(string(r)) + "."
-			if d := suffixDigits(s, 4); d != "" {
-				v += " ending " + d
-			}
-			return v, true
-		}
-	}
-	return "", false
 }

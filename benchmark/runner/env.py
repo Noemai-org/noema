@@ -33,6 +33,13 @@ class SessionProvider(Protocol):
     def token_for(self, principal_id: str, roles: list[str]) -> str: ...
 
 
+class WebhookSender(Protocol):
+    """Delivers one webhook event of a case to the environment (A667): `event` is one of `drivers.WEBHOOKS`. It raises when the delivery did not happen; the runner turns that into an ERROR,
+    never a skipped event. The transport behind it (a control endpoint of the environment, or a signed delivery to the relay) is not built here: it is the environment owner's to define."""
+
+    def deliver(self, case_id: str, event: str) -> None: ...
+
+
 class UnavailableFixtureLoader:
     """The fixture loader puts a case's known facts into the synthetic enterprise (benchmark-fixture.v1.json). How a field maps to a Tushe call is the
     adapter task's; Tushe's sandbox is not reachable from this build, so there is no loader yet."""
@@ -129,6 +136,7 @@ class RunEnv:
     fixtures: FixtureLoader
     sessions: SessionProvider
     run_id: str
+    webhooks: WebhookSender | None = None  # none configured: a webhook event makes the case an ERROR (A667)
     admin_token: str | None = None
     tenant_id: str | None = None  # the tenant the admin API addresses (kill switch); no default is assumed
     settle_timeout_s: float = 30.0

@@ -2,8 +2,8 @@ package factsource_test
 
 // EXP-01 / noema#586, ruling A155 (Founder approval of 17 Nov, relayed): the real FactsSource builds the `{fact:<kind>}` values of the slot inventory (explanation/facts-inventory.md)
 // from what the Record and the Evidence Layer hold. This package is its pure core: typed source rows in, masked, bounded facts out, with no read of the Record or a clock. A value that
-// cannot be made safely is an UNKNOWN with a why-code, never a guess or a partial value (INV-13, INV-19). Kinds: payment.amount, account, payment.time, payment.counterparty (masked
-// form only; [REC]), case.ref, case.team, case.clock. REQ-EXP-001, REQ-EXP-002, REQ-SEC-003, REQ-AUD-003; AGENT-13, AGENT-17. Every value below is SYNTHETIC.
+// cannot be made safely is an UNKNOWN with a why-code, never a guess or a partial value (INV-13, INV-19). Kinds: payment.amount, account, payment.time (no recipient kind: A711, A676), case.ref,
+// case.team, case.clock. REQ-EXP-001, REQ-EXP-002, REQ-SEC-003, REQ-AUD-003; AGENT-13, AGENT-17. Every value below is SYNTHETIC.
 
 import (
 	"regexp"
@@ -24,7 +24,7 @@ var (
 )
 
 func payment() factsource.Payment {
-	return factsource.Payment{AccountRef: "acc_NG0012345678904321", AmountMinor: 2000000, Currency: "NGN", Counterparty: "Jane Doe 0099887766", OccurredAt: time.Date(2026, 11, 12, 9, 42, 0, 0, time.UTC), Direction: "DEBIT", Status: contracts.EnumsV1FactStatusKNOWN}
+	return factsource.Payment{AccountRef: "acc_NG0012345678904321", AmountMinor: 2000000, Currency: "NGN", OccurredAt: time.Date(2026, 11, 12, 9, 42, 0, 0, time.UTC), Direction: "DEBIT", Status: contracts.EnumsV1FactStatusKNOWN}
 }
 
 func byKind(fs []contracts.ExplanationFactsV2FactsItem) map[string]contracts.ExplanationFactsV2FactsItem {
@@ -35,15 +35,15 @@ func byKind(fs []contracts.ExplanationFactsV2FactsItem) map[string]contracts.Exp
 	return m
 }
 
-// The four payment values, as the slot inventory words them: the amount grouped in major units (money is integer minor units), the account's last four digits, the time in local
-// words, and the counterparty's masked form only (initial and last four).
+// The three payment values, as the slot inventory words them: the amount grouped in major units (money is integer minor units), the account's last four digits and the time in local
+// words. No recipient kind exists (A711, A676).
 func TestThePaymentFactsAreMaskedAndInTheInventorysWords(t *testing.T) {
 	facts, unknowns := factsource.PaymentFacts(cfg, payment(), asOf, "ledger")
 	if len(unknowns) != 0 {
 		t.Fatalf("unknowns %+v", unknowns)
 	}
 	m := byKind(facts)
-	want := map[string]string{"payment.amount": "NGN 20,000", "account": "ending 4321", "payment.time": "10:42 on 12 Nov", "payment.counterparty": "J. ending 7766"}
+	want := map[string]string{"payment.amount": "NGN 20,000", "account": "ending 4321", "payment.time": "10:42 on 12 Nov"}
 	for k, v := range want {
 		if m[k].ValueMasked != v {
 			t.Errorf("%s = %q, want %q", k, m[k].ValueMasked, v)
@@ -121,11 +121,9 @@ func TestAMissingFieldIsAnUnknownForThatKindOnly(t *testing.T) {
 		mut  func(*factsource.Payment)
 		kind string
 	}{
-		"no account":           {func(p *factsource.Payment) { p.AccountRef = "" }, "account"},
-		"three digits only":    {func(p *factsource.Payment) { p.AccountRef = "acc_123" }, "account"},
-		"no time":              {func(p *factsource.Payment) { p.OccurredAt = time.Time{} }, "payment.time"},
-		"no counterparty":      {func(p *factsource.Payment) { p.Counterparty = "" }, "payment.counterparty"},
-		"counterparty no name": {func(p *factsource.Payment) { p.Counterparty = "00998877" }, "payment.counterparty"},
+		"no account":        {func(p *factsource.Payment) { p.AccountRef = "" }, "account"},
+		"three digits only": {func(p *factsource.Payment) { p.AccountRef = "acc_123" }, "account"},
+		"no time":           {func(p *factsource.Payment) { p.OccurredAt = time.Time{} }, "payment.time"},
 	} {
 		p := payment()
 		tc.mut(&p)
@@ -134,8 +132,8 @@ func TestAMissingFieldIsAnUnknownForThatKindOnly(t *testing.T) {
 		if _, has := m[tc.kind]; has || !hasUnknown(unknowns, tc.kind) {
 			t.Errorf("%s: want an unknown for %s and no fact; got %+v / %+v", name, tc.kind, facts, unknowns)
 		}
-		if len(facts) != 3 {
-			t.Errorf("%s: %d facts built, want the 3 others", name, len(facts))
+		if len(facts) != 2 {
+			t.Errorf("%s: %d facts built, want the 2 others", name, len(facts))
 		}
 	}
 }
@@ -146,8 +144,8 @@ func TestOnlyAKnownRowBecomesAFact(t *testing.T) {
 		p := payment()
 		p.Status = st
 		facts, unknowns := factsource.PaymentFacts(cfg, p, asOf, "ledger")
-		if len(facts) != 0 || len(unknowns) != 4 {
-			t.Errorf("status %q: %d facts, %d unknowns; want 0 and 4", st, len(facts), len(unknowns))
+		if len(facts) != 0 || len(unknowns) != 3 {
+			t.Errorf("status %q: %d facts, %d unknowns; want 0 and 3", st, len(facts), len(unknowns))
 		}
 	}
 }
@@ -217,8 +215,8 @@ func TestAnUnsafeSourceLabelBuildsNothing(t *testing.T) {
 		"arabic-indic":      "ledger ٠١٢٣٤٥٦",
 	} {
 		facts, unknowns := factsource.PaymentFacts(cfg, payment(), asOf, label)
-		if len(facts) != 0 || len(unknowns) != 4 {
-			t.Errorf("%s: %d facts and %d unknowns, want 0 and 4", name, len(facts), len(unknowns))
+		if len(facts) != 0 || len(unknowns) != 3 {
+			t.Errorf("%s: %d facts and %d unknowns, want 0 and 3", name, len(facts), len(unknowns))
 		}
 		for _, u := range unknowns {
 			if u.WhyCode != "LABEL_NOT_SAFE" {
@@ -231,7 +229,7 @@ func TestAnUnsafeSourceLabelBuildsNothing(t *testing.T) {
 		}
 	}
 	for _, label := range []string{"ledger", "case system", "SYNTHETIC ledger", "case-system.v2", strings.Repeat("a", 64)} {
-		if facts, _ := factsource.PaymentFacts(cfg, payment(), asOf, label); len(facts) != 4 || facts[0].SourceLabel != label {
+		if facts, _ := factsource.PaymentFacts(cfg, payment(), asOf, label); len(facts) != 3 || facts[0].SourceLabel != label {
 			t.Errorf("%q: %d facts", label, len(facts))
 		}
 	}
@@ -264,16 +262,6 @@ func TestTheAccountEndingIsTheLastFourDigitsOfTheNumber(t *testing.T) {
 	}
 }
 
-// The counterparty's "ending" follows the same rule: no ending from digits scattered in the name.
-func TestTheCounterpartyEndingNeedsAContiguousRun(t *testing.T) {
-	p := payment()
-	p.Counterparty = "Jane Doe 12 34 56 78"
-	facts, _ := factsource.PaymentFacts(cfg, p, asOf, "ledger")
-	if got := byKind(facts)["payment.counterparty"].ValueMasked; got != "J." {
-		t.Errorf("%q, want the initial only", got)
-	}
-}
-
 // C1's P2 on #650: a time with no year is ambiguous. The year is told whenever it is not the year of asOf; asOf itself must be set.
 func TestATimeFromAnotherYearTellsTheYear(t *testing.T) {
 	p := payment()
@@ -296,7 +284,7 @@ func TestATimeFromAnotherYearTellsTheYear(t *testing.T) {
 func TestAZeroAsOfBuildsNothing(t *testing.T) {
 	facts, unknowns := factsource.PaymentFacts(cfg, payment(), time.Time{}, "ledger")
 	cf, cu := factsource.Case(cfg, factsource.CaseRow{ExternalAck: "CMP-1", OwnerQueue: "PAYMENTS_OPERATIONS", Status: contracts.EnumsV1FactStatusKNOWN}, time.Time{}, "case system")
-	if len(facts) != 0 || len(unknowns) != 4 || len(cf) != 0 || len(cu) != 3 {
+	if len(facts) != 0 || len(unknowns) != 3 || len(cf) != 0 || len(cu) != 3 {
 		t.Fatalf("%d/%d and %d/%d", len(facts), len(unknowns), len(cf), len(cu))
 	}
 	for _, u := range append(unknowns, cu...) {

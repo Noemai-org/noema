@@ -37,3 +37,20 @@ Updated 2026-11-24.
 - Exact next step: EL composes the endpoint and passes the real `adapters.Transactions`, the masking limits and the pack's resource kind to `candidates_api.New`; the Ranker (noema#918) and the Labeller (EL) complete the trust adapter's parts.
 - Files to read first: `evidence/candidates_api/README.md`, `orchestrator/portadapters/trust/candidates.go`.
 - Do not touch: the red tests' meaning.
+
+# Session 2026-11-26 · EVD-04 (the Go recipient matcher, A710)
+
+## Session summary
+- What changed (PR links): the PR of branch `feat/EVD-04-go-recipient-matcher`: `evidence/recipientmatch` (the matcher, its loader, README), the manifest kind `recipient_matcher` (schema, packcheck, `platform/packload`), the shipped manifest at version 5 with the matcher's data pinned, `golang.org/x/text` as a direct dependency of core (A695, OD-P-117), and 644 shared parity vectors (`contracts/fixtures/recipient_match_vectors.json`) with the Python test that loads them.
+- Why: A710 orders the production `RecipientMatcher` that the Candidates reader (merged, #960) takes through its port, with the same results as the Python matcher.
+- Risks, and how they are contained: a Go result that differs from the Python reference (the shared vectors, on the shipped data and on a dataset with five distinct tier scores; mutants over each tier and folding step); a matcher that fails or a share past an int64 (`ErrShare`, fixed text, the reader refuses the whole answer, A676); a gated manifest without the matcher (refused in the schema, packcheck and the loader, no opt-in).
+- Tests added (REQ, INV, US or EC IDs): REQ-AMB-003, REQ-CTX-006; INV-14, INV-21; AGENT-13, AGENT-16.
+- Regression cases added: none (new code).
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL builds Ownership and Candidates after this matcher: load the pack, build `recipientmatch.Load(pack.RecipientMatcher)` and pass it as `candidates_api.Config.Matcher`.
+- Open questions (owner): the phonetic tier is not reachable through the port because the request has no `phonetic` member: add an optional member to `candidates-request` (Architect).
+- Files to read first: `services/core/evidence/recipientmatch/README.md`, `contracts/fixtures/recipient_match_vectors.json`, `services/core/platform/packload/README.md`.
+- Do not touch: `contracts/fixtures/candidate_ranking_vectors.json` and any threshold, margin or default (AGENT-16).

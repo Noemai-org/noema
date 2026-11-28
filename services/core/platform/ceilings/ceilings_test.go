@@ -47,3 +47,28 @@ func TestTheConfirmationCeilingIsTheSchemaMaximumAndTenMinutes(t *testing.T) {
 		t.Fatalf("schema maximum %v, ceiling %d; want both 600000", m, ceilings.MaxConfirmationTTLMillis)
 	}
 }
+
+// A709 (interim, relayed): the receipt step_params bounds are the schema's, so the Controller can never sign a receipt the contract refuses. The values are SYNTHETIC.
+func TestTheReceiptStepParamBoundsAreTheSchemasBounds(t *testing.T) {
+	b, err := os.ReadFile("../../../../contracts/schemas/execution-receipt.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Properties struct {
+			StepParams struct {
+				MaxProperties        int `json:"maxProperties"`
+				AdditionalProperties struct {
+					MaxLength int `json:"maxLength"`
+				} `json:"additionalProperties"`
+			} `json:"step_params"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	sp := doc.Properties.StepParams
+	if sp.MaxProperties != ceilings.MaxReceiptStepParams || sp.AdditionalProperties.MaxLength != ceilings.MaxReceiptStepParamLength {
+		t.Fatalf("schema %d and %d, ceilings %d and %d", sp.MaxProperties, sp.AdditionalProperties.MaxLength, ceilings.MaxReceiptStepParams, ceilings.MaxReceiptStepParamLength)
+	}
+}

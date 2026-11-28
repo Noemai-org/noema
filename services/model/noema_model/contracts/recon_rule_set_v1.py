@@ -10,7 +10,7 @@ from ._base import ContractModel
 from .enums_v1 import EnumsV1TransactionClassification
 
 # ReconRuleSetV1ConvergenceWindowSeconds. Source: recon-rule-set.v1.json#$defs/ConvergenceWindowSeconds
-ReconRuleSetV1ConvergenceWindowSeconds: TypeAlias = Annotated[int, Field(ge=1)]
+ReconRuleSetV1ConvergenceWindowSeconds: TypeAlias = Annotated[int, Field(ge=0)]
 
 
 class ReconRuleSetV1FieldSpecType(StrEnum):

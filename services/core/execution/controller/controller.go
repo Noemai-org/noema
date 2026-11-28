@@ -25,6 +25,8 @@ type Controller struct {
 	Ledger   Ledger
 	Out      Dispatcher
 	IDs      IDs
+	// StepParams says which params of the plan step the receipt carries (A709). Nil: no receipt carries step_params.
+	StepParams StepParamPolicy
 	// Boundary is called at every step boundary. Production leaves it nil; the crash harness returns ErrCrash.
 	Boundary func(Point) error
 }
@@ -114,6 +116,11 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	}
 	if !bound(g, step) {
 		return c.void(ctx, g, VoidBindingMismatch)
+	}
+	// A709: the receipt's step_params are settled before the spend, so a policy or a param that cannot be disclosed stops the run with nothing spent or dispatched.
+	stepParams, err := c.stepParams(step)
+	if err != nil {
+		return Outcome{}, err
 	}
 	if err := c.at(PointAfterE5); err != nil {
 		return Outcome{}, err
@@ -210,7 +217,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	}
 
 	// E11: the signed receipt, the idempotency record and the Record event in one transaction.
-	rc, err := c.receipt(g, receiptID, tenantID, key, g.CapabilityID, spend.Attempt, dispatchedAt, result, state) // logical_action of the receipt is a pack ID (execution-receipt.v1), not the key's action
+	rc, err := c.receipt(g, receiptID, tenantID, key, g.CapabilityID, spend.Attempt, dispatchedAt, result, state, stepParams) // logical_action of the receipt is a pack ID (execution-receipt.v1), not the key's action
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -261,9 +268,9 @@ func joinFacts(f []string) string {
 }
 
 // receipt builds and signs the Execution Receipt. The receipt never says succeeded.
-func (c *Controller) receipt(g Grant, receiptID, tenantID, key, action string, attempt int64, at time.Time, r TransportResult, state ExecutionState) (Receipt, error) {
+func (c *Controller) receipt(g Grant, receiptID, tenantID, key, action string, attempt int64, at time.Time, r TransportResult, state ExecutionState, stepParams map[string]any) (Receipt, error) {
 	rc := Receipt{ReceiptID: receiptID, GrantID: g.GrantID, TenantID: tenantID, CorrelationID: g.CorrelationID, IdempotencyKey: key,
-		LogicalAction: action, Attempt: attempt, DispatchedAt: at.UTC().Format(time.RFC3339Nano), TransportResult: string(r.Class), RawCode: r.RawCode, State: state}
+		LogicalAction: action, Attempt: attempt, DispatchedAt: at.UTC().Format(time.RFC3339Nano), TransportResult: string(r.Class), RawCode: r.RawCode, State: state, StepParams: stepParams}
 	if state == StateAcknowledged {
 		ack := r.ExternalAck
 		rc.ExternalAck = &ack
@@ -280,7 +287,22 @@ func (rc Receipt) Document() map[string]any {
 	if rc.ExternalAck != nil {
 		doc["external_ack"] = *rc.ExternalAck
 	}
+	if len(rc.StepParams) > 0 {
+		doc["step_params"] = rc.StepParams
+	}
 	return doc
+}
+
+// stepParams reads the policy for the step's capability and discloses the bound params. With no policy there are none.
+func (c *Controller) stepParams(step PlanStep) (map[string]any, error) {
+	if c.StepParams == nil {
+		return nil, nil
+	}
+	bound, err := c.StepParams.Bound(step.CapabilityID)
+	if err != nil {
+		return nil, fmt.Errorf("%sread the bound params: %w", errPrefix, err)
+	}
+	return DiscloseParams(step.Params, bound)
 }
 
 func (c *Controller) sign(rc Receipt) (Receipt, error) {

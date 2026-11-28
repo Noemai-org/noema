@@ -114,3 +114,38 @@ Updated 2026-11-16. Task row: BEN-23 (plan; rewritten by the A179 change request
 - Exact next step: C2 uses `load(Path("benchmark/compile_acceptance/remedy_labelled.v1.json"))` to score the compiler's gate offline with the replay provider, and reports the false-assertion and the miss counts separately, with and without the borderline items.
 - Do not touch: the goldens, the held-out set (INV-22), or any threshold (AGENT-16).
 - Split (A652, 24 Nov): this PR is the labelled set only. The SYNTHETIC boundary recordings and their generator were taken out (a revert commit, no history rewritten) and go in their own PR, regenerated on `main` after noema#932 merges. The generator work is kept on the branch `feat/BEN-23-boundary-recordings-a604` (commit `b2aee73a`).
+
+# Session 2026-11-26 · BEN-23 · A604, A649, A682: SYNTHETIC boundary recordings of the requested_remedy gate, for C2
+
+## Session summary
+- What changed: `benchmark/compile_acceptance/synthetic_boundary.py` and its test (from the split-out branch), `boundary-a604/fixture/` (140 reduced recordings plus the manifest, flat, `fixture.synthetic: true`, made with `reduce_run` at `d2f83578`), `boundary-a604/boundary-findings.json` (outside the fixture directory) and its README.
+- Why: A604 and A667 asked for the recordings after #932, #936, #931 and #938 merged; A682 asked to regenerate them on main, matching A649 (the exponent forms are malformed and the slot abstains).
+- Risks, and how they are contained: SYNTHETIC scripted replies, never live model output (A261). The leak rule: B02, B06 and B12 hold five or more digits in a row, so they are generated inside a test, never committed (the scan is clean over 143 files, no allowlisting). The generating test needs the model service's dependencies and is skipped, by name, in a job that has only `benchmark/requirements.lock`: CI would need `services/model/requirements.lock` installed for that one test (a `.github` change, SR).
+- Tests added (A604, A612, A649): the generator's 9 plus 2 new ones (the flat fixture directory with `fixture.synthetic` in every file; the three long-digit boundaries generated in a temporary directory, 22 boundaries and 0 disagreements).
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 points the replay provider at `benchmark/compile_acceptance/boundary-a604/fixture` and scores the gate offline with `remedy_labelled.v1.json`.
+- Do not touch: the goldens, the held-out set (INV-22), the threshold (AGENT-16).
+
+# Session 2026-11-26 · BEN-23 · A733: the boundary generating test runs in the model job
+
+## Session summary
+- What changed: `.github/workflows/model.yml` runs `benchmark.compile_acceptance.test_synthetic_boundary` with the model service's dependencies and `NOEMA_REQUIRE_MODEL_DEPS=1` (it also runs when `benchmark/compile_acceptance/` or `benchmark/requirements.lock` change); the test fails, not skips, when that variable is set and the dependencies are missing.
+- Evidence: in a clean venv with only `benchmark/requirements.lock` the test skips; with the variable set it fails; in a fresh venv with `services/model/requirements-dev.lock` and `benchmark/requirements.lock` it passes (11 tests).
+- Risks: a `.github` change, so SR reads it (Tier 1 path).
+- Tests, regression cases, debt, conflicts: none added.
+
+## Pre-work for the next agent
+- Exact next step: open the PR after the recordings PR merges (it is stacked on that branch).
+
+# Session 2026-11-27 · BEN-23 · Codex on #1010: replay serves 14 of the 19 committed boundaries, not the five malformed ones
+
+## Session summary
+- What changed: README (what replay serves and what it does not; the stale line about `leakscan.allow` removed), and two tests in `test_synthetic_boundary.py` (class `Replay`).
+- Why: Codex's P2 on #1010 is right. B16 to B20 are recordings of a reply the harness refuses as a whole (`usable_as_fixture: false`: rec-0094 and rec-0101 `NOT_JSON`; rec-0108, rec-0115 and rec-0122 `SCHEMA_MISMATCH`), so `ReplayStore.lookup` raises `EVIDENCE_ONLY` for them by design. The findings were computed through the scripted inner transport, not through replay.
+- Evidence: the new test looks every gate recording up through `ReplayStore` by its request hash: 14 are served, the five are refused `EVIDENCE_ONLY`, and nothing else in the directory is evidence-only. The supported offline path for the five is the generator (`synthetic_boundary`), which runs the real pipeline against a scripted transport; its test checks all 22 boundaries.
+- Risks: none to the product. Tests added: 2 (the README test was seen failing first). Regression cases, debt, conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 scores the five malformed boundaries through the generator, and the other fourteen through replay.

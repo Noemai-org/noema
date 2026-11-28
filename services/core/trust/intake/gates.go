@@ -25,7 +25,9 @@ type evaluation struct {
 	confirmationBindingEvidenceHash string
 	late                            lateState // what T3 and T13 to T15 learn
 	// frozen and allowedUnderFreeze are what T10 saw: the target carries a contradiction freeze, and the capabilities the pack allows on it. T14 checks the plan against them.
-	frozen             bool
+	frozen bool
+	// waitUntil is the end of the convergence window T10 saw (REQ-RES-005): zero when the answer does not wait; T11 then ends in WAIT.
+	waitUntil          int64
 	allowedUnderFreeze []string
 	// authorized is the capabilities the intent and the tenant's policy authorize (Capabilities.Authorized plus the intent's own capability), sorted, read once per evaluation
 	// by the first step that needs it (T11 for a write): T11 asks the policy about each (A306), T12 asks the dispatch budget for each, T14 refuses a plan step outside it

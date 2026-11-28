@@ -32,3 +32,9 @@ Architect's instruction of 12 Nov to take the next two unblocked tasks (data; us
 - **Confirmed by the Founder in this session (counts once this pull request is merged by a non-author Founder, AGENTS section 2, item 3):** adults only and the bystander rule of `docs/voice/recording-plan-DRAFT.md`; that the Integrator account's retention is zero days (the Founder's statement; no screenshot or key is stored in the repository: the Founder may add a one-line comment on noema#294 naming the setting and the date); that Voice starts the preparation work of VOI-04 to VOI-07 before their Needs are Done, with no recording and no Done claim.
 - **Still not done:** the private store is not evidenced as provisioned (`store.sh init` and `check` on the bench host, by a Founder), the devices and SIMs (PRE-05) are not evidenced as received, and `tasks.csv` still shows VOI-01 and VOI-05 In progress (the Steward moves status from merged evidence).
 - VOI-05 is **not Done** until the store and the retention evidence exist.
+
+# Session 2026-11-26 · VOI-05 (the recording devices; A716)
+
+- **Confirmed by the Founder (26 Nov 2026), recorded here as ruling A716 directs:** the recording devices are confirmed. This is the Founder's statement as relayed in A716 (`DEC-2026-11-26-architect-rulings-a704-a720`); no device list, serial number or SIM detail is stored in the repository. It will not be asked again.
+- **Still not done:** the private store has no evidence of `store.sh init` and `store.sh check` on the bench host (a Founder runs them; VOI-06 starts after it), and VOI-05 stays **not Done** until the store evidence exists. `tasks.csv` is the Steward's.
+- Nothing in this change records audio, names a device or a person, or touches the store.

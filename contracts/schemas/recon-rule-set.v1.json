@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/recon-rule-set.v1.json",
   "title": "Reconciliation rule set",
-  "description": "The pack's reconciliation rule set (PERD 22.3, REQ-RES-001, REQ-RES-005), as pack data the Reconciler compiles at load. The shape is the loader's, member for member (trust/reconcile ParseRuleSet refuses an unknown member). A659 (interim, relayed, not yet committed; amends A641 and A647): the declared window of a compared fact pair is `convergence_window_seconds`, on each `incompatible` pair and each `single_valued` field, and the rule set moves to version 2. From version 2 the member is required on every such entry and is a whole number of seconds of at least 1; in version 1 it is not allowed, because a version 1 rule set allows no lag (fail closed) and the loader of a version 1 file does not read it. The value is pack data and never loosened without a benchmark run (REQ-RES-005, AGENT-16). That it equals the smaller freshness limit of the pair (A641) is packcheck's check, not this schema's, because the limit lives in the pack's evidence descriptors and the evidence mapping, not in this file. SYNTHETIC (AGENT-25).",
+  "description": "The pack's reconciliation rule set (PERD 22.3, REQ-RES-001, REQ-RES-005), as pack data the Reconciler compiles at load. The shape is the loader's, member for member (trust/reconcile ParseRuleSet refuses an unknown member). A659 (interim, relayed, not yet committed; amends A641 and A647): the declared window of a compared fact pair is `convergence_window_seconds`, on each `incompatible` pair and each `single_valued` field, and the rule set moves to version 2. From version 2 the member is required on every such entry and is a whole number of seconds of at least 0 (A708: 0 is a declared window with no tolerance, the fail-closed value; it is not the absence of the member); in version 1 it is not allowed, because a version 1 rule set allows no lag (fail closed) and the loader of a version 1 file does not read it. The value is pack data and never loosened without a benchmark run (REQ-RES-005, AGENT-16). That it equals the smaller freshness limit of the pair (A641) is packcheck's check, not this schema's, because the limit lives in the pack's evidence descriptors and the evidence mapping, not in this file. SYNTHETIC (AGENT-25).",
   "type": "object",
   "properties": {
     "ruleset_id": {
@@ -247,9 +247,9 @@
       "additionalProperties": false
     },
     "ConvergenceWindowSeconds": {
-      "description": "The declared window of a compared fact pair, in whole seconds (REQ-RES-005, A659): inside it a disagreement waits. At least 1: a window of zero is the absence of the member, which is a version 1 rule set.",
+      "description": "The declared window of a compared fact pair, in whole seconds (REQ-RES-005, A659): inside it a disagreement waits. At least 0 (A708): 0 is a declared window with no tolerance, so a disagreement of the pair is contradictory at once (fail closed); it is not the absence of the member, which in version 2 is refused.",
       "type": "integer",
-      "minimum": 1
+      "minimum": 0
     },
     "IncompatiblePair": {
       "type": "object",

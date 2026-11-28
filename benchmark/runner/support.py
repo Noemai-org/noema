@@ -1,24 +1,25 @@
 """What this build can run of a suite, and what stops the rest. A blocked case is an ERROR when run, never skipped; this report says so before a run starts."""
 from typing import Any
 
-from .drivers import driven
+from .drivers import driven, misplaced_at_start
 from .faultplan import split_plan
 from .suite import LoadedCase, Suite
 
 Json = dict[str, Any]
 
 
-def reasons_for(lc: LoadedCase) -> set[str]:
-    reasons = {f"event: {e['event'] if e['event'].startswith('needs_fault:') else e['event'].split(':')[0]}" for e in lc.case["events_timeline"] if not driven(e["event"])}
+def reasons_for(lc: LoadedCase, *, webhooks: bool = False) -> set[str]:
+    reasons = {f"event: {e['event'] if e['event'].startswith('needs_fault:') else e['event'].split(':')[0]}" for e in lc.case["events_timeline"] if not driven(e["event"], webhooks=webhooks)}
+    reasons |= {f"event at start: {kind}" for kind in misplaced_at_start(lc.case)}  # the run refuses these before any side effect (EVENT_AT_START_UNSUPPORTED, A667), so the report blocks them too (A689)
     for text in split_plan(lc.case, lc.plan).unsupported:
         target_operation, _, _ = text.partition(":")
         reasons.add(f"fault: {target_operation.split('.')[0]} {target_operation.split(' ')[-1]}")
     return reasons
 
 
-def report(suite: Suite) -> Json:
+def report(suite: Suite, *, webhooks: bool = False) -> Json:
     """`runnable` and `blocked` partition the cases. `blocked_by` counts cases per reason, so a case with two reasons is in two entries."""
-    per_case = [reasons_for(lc) for lc in suite.cases]
+    per_case = [reasons_for(lc, webhooks=webhooks) for lc in suite.cases]
     by_reason: dict[str, int] = {}
     for reasons in per_case:
         for reason in reasons:

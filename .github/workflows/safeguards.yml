@@ -63,6 +63,9 @@ jobs:
       - name: Secret-name check tests
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_secret_refs.py
+      - name: The fixture-loader workflow is main-only, gated and reads no secret (ENV-16)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_tushe_fixture_workflow.py
       - name: Every TEN_RESULT line is checked by a workflow (A274)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_ten_result_grep.py

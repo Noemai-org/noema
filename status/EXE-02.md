@@ -62,3 +62,18 @@ Updated 2026-10-25. Renamed from `EXE-01.md`: the plan's EXE-01 is the registry 
 ## Pre-work for the next agent
 - Exact next step: if the test fails again on `main`, read the three numbers in the message (statements after the return, at the return, later); a nonzero difference means the client issued a statement after the return.
 - Do not touch: `services/core/execution/ledger/retry.go`.
+
+# Session 2026-11-26 · EXE-02 · A709 (C1, interim, relayed): the Controller fills `step_params`
+
+## Session summary
+- What changed: `execution/controller` gains `StepParamPolicy` (the composition says, per capability, which plan params the outcome definition binds and how each is disclosed: VERBATIM, MASKED or HASHED), `DiscloseParams` and `Receipt.StepParams`; the receipt document carries `step_params` when there are bound params. It is settled after E5 and BEFORE the spend, so a policy that errors, a value the schema would refuse or an unknown handling stops the run with nothing spent, recorded or dispatched (`ErrStepParams`). The schema bounds the member (8 params, 128 characters); `platform/ceilings` holds the numbers beside a test against the schema.
+- Why: A709 (SR's conditions: bound params only; identifiers masked or hashed; `maxProperties` and `maxLength`; conditions of this PR, not follow-ups).
+- Risks: (1) the numbers 8 and 128 are my proposal (A709 names none): [OPEN] for the Founders. (2) A HASHED param cannot be matched by a predicate against a raw value; which bindings are hashed is the outcome definition's to say, and EL's slice 4 reader must hash the compared value the same way (`crypto.HashOf`). (3) The sweeper's receipt (a dispatch with no receipt) carries no `step_params`, so a recovered attempt cannot bind a PLAN_PARAM variable and the Outcome request builder stops with ErrBinding (fail closed). (4) No policy is wired in `cmd/core` yet: no pack definition binds a plan param today, so no receipt on `main` carries the member after this PR either.
+- Tests added: `stepparams_test.go` (REQ-EXE-006, REQ-AUD-006, INV-03, INV-17, EC-E16), `ceilings_test.go`, `tools/contracts/test_receipt_step_params.py`, fixtures.
+- Regression cases added: the red tests at `cf69a7f05`. Debt entries: none. Conflicts raised: none.
+- OPEN entry text for the Steward: OD-A709-1, the bounds of the receipt's `step_params` (8 params, 128 characters), owner Founders; safest default: these; evidence to invalidate: a pack binding more than eight params, or a bound value over 128 characters.
+
+## Pre-work for the next agent
+- Exact next step: the composition (`cmd/core`) implements `StepParamPolicy` over the pack's outcome definitions when one binds a PLAN_PARAM; EL's slice 4 reader reads `step_params` from the receipt.
+- Files to read first: `execution/controller/stepparams.go`, `contracts/README.md` (A709 section).
+- Do not touch: the receipt's signing tag and key handling.

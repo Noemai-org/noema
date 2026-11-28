@@ -51,6 +51,9 @@ jobs:
       - name: test_secrets_local.sh (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
         run: sh deploy/compose/test_secrets_local.sh
+      - name: test_tls_local.sh (runner; the operator CA is not the service CA, A721)
+        if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}
+        run: sh deploy/compose/test_tls_local.sh
       # The grant-key init step (SEC-09, INV-29): real files, real modes, run as the runner's own (non-root) user, which is the user the step is told to write for.
       - name: grant-keys init test (runner)
         if: ${{ !cancelled() && steps.changed.outputs.run == 'true' }}

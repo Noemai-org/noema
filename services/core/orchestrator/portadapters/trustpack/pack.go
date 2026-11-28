@@ -68,6 +68,10 @@ type Pack struct {
 	writeNodes map[string]WriteWhen
 	// graphData is each action graph as data, by graph ID, read at load and returned as a copy by ActionGraphData.
 	graphData map[string]GraphData
+	// nodeHeads is each intent node's action graph ID and slot declarations, and planGraphs each action graph's steps with their params, both read at load and returned as copies
+	// by NodePlans.
+	nodeHeads  map[string]nodeHead
+	planGraphs map[string]planGraph
 	// handoffs is the pack's handoff routes, sorted, read at load and returned as a copy by HandoffRoutes.
 	handoffs []HandoffRoute
 	// ref is `<pack id>@<pack version>` as the pack file carries them (Ref).
@@ -114,7 +118,7 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 	if err != nil {
 		return nil, packErr("the capability registry refuses the pack: %v", err)
 	}
-	p := &Pack{raw: raw, reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}, writeNodes: map[string]WriteWhen{}, graphData: map[string]GraphData{}}
+	p := &Pack{raw: raw, reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}, owned: map[string]nodeOwnership{}, writeNodes: map[string]WriteWhen{}, graphData: map[string]GraphData{}, nodeHeads: map[string]nodeHead{}, planGraphs: map[string]planGraph{}}
 	p.ref = string(doc.PackId) + "@" + string(doc.PackVersion)
 	for _, d := range doc.Capabilities {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
@@ -155,6 +159,7 @@ func (p *Pack) loadNodes(doc contracts.PackV1) error {
 			return packErr("an intent node is repeated")
 		}
 		p.writeNodes[id] = readWriteWhen(n)
+		p.nodeHeads[id] = readNodeHead(n)
 		if n.TrustProfile == nil {
 			p.nodes[id] = nodeAuthority{}
 			continue
@@ -247,6 +252,7 @@ func (p *Pack) loadGraph(id string, g contracts.ActionGraphV2, rooted map[string
 		p.writes[id] = sortedKeys(writes)
 	}
 	p.graphData[id] = readGraphData(g)
+	p.planGraphs[id] = readPlanGraph(g)
 	return nil
 }
 

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/execution/signing"
@@ -33,8 +31,6 @@ const (
 	needRequestRead    = "a read of a confirmation request by its id (the store has Latest only)"
 	needRequestEvents  = "the Record events of the confirmation store (no confirm-request or confirm-event contract)"
 	needConfirmPolicy  = "the pack's confirmation expiry and the capability an intent confirms (the pack gives the approver requirement only)"
-	needGraphReader    = "the pack's action-graph reader (plangraphs.Pack: the pack names no graph of an intent node)"
-	needIntentSlots    = "the stored intent's slot reader (plangraphs.Intents)"
 	needRunnableAdapt  = "an intake.Runnable adapter over the pack's graph conditions"
 	needHandoffAdapter = "an intake.Handoffs adapter over the pack's handoff routes"
 )
@@ -70,12 +66,15 @@ type decisionInputs struct {
 	Begin   trustport.TxBeginner
 	Facts   trustport.RecordFactSource
 	Entropy io.Reader
+	// PlanTextMaxBytes is the bound of every string a slot gives the Planner (plangraphs.Adapter.MaxTextBytes). No ruling or setting names a value: zero is the gap.
+	PlanTextMaxBytes int
 }
 
 // decisionParts is what the lane built. A nil adapter is in Gaps.
 type decisionParts struct {
 	Intents  intake.Intents
 	Recorder intake.Recorder
+	Planner  intake.Planner
 	Gaps     []decisionGap
 }
 
@@ -100,7 +99,12 @@ func buildDecisions(in decisionInputs) (decisionParts, error) {
 	}
 	add("Intents", intentsMissing)
 	add("Confirmations", []string{needRequestRead, needRequestEvents, needConfirmPolicy})
-	add("Planner", []string{needGraphReader, needIntentSlots}) // the plan contexts (planContextsFromRequest) and the registry (Pack.Registry) are built; the graph reader and the slot reader are not
+	planner, plannerMissing, err := decisionPlanner(in, intents)
+	if err != nil {
+		return decisionParts{}, err
+	}
+	p.Planner = planner
+	add("Planner", plannerMissing)
 	add("Recorder", recMissing)
 	add(gapServiceRunnable, []string{needRunnableAdapt})
 	add(gapServiceHandoffs, []string{needHandoffAdapter})
@@ -114,6 +118,9 @@ func (p decisionParts) fill(a TrustAdapters) TrustAdapters {
 	}
 	if p.Recorder != nil {
 		a.Recorder = p.Recorder
+	}
+	if p.Planner != nil {
+		a.Planner = p.Planner
 	}
 	return a
 }
@@ -157,6 +164,22 @@ func decisionIntents(in decisionInputs) (intake.Intents, []string, error) {
 		return nil, nil, fmt.Errorf("cmd/core: the admitted-intent store adapter: %w", err)
 	}
 	return si, nil, nil
+}
+
+// decisionPlanner builds the Planner (compose_planner.go) from the pack, the Intents adapter above and the tenant's Trust login with the same read bound; the text bound has no
+// source, so with PlanTextMaxBytes zero it is the one gap that remains once the rest is present.
+func decisionPlanner(in decisionInputs, intents intake.Intents) (intake.Planner, []string, error) {
+	var docs slotDocuments
+	if !absent(in.Pools) && in.Env.Getenv(EnvTrustDBTimeout) != "" {
+		timeout, err := recorderSettingMS(in.Env, EnvTrustDBTimeout)
+		if err != nil {
+			return nil, nil, err
+		}
+		if docs, err = newPoolDocuments(in.Pools, timeout); err != nil {
+			return nil, nil, fmt.Errorf("cmd/core: the Planner's document reader: %w", err)
+		}
+	}
+	return buildPlanner(plannerInputs{Pack: in.Pack, Intents: intents, Docs: docs, MaxTextBytes: in.PlanTextMaxBytes})
 }
 
 // decisionRecorder builds the Decision Record writer (REQ-TRU-008, REQ-TRU-010) from decisionRecorderConfig. The DeclinedRequestID mapping is noema#892's: nothing here touches it.
@@ -238,8 +261,6 @@ func decisionRecorderConfig(in decisionInputs) (trustport.RecorderConfig, []stri
 // identity (migrations 0012 and 0019).
 const trustRecordIdentity = "core-trust"
 
-var keyOverlapRe = regexp.MustCompile(`^[1-9][0-9]{0,8}$`)
-
 // decisionSigningRing reads the core-trust Record signing keys (A548, interim, relayed, not yet committed) through the shared key loader, execution/signing.LoadRing, as the
 // orchestrator's and the edge's keys are read. Both settings are required together: an absent one is named and gives no ring; a present one that is invalid is fatal. An error names
 // the setting and never the value or the path.
@@ -254,10 +275,11 @@ func decisionSigningRing(env Env) (*signing.Ring, []string, error) {
 	}
 	maxActive := 0
 	if overlap != "" {
-		if !keyOverlapRe.MatchString(overlap) {
-			return nil, nil, fmt.Errorf("cmd/core: %s must be a positive integer", EnvTrustKeyMaxActive)
+		n, err := parseKeyOverlap(EnvTrustKeyMaxActive, overlap)
+		if err != nil {
+			return nil, nil, err
 		}
-		maxActive, _ = strconv.Atoi(overlap) // the pattern above holds it to a positive number that fits
+		maxActive = n
 	}
 	if len(missing) > 0 {
 		return nil, missing, nil
