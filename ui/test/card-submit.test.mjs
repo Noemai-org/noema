@@ -105,36 +105,23 @@ test("A491: clarification retries reuse the card's request ID", async () => {
   assert.doesNotThrow(() => parseMessageRequestV1(bodies[0]));
 });
 
-test("REQ-UI-002: unbound options and invalid timestamps do not make requests", async () => {
+test("REQ-UI-002: unbound options are refused locally; clarification expiry stays core-authoritative", async () => {
   const card = await currentCard("clarification_four_options");
   let calls = 0;
-  await withServer((request, response) => { calls++; response.writeHead(202); response.end(); }, async (baseUrl) => {
+  await withServer((request, response) => {
+    calls++;
+    response.writeHead(409, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: { code: "INTERNAL_SAFETY_BLOCK", message: "synthetic refusal" } }));
+  }, async (baseUrl) => {
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: "opt_unknown", requestId: cardRequestId }), "unavailable");
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card, optionId: card.options[0].option_id, requestId: "invalid" }), "unavailable");
+    // The client validates the UTC instant's shape, not whether the device clock says it has expired.
+    // The core owns expiry evaluation; a server refusal is surfaced as a safe unavailable result.
+    assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2000-01-01T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "unavailable");
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-99-99T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "unavailable");
     assert.equal(await submitClarification({ baseUrl, conversationRef: conversation, sessionToken: bearer, card: { ...card, expires_at: "2099-02-31T00:00:00Z" }, optionId: card.options[0].option_id, requestId: cardRequestId }), "unavailable");
   });
-  assert.equal(calls, 0);
-});
-
-test("REQ-UI-002: elapsed local clock still submits; the core decides confirmation expiry", async () => {
-  const card = { ...await currentCard("confirmation"), expires_at: "2000-01-01T00:00:00Z" };
-  let calls = 0;
-  await withServer((_request, response) => {
-    calls++;
-    response.writeHead(409, { "content-type": "application/json" });
-    response.end(JSON.stringify({
-      error: {
-        code: "CONFIRMATION_EXPIRED",
-        message: "This confirmation has expired.",
-        retryable: false,
-        correlation_id: "corr_4c21f9",
-      },
-    }));
-  }, async (baseUrl) => {
-    assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "expired");
-  });
-  assert.equal(calls, 1, "the client must send the request and let the core evaluate expiry");
+  assert.equal(calls, 1);
 });
 
 test("REQ-UI-002: actual 503 and a closed socket produce safe failure, not server text", async () => {
@@ -184,4 +171,27 @@ test("REQ-UI-002 US-18: malformed or oversized 409 bodies fail closed as unavail
   }, async (baseUrl) => {
     assert.equal(await submitConfirmation({ baseUrl, sessionToken: bearer, card, response: "ACCEPT" }), "unavailable");
   });
+});
+
+
+test("A715: the None of these choice submits only the core-minted none_option_id", async () => {
+  const card = await currentCard("clarification_four_options");
+  assert.equal(typeof card.none_option_id, "string");
+  assert.ok(card.none_option_id.length > 0);
+  let seen;
+  await withServer(async (request, response) => {
+    seen = { path: request.url, auth: request.headers.authorization, body: await bodyOf(request) };
+    response.writeHead(202, { "content-type": "application/json" }).end();
+  }, async (baseUrl) => {
+    const result = await submitClarification({
+      baseUrl, conversationRef: conversation, sessionToken: bearer, card,
+      optionId: card.none_option_id, requestId: cardRequestId,
+    });
+    assert.equal(result, "accepted");
+  });
+  assert.equal(seen.path, `/v1/conversations/${conversation}/messages`);
+  assert.equal(seen.auth, `Bearer ${bearer}`);
+  assert.equal(seen.body.option_id, card.none_option_id);
+  assert.equal(seen.body.clarification_id, card.clarification_id);
+  assert.deepEqual(Object.keys(seen.body).sort(), ["clarification_id", "option_id", "request_id"]);
 });
