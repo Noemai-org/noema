@@ -22,7 +22,7 @@ export function ScorecardInspector({ scorecard: input }: { scorecard: unknown })
     h("h2", null, "Tier 0"),
     h("ul", null, ...scorecard.tier0.gates.map((gate) => h("li", { key: gate.gate },
       gate.gate.toLowerCase().replaceAll("_", " "), ": ", String(gate.count),
-      gate.rate.exact_upper95 === null ? null : `; exact upper bound: ${String(gate.rate.exact_upper95)}`))),
+      gate.rate.exact_upper95 === null ? null : `; upper bound: ${String(gate.rate.exact_upper95)}`))),
     h("h2", null, "Tier 1"),
     h("p", null, "Correct terminal handling: ", scorecard.tier1.correct_terminal_handling.rate === null
       ? "Not available" : String(scorecard.tier1.correct_terminal_handling.rate)),

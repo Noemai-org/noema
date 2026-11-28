@@ -24,6 +24,12 @@ test("REQ-UI-004: benchmark evidence retains the supplied exact bound without pr
   assert.deepEqual(scanScorecardText(html), []);
 });
 
+test("A446: the unmounted view does not claim exact numeric display", async () => {
+  const html = render(await fixture("two_cases_clean"));
+  assert.doesNotMatch(html, /exact upper bound/iu);
+  assert.match(html, /upper bound/iu);
+});
+
 test("REQ-UI-004: all supplied family counts and tier zero gates are shown without invented results", async () => {
   const scorecard = await fixture("two_cases_clean");
   const html = render(scorecard);
