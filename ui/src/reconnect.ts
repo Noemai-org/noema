@@ -1,7 +1,9 @@
 import { parseCommonV1InvestigationId } from "./contract_types/common_v1.js";
 import type { InvestigationResponseV1, SseEventV1 } from "./contract_types/customer.js";
 import { fetchInvestigation, isSecureInvestigationTarget } from "./investigation-client.js";
-import { readEventStream, StreamInterruptedError, StreamProtocolError } from "./sse-reader.js";
+import { pollInvestigation } from "./polling.js";
+import { POLL_MAX_DURATION_MS } from "./transport-limits.js";
+import { readEventStream, StreamFrameTooLargeError, StreamInterruptedError, StreamProtocolError } from "./sse-reader.js";
 
 interface ReconnectInput {
   baseUrl: string;
@@ -26,7 +28,12 @@ async function stream(input: ReconnectInput, onEvent: (event: SseEventV1) => voi
   await readEventStream(response, onEvent, input.maxFrameBytes);
 }
 
-/** One caller-driven recovery: refetch authoritative state before opening a replacement stream. */
+async function pollFallback(input: ReconnectInput): Promise<void> {
+  const result = await pollInvestigation({ ...input, maxPollingMs: POLL_MAX_DURATION_MS, onState: input.onState });
+  if (result) throw new StreamInterruptedError();
+}
+
+/** An oversized frame or failed reconnect falls back to authoritative 2-second polling. */
 export async function reconnectOnce(input: ReconnectInput): Promise<void> {
   let consumerFailed = false;
   let answerReceived = false;
@@ -37,11 +44,23 @@ export async function reconnectOnce(input: ReconnectInput): Promise<void> {
   try {
     await stream(input, onEvent);
   } catch (error) {
-    if (consumerFailed || input.signal?.aborted || error instanceof StreamProtocolError || !(error instanceof TypeError || error instanceof StreamInterruptedError)) throw error;
+    if (consumerFailed || input.signal?.aborted) throw error;
+    if (error instanceof StreamFrameTooLargeError) { await pollFallback(input); return; }
+    if (error instanceof StreamProtocolError || !(error instanceof TypeError || error instanceof StreamInterruptedError)) throw error;
   }
   if (answerReceived) return;
-  const state = await fetchInvestigation(input);
-  input.onState(state);
-  if (state.state === "answered" && state.last_answer !== undefined) return;
-  await stream(input, onEvent);
+  try {
+    const state = await fetchInvestigation(input);
+    input.onState(state);
+    if (state.state === "answered" && state.last_answer !== undefined) return;
+    await stream(input, onEvent);
+  } catch (error) {
+    if (consumerFailed || input.signal?.aborted) throw error;
+    if (error instanceof StreamProtocolError && !(error instanceof StreamFrameTooLargeError)) throw error;
+    if (error instanceof TypeError || error instanceof StreamInterruptedError || error instanceof StreamFrameTooLargeError) {
+      await pollFallback(input);
+      return;
+    }
+    throw error;
+  }
 }

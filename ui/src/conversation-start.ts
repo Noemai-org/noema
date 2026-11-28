@@ -1,7 +1,7 @@
 import { parseConversationResponseV1, parseMessageRequestV1, type InvestigationResponseV1 } from "./contract_types/customer.js";
 import { boundedText, isSecureInvestigationTarget } from "./investigation-client.js";
 import { pollInvestigation } from "./polling.js";
-import { RESPONSE_FRAME_LIMIT_BYTES } from "./transport-limits.js";
+import { POLL_MAX_DURATION_MS, RESPONSE_FRAME_LIMIT_BYTES } from "./transport-limits.js";
 
 type Input = {
   baseUrl: string;
@@ -27,7 +27,7 @@ export async function startConversationAndPoll(input: Input): Promise<"Connectio
     if (input.signal?.aborted) postController.abort();
     else input.signal?.addEventListener("abort", abortFromHost, { once: true });
     let postTimedOut = false;
-    const deadline = setTimeout(() => { postTimedOut = true; postController.abort(); }, input.maxPollingMs);
+    const deadline = setTimeout(() => { postTimedOut = true; postController.abort(); }, Math.min(input.maxPollingMs, POLL_MAX_DURATION_MS));
     let answer: ReturnType<typeof parseConversationResponseV1>;
     try {
       const response = await fetch(url, {

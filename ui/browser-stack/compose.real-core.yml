@@ -1,0 +1,5 @@
+# Test-only overlay: UI proxies /v1 to core over existing edge_net; core remains unpublished.
+services:
+  ui:
+    volumes:
+      - ../../ui/browser-stack/nginx.real-core.conf:/etc/nginx/conf.d/default.conf:ro
