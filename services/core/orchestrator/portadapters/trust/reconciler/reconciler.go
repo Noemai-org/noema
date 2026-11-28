@@ -190,7 +190,8 @@ func (a *Adapter) Reconcile(ctx context.Context, tenantID, snapshotID string) (i
 	if !classifications[sealed] {
 		return none, ErrBadAnswer
 	}
-	if err := a.reclassify(ctx, tenantID, s, sealed); err != nil {
+	waitUntil, err := a.reclassify(ctx, tenantID, s, sealed)
+	if err != nil {
 		return none, err
 	}
 	reason := a.c.Pack.EscalateReason(sealed)
@@ -198,12 +199,12 @@ func (a *Adapter) Reconcile(ctx context.Context, tenantID, snapshotID string) (i
 		return none, ErrBadAnswer
 	}
 	return intake.Reconciliation{Classification: sealed, Frozen: sealed == reconcile.ContradictoryState, AllowedUnderFreeze: append([]string(nil), a.c.Pack.AllowedUnderFreeze()...),
-		EscalateReason: reason}, nil
+		EscalateReason: reason, WaitUntil: waitUntil}, nil
 }
 
 // reclassify classifies the snapshot's items again, at the snapshot's own time, and fails with ErrDrift when the answer is not the sealed classification. The time is the later of the seal time
 // (kept to the millisecond) and the latest read time (kept to the microsecond), so that an item read within the same millisecond as the seal is not "read in the future"; both are the snapshot's.
-func (a *Adapter) reclassify(ctx context.Context, tenantID string, s Sealed, sealed reconcile.Classification) error {
+func (a *Adapter) reclassify(ctx context.Context, tenantID string, s Sealed, sealed reconcile.Classification) (int64, error) {
 	at := s.SealedAt
 	for _, it := range s.Items {
 		if it.ReadAt.After(at) {
@@ -212,19 +213,19 @@ func (a *Adapter) reclassify(ctx context.Context, tenantID string, s Sealed, sea
 	}
 	cl, err := a.c.Classifiers(at)
 	if err != nil {
-		return &opError{kind: ErrConfig, cause: err}
+		return 0, &opError{kind: ErrConfig, cause: err}
 	}
 	if cl == nil {
-		return ErrConfig
+		return 0, ErrConfig
 	}
 	fresh, err := cl.Classify(ctx, tenantID, append([]layer.Item(nil), s.Items...))
 	if err != nil {
-		return &opError{kind: ErrReclassify, cause: err}
+		return 0, &opError{kind: ErrReclassify, cause: err}
 	}
 	if reconcile.Classification(fresh.Classification) != sealed {
-		return ErrDrift
+		return 0, ErrDrift
 	}
-	return nil
+	return fresh.WaitUntil, nil
 }
 
 // verify checks that the snapshot is intact: it holds evidence (INV-17), the items read are exactly its ids (sorted and unique, as the sealer stored them: the items are compared in order with the ids), and the evidence set hash
