@@ -9,19 +9,7 @@ The benchmark runner drives each generated case through the public API and recor
 1. Already merged: BO's BEN-23 manifest PR #962, EL's events-route composition PR #907, and IL's 15-minute per-principal token issuer PR #983. The manifest path is `benchmark/journeys/j1-j8.v1.json`.
 2. Materialise the exact generated suite named by that manifest:
    `python -m benchmark.generator generate --seed 20261020 --out benchmark/out/suite`.
-3. Issue the 19 short-lived synthetic customer tokens from the manifest using the A683 target in #983. Run this after the bench stack is up and immediately before the browser checks; each token expires after 900 seconds (15 minutes). The target reads the manifest itself and writes one mode-0400 file per principal into the private `$(BENCH_OUT)/idp/tokens` directory (default: `benchmark/out/idp/tokens`); do not hand-build the principal list or copy tokens elsewhere.
-
-   ```sh
-   : "${BENCH_TENANT:?set the approved bench tenant}"
-   make bench-journey-tokens \
-     BENCH_TENANT="$BENCH_TENANT" \
-     BENCH_MAX_BODY_BYTES=32768 \
-     BENCH_TOKEN_TTL=900s
-   ```
-
-   `BENCH_TOKEN_TTL` is passed as a Go duration, so `900s` is the required representation of 900 seconds. The issuer keeps token files in the private directory (mode 0700); private signing material remains separate and protected.
-4. Run the manifest's case IDs through the existing `benchmark.runner` on the bench network with the approved API, mock-case, stand-in and proxy credentials. Preserve its output directory; the UI tests consume `correlations.json` and `results/<case_id>.json`. The runner's required fixture loader and evidence sources must be present; a NOT_RUN/ERROR result is not a passing journey.
-5. Start the real-core bench Compose profile with this test-only overlay. Pass `BENCH_COMPOSE` as a Make command-line assignment (not an environment variable; the Makefile's ordinary assignment overrides environment values):
+3. Start the real-core bench Compose profile with the test-only overlay before issuing tokens or running cases. Pass `BENCH_COMPOSE` as a Make command-line assignment (not an environment variable; the Makefile's ordinary assignment overrides environment values):
 
    ```sh
    : "${BENCH_TENANT:?set the approved bench tenant}"
@@ -33,6 +21,18 @@ The benchmark runner drives each generated case through the public API and recor
    ```
 
    The overlay proxies same-origin `/v1/` from the UI container to `core:8080` over the existing `edge_net`; it does not publish core or add a network. SSE buffering is disabled.
+4. Issue the 19 short-lived synthetic customer tokens from the manifest using the A683 target in #983. Run this after the bench stack is up and immediately before the browser checks; each token expires after 900 seconds (15 minutes). The target reads the manifest itself and writes one mode-0400 file per principal into the private `$(BENCH_OUT)/idp/tokens` directory (default: `benchmark/out/idp/tokens`); do not hand-build the principal list or copy tokens elsewhere.
+
+   ```sh
+   : "${BENCH_TENANT:?set the approved bench tenant}"
+   make bench-journey-tokens \
+     BENCH_TENANT="$BENCH_TENANT" \
+     BENCH_MAX_BODY_BYTES=32768 \
+     BENCH_TOKEN_TTL=900s
+   ```
+
+   `BENCH_TOKEN_TTL` is passed as a Go duration, so `900s` is the required representation of 900 seconds. The issuer keeps token files in the private directory (mode 0700); private signing material remains separate and protected.
+5. Run the manifest's case IDs through the existing `benchmark.runner` on the bench network with the approved API, mock-case, stand-in and proxy credentials. Preserve its output directory; the UI tests consume `correlations.json` and `results/<case_id>.json`. The runner's required fixture loader and evidence sources must be present; a NOT_RUN/ERROR result is not a passing journey.
 
 ## A715-approved UI safeguards
 
@@ -60,6 +60,6 @@ Optional `NOEMA_UI_E2E_MANIFEST` overrides the committed BEN-23 manifest path. T
 
 ## Known backend/runner gates
 
-After #979 merged on 27 Nov, the runner supports `session_resume:same_channel` as well as `session_start`, `clock_advance`, `confirm` and `kill_switch`; J8 now has a runner driver. #979 also adds a `WebhookSender` port for `settlement_updated` and `reversal_posted`, but the environment still needs to supply a concrete sender. #1029 (open) implements the runner sender through mock-case's bench control routes; #1024 (open) configures the bench-only relay and its shared SYNTHETIC signing secret. J5 and J6 remain explicit errors until both are integrated, the bench relay is actually configured, and the caller supplies the required SYNTHETIC payload file. No Tushe payload schema is assumed. J3–J6 also depend on production write/Record paths; #907 still names write ports as gaps, so verify those paths at the current main head before interpreting the journeys as acceptance. J6 is intentionally thin (one case) until after G1. These tests do not fake any of those capabilities.
+The runner supports `session_resume:same_channel` as well as `session_start`, `clock_advance`, `confirm` and `kill_switch`; J8 has a runner driver. #1029 and #1024 are merged: the runner has a sender through mock-case's bench control route, and the bench profile supplies the relay and shared SYNTHETIC signing secret. For J5 and J6 the caller must configure the relay and supply a SYNTHETIC `--webhook-payloads` file and bench credential as documented in `benchmark/runner/README.md`; an absent sender, missing kind or refused delivery is an error, not a pass. No Tushe payload schema is assumed. J3–J6 also depend on production write/Record paths; verify those paths at the current main head before interpreting the journeys as acceptance. J6 is intentionally thin (one case) until after G1. These tests do not fake any of those capabilities.
 
 This suite is customer-surface evidence, not a substitute for the benchmark's Record/oracle assertions or G1 evidence. No Android/WebView acceptance is claimed.
