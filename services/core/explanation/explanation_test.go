@@ -54,7 +54,7 @@ func packMaskingLimits(t *testing.T) masking.Limits {
 // REQ-EXP-002: a fallback exists for every outcome and classification the pack can produce, and each one passes the validator by itself.
 func TestEveryPackTemplateRendersAndPassesTheValidator(t *testing.T) {
 	tpl := load(t)
-	keys := tpl.Keys("en-NG")
+	keys := summaryKeys(tpl)
 	if len(keys) == 0 {
 		t.Fatal("no en-NG template loaded")
 	}

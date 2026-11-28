@@ -586,6 +586,35 @@ def check_disambiguation(pack: dict) -> list[Problem]:
     return out
 
 
+def slot_question_keys(pack: dict) -> list[tuple[str, str, str]]:
+    """A757 (AMB-04): every (node_id, slot name, question_key) the pack's slots declare, in the pack's order. The keys are pack data, never listed in code (INV-14)."""
+    return [(n["node_id"], s["name"], s["question_key"]) for n in pack["intent_nodes"] for s in n.get("slots", []) if "question_key" in s]
+
+
+def check_slot_questions(pack: dict) -> list[Problem]:
+    """A757 (interim; AMB-04; A563, A582): a slot's `question_key` names the template of the SLOT-mode question that asks the customer for its value. The key's shape is the schema's.
+    Here: a slot resolved by a candidate search is never asked (its value is chosen among candidates, in OPTIONS or ATTRIBUTE mode), and a key is used once across the slots, the OPTIONS
+    key and the attribute questions, so one template never means two questions. Whether every locale has a text for it is checked with the templates."""
+    out: list[Problem] = []
+    taken: dict[str, list[str]] = {}
+    for node in pack["intent_nodes"]:
+        d = node.get("disambiguation") or {}
+        for key in [d["options_key"]] if "options_key" in d else []:
+            taken.setdefault(key, []).append(f"{node['node_id']}: options_key")
+        for a in d.get("attribute_order", []):
+            taken.setdefault(a["question_key"], []).append(f"{node['node_id']}: attribute {a['name']}")
+        for s in node.get("slots", []):
+            if "question_key" not in s:
+                continue
+            at = f"{node['node_id']}: slot {s['name']}"
+            if s.get("resolution") == "candidate_search":
+                out.append(("slot_questions", f"{at}: a candidate_search slot is never asked for by a SLOT question, so it carries no question_key"))
+            taken.setdefault(s["question_key"], []).append(at)
+    for key in sorted(k for k, users in taken.items() if len(users) > 1):
+        out.append(("slot_questions", f"the question key {key!r} is used twice ({'; '.join(taken[key])})"))
+    return out
+
+
 def check_understanding(pack: dict, pack_dir: Path, conformance: bool = False) -> list[Problem]:
     """REQ-AMB-003: a pack that ranks candidates carries its ranking data (missing weights fail pack validation at load), the weights sum to
     exactly 1, the floor and the tolerance lie in [0, 1], each ranking node names a matcher file that exists inside the pack's folder, and no
@@ -676,6 +705,7 @@ def check_templates(pack: dict, pack_dir: Path) -> list[Problem]:
     out: list[Problem] = []
     folder = pack_dir / pack_slug(pack) / "templates"
     required = set(required_template_keys(pack, pack_dir))
+    asked = {k for _, _, k in slot_question_keys(pack)}  # A757: the text of a SLOT question, in every locale, beside the fallback summaries; a key with no slash is a question, not a summary
     for loc in template_locales(pack):
         path = folder / f"{loc}.json"
         if not path.is_file():
@@ -689,9 +719,9 @@ def check_templates(pack: dict, pack_dir: Path) -> list[Problem]:
         if not isinstance(doc, dict):
             out.append(("templates", f"{loc}: {path.name} must be an object keyed <outcome_id>/<classification>"))
             continue
-        for key in sorted(required - doc.keys()):
+        for key in sorted((required | asked) - doc.keys()):
             out.append(("templates", f"{loc}: no template for {key}"))
-        allowed = required | {f"{k}/{p}" for k in required for p in TEMPLATE_PARTS}
+        allowed = required | asked | {f"{k}/{p}" for k in required for p in TEMPLATE_PARTS}
         for key in sorted(doc.keys() - allowed):
             out.append(("templates", f"{loc}: template key {key} is not an outcome/classification (or one of its parts) of this pack"))
         for key in sorted(k for k in doc.keys() & allowed if not isinstance(doc[k], str) or not doc[k].strip()):
@@ -1122,7 +1152,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     if problems:  # the other checks assume a well-formed pack
         return problems
     problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_compensation(pack) + check_tenant_zone(pack) + check_graph_link(pack, graphs) + check_predicates(pack, graphs) + check_write_when(pack) + check_write_when_link(pack, graphs) + check_subject_slot(pack)
-    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
+    problems += check_graphs(pack, graphs) + check_graph_params(pack, graphs, pack_path.parent) + check_graph_permits(pack, graphs) + check_routing(pack) + check_disambiguation(pack) + check_slot_questions(pack) + check_approver_roles(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     # A544: the pack's trust-limits document sits in the pack's own folder (`fintech_v1.json` is of `fintech/`); a pack with none (a conformance pack) has no routing to check.

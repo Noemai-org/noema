@@ -42,7 +42,7 @@ func TestEveryPackTemplatePassesItsOwnForbiddenList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range tpl.Keys("en-NG") {
+	for _, key := range summaryKeys(tpl) {
 		outcome, class, _ := strings.Cut(key, "/")
 		f := facts(outcome, class)
 		r, err := explanation.Fallback(tpl, f)

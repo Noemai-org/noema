@@ -70,6 +70,7 @@ class IntentNodeV1SlotsItem(ContractModel):
     resolution: IntentNodeV1SlotsItemResolution | None = Field(default=None)
     vocabulary: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]], Field(min_length=1)] | None = Field(default=None)
     references: IntentNodeV1SlotsItemReferences | None = Field(default=None)
+    question_key: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')] | None = Field(default=None)
 
 
 class IntentNodeV1(ContractModel):

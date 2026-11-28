@@ -35,8 +35,17 @@ UNCERTAIN = {"CONTRADICTORY_STATE", "POSSIBLE_DUPLICATE", "EXECUTION_OUTCOME_UNK
 UNCERTAINTY_MARKERS = ("not yet confirmed", "cannot confirm", "not been confirmed", "could not confirm")
 
 
-def templates() -> dict[str, str]:
+def texts() -> dict[str, str]:
     return json.loads(FILE.read_text())
+
+
+def templates() -> dict[str, str]:
+    """The fallback summaries: keyed <outcome_id>/<classification>. A key with no slash is a SLOT question (A757), not a summary; `questions()` holds those."""
+    return {k: v for k, v in texts().items() if "/" in k}
+
+
+def questions() -> dict[str, str]:
+    return {k: v for k, v in texts().items() if "/" not in k}
 
 
 class EnNgTemplates(unittest.TestCase):
@@ -44,6 +53,8 @@ class EnNgTemplates(unittest.TestCase):
         want = set(checks.required_template_keys(PACK, ROOT / "packs"))
         self.assertTrue(want)
         self.assertEqual(want, set(templates()))
+        # A757: the only other keys are the SLOT questions the pack's slots name (a key with no slash), no more and no fewer.
+        self.assertEqual({k for _, _, k in checks.slot_question_keys(PACK)}, set(questions()))
 
     def test_packcheck_reports_no_en_ng_problem_in_the_real_pack(self) -> None:
         problems = [m for _, m in checks.check_templates(PACK, ROOT / "packs") if m.startswith("en-NG:")]
@@ -77,7 +88,7 @@ class EnNgTemplates(unittest.TestCase):
                 self.assertIn(kind, APPROVED_KINDS, f"{key}: {kind} is not an approved fact kind")
 
     def test_a_template_filled_with_masked_facts_passes_the_forbidden_list_and_the_digit_guard(self) -> None:
-        for key, text in templates().items():
+        for key, text in texts().items():
             filled = SLOT.sub(lambda m: SAMPLE[m.group(1)], text)
             self.assertNotIn("{", filled, key)
             self.assertIsNone(re.search(r"\d{5,}", filled), f"{key}: a digit run over four in the filled text")
@@ -86,7 +97,7 @@ class EnNgTemplates(unittest.TestCase):
                 self.assertIsNone(re.search(pattern, filled, re.IGNORECASE), f"{key}: the filled text matches the forbidden claim {pattern}")
 
     def test_no_forbidden_claim_appears_in_any_template(self) -> None:
-        for key, text in templates().items():
+        for key, text in texts().items():
             for pattern in FORBIDDEN:
                 self.assertIsNone(re.search(pattern, text, re.IGNORECASE), f"{key}: matches the forbidden claim {pattern}")
 
@@ -109,7 +120,7 @@ class EnNgTemplates(unittest.TestCase):
                 self.assertIn("confirmed", text.lower())
 
     def test_text_is_plain_english_for_a_customer_and_carries_no_internal_code(self) -> None:
-        for key, text in templates().items():
+        for key, text in texts().items():
             self.assertNotRegex(text, r"[A-Z]{2,}_[A-Z_]+", f"{key}: an internal code in customer text")
             self.assertNotIn("fin.", text)
             self.assertEqual(text, text.strip())
