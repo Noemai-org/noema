@@ -99,7 +99,7 @@ func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verif
 		return verifier.Request{}, fmt.Errorf("request: make the verification id: %w", err)
 	}
 	r := f.Receipt
-	return Build(Inputs{
+	in := Inputs{
 		VerificationID: id,
 		Receipt: Receipt{ReceiptID: r.ReceiptID, TenantID: r.TenantID, GrantID: r.GrantID, PrincipalID: r.PrincipalID, IdempotencyKey: r.IdempotencyKey, State: r.State,
 			RawStatus: r.RawStatus, ExternalAck: r.ExternalAck, Document: r.Document, SigKeyID: r.SigKeyID, SigValue: r.SigValue},
@@ -112,5 +112,22 @@ func (s GrantRequests) For(ctx context.Context, tenantID, grantID string) (verif
 		Outcome:          out.Definition,
 		SubjectVariable:  out.SubjectVariable,
 		Bindings:         out.Bindings,
-	})
+	}
+	if NeedsEpoch(out.Bindings) {
+		// A740, A776: the pack's outcome binds the subject's epoch. The case list is read only for a grant that Build would accept, as the principal the grant was issued to in the grant's tenant (INV-12),
+		// through the port the Interpreter uses; a port that is not wired, that fails or that names no epoch refuses the request (INV-19).
+		if s.Epochs == nil {
+			return verifier.Request{}, ErrIncomplete
+		}
+		subject, err := SubjectOf(in)
+		if err != nil {
+			return verifier.Request{}, err
+		}
+		epoch, err := s.Epochs.EpochOf(ctx, tenantID, r.PrincipalID, subject)
+		if err != nil {
+			return verifier.Request{}, fmt.Errorf("request: read the subject's epoch: %w", err)
+		}
+		in.Epoch = &epoch
+	}
+	return Build(in)
 }

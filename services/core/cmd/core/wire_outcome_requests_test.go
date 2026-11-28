@@ -105,3 +105,28 @@ func TestTheRouterReadsForTheSessionsTenantOnly(t *testing.T) { // INV-12
 		t.Errorf("a refused call read: %v", calls)
 	}
 }
+
+type epochsStub struct{}
+
+func (epochsStub) EpochOf(context.Context, string, string, string) (int, error) { return 2, nil }
+
+// A740, A776: the NextEpoch port is an optional seam, and every tenant's request source gets the same one; none is not a gap here (a pack with no EPOCH binding needs none; one that has an EPOCH
+// binding and no port is refused at the request, never guessed).
+func TestTheEpochPortReachesEveryTenantsRequestSourceAndItsAbsenceIsNotAGapOfTheBuild(t *testing.T) {
+	calls := []string{}
+	readers := map[string]request.Reader{"ten_aa": readsTo{"a", &calls}, "ten_bb": readsTo{"b", &calls}}
+	s := reqSeams()
+	if o := newOutcomeRequests(readers, s); o == nil || o.byTenant["ten_aa"].Epochs != nil {
+		t.Fatalf("without a port: %v", o)
+	}
+	s.Epochs = epochsStub{}
+	o := newOutcomeRequests(readers, s)
+	if o == nil {
+		t.Fatal("a complete set with a port built nothing")
+	}
+	for tenant, src := range o.byTenant {
+		if src.Epochs != (epochsStub{}) {
+			t.Errorf("tenant %s: the port did not reach its request source", tenant)
+		}
+	}
+}
