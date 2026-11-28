@@ -24,7 +24,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
@@ -68,7 +67,7 @@ func refuse(kind, cause error) error { return &opError{kind: kind, cause: cause}
 // ScopedReader is the principal-scoped enterprise read (REQ-CTX-006), in its contract's own types. It is the same shape as the Candidates adapter's reader; the composition connects
 // both to one read port. This package never reaches an enterprise system.
 type ScopedReader interface {
-	Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV1, error)
+	Read(ctx context.Context, req contracts.CandidatesRequestV1) (contracts.CandidatesResponseV2, error)
 }
 
 // Node is the pack's data for one intent node whose capability needs `principal_must_own`: the `<vertical>.<kind>` of the resource that is owned.
@@ -193,7 +192,7 @@ func isReference(ref, kind string) bool {
 // answerOK holds the answer to the contract and to the request before any of it is used: for this tenant and this correlation, within the contract's most, and each row of the contract's
 // shape and of the request's resource kind, none twice. One row that fails refuses the whole answer. The reader has scoped its rows to the principal; the response has no member that
 // could prove it again, so the request is where the scope is held (REQ-CTX-006).
-func answerOK(r contracts.CandidatesResponseV1, req contracts.CandidatesRequestV1) bool {
+func answerOK(r contracts.CandidatesResponseV2, req contracts.CandidatesRequestV1) bool {
 	if !versionShape.MatchString(string(r.SchemaVersion)) || r.TenantId != req.TenantId || r.CorrelationId != req.CorrelationId || len(r.Candidates) > maxRows {
 		return false
 	}
@@ -208,13 +207,15 @@ func answerOK(r contracts.CandidatesResponseV1, req contracts.CandidatesRequestV
 	return true
 }
 
-func rowOK(c contracts.CandidatesResponseV1Candidate, kind string) bool {
+// counterpartyRef is the counterparty reference of candidates-response.v2: `cp_` and an ordinal, never a name (A676).
+var counterpartyRef = regexp.MustCompile(`\Acp_[1-9][0-9]{0,2}\z`)
+
+func rowOK(c contracts.CandidatesResponseV2Candidate, kind string) bool {
 	var cur contracts.MoneyV1CurrencyCode
-	var dir contracts.CandidatesResponseV1CandidateDirection
-	runes := utf8.RuneCountInString(c.CounterpartyDisplay)
+	var dir contracts.CandidatesResponseV2CandidateDirection
 	return candIDShape.MatchString(c.CandidateId) && isReference(string(c.ResourceRef), kind) && c.AmountMinor >= 0 && c.AmountMinor <= maxMinor &&
 		json.Unmarshal([]byte(strconv.Quote(string(c.Currency))), &cur) == nil && instantShape.MatchString(string(c.OccurredAt)) &&
-		runes >= 1 && runes <= maxDisplayRunes && !strings.Contains(c.CounterpartyDisplay, "\n") && digitRun(c.CounterpartyDisplay) <= maxDigitRun &&
+		counterpartyRef.MatchString(c.CounterpartyRef) && c.RecipientMatch.Denominator >= 1 && c.RecipientMatch.Numerator >= 0 && c.RecipientMatch.Numerator <= c.RecipientMatch.Denominator &&
 		last4Shape.MatchString(c.AccountLast4) && json.Unmarshal([]byte(strconv.Quote(string(c.Direction))), &dir) == nil
 }
 
