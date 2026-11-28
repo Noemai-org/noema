@@ -1,7 +1,7 @@
 # Status · OPS-56 · re-point the vendored copies to docs 1049dbc (main red on docs-drift)
 
 ## State
-- Done in this pull request: the five vendored copies re-pointed to docs commit `1049dbc` (docs#252: A753 to A770, one stacking rule in AGENTS §11) with `tools/vendor/repoint_docs.py`.
+- Done in this pull request: the five vendored copies re-pointed to docs commit `1049dbc` (docs#252: A753 to A769 and SR-APP, one stacking rule in AGENTS §11) with `tools/vendor/repoint_docs.py`.
 
 ## Messages
 None.
