@@ -161,6 +161,41 @@ func TestAnOverrideAttemptIsAppendedAsASecurityEventWithFieldNamesOnly(t *testin
 	}
 }
 
+// INP-01 slice 4: a resume is INVESTIGATION_RESUMED, written by the orchestrator's emitter for the login's tenant, naming the prior's intent id and version and nothing else.
+func TestAResumeIsAppendedAsInvestigationResumedWithThePriorsIdAndVersionOnly(t *testing.T) {
+	w := newDBWorld(t)
+	if err := w.recorder(tenantA).Resumed(ctx(t), subject(tenantA), "int_01J9X3", 2); err != nil {
+		t.Fatal(err)
+	}
+	evs := w.events()
+	if len(evs) != 1 {
+		t.Fatalf("%d events, want 1", len(evs))
+	}
+	e := evs[0]
+	if e.EventType != "INVESTIGATION_RESUMED" || e.WrittenBy != "core-workflows" || e.Actor != actor || e.Corr != corr || e.Body["tenant_id"] != tenantA || e.ObjectRef != "int_01J9X3" {
+		t.Errorf("event %+v", e)
+	}
+	if want := map[string]any{"prior_intent_id": "int_01J9X3", "prior_version": float64(2)}; !reflect.DeepEqual(e.Payload, want) {
+		t.Errorf("payload %v, want only the prior's id and version %v", e.Payload, want)
+	}
+}
+
+func TestAResumeNamingNoIntentOrAVersionBelowOneIsRefusedAndNothingStands(t *testing.T) {
+	w := newDBWorld(t)
+	r := w.recorder(tenantA)
+	for _, bad := range []struct {
+		id string
+		v  int
+	}{{"", 1}, {"not_an_intent", 1}, {"int_01J9X3", 0}, {"int_01J9X3", -1}} {
+		if err := r.Resumed(ctx(t), subject(tenantA), bad.id, bad.v); err == nil {
+			t.Errorf("%+v was recorded", bad)
+		}
+	}
+	if n := len(w.events()); n != 0 {
+		t.Errorf("%d events stand", n)
+	}
+}
+
 // EC-E16: when the Record refuses the append the recorder reports it and nothing stands.
 func TestAnAppendTheRecordRefusesStoresNothing(t *testing.T) {
 	w := newDBWorld(t)

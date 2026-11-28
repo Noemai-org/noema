@@ -114,4 +114,10 @@ func (r *RecordRecorder) append(ctx context.Context, ev chain.Event) error {
 	return nil
 }
 
+// Resumed is not built yet (the red commit's stub).
+func (r *RecordRecorder) Resumed(ctx context.Context, s Subject, priorIntentID string, priorVersion int) error {
+	return nil
+}
+
 var _ Recorder = (*RecordRecorder)(nil)
+var _ Resumes = (*RecordRecorder)(nil)
