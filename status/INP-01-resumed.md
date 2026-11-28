@@ -10,5 +10,8 @@ Updated 2026-11-28. All data is SYNTHETIC. PR noema#1076.
 ## Not done
 | Item | Owner |
 |---|---|
-| passing the `RecordRecorder` as `Config.Resumed` in `cmd/core` | EL |
+| passing the `RecordRecorder` as `Config.Resumed` in `cmd/core` (and as the resolver's `Denials`) | EL |
 | slice 6: the `States` and `Denials` over the Record, the edge call, PUS-08 end to end, US-11 and the concurrent follow-up on real Postgres | C2 with EL's read |
+
+## Added later the same day (slice 6b): the denial event
+`RecordRecorder.Denied(ctx, tenantID, actor, correlationID)` appends `SECURITY_EVENT` of kind `CROSS_SCOPE_ATTEMPT` for a follow-up that named another principal's investigation (`understanding/resume.Denials`, #1075): the session's tenant and the asking actor, the chain asked for as the subject, and the payload `{"scope":"PRINCIPAL"}` only (no principal or reference of the other customer, AGENT-13). A missing tenant, actor or chain is refused and nothing is appended. Red `241f4910a` (stub and two database tests, CI only); green after it.
