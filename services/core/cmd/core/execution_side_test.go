@@ -41,10 +41,15 @@ func (sideStub) Progress(context.Context, orchestrator.Session, string, string) 
 	return orchestrator.Progress{}, nil
 }
 
+// sideParams is a policy that binds nothing: the seam is given, the receipts carry no step_params.
+type sideParams struct{}
+
+func (sideParams) Bound(string) (map[string]controller.ParamHandling, error) { return nil, nil }
+
 func sideSeams() executionSeams {
 	clk := clock.NewManual(time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC))
 	st := sideStub{}
-	return executionSeams{Clock: clk, IDs: ids.New(clk, nil), Keys: st, Dispatcher: st, Revalidator: st, Intents: st, Plans: st, Verifier: st, Bindings: st}
+	return executionSeams{Clock: clk, IDs: ids.New(clk, nil), Keys: st, Dispatcher: st, Revalidator: st, Intents: st, Plans: st, StepParams: sideParams{}, Verifier: st, Bindings: st}
 }
 
 func sideEnv(d execDirs, extra envMap) Env {
@@ -115,6 +120,7 @@ func TestAMissingPartBuildsNoExecutorAndIsOneFixedGapLine(t *testing.T) { // a C
 		"revalidator":         {func(s *executionSeams) { s.Revalidator = nil }, nil, "execution: revalidator missing"},
 		"intent source":       {func(s *executionSeams) { s.Intents = nil }, nil, "execution: intent source missing"},
 		"plan source":         {func(s *executionSeams) { s.Plans = nil }, nil, "execution: plan source missing"},
+		"step param policy":   {func(s *executionSeams) { s.StepParams = nil }, nil, "execution: step param policy missing"},
 		"rollback timeout":    {func(*executionSeams) {}, envMap{EnvExecutionRollbackTimeout: ""}, "execution: " + EnvExecutionRollbackTimeout + " missing"},
 		"execute timeout":     {func(*executionSeams) {}, envMap{EnvExecutionExecuteTimeout: ""}, "execution: " + EnvExecutionExecuteTimeout + " missing"},
 		"serialization tries": {func(*executionSeams) {}, envMap{ledger.EnvSerializationAttempts: ""}, "execution: " + ledger.EnvSerializationAttempts + " missing"},
