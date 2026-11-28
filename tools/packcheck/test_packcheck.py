@@ -753,6 +753,29 @@ class OutcomeBindings(unittest.TestCase):
         self.assertEqual(b["variables"], {"subject_resource": "SUBJECT", "logical_resolution_epoch": "EPOCH"})
         self.assertEqual(self.hits(base), [])
 
+    def test_epoch_binds_only_an_integer_variable(self):
+        """SR on #1026 (A740): EPOCH is the subject's current logical resolution epoch, a whole number: a variable of another type is refused."""
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        b["variables"]["subject_resource"] = "SUBJECT"
+        b["variables"]["planned_queue"] = "EPOCH"
+        base["outcome_definitions"] = [dict(o, success_predicate=o["success_predicate"] + " and planned_queue == planned_queue") if o["outcome_id"] == b["outcome_id"] else o for o in base["outcome_definitions"]]
+        self.assertTrue(any("EPOCH" in m and "Integer" in m for m in self.hits(base)), self.hits(base))
+
+    def test_epoch_needs_a_subject_in_the_same_binding(self):
+        base, _ = real()
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        del b["variables"]["subject_resource"]
+        self.assertTrue(any("EPOCH" in m and "SUBJECT" in m for m in self.hits(base)), self.hits(base))
+
+    def test_a_binding_has_at_most_one_epoch(self):
+        base, _ = real()
+        base["predicate_variables"]["second_epoch"] = {"type": "Integer"}
+        b = next(x for x in base["outcome_bindings"] if x["capability_id"] == "fin.cap.log_complaint_reference")
+        b["variables"]["second_epoch"] = "EPOCH"
+        base["outcome_definitions"] = [dict(o, success_predicate=o["success_predicate"] + " and second_epoch == second_epoch") if o["outcome_id"] == b["outcome_id"] else o for o in base["outcome_definitions"]]
+        self.assertTrue(any("EPOCH" in m and "once" in m for m in self.hits(base)), self.hits(base))
+
     def test_a_binding_names_the_capabilitys_own_outcome_and_retry_safety(self):
         base, _ = real()
         caps = {c["capability_id"]: c for c in base["capabilities"]}
